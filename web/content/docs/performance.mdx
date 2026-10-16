@@ -1,0 +1,77 @@
+---
+title: Performance
+description: Benchmarks of GroomLab against XGen Interactive Grooming at 100k and 500k strands, with the measurement method, caveats and how to rerun them.
+---
+
+GroomLab and Maya's XGen Interactive Grooming (Interactive Groom Splines) were timed on the same
+scalp and machine, at 100,000 and 500,000 strands. The benchmark harness is in the GroomLab source
+(`tools/bench/xgen_compare`), so you can rerun it on your own hardware.
+
+<BenchmarkSetup />
+
+## Summary
+
+- **Creation and file size.** A new groom is evaluated in under a second, against about twelve
+  seconds for XGen. A saved scene stores GroomLab's guides and graph, not its strands: a few MB at
+  any strand count.
+- **Animation and exports.** With [Follow Scalp](/docs/motion-and-simulation#follow-the-scalp) the
+  groom is evaluated once on the rest pose and transformed by the scalp, so per-frame evaluation of
+  an animated scalp, Alembic export and motion-blurred Arnold export take a fraction of XGen's
+  time.
+- **Interactive edits.** A parameter change redraws faster than XGen's at both strand counts, and
+  the evaluation alone takes about half of XGen's time. While a slider or brush is dragged, the
+  preview is evaluated on the GPU: about 12 ms to the redrawn frame at 500,000 strands, against
+  132 ms for an XGen tweak; on release, the result is computed on the CPU.
+
+## 500,000 strands
+
+<BenchmarkTable count="500k" />
+
+## 100,000 strands
+
+<BenchmarkTable count="100k" />
+
+**Follow Scalp** is GroomLab with Follow Scalp on, for the measurements with an animated scalp.
+**No Curl** is the benchmark groom without its Curl node, so it runs the same operators as XGen
+here (clump and noise), for the closest comparison. **GPU preview** is GroomLab while a slider or
+brush is being dragged: the preview is evaluated on the GPU, and the CPU result on release
+differs from it in under 0.1% of pixels. Measured with Viewport 2.0 on OpenGL, as for XGen.
+
+## How it was measured
+
+- Every measurement runs in a fresh Maya: `mayapy` for batch work (creation, tweaks, exports,
+  per-frame evaluation without drawing), the Maya GUI for the viewport (the window pinned to
+  1600 x 1000, the perspective view alone, smooth shaded, default lighting).
+- **Creation** is from nothing to a fully evaluated groom (XGen's `xgmCreateSplineDescription`
+  with its clump and noise modifiers; GroomLab's `create_groom`, guides from curves and its
+  graph). In the GUI, to the first drawn frame.
+- **Tweaks** change the clump strength or noise amplitude, then force an evaluation (batch) or a
+  redraw (GUI).
+- **Animated scalp**: a bend deformer keyed over 100 frames; per-frame evaluation, playback and
+  exports over its frames.
+- **Arnold**: `.ass` export time, static and with 2-key motion blur.
+- **Memory**: the process's working set after creation; GPU memory is the whole device's change
+  (`nvidia-smi`).
+
+## Caveats
+
+- The two systems do different work. XGen evaluates each spline through its modifiers; GroomLab
+  scatters strands, interpolates them from about 500 guides and runs its graph. Clump and noise
+  algorithms and units differ, and GroomLab's clumps are tighter at the same strength.
+- XGen 2022 has no per-strand curl, so the matched comparison is **No Curl**.
+- XGen's brushes take only mouse events (they cannot be scripted), so brush timings are
+  GroomLab's alone.
+- XGen uses OpenCL in the GUI; GroomLab evaluates on the CPU, multithreaded across all cores
+  (except the GPU preview during drags).
+
+## Run it yourself
+
+With a GroomLab build and Maya 2022 (and MtoA for the render part):
+
+```bash
+"C:/Program Files/Autodesk/Maya2022/bin/mayapy.exe" tools/bench/xgen_compare/run_bench.py --runs 5
+```
+
+`--counts`, `--parts batch,render,gui` and `--systems` pick what runs; the results go to
+`tools/bench/xgen_compare/results/` as JSON and a Markdown table. A full run takes two to three
+hours. The harness README documents every option.

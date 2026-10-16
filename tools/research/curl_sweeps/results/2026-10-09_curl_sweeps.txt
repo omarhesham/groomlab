@@ -1,0 +1,54 @@
+﻿curly preset on the head (size 17.5): curl radius 0.393, frequency 0.458 turns/unit, width 0.0070; preview density 0.10
+dense (256 segments): 12744 strands, evaluated in 457 ms
+segments  16 (       ): 4.5 points per turn (median); dense curve's farthest from it: curl mean 0.1021 p99 0.1855 max 0.2433; final mean 0.1029 p99 0.1887 max 0.2433 (units; strand width 0.0070)
+segments  40 (shipped): 11.1 points per turn (median); dense curve's farthest from it: curl mean 0.0402 p99 0.0822 max 0.1032; final mean 0.0402 p99 0.0822 max 0.1032 (units; strand width 0.0070)
+segments  64 (       ): 17.8 points per turn (median); dense curve's farthest from it: curl mean 0.0320 p99 0.0645 max 0.0804; final mean 0.0320 p99 0.0645 max 0.0804 (units; strand width 0.0070)
+segments 128 (       ): 35.7 points per turn (median); dense curve's farthest from it: curl mean 0.0170 p99 0.0298 max 0.0497; final mean 0.0170 p99 0.0298 max 0.0497 (units; strand width 0.0070)
+
+sweep: 12744 strands in 1497 clumps (8.5 a clump); a member's curl offset differs from its clump's by at most 8.94e-07
+  (bases folding back, left out: 136 of 2000)
+
+sweep case curly (preset): radius 0.3927, 3.5 turns a strand (median), 2000 strands
+  polyline  4 pts/turn: max error mean 1.20e-01 p99 1.70e-01 (24.37 widths) max 2.06e-01, chord formula r(1-cos(pi/m)) 1.15e-01; 182 B a strand
+  polyline  6 pts/turn: max error mean 5.84e-02 p99 8.37e-02 (11.99 widths) max 1.46e-01, chord formula r(1-cos(pi/m)) 5.26e-02; 266 B a strand
+  polyline  8 pts/turn: max error mean 3.49e-02 p99 5.55e-02 (7.95 widths) max 1.03e-01, chord formula r(1-cos(pi/m)) 2.99e-02; 351 B a strand
+  polyline 11 pts/turn: max error mean 1.91e-02 p99 3.30e-02 (4.73 widths) max 6.77e-02, chord formula r(1-cos(pi/m)) 1.59e-02; 478 B a strand
+  polyline 16 pts/turn: max error mean 1.14e-02 p99 1.94e-02 (2.78 widths) max 3.72e-02, chord formula r(1-cos(pi/m)) 7.55e-03; 690 B a strand
+  polyline 24 pts/turn: max error mean 7.50e-03 p99 1.49e-02 (2.13 widths) max 1.88e-02, chord formula r(1-cos(pi/m)) 3.36e-03; 1029 B a strand
+  polyline 32 pts/turn: max error mean 5.13e-03 p99 9.30e-03 (1.33 widths) max 1.37e-02, chord formula r(1-cos(pi/m)) 1.89e-03; 1368 B a strand
+  polyline 48 pts/turn: max error mean 3.45e-03 p99 6.86e-03 (0.98 widths) max 8.40e-03, chord formula r(1-cos(pi/m)) 8.41e-04; 2046 B a strand
+  polyline 64 pts/turn: max error mean 2.58e-03 p99 5.46e-03 (0.78 widths) max 6.22e-03, chord formula r(1-cos(pi/m)) 4.73e-04; 2724 B a strand
+  eps 0.10 widths: polyline cut to eps 259 pts = 3105 B; chord formula 53 pts/turn = 188 pts; the sweep made with that many: error p99 6.01e-03 (0.86 widths) max 6.56e-03 mean 3.01e-03; sweep stored in 132 B (24x less than the cut polyline)
+  eps 0.25 widths: polyline cut to eps 172 pts = 2062 B; chord formula 34 pts/turn = 121 pts; the sweep made with that many: error p99 8.84e-03 (1.27 widths) max 1.26e-02 mean 4.94e-03; sweep stored in 132 B (16x less than the cut polyline)
+  eps 1.00 widths: polyline cut to eps 86 pts = 1037 B; chord formula 17 pts/turn = 61 pts; the sweep made with that many: error p99 1.85e-02 (2.65 widths) max 3.41e-02 mean 1.12e-02; sweep stored in 132 B (8x less than the cut polyline)
+  50 px a unit: radius 19.64 px -> a helix, 50 points a strand (shipped Curl: 41)
+  12 px a unit: radius 4.71 px -> a helix, 25 points a strand (shipped Curl: 41)
+  4 px a unit: radius 1.57 px -> a helix, 15 points a strand (shipped Curl: 41)
+  reconstruction: 121 Mpts/s on the CPU (24 threads; base spline, frames and arc from the tables, offsets); the tables (256 RMF samples a strand) 2.171 us a strand
+  (bases folding back, left out: 136 of 2000)
+
+sweep case coily (coil, 3 widths, 3 turns/unit): radius 0.0209, 23.1 turns a strand (median), 2000 strands
+  polyline  4 pts/turn: max error mean 6.62e-03 p99 9.79e-03 (1.40 widths) max 1.21e-02, chord formula r(1-cos(pi/m)) 6.13e-03; 1121 B a strand
+  polyline  6 pts/turn: max error mean 3.09e-03 p99 4.57e-03 (0.65 widths) max 5.79e-03, chord formula r(1-cos(pi/m)) 2.81e-03; 1676 B a strand
+  polyline  8 pts/turn: max error mean 1.78e-03 p99 2.64e-03 (0.38 widths) max 3.29e-03, chord formula r(1-cos(pi/m)) 1.59e-03; 2231 B a strand
+  polyline 11 pts/turn: max error mean 9.64e-04 p99 1.43e-03 (0.20 widths) max 1.87e-03, chord formula r(1-cos(pi/m)) 8.48e-04; 3063 B a strand
+  polyline 16 pts/turn: max error mean 4.72e-04 p99 7.19e-04 (0.10 widths) max 8.98e-04, chord formula r(1-cos(pi/m)) 4.02e-04; 4450 B a strand
+  polyline 24 pts/turn: max error mean 2.19e-04 p99 3.37e-04 (0.05 widths) max 3.95e-04, chord formula r(1-cos(pi/m)) 1.79e-04; 6669 B a strand
+  polyline 32 pts/turn: max error mean 1.29e-04 p99 2.08e-04 (0.03 widths) max 3.39e-04, chord formula r(1-cos(pi/m)) 1.01e-04; 8888 B a strand
+  polyline 48 pts/turn: max error mean 6.34e-05 p99 1.07e-04 (0.02 widths) max 1.53e-04, chord formula r(1-cos(pi/m)) 4.48e-05; 13326 B a strand
+  polyline 64 pts/turn: max error mean 3.93e-05 p99 6.52e-05 (0.01 widths) max 1.26e-04, chord formula r(1-cos(pi/m)) 2.52e-05; 17764 B a strand
+  eps 0.10 widths: polyline cut to eps 372 pts = 4458 B; chord formula 13 pts/turn = 301 pts; the sweep made with that many: error p99 9.67e-04 (0.14 widths) max 1.27e-03 mean 6.56e-04; sweep stored in 132 B (34x less than the cut polyline)
+  eps 0.25 widths: polyline cut to eps 241 pts = 2895 B; chord formula 8 pts/turn = 186 pts; the sweep made with that many: error p99 2.53e-03 (0.36 widths) max 3.26e-03 mean 1.71e-03; sweep stored in 132 B (22x less than the cut polyline)
+  eps 1.00 widths: polyline cut to eps 116 pts = 1394 B; chord formula 4 pts/turn = 93 pts; the sweep made with that many: error p99 9.60e-03 (1.38 widths) max 1.20e-02 mean 6.53e-03; sweep stored in 132 B (11x less than the cut polyline)
+  50 px a unit: radius 1.05 px -> a helix, 72 points a strand (shipped Curl: 41)
+  12 px a unit: radius 0.25 px -> a ribbon as wide as the coil, its coverage the fiber's share, 9 points a strand (shipped Curl: 41)
+  4 px a unit: radius 0.08 px -> a ribbon as wide as the coil, its coverage the fiber's share, 9 points a strand (shipped Curl: 41)
+  reconstruction: 147 Mpts/s on the CPU (24 threads; base spline, frames and arc from the tables, offsets); the tables (256 RMF samples a strand) 2.255 us a strand
+
+generic (final strands, frizz included):
+eps 0.00007 (0.01 widths): spline 253.8 ctrl pts = 1547 B a strand; polyline cut 257.0 pts = 3084 B; dense 257 pts = 3084 B; spline 2.0x smaller than dense, 2.0x than the cut polyline
+eps 0.00070 (0.10 widths): spline 187.9 ctrl pts = 1151 B a strand; polyline cut 251.7 pts = 3021 B; dense 257 pts = 3084 B; spline 2.7x smaller than dense, 2.6x than the cut polyline
+eps 0.00175 (0.25 widths): spline 155.6 ctrl pts = 958 B a strand; polyline cut 173.7 pts = 2084 B; dense 257 pts = 3084 B; spline 3.2x smaller than dense, 2.2x than the cut polyline
+eps 0.00698 (1.00 widths): spline 88.9 ctrl pts = 558 B a strand; polyline cut 85.3 pts = 1024 B; dense 257 pts = 3084 B; spline 5.5x smaller than dense, 1.8x than the cut polyline
+
+reconstruction (12744 strands x 257 points): spline of 24 ctrl pts 10.24 ms (320 Mpts/s), copying the dense points 1.32 ms

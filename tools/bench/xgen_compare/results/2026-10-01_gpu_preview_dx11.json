@@ -1,0 +1,7849 @@
+{
+ "tag": "2026-10-01_gpu_preview_dx11",
+ "started": "2026-10-01T19:39:35",
+ "machine": {
+  "cpu": {
+   "Name": "AMD Ryzen Threadripper PRO 5945WX 12-Cores     ",
+   "NumberOfCores": 12,
+   "NumberOfLogicalProcessors": 24,
+   "MaxClockSpeed": 4101
+  },
+  "ram_gb": 127.9,
+  "gpu": {
+   "Name": "NVIDIA GeForce RTX 3090",
+   "DriverVersion": "32.0.16.1692"
+  },
+  "os": "Windows-10-10.0.26100",
+  "power_plan": "Power Scheme GUID: cca203d3-44a6-4ecf-81f3-2a331abf3246  (Lenovo Default)"
+ },
+ "maya": "C:\\Program Files\\Autodesk\\Maya2022",
+ "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+ "groomlab_commit": "4fee040",
+ "counts": [
+  100000,
+  500000
+ ],
+ "runs": 3,
+ "draw_api": "DirectX11",
+ "jobs": [
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 100000,
+   "phase": "static",
+   "run": 0,
+   "load_before": {
+    "cpu_percent": 7,
+    "free_ram_gb": 97.5,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 32.3130355,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 100000,
+     "phase": "static",
+     "out": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\result.json",
+     "work": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1098,
+     573
+    ],
+    "plugin_load_s": 0.1528116000000015,
+    "creation": {
+     "to_first_frame_s": 0.2907200999999997,
+     "commands_s": 0.09708900000000042,
+     "redraw_s": 0.0028457999999993433,
+     "count": 99994,
+     "ws_delta_mb": 276.58984375,
+     "private_delta_mb": 391.296875,
+     "ws_after_mb": 2405.1953125,
+     "gpu_device_delta_mb": 98.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 1599904,
+     "strands": 99994,
+     "lastEvaluationNodeMs": {
+      "centers": 4.0861,
+      "clump": 5.2954,
+      "curl": 6.8126,
+      "guides": 0.5854,
+      "interpolate": 13.2039,
+      "noise": 8.8939,
+      "output": 0.0006,
+      "resample": 0.2628,
+      "scalp": 0.0129,
+      "scatter": 6.3714,
+      "width": 2.1277
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\look.png",
+    "gpu": {
+     "api": "DirectX11",
+     "cpu_noise_s": [
+      0.055636800000000264,
+      0.05034049999999901,
+      0.04484899999999925,
+      0.04716750000000047,
+      0.04579600000000106,
+      0.051981299999999564,
+      0.04678859999999929,
+      0.04407650000000096,
+      0.04475639999999892
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 19.191,
+       "draw": {
+        "updateMs": 16.357,
+        "buildMs": 0.48,
+        "uploadMs": 15.755,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.124,
+          "commitMs": 10.453,
+          "bindMs": 0.074,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.71,
+       "draw": {
+        "updateMs": 16.27,
+        "buildMs": 0.481,
+        "uploadMs": 15.663,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 4.97,
+          "commitMs": 10.554,
+          "bindMs": 0.06,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.092,
+       "draw": {
+        "updateMs": 10.398,
+        "buildMs": 0.478,
+        "uploadMs": 9.804,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 4.9,
+          "commitMs": 4.7,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.781,
+       "draw": {
+        "updateMs": 10.68,
+        "buildMs": 0.487,
+        "uploadMs": 10.064,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.424,
+          "commitMs": 4.507,
+          "bindMs": 0.055,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.609,
+       "draw": {
+        "updateMs": 10.926,
+        "buildMs": 0.482,
+        "uploadMs": 10.332,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.644,
+          "commitMs": 4.564,
+          "bindMs": 0.052,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.87,
+       "draw": {
+        "updateMs": 10.165,
+        "buildMs": 0.491,
+        "uploadMs": 9.53,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.003,
+          "writeMs": 4.914,
+          "commitMs": 4.47,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.467,
+       "draw": {
+        "updateMs": 10.844,
+        "buildMs": 0.484,
+        "uploadMs": 10.227,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 5.447,
+          "commitMs": 4.624,
+          "bindMs": 0.064,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.496,
+       "draw": {
+        "updateMs": 10.312,
+        "buildMs": 0.482,
+        "uploadMs": 9.705,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 4.963,
+          "commitMs": 4.593,
+          "bindMs": 0.064,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.592,
+       "draw": {
+        "updateMs": 10.827,
+        "buildMs": 0.486,
+        "uploadMs": 10.215,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 5.468,
+          "commitMs": 4.587,
+          "bindMs": 0.066,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 5.1042,
+      "noise": 7.3563,
+      "output": 0.0004,
+      "resample": 0.1294,
+      "width": 1.702
+     },
+     "cpu_clump_s": [
+      0.053924699999999604,
+      0.051297700000001,
+      0.05019840000000109,
+      0.050126399999999904,
+      0.049216600000001165,
+      0.038327499999999404,
+      0.03791810000000062,
+      0.03811590000000109,
+      0.03833909999999996
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 22.351,
+       "draw": {
+        "updateMs": 12.347,
+        "buildMs": 1.022,
+        "uploadMs": 11.192,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 6.228,
+          "commitMs": 4.803,
+          "bindMs": 0.066,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.683,
+       "draw": {
+        "updateMs": 11.626,
+        "buildMs": 1.141,
+        "uploadMs": 10.331,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.776,
+          "commitMs": 4.39,
+          "bindMs": 0.071,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.794,
+       "draw": {
+        "updateMs": 11.398,
+        "buildMs": 1.077,
+        "uploadMs": 10.178,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.563,
+          "commitMs": 4.445,
+          "bindMs": 0.063,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.242,
+       "draw": {
+        "updateMs": 10.971,
+        "buildMs": 1.014,
+        "uploadMs": 9.822,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.13,
+          "commitMs": 4.44,
+          "bindMs": 0.061,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.263,
+       "draw": {
+        "updateMs": 10.872,
+        "buildMs": 1.024,
+        "uploadMs": 9.715,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.069,
+          "commitMs": 4.491,
+          "bindMs": 0.063,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.58,
+       "draw": {
+        "updateMs": 11.396,
+        "buildMs": 1.03,
+        "uploadMs": 10.241,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.558,
+          "commitMs": 4.534,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.134,
+       "draw": {
+        "updateMs": 10.787,
+        "buildMs": 1.019,
+        "uploadMs": 9.642,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.006,
+          "commitMs": 4.493,
+          "bindMs": 0.06,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.392,
+       "draw": {
+        "updateMs": 11.378,
+        "buildMs": 1.01,
+        "uploadMs": 10.235,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.471,
+          "commitMs": 4.615,
+          "bindMs": 0.069,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.573,
+       "draw": {
+        "updateMs": 11.507,
+        "buildMs": 1.059,
+        "uploadMs": 10.315,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.625,
+          "commitMs": 4.498,
+          "bindMs": 0.065,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 3.5133,
+      "curl": 6.4668,
+      "noise": 7.4237,
+      "output": 0.0004,
+      "resample": 0.1174,
+      "width": 1.6749
+     },
+     "first_s": 0.9788023999999993,
+     "first_taken": true,
+     "first_stats": {
+      "api": "DirectX11",
+      "cpuMs": 967.3345,
+      "gpu": {
+       "copyMs": 0.415744,
+       "curlMs": 0.56832,
+       "linesMs": 0.193536,
+       "noiseMs": 0.557056,
+       "totalMs": 2.02752,
+       "widthMs": 0.292864
+      },
+      "runs": 1,
+      "uploadMB": 24.39854,
+      "uploadMs": 3.6493,
+      "uploads": 1,
+      "videoMB": 126.792828,
+      "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "gpu_device_delta_mb": 121.0,
+     "cold_s": [
+      0.004965800000000797,
+      0.005287400000000275,
+      0.004224600000000578,
+      0.004081799999999802,
+      0.005041200000000856,
+      0.005085900000000976,
+      0.004139199999999121,
+      0.004042999999999353,
+      0.005172100000001123
+     ],
+     "cold_stats": [
+      {
+       "copyMs": 0.398336,
+       "curlMs": 0.559104,
+       "linesMs": 0.183296,
+       "noiseMs": 0.548864,
+       "totalMs": 1.96608,
+       "widthMs": 0.27648
+      },
+      {
+       "copyMs": 0.415744,
+       "curlMs": 1.209344,
+       "linesMs": 0.18944,
+       "noiseMs": 0.546816,
+       "totalMs": 2.64704,
+       "widthMs": 0.285696
+      },
+      {
+       "copyMs": 0.405504,
+       "curlMs": 0.575488,
+       "linesMs": 0.186368,
+       "noiseMs": 0.54784,
+       "totalMs": 1.99168,
+       "widthMs": 0.27648
+      },
+      {
+       "copyMs": 0.398336,
+       "curlMs": 0.560128,
+       "linesMs": 0.186368,
+       "noiseMs": 0.545792,
+       "totalMs": 1.9712,
+       "widthMs": 0.280576
+      },
+      {
+       "copyMs": 0.411648,
+       "curlMs": 0.566272,
+       "linesMs": 0.183296,
+       "noiseMs": 0.548864,
+       "totalMs": 1.98656,
+       "widthMs": 0.27648
+      },
+      {
+       "copyMs": 0.423936,
+       "curlMs": 0.579584,
+       "linesMs": 0.197632,
+       "noiseMs": 0.560128,
+       "totalMs": 1.999872,
+       "widthMs": 0.238592
+      },
+      {
+       "copyMs": 0.402432,
+       "curlMs": 0.548864,
+       "linesMs": 0.18432,
+       "noiseMs": 0.52736,
+       "totalMs": 1.8944,
+       "widthMs": 0.231424
+      },
+      {
+       "copyMs": 0.396288,
+       "curlMs": 0.553984,
+       "linesMs": 0.18432,
+       "noiseMs": 0.516096,
+       "totalMs": 1.87904,
+       "widthMs": 0.228352
+      },
+      {
+       "copyMs": 0.405504,
+       "curlMs": 1.32608,
+       "linesMs": 0.190464,
+       "noiseMs": 0.516096,
+       "totalMs": 2.676736,
+       "widthMs": 0.238592
+      }
+     ],
+     "cold_median_s": 0.004965800000000797,
+     "gpu_noise_s": [
+      0.0027568000000002257,
+      0.0026751999999987675,
+      0.0032959999999988554,
+      0.0027341999999990207,
+      0.002553600000002376,
+      0.002559800000000223,
+      0.00253619999999799,
+      0.002640200000001869,
+      0.0031798000000016202
+     ],
+     "gpu_noise_median_s": 0.0026751999999987675,
+     "gpu_curl_s": [
+      0.0027623999999981663,
+      0.0026203999999978578,
+      0.0025441000000014924,
+      0.0026548999999995715,
+      0.002477400000000074,
+      0.00302899999999795,
+      0.002748699999997939,
+      0.0024826000000004456,
+      0.002464199999998584
+     ],
+     "gpu_curl_median_s": 0.0026203999999978578,
+     "gpu_width_s": [
+      0.0025428000000005113,
+      0.0026127000000002454,
+      0.0030304000000000997,
+      0.0027020000000028688,
+      0.0024991000000014196,
+      0.002519299999999447,
+      0.0024971999999969796,
+      0.0024687999999990495,
+      0.002956399999998638
+     ],
+     "gpu_width_median_s": 0.0025428000000005113,
+     "stats": [
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0341,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.381952,
+        "linesMs": 0.09728,
+        "noiseMs": 0.315392,
+        "totalMs": 1.159168,
+        "widthMs": 0.146432
+       },
+       "runs": 565,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0316,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.37888,
+        "linesMs": 0.09728,
+        "noiseMs": 0.314368,
+        "totalMs": 1.154048,
+        "widthMs": 0.146432
+       },
+       "runs": 566,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0302,
+       "gpu": {
+        "copyMs": 0.630816,
+        "curlMs": 0.387072,
+        "linesMs": 0.1024,
+        "noiseMs": 0.31712,
+        "totalMs": 1.581792,
+        "widthMs": 0.144384
+       },
+       "runs": 567,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0332,
+       "gpu": {
+        "copyMs": 0.22448,
+        "curlMs": 0.387072,
+        "linesMs": 0.1024,
+        "noiseMs": 0.318272,
+        "totalMs": 1.173536,
+        "widthMs": 0.141312
+       },
+       "runs": 568,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0349,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.384,
+        "linesMs": 0.100352,
+        "noiseMs": 0.317216,
+        "totalMs": 1.164064,
+        "widthMs": 0.14336
+       },
+       "runs": 569,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0314,
+       "gpu": {
+        "copyMs": 0.218272,
+        "curlMs": 0.382976,
+        "linesMs": 0.098304,
+        "noiseMs": 0.31744,
+        "totalMs": 1.160352,
+        "widthMs": 0.14336
+       },
+       "runs": 570,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0303,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.377856,
+        "linesMs": 0.098304,
+        "noiseMs": 0.31744,
+        "totalMs": 1.153024,
+        "widthMs": 0.142336
+       },
+       "runs": 571,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0368,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.387072,
+        "linesMs": 0.09728,
+        "noiseMs": 0.31744,
+        "totalMs": 1.164288,
+        "widthMs": 0.144384
+       },
+       "runs": 572,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0305,
+       "gpu": {
+        "copyMs": 0.618592,
+        "curlMs": 0.39424,
+        "linesMs": 0.1024,
+        "noiseMs": 0.318208,
+        "totalMs": 1.577824,
+        "widthMs": 0.144384
+       },
+       "runs": 573,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0407,
+       "gpu": {
+        "copyMs": 0.22432,
+        "curlMs": 0.400384,
+        "linesMs": 0.1024,
+        "noiseMs": 0.31008,
+        "totalMs": 1.180544,
+        "widthMs": 0.14336
+       },
+       "runs": 574,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0368,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.386048,
+        "linesMs": 0.099328,
+        "noiseMs": 0.310272,
+        "totalMs": 1.156096,
+        "widthMs": 0.141312
+       },
+       "runs": 575,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0311,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.385024,
+        "linesMs": 0.098304,
+        "noiseMs": 0.310272,
+        "totalMs": 1.154048,
+        "widthMs": 0.141312
+       },
+       "runs": 576,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.038,
+       "gpu": {
+        "copyMs": 0.216064,
+        "curlMs": 0.380928,
+        "linesMs": 0.098304,
+        "noiseMs": 0.309088,
+        "totalMs": 1.144672,
+        "widthMs": 0.140288
+       },
+       "runs": 577,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0306,
+       "gpu": {
+        "copyMs": 0.21712,
+        "curlMs": 0.386048,
+        "linesMs": 0.09728,
+        "noiseMs": 0.309248,
+        "totalMs": 1.151008,
+        "widthMs": 0.141312
+       },
+       "runs": 578,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0387,
+       "gpu": {
+        "copyMs": 0.222272,
+        "curlMs": 0.385024,
+        "linesMs": 0.098304,
+        "noiseMs": 0.309248,
+        "totalMs": 1.15616,
+        "widthMs": 0.141312
+       },
+       "runs": 579,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0375,
+       "gpu": {
+        "copyMs": 0.222208,
+        "curlMs": 0.387072,
+        "linesMs": 0.1024,
+        "noiseMs": 0.309248,
+        "totalMs": 1.164288,
+        "widthMs": 0.14336
+       },
+       "runs": 580,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0309,
+       "gpu": {
+        "copyMs": 0.22016,
+        "curlMs": 0.37888,
+        "linesMs": 0.098304,
+        "noiseMs": 0.305088,
+        "totalMs": 1.144768,
+        "widthMs": 0.142336
+       },
+       "runs": 581,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0296,
+       "gpu": {
+        "copyMs": 0.218144,
+        "curlMs": 0.382976,
+        "linesMs": 0.098304,
+        "noiseMs": 0.304128,
+        "totalMs": 1.144864,
+        "widthMs": 0.141312
+       },
+       "runs": 582,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0299,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.384,
+        "linesMs": 0.098304,
+        "noiseMs": 0.305088,
+        "totalMs": 1.17344,
+        "widthMs": 0.16896
+       },
+       "runs": 583,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0363,
+       "gpu": {
+        "copyMs": 0.217248,
+        "curlMs": 0.379904,
+        "linesMs": 0.09728,
+        "noiseMs": 0.304896,
+        "totalMs": 1.142688,
+        "widthMs": 0.14336
+       },
+       "runs": 584,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0308,
+       "gpu": {
+        "copyMs": 0.68096,
+        "curlMs": 0.392192,
+        "linesMs": 0.1024,
+        "noiseMs": 0.303776,
+        "totalMs": 1.623712,
+        "widthMs": 0.144384
+       },
+       "runs": 585,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0338,
+       "gpu": {
+        "copyMs": 0.222368,
+        "curlMs": 0.38912,
+        "linesMs": 0.1024,
+        "noiseMs": 0.304992,
+        "totalMs": 1.159168,
+        "widthMs": 0.140288
+       },
+       "runs": 586,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0299,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.380928,
+        "linesMs": 0.098304,
+        "noiseMs": 0.304128,
+        "totalMs": 1.144832,
+        "widthMs": 0.14336
+       },
+       "runs": 587,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0306,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.382976,
+        "linesMs": 0.098304,
+        "noiseMs": 0.299008,
+        "totalMs": 1.137664,
+        "widthMs": 0.140288
+       },
+       "runs": 588,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.03,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.384,
+        "linesMs": 0.098304,
+        "noiseMs": 0.299008,
+        "totalMs": 1.138688,
+        "widthMs": 0.140288
+       },
+       "runs": 589,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0301,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.385024,
+        "linesMs": 0.09728,
+        "noiseMs": 0.298912,
+        "totalMs": 1.143712,
+        "widthMs": 0.145408
+       },
+       "runs": 590,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0297,
+       "gpu": {
+        "copyMs": 0.666624,
+        "curlMs": 0.391168,
+        "linesMs": 0.115712,
+        "noiseMs": 0.299776,
+        "totalMs": 1.615616,
+        "widthMs": 0.142336
+       },
+       "runs": 591,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.6493,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      }
+     ],
+     "kernels_noise_median_ms": 0.309248,
+     "kernels_curl_median_ms": 0.385024,
+     "kernels_lines_median_ms": 0.098304,
+     "kernels_copy_median_ms": 0.218272,
+     "kernels_total_median_ms": 1.15616,
+     "apply_cpu_median_ms": 0.0311,
+     "video_mb": 126.792828,
+     "vp2_buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+     "draw_after_drag": {
+      "computeMs": 20.651,
+      "draw": {
+       "updateMs": 0.086,
+       "buildMs": 0.001,
+       "uploadMs": 0.016,
+       "items": {
+        "gpuPreview": {
+         "acquireMs": 0.0,
+         "writeMs": 0.03,
+         "commitMs": 0.0,
+         "bindMs": 0.0,
+         "megabytes": 0.0
+        }
+       }
+      }
+     },
+     "frames_compared": {
+      "gpu_vs_cpu": {
+       "differing_pixels": 487,
+       "share": 0.0008454861111111111,
+       "largest_step": 96,
+       "mean_step": 0.008,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\gpu_drag.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\cpu_commit.png"
+       ]
+      },
+      "cpu_vs_same_cpu": {
+       "differing_pixels": 0,
+       "share": 0.0,
+       "largest_step": 0,
+       "mean_step": 0.0,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\cpu_commit_again.png"
+       ]
+      },
+      "cpu_vs_cpu_1pc_away": {
+       "differing_pixels": 34211,
+       "share": 0.05939409722222222,
+       "largest_step": 123,
+       "mean_step": 0.3166267361111111,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\cpu_commit_1pc.png"
+       ]
+      },
+      "gpu_in_cpu_frame_vs_cpu": {
+       "differing_pixels": 415,
+       "share": 0.0007204861111111111,
+       "largest_step": 103,
+       "mean_step": 0.006328125,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\gpu_same_frame_as_cpu.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r0\\cpu_clump_and_noise.png"
+       ]
+      }
+     },
+     "commit_s": [
+      0.030958000000001817,
+      0.03149489999999844,
+      0.031012399999998053
+     ],
+     "commit_median_s": 0.031012399999998053,
+     "after_clump_s": 0.006642400000000492,
+     "after_clump_stats": {
+      "api": "DirectX11",
+      "cpuMs": 3.0884,
+      "gpu": {
+       "copyMs": 0.21504,
+       "curlMs": 0.39424,
+       "linesMs": 0.099328,
+       "noiseMs": 0.301728,
+       "totalMs": 1.178272,
+       "widthMs": 0.167936
+      },
+      "runs": 597,
+      "uploadMB": 24.39854,
+      "uploadMs": 2.9063,
+      "uploads": 4,
+      "videoMB": 126.792828,
+      "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "upload_ms": 2.9063,
+     "upload_mb": 24.39854,
+     "check": {
+      "bitangents": {
+       "count": 1599904,
+       "max": 0.0035768619272857904,
+       "mean": 3.5589499842923254e-06
+      },
+      "normals": {
+       "count": 1599904,
+       "max": 8.371866897505242e-06,
+       "mean": 4.814452376878224e-07
+      },
+      "points": 1599904,
+      "positions": {
+       "count": 1599904,
+       "max": 9.314358067058492e-06,
+       "mean": 9.34006652779782e-07
+      },
+      "strands": 99994,
+      "tangents": {
+       "count": 1599904,
+       "max": 1.318317481491249e-05,
+       "mean": 5.684081511899294e-07
+      },
+      "widths": {
+       "max": 4.889443516731262e-09,
+       "mean": 4.3225143229261057e-10
+      }
+     },
+     "cpu_noise_median_s": 0.04678859999999929,
+     "cpu_clump_median_s": 0.049216600000001165
+    }
+   },
+   "load_after": {
+    "cpu_percent": 14,
+    "free_ram_gb": 97.6,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 500000,
+   "phase": "static",
+   "run": 0,
+   "load_before": {
+    "cpu_percent": 7,
+    "free_ram_gb": 97.6,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 36.3549275,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 500000,
+     "phase": "static",
+     "out": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\result.json",
+     "work": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.14894479999999888,
+    "creation": {
+     "to_first_frame_s": 0.5407028,
+     "commands_s": 0.09760089999999977,
+     "redraw_s": 0.0016517000000000337,
+     "count": 500008,
+     "ws_delta_mb": 1204.69140625,
+     "private_delta_mb": 1713.4453125,
+     "ws_after_mb": 3363.08203125,
+     "gpu_device_delta_mb": 485.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 8000128,
+     "strands": 500008,
+     "lastEvaluationNodeMs": {
+      "centers": 13.1611,
+      "clump": 21.9017,
+      "curl": 31.5455,
+      "guides": 0.4758,
+      "interpolate": 48.6667,
+      "noise": 42.2607,
+      "output": 0.0008,
+      "resample": 1.0281,
+      "scalp": 0.0084,
+      "scatter": 29.3946,
+      "width": 10.6861
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\look.png",
+    "gpu": {
+     "api": "DirectX11",
+     "cpu_noise_s": [
+      0.2435288,
+      0.20407790000000148,
+      0.20369630000000072,
+      0.20221019999999967,
+      0.14862719999999996,
+      0.14967809999999915,
+      0.1661248999999998,
+      0.1619919999999997,
+      0.14852799999999888
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 89.437,
+       "draw": {
+        "updateMs": 74.439,
+        "buildMs": 2.451,
+        "uploadMs": 71.854,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 22.987,
+          "commitMs": 48.539,
+          "bindMs": 0.073,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.856,
+       "draw": {
+        "updateMs": 54.1,
+        "buildMs": 2.466,
+        "uploadMs": 51.499,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.802,
+          "commitMs": 27.527,
+          "bindMs": 0.063,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.313,
+       "draw": {
+        "updateMs": 53.777,
+        "buildMs": 2.685,
+        "uploadMs": 50.953,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.401,
+          "commitMs": 27.371,
+          "bindMs": 0.067,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 71.682,
+       "draw": {
+        "updateMs": 53.525,
+        "buildMs": 2.486,
+        "uploadMs": 50.906,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 23.258,
+          "commitMs": 27.394,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 71.635,
+       "draw": {
+        "updateMs": 54.416,
+        "buildMs": 2.483,
+        "uploadMs": 51.797,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.737,
+          "commitMs": 27.889,
+          "bindMs": 0.063,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.952,
+       "draw": {
+        "updateMs": 53.645,
+        "buildMs": 2.511,
+        "uploadMs": 50.981,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.359,
+          "commitMs": 27.467,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.883,
+       "draw": {
+        "updateMs": 68.735,
+        "buildMs": 2.499,
+        "uploadMs": 66.1,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 24.585,
+          "commitMs": 41.282,
+          "bindMs": 0.065,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.835,
+       "draw": {
+        "updateMs": 64.861,
+        "buildMs": 2.502,
+        "uploadMs": 62.219,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 23.842,
+          "commitMs": 38.204,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.78,
+       "draw": {
+        "updateMs": 53.737,
+        "buildMs": 2.503,
+        "uploadMs": 51.1,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 23.372,
+          "commitMs": 27.572,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 24.5625,
+      "noise": 35.3245,
+      "output": 0.0008,
+      "resample": 1.0075,
+      "width": 8.4344
+     },
+     "cpu_clump_s": [
+      0.1760009999999994,
+      0.17449339999999935,
+      0.18012990000000073,
+      0.17733810000000005,
+      0.17374479999999792,
+      0.17330490000000154,
+      0.1736992000000015,
+      0.17328520000000225,
+      0.174577799999998
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 96.677,
+       "draw": {
+        "updateMs": 57.368,
+        "buildMs": 5.119,
+        "uploadMs": 52.111,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.975,
+          "commitMs": 27.788,
+          "bindMs": 0.066,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.514,
+       "draw": {
+        "updateMs": 56.601,
+        "buildMs": 4.987,
+        "uploadMs": 51.477,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 23.789,
+          "commitMs": 27.522,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.706,
+       "draw": {
+        "updateMs": 61.257,
+        "buildMs": 4.851,
+        "uploadMs": 56.269,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 23.815,
+          "commitMs": 32.276,
+          "bindMs": 0.071,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 98.259,
+       "draw": {
+        "updateMs": 56.687,
+        "buildMs": 5.063,
+        "uploadMs": 51.452,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.632,
+          "commitMs": 27.576,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.539,
+       "draw": {
+        "updateMs": 55.964,
+        "buildMs": 4.956,
+        "uploadMs": 50.867,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.452,
+          "commitMs": 27.247,
+          "bindMs": 0.063,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.018,
+       "draw": {
+        "updateMs": 56.346,
+        "buildMs": 4.987,
+        "uploadMs": 51.221,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 23.464,
+          "commitMs": 27.588,
+          "bindMs": 0.063,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.227,
+       "draw": {
+        "updateMs": 55.992,
+        "buildMs": 4.993,
+        "uploadMs": 50.863,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.308,
+          "commitMs": 27.312,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.06,
+       "draw": {
+        "updateMs": 56.353,
+        "buildMs": 5.056,
+        "uploadMs": 51.164,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.617,
+          "commitMs": 27.349,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.955,
+       "draw": {
+        "updateMs": 56.463,
+        "buildMs": 5.205,
+        "uploadMs": 51.115,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 23.569,
+          "commitMs": 27.372,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 14.8693,
+      "curl": 30.9975,
+      "noise": 36.9939,
+      "output": 0.0009,
+      "resample": 1.1161,
+      "width": 8.4101
+     },
+     "first_s": 1.0389005000000004,
+     "first_taken": true,
+     "first_stats": {
+      "api": "DirectX11",
+      "cpuMs": 984.6368,
+      "gpu": {
+       "copyMs": 1.795072,
+       "curlMs": 3.677184,
+       "linesMs": 0.971776,
+       "noiseMs": 3.851264,
+       "totalMs": 11.797504,
+       "widthMs": 1.502208
+      },
+      "runs": 1,
+      "uploadMB": 122.001956,
+      "uploadMs": 14.2645,
+      "uploads": 1,
+      "videoMB": 634.01058,
+      "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "gpu_device_delta_mb": 605.0,
+     "cold_s": [
+      0.020908900000002006,
+      0.020269799999997673,
+      0.020513299999997514,
+      0.021850400000001713,
+      0.02085050000000166,
+      0.02083300000000321,
+      0.019939000000000817,
+      0.01968119999999729,
+      0.02044920000000161
+     ],
+     "cold_stats": [
+      {
+       "copyMs": 1.87392,
+       "curlMs": 2.85184,
+       "linesMs": 0.937984,
+       "noiseMs": 3.923968,
+       "totalMs": 11.884544,
+       "widthMs": 2.296832
+      },
+      {
+       "copyMs": 1.793024,
+       "curlMs": 2.881536,
+       "linesMs": 0.920576,
+       "noiseMs": 4.7872,
+       "totalMs": 11.896832,
+       "widthMs": 1.514496
+      },
+      {
+       "copyMs": 1.77664,
+       "curlMs": 2.85184,
+       "linesMs": 0.909312,
+       "noiseMs": 3.922944,
+       "totalMs": 10.96192,
+       "widthMs": 1.501184
+      },
+      {
+       "copyMs": 1.891328,
+       "curlMs": 2.832384,
+       "linesMs": 0.90112,
+       "noiseMs": 3.923968,
+       "totalMs": 11.06432,
+       "widthMs": 1.51552
+      },
+      {
+       "copyMs": 1.865728,
+       "curlMs": 2.876416,
+       "linesMs": 1.416192,
+       "noiseMs": 3.922944,
+       "totalMs": 12.434432,
+       "widthMs": 2.353152
+      },
+      {
+       "copyMs": 1.78688,
+       "curlMs": 2.854912,
+       "linesMs": 0.918528,
+       "noiseMs": 5.475328,
+       "totalMs": 12.325888,
+       "widthMs": 1.29024
+      },
+      {
+       "copyMs": 1.782784,
+       "curlMs": 2.797568,
+       "linesMs": 0.904192,
+       "noiseMs": 3.79392,
+       "totalMs": 10.570752,
+       "widthMs": 1.292288
+      },
+      {
+       "copyMs": 1.768448,
+       "curlMs": 2.79552,
+       "linesMs": 0.902144,
+       "noiseMs": 3.7888,
+       "totalMs": 10.551296,
+       "widthMs": 1.296384
+      },
+      {
+       "copyMs": 2.56,
+       "curlMs": 2.779136,
+       "linesMs": 1.800192,
+       "noiseMs": 3.786752,
+       "totalMs": 12.22144,
+       "widthMs": 1.29536
+      }
+     ],
+     "cold_median_s": 0.020513299999997514,
+     "gpu_noise_s": [
+      0.009639699999997475,
+      0.009762500000000784,
+      0.010014699999999266,
+      0.009353400000001955,
+      0.010011099999999828,
+      0.009364800000000173,
+      0.009923499999999308,
+      0.009952399999999528,
+      0.009617900000002066
+     ],
+     "gpu_noise_median_s": 0.009762500000000784,
+     "gpu_curl_s": [
+      0.010058100000001957,
+      0.009598399999998009,
+      0.010113999999997958,
+      0.0101337000000008,
+      0.009599500000000205,
+      0.010105499999998102,
+      0.009445599999999388,
+      0.010002000000000066,
+      0.009924399999999167
+     ],
+     "gpu_curl_median_s": 0.010002000000000066,
+     "gpu_width_s": [
+      0.00972630000000052,
+      0.010322700000003238,
+      0.009582800000000447,
+      0.010116399999997583,
+      0.009984100000000495,
+      0.009423699999999258,
+      0.010001700000000113,
+      0.00955109999999948,
+      0.010021000000001834
+     ],
+     "gpu_width_median_s": 0.009984100000000495,
+     "stats": [
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1516,
+       "gpu": {
+        "copyMs": 0.942368,
+        "curlMs": 2.062336,
+        "linesMs": 0.480256,
+        "noiseMs": 1.437696,
+        "totalMs": 5.607712,
+        "widthMs": 0.685056
+       },
+       "runs": 129,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1556,
+       "gpu": {
+        "copyMs": 0.946176,
+        "curlMs": 2.097152,
+        "linesMs": 0.488448,
+        "noiseMs": 1.4384,
+        "totalMs": 5.660352,
+        "widthMs": 0.690176
+       },
+       "runs": 130,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0752,
+       "gpu": {
+        "copyMs": 0.944128,
+        "curlMs": 2.066432,
+        "linesMs": 0.479232,
+        "noiseMs": 1.426432,
+        "totalMs": 5.603328,
+        "widthMs": 0.687104
+       },
+       "runs": 131,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0694,
+       "gpu": {
+        "copyMs": 0.946176,
+        "curlMs": 2.080768,
+        "linesMs": 0.482304,
+        "noiseMs": 1.427232,
+        "totalMs": 5.621536,
+        "widthMs": 0.685056
+       },
+       "runs": 132,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1027,
+       "gpu": {
+        "copyMs": 1.205248,
+        "curlMs": 2.112512,
+        "linesMs": 0.489472,
+        "noiseMs": 1.426432,
+        "totalMs": 6.34368,
+        "widthMs": 1.110016
+       },
+       "runs": 133,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1254,
+       "gpu": {
+        "copyMs": 0.944128,
+        "curlMs": 2.069504,
+        "linesMs": 0.483328,
+        "noiseMs": 1.426272,
+        "totalMs": 5.613408,
+        "widthMs": 0.690176
+       },
+       "runs": 134,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1099,
+       "gpu": {
+        "copyMs": 0.964608,
+        "curlMs": 2.262016,
+        "linesMs": 0.502784,
+        "noiseMs": 1.881792,
+        "totalMs": 6.301376,
+        "widthMs": 0.690176
+       },
+       "runs": 135,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0953,
+       "gpu": {
+        "copyMs": 0.941056,
+        "curlMs": 2.060288,
+        "linesMs": 0.478208,
+        "noiseMs": 1.42624,
+        "totalMs": 5.594944,
+        "widthMs": 0.689152
+       },
+       "runs": 136,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1443,
+       "gpu": {
+        "copyMs": 0.949248,
+        "curlMs": 2.074624,
+        "linesMs": 0.485376,
+        "noiseMs": 1.425408,
+        "totalMs": 5.622784,
+        "widthMs": 0.688128
+       },
+       "runs": 137,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1215,
+       "gpu": {
+        "copyMs": 1.340416,
+        "curlMs": 2.086912,
+        "linesMs": 0.503808,
+        "noiseMs": 1.425408,
+        "totalMs": 6.457344,
+        "widthMs": 1.1008
+       },
+       "runs": 138,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.159,
+       "gpu": {
+        "copyMs": 0.944384,
+        "curlMs": 2.059264,
+        "linesMs": 0.48128,
+        "noiseMs": 1.427424,
+        "totalMs": 5.598432,
+        "widthMs": 0.68608
+       },
+       "runs": 139,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.17,
+       "gpu": {
+        "copyMs": 0.96768,
+        "curlMs": 2.272256,
+        "linesMs": 0.50176,
+        "noiseMs": 1.882112,
+        "totalMs": 6.30784,
+        "widthMs": 0.684032
+       },
+       "runs": 140,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1708,
+       "gpu": {
+        "copyMs": 0.94208,
+        "curlMs": 2.059264,
+        "linesMs": 0.479232,
+        "noiseMs": 1.427136,
+        "totalMs": 5.599936,
+        "widthMs": 0.692224
+       },
+       "runs": 141,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1714,
+       "gpu": {
+        "copyMs": 0.948224,
+        "curlMs": 2.08896,
+        "linesMs": 0.485376,
+        "noiseMs": 1.427072,
+        "totalMs": 5.635712,
+        "widthMs": 0.68608
+       },
+       "runs": 142,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1121,
+       "gpu": {
+        "copyMs": 1.342528,
+        "curlMs": 2.056192,
+        "linesMs": 0.503808,
+        "noiseMs": 1.425408,
+        "totalMs": 6.452288,
+        "widthMs": 1.124352
+       },
+       "runs": 143,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1261,
+       "gpu": {
+        "copyMs": 0.945152,
+        "curlMs": 2.0736,
+        "linesMs": 0.480256,
+        "noiseMs": 1.427072,
+        "totalMs": 5.614208,
+        "widthMs": 0.688128
+       },
+       "runs": 144,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1106,
+       "gpu": {
+        "copyMs": 0.966752,
+        "curlMs": 2.269184,
+        "linesMs": 0.499712,
+        "noiseMs": 1.880064,
+        "totalMs": 6.305888,
+        "widthMs": 0.690176
+       },
+       "runs": 145,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1454,
+       "gpu": {
+        "copyMs": 0.94112,
+        "curlMs": 2.064384,
+        "linesMs": 0.478208,
+        "noiseMs": 1.426432,
+        "totalMs": 5.599296,
+        "widthMs": 0.689152
+       },
+       "runs": 146,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1332,
+       "gpu": {
+        "copyMs": 0.948224,
+        "curlMs": 2.096128,
+        "linesMs": 0.4864,
+        "noiseMs": 1.427456,
+        "totalMs": 5.828608,
+        "widthMs": 0.8704
+       },
+       "runs": 147,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1274,
+       "gpu": {
+        "copyMs": 1.344576,
+        "curlMs": 2.057216,
+        "linesMs": 0.504832,
+        "noiseMs": 1.426432,
+        "totalMs": 6.458432,
+        "widthMs": 1.125376
+       },
+       "runs": 148,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1439,
+       "gpu": {
+        "copyMs": 0.9472,
+        "curlMs": 2.069504,
+        "linesMs": 0.480256,
+        "noiseMs": 1.426432,
+        "totalMs": 5.615616,
+        "widthMs": 0.692224
+       },
+       "runs": 149,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1336,
+       "gpu": {
+        "copyMs": 0.975872,
+        "curlMs": 2.420736,
+        "linesMs": 0.499712,
+        "noiseMs": 1.828864,
+        "totalMs": 6.41024,
+        "widthMs": 0.685056
+       },
+       "runs": 150,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1493,
+       "gpu": {
+        "copyMs": 0.94208,
+        "curlMs": 2.064384,
+        "linesMs": 0.479232,
+        "noiseMs": 1.426432,
+        "totalMs": 5.598208,
+        "widthMs": 0.68608
+       },
+       "runs": 151,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1218,
+       "gpu": {
+        "copyMs": 0.9472,
+        "curlMs": 2.086912,
+        "linesMs": 0.488448,
+        "noiseMs": 1.426432,
+        "totalMs": 5.636096,
+        "widthMs": 0.687104
+       },
+       "runs": 152,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1158,
+       "gpu": {
+        "copyMs": 1.38752,
+        "curlMs": 2.052096,
+        "linesMs": 0.541696,
+        "noiseMs": 1.425312,
+        "totalMs": 6.089632,
+        "widthMs": 0.683008
+       },
+       "runs": 153,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1243,
+       "gpu": {
+        "copyMs": 0.943104,
+        "curlMs": 2.081792,
+        "linesMs": 0.48128,
+        "noiseMs": 1.427456,
+        "totalMs": 5.623808,
+        "widthMs": 0.690176
+       },
+       "runs": 154,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1398,
+       "gpu": {
+        "copyMs": 0.965632,
+        "curlMs": 2.684928,
+        "linesMs": 0.498688,
+        "noiseMs": 1.426432,
+        "totalMs": 6.260736,
+        "widthMs": 0.685056
+       },
+       "runs": 155,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2645,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      }
+     ],
+     "kernels_noise_median_ms": 1.426432,
+     "kernels_curl_median_ms": 2.074624,
+     "kernels_lines_median_ms": 0.485376,
+     "kernels_copy_median_ms": 0.9472,
+     "kernels_total_median_ms": 5.635712,
+     "apply_cpu_median_ms": 0.1274,
+     "video_mb": 634.01058,
+     "vp2_buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+     "draw_after_drag": {
+      "computeMs": 97.776,
+      "draw": {
+       "updateMs": 0.212,
+       "buildMs": 0.002,
+       "uploadMs": 0.021,
+       "items": {
+        "gpuPreview": {
+         "acquireMs": 0.0,
+         "writeMs": 0.14,
+         "commitMs": 0.0,
+         "bindMs": 0.0,
+         "megabytes": 0.0
+        }
+       }
+      }
+     },
+     "frames_compared": {
+      "gpu_vs_cpu": {
+       "differing_pixels": 868,
+       "share": 0.0015069444444444444,
+       "largest_step": 90,
+       "mean_step": 0.010621527777777778,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\gpu_drag.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\cpu_commit.png"
+       ]
+      },
+      "cpu_vs_same_cpu": {
+       "differing_pixels": 0,
+       "share": 0.0,
+       "largest_step": 0,
+       "mean_step": 0.0,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\cpu_commit_again.png"
+       ]
+      },
+      "cpu_vs_cpu_1pc_away": {
+       "differing_pixels": 42366,
+       "share": 0.07355208333333334,
+       "largest_step": 123,
+       "mean_step": 0.3753767361111111,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\cpu_commit_1pc.png"
+       ]
+      },
+      "gpu_in_cpu_frame_vs_cpu": {
+       "differing_pixels": 757,
+       "share": 0.001314236111111111,
+       "largest_step": 84,
+       "mean_step": 0.010920138888888889,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\gpu_same_frame_as_cpu.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r0\\cpu_clump_and_noise.png"
+       ]
+      }
+     },
+     "commit_s": [
+      0.174001999999998,
+      0.15884259999999983,
+      0.1553810999999996
+     ],
+     "commit_median_s": 0.15884259999999983,
+     "after_clump_s": 0.04143120000000167,
+     "after_clump_stats": {
+      "api": "DirectX11",
+      "cpuMs": 16.068,
+      "gpu": {
+       "copyMs": 1.78176,
+       "curlMs": 2.89792,
+       "linesMs": 0.917504,
+       "noiseMs": 4.086784,
+       "totalMs": 11.15136,
+       "widthMs": 1.467392
+      },
+      "runs": 161,
+      "uploadMB": 122.001956,
+      "uploadMs": 15.1656,
+      "uploads": 4,
+      "videoMB": 634.01058,
+      "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "upload_ms": 15.1656,
+     "upload_mb": 122.001956,
+     "check": {
+      "bitangents": {
+       "count": 8000128,
+       "max": 0.00538230175152421,
+       "mean": 3.557511175997109e-06
+      },
+      "normals": {
+       "count": 8000128,
+       "max": 9.722776667331345e-06,
+       "mean": 4.809786965700015e-07
+      },
+      "points": 8000128,
+      "positions": {
+       "count": 8000128,
+       "max": 1.1201481356692966e-05,
+       "mean": 9.336303592997935e-07
+      },
+      "strands": 500008,
+      "tangents": {
+       "count": 8000128,
+       "max": 1.5916253687464632e-05,
+       "mean": 5.67932804242491e-07
+      },
+      "widths": {
+       "max": 4.889443516731262e-09,
+       "mean": 4.3228455903737386e-10
+      }
+     },
+     "cpu_noise_median_s": 0.1661248999999998,
+     "cpu_clump_median_s": 0.17449339999999935
+    }
+   },
+   "load_after": {
+    "cpu_percent": 9,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 100000,
+   "phase": "static",
+   "run": 1,
+   "load_before": {
+    "cpu_percent": 2,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 26.5134068,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 100000,
+     "phase": "static",
+     "out": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\result.json",
+     "work": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.13001390000000157,
+    "creation": {
+     "to_first_frame_s": 0.27437559999999905,
+     "commands_s": 0.09684120000000007,
+     "redraw_s": 0.0017844999999994116,
+     "count": 99994,
+     "ws_delta_mb": 272.8359375,
+     "private_delta_mb": 375.3125,
+     "ws_after_mb": 2430.10546875,
+     "gpu_device_delta_mb": 98.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 1599904,
+     "strands": 99994,
+     "lastEvaluationNodeMs": {
+      "centers": 4.1762,
+      "clump": 5.0863,
+      "curl": 6.7746,
+      "guides": 0.4448,
+      "interpolate": 13.4661,
+      "noise": 8.5635,
+      "output": 0.0007,
+      "resample": 0.1898,
+      "scalp": 0.0081,
+      "scatter": 6.2124,
+      "width": 2.2778
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\look.png",
+    "gpu": {
+     "api": "DirectX11",
+     "cpu_noise_s": [
+      0.05342959999999941,
+      0.04992389999999958,
+      0.0449982999999996,
+      0.04585639999999991,
+      0.04492660000000015,
+      0.05120989999999992,
+      0.054203100000000504,
+      0.04732810000000143,
+      0.043495099999999454
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 18.975,
+       "draw": {
+        "updateMs": 16.395,
+        "buildMs": 0.481,
+        "uploadMs": 15.784,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.121,
+          "commitMs": 10.487,
+          "bindMs": 0.069,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.197,
+       "draw": {
+        "updateMs": 17.22,
+        "buildMs": 0.476,
+        "uploadMs": 16.62,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.601,
+          "commitMs": 10.862,
+          "bindMs": 0.07,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.038,
+       "draw": {
+        "updateMs": 10.577,
+        "buildMs": 0.5,
+        "uploadMs": 9.945,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.075,
+          "commitMs": 4.688,
+          "bindMs": 0.066,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.5,
+       "draw": {
+        "updateMs": 10.864,
+        "buildMs": 0.481,
+        "uploadMs": 10.261,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.426,
+          "commitMs": 4.624,
+          "bindMs": 0.064,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.225,
+       "draw": {
+        "updateMs": 11.34,
+        "buildMs": 0.479,
+        "uploadMs": 10.738,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.644,
+          "commitMs": 4.947,
+          "bindMs": 0.065,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.38,
+       "draw": {
+        "updateMs": 10.455,
+        "buildMs": 0.481,
+        "uploadMs": 9.849,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 4.905,
+          "commitMs": 4.797,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.495,
+       "draw": {
+        "updateMs": 16.825,
+        "buildMs": 0.487,
+        "uploadMs": 16.214,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.488,
+          "commitMs": 10.573,
+          "bindMs": 0.063,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.547,
+       "draw": {
+        "updateMs": 11.948,
+        "buildMs": 0.48,
+        "uploadMs": 11.344,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 4.827,
+          "commitMs": 6.37,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.831,
+       "draw": {
+        "updateMs": 10.494,
+        "buildMs": 0.475,
+        "uploadMs": 9.889,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.066,
+          "commitMs": 4.676,
+          "bindMs": 0.064,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 5.2613,
+      "noise": 7.4446,
+      "output": 0.0008,
+      "resample": 0.1162,
+      "width": 1.7305
+     },
+     "cpu_clump_s": [
+      0.05004220000000004,
+      0.04937000000000147,
+      0.04968790000000034,
+      0.049425899999999245,
+      0.04960539999999902,
+      0.05025509999999933,
+      0.03818079999999924,
+      0.038515199999999084,
+      0.037432600000000704
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 20.97,
+       "draw": {
+        "updateMs": 10.963,
+        "buildMs": 0.992,
+        "uploadMs": 9.842,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.079,
+          "commitMs": 4.621,
+          "bindMs": 0.059,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.276,
+       "draw": {
+        "updateMs": 11.027,
+        "buildMs": 1.015,
+        "uploadMs": 9.804,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.087,
+          "commitMs": 4.565,
+          "bindMs": 0.064,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.507,
+       "draw": {
+        "updateMs": 11.36,
+        "buildMs": 1.018,
+        "uploadMs": 10.216,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.531,
+          "commitMs": 4.53,
+          "bindMs": 0.059,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.573,
+       "draw": {
+        "updateMs": 10.953,
+        "buildMs": 0.99,
+        "uploadMs": 9.84,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.115,
+          "commitMs": 4.577,
+          "bindMs": 0.061,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.479,
+       "draw": {
+        "updateMs": 10.998,
+        "buildMs": 1.008,
+        "uploadMs": 9.863,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.025,
+          "commitMs": 4.604,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.202,
+       "draw": {
+        "updateMs": 11.15,
+        "buildMs": 1.015,
+        "uploadMs": 10.003,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.197,
+          "commitMs": 4.667,
+          "bindMs": 0.054,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.893,
+       "draw": {
+        "updateMs": 11.248,
+        "buildMs": 1.002,
+        "uploadMs": 10.082,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.566,
+          "commitMs": 4.391,
+          "bindMs": 0.05,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.506,
+       "draw": {
+        "updateMs": 11.236,
+        "buildMs": 1.023,
+        "uploadMs": 10.083,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.302,
+          "commitMs": 4.58,
+          "bindMs": 0.063,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.501,
+       "draw": {
+        "updateMs": 10.89,
+        "buildMs": 1.039,
+        "uploadMs": 9.716,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 4.862,
+          "commitMs": 4.702,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 3.7011,
+      "curl": 6.446,
+      "noise": 7.1107,
+      "output": 0.0005,
+      "resample": 0.2506,
+      "width": 1.6912
+     },
+     "first_s": 0.9598201999999993,
+     "first_taken": true,
+     "first_stats": {
+      "api": "DirectX11",
+      "cpuMs": 947.907,
+      "gpu": {
+       "copyMs": 0.402432,
+       "curlMs": 1.275904,
+       "linesMs": 0.191488,
+       "noiseMs": 0.540672,
+       "totalMs": 2.69824,
+       "widthMs": 0.287744
+      },
+      "runs": 1,
+      "uploadMB": 24.39854,
+      "uploadMs": 3.1804,
+      "uploads": 1,
+      "videoMB": 126.792828,
+      "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "gpu_device_delta_mb": 121.0,
+     "cold_s": [
+      0.0049136000000000735,
+      0.005176999999999765,
+      0.004351399999999117,
+      0.004107099999998809,
+      0.004793600000001064,
+      0.004919599999999136,
+      0.004082699999999662,
+      0.003843299999999772,
+      0.0038336000000001036
+     ],
+     "cold_stats": [
+      {
+       "copyMs": 0.395264,
+       "curlMs": 0.551936,
+       "linesMs": 0.18432,
+       "noiseMs": 0.535552,
+       "totalMs": 1.9456,
+       "widthMs": 0.278528
+      },
+      {
+       "copyMs": 0.420864,
+       "curlMs": 0.553984,
+       "linesMs": 0.22016,
+       "noiseMs": 0.531456,
+       "totalMs": 2.000896,
+       "widthMs": 0.274432
+      },
+      {
+       "copyMs": 0.411648,
+       "curlMs": 0.566272,
+       "linesMs": 0.200704,
+       "noiseMs": 0.53552,
+       "totalMs": 1.991648,
+       "widthMs": 0.277504
+      },
+      {
+       "copyMs": 0.400384,
+       "curlMs": 0.55808,
+       "linesMs": 0.185344,
+       "noiseMs": 0.529408,
+       "totalMs": 1.946624,
+       "widthMs": 0.273408
+      },
+      {
+       "copyMs": 0.397312,
+       "curlMs": 0.561152,
+       "linesMs": 0.18432,
+       "noiseMs": 0.5376,
+       "totalMs": 1.96096,
+       "widthMs": 0.280576
+      },
+      {
+       "copyMs": 0.406528,
+       "curlMs": 1.170432,
+       "linesMs": 0.19456,
+       "noiseMs": 0.544768,
+       "totalMs": 2.550784,
+       "widthMs": 0.234496
+      },
+      {
+       "copyMs": 0.416768,
+       "curlMs": 0.540672,
+       "linesMs": 0.18944,
+       "noiseMs": 0.520192,
+       "totalMs": 1.896448,
+       "widthMs": 0.229376
+      },
+      {
+       "copyMs": 0.39936,
+       "curlMs": 0.548864,
+       "linesMs": 0.18432,
+       "noiseMs": 0.504832,
+       "totalMs": 1.867776,
+       "widthMs": 0.2304
+      },
+      {
+       "copyMs": 0.396288,
+       "curlMs": 0.538624,
+       "linesMs": 0.182272,
+       "noiseMs": 0.50176,
+       "totalMs": 1.846272,
+       "widthMs": 0.227328
+      }
+     ],
+     "cold_median_s": 0.004351399999999117,
+     "gpu_noise_s": [
+      0.0030165999999987037,
+      0.002839500000000328,
+      0.0025450999999989676,
+      0.002576999999998719,
+      0.0027061999999986597,
+      0.0025414999999995302,
+      0.002659099999998915,
+      0.0025113000000018815,
+      0.002494200000001001
+     ],
+     "gpu_noise_median_s": 0.002576999999998719,
+     "gpu_curl_s": [
+      0.002528399999999209,
+      0.0027517999999986387,
+      0.002542600000001727,
+      0.002502700000000857,
+      0.0024788999999998396,
+      0.0025197000000005687,
+      0.0024748999999992805,
+      0.0030084999999999695,
+      0.0025896000000003028
+     ],
+     "gpu_curl_median_s": 0.002528399999999209,
+     "gpu_width_s": [
+      0.0025059999999967886,
+      0.0026876999999991824,
+      0.0028480999999977996,
+      0.00260640000000123,
+      0.0031047000000015146,
+      0.0026312999999973385,
+      0.0025174999999997283,
+      0.0025224000000001467,
+      0.0024690000000013868
+     ],
+     "gpu_width_median_s": 0.00260640000000123,
+     "stats": [
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0383,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.379904,
+        "linesMs": 0.098304,
+        "noiseMs": 0.314368,
+        "totalMs": 1.155072,
+        "widthMs": 0.14336
+       },
+       "runs": 570,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0443,
+       "gpu": {
+        "copyMs": 0.22016,
+        "curlMs": 0.380928,
+        "linesMs": 0.099328,
+        "noiseMs": 0.314048,
+        "totalMs": 1.157824,
+        "widthMs": 0.14336
+       },
+       "runs": 571,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0316,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.379904,
+        "linesMs": 0.098304,
+        "noiseMs": 0.314368,
+        "totalMs": 1.155072,
+        "widthMs": 0.14336
+       },
+       "runs": 572,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0308,
+       "gpu": {
+        "copyMs": 0.24992,
+        "curlMs": 0.379904,
+        "linesMs": 0.11776,
+        "noiseMs": 0.314368,
+        "totalMs": 1.201216,
+        "widthMs": 0.139264
+       },
+       "runs": 573,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0339,
+       "gpu": {
+        "copyMs": 0.222432,
+        "curlMs": 0.380928,
+        "linesMs": 0.100352,
+        "noiseMs": 0.31504,
+        "totalMs": 1.161088,
+        "widthMs": 0.142336
+       },
+       "runs": 574,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0312,
+       "gpu": {
+        "copyMs": 0.227328,
+        "curlMs": 0.390144,
+        "linesMs": 0.1024,
+        "noiseMs": 0.311936,
+        "totalMs": 1.175168,
+        "widthMs": 0.14336
+       },
+       "runs": 575,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0375,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.380928,
+        "linesMs": 0.100352,
+        "noiseMs": 0.311296,
+        "totalMs": 1.150976,
+        "widthMs": 0.140288
+       },
+       "runs": 576,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0303,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.382976,
+        "linesMs": 0.09728,
+        "noiseMs": 0.312224,
+        "totalMs": 1.153952,
+        "widthMs": 0.142336
+       },
+       "runs": 577,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0303,
+       "gpu": {
+        "copyMs": 0.218176,
+        "curlMs": 0.376832,
+        "linesMs": 0.09728,
+        "noiseMs": 0.311968,
+        "totalMs": 1.145568,
+        "widthMs": 0.141312
+       },
+       "runs": 578,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.03,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.391168,
+        "linesMs": 0.098304,
+        "noiseMs": 0.311264,
+        "totalMs": 1.163232,
+        "widthMs": 0.145408
+       },
+       "runs": 579,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0336,
+       "gpu": {
+        "copyMs": 0.22016,
+        "curlMs": 0.387072,
+        "linesMs": 0.100352,
+        "noiseMs": 0.311296,
+        "totalMs": 1.160192,
+        "widthMs": 0.141312
+       },
+       "runs": 580,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0326,
+       "gpu": {
+        "copyMs": 0.22144,
+        "curlMs": 0.392192,
+        "linesMs": 0.1024,
+        "noiseMs": 0.311296,
+        "totalMs": 1.169664,
+        "widthMs": 0.142336
+       },
+       "runs": 581,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0302,
+       "gpu": {
+        "copyMs": 0.221184,
+        "curlMs": 0.381952,
+        "linesMs": 0.103424,
+        "noiseMs": 0.310944,
+        "totalMs": 1.158816,
+        "widthMs": 0.141312
+       },
+       "runs": 582,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0307,
+       "gpu": {
+        "copyMs": 0.217248,
+        "curlMs": 0.380928,
+        "linesMs": 0.098304,
+        "noiseMs": 0.306816,
+        "totalMs": 1.146656,
+        "widthMs": 0.14336
+       },
+       "runs": 583,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0301,
+       "gpu": {
+        "copyMs": 0.217184,
+        "curlMs": 0.376832,
+        "linesMs": 0.098304,
+        "noiseMs": 0.305792,
+        "totalMs": 1.141472,
+        "widthMs": 0.14336
+       },
+       "runs": 584,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0306,
+       "gpu": {
+        "copyMs": 0.21728,
+        "curlMs": 0.377856,
+        "linesMs": 0.098304,
+        "noiseMs": 0.306976,
+        "totalMs": 1.143776,
+        "widthMs": 0.14336
+       },
+       "runs": 585,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0301,
+       "gpu": {
+        "copyMs": 0.685056,
+        "curlMs": 0.406528,
+        "linesMs": 0.104448,
+        "noiseMs": 0.306176,
+        "totalMs": 1.641472,
+        "widthMs": 0.139264
+       },
+       "runs": 586,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0309,
+       "gpu": {
+        "copyMs": 0.223488,
+        "curlMs": 0.382976,
+        "linesMs": 0.100352,
+        "noiseMs": 0.3072,
+        "totalMs": 1.155328,
+        "widthMs": 0.141312
+       },
+       "runs": 587,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0305,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.377856,
+        "linesMs": 0.098304,
+        "noiseMs": 0.3072,
+        "totalMs": 1.171456,
+        "widthMs": 0.16896
+       },
+       "runs": 588,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0372,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.380928,
+        "linesMs": 0.100352,
+        "noiseMs": 0.306912,
+        "totalMs": 1.14864,
+        "widthMs": 0.141312
+       },
+       "runs": 589,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0371,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.386048,
+        "linesMs": 0.099328,
+        "noiseMs": 0.305152,
+        "totalMs": 1.150976,
+        "widthMs": 0.14336
+       },
+       "runs": 590,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0446,
+       "gpu": {
+        "copyMs": 0.216192,
+        "curlMs": 0.37376,
+        "linesMs": 0.098304,
+        "noiseMs": 0.301792,
+        "totalMs": 1.134432,
+        "widthMs": 0.144384
+       },
+       "runs": 591,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0366,
+       "gpu": {
+        "copyMs": 0.665824,
+        "curlMs": 0.391168,
+        "linesMs": 0.1024,
+        "noiseMs": 0.30208,
+        "totalMs": 1.602784,
+        "widthMs": 0.141312
+       },
+       "runs": 592,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0333,
+       "gpu": {
+        "copyMs": 0.222304,
+        "curlMs": 0.384,
+        "linesMs": 0.103424,
+        "noiseMs": 0.30288,
+        "totalMs": 1.151872,
+        "widthMs": 0.139264
+       },
+       "runs": 593,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0307,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.376832,
+        "linesMs": 0.09728,
+        "noiseMs": 0.301056,
+        "totalMs": 1.135616,
+        "widthMs": 0.142336
+       },
+       "runs": 594,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0306,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.380928,
+        "linesMs": 0.099328,
+        "noiseMs": 0.302048,
+        "totalMs": 1.143776,
+        "widthMs": 0.142336
+       },
+       "runs": 595,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.03,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.381952,
+        "linesMs": 0.098304,
+        "noiseMs": 0.301728,
+        "totalMs": 1.138336,
+        "widthMs": 0.139264
+       },
+       "runs": 596,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.1804,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      }
+     ],
+     "kernels_noise_median_ms": 0.3072,
+     "kernels_curl_median_ms": 0.380928,
+     "kernels_lines_median_ms": 0.099328,
+     "kernels_copy_median_ms": 0.219136,
+     "kernels_total_median_ms": 1.155072,
+     "apply_cpu_median_ms": 0.0309,
+     "video_mb": 126.792828,
+     "vp2_buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+     "draw_after_drag": {
+      "computeMs": 20.122,
+      "draw": {
+       "updateMs": 0.084,
+       "buildMs": 0.001,
+       "uploadMs": 0.016,
+       "items": {
+        "gpuPreview": {
+         "acquireMs": 0.0,
+         "writeMs": 0.03,
+         "commitMs": 0.0,
+         "bindMs": 0.0,
+         "megabytes": 0.0
+        }
+       }
+      }
+     },
+     "frames_compared": {
+      "gpu_vs_cpu": {
+       "differing_pixels": 487,
+       "share": 0.0008454861111111111,
+       "largest_step": 96,
+       "mean_step": 0.008,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\gpu_drag.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\cpu_commit.png"
+       ]
+      },
+      "cpu_vs_same_cpu": {
+       "differing_pixels": 0,
+       "share": 0.0,
+       "largest_step": 0,
+       "mean_step": 0.0,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\cpu_commit_again.png"
+       ]
+      },
+      "cpu_vs_cpu_1pc_away": {
+       "differing_pixels": 34211,
+       "share": 0.05939409722222222,
+       "largest_step": 123,
+       "mean_step": 0.3166267361111111,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\cpu_commit_1pc.png"
+       ]
+      },
+      "gpu_in_cpu_frame_vs_cpu": {
+       "differing_pixels": 415,
+       "share": 0.0007204861111111111,
+       "largest_step": 103,
+       "mean_step": 0.006328125,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\gpu_same_frame_as_cpu.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r1\\cpu_clump_and_noise.png"
+       ]
+      }
+     },
+     "commit_s": [
+      0.031608600000001985,
+      0.03182310000000044,
+      0.03170300000000026
+     ],
+     "commit_median_s": 0.03170300000000026,
+     "after_clump_s": 0.007155400000002032,
+     "after_clump_stats": {
+      "api": "DirectX11",
+      "cpuMs": 3.5282,
+      "gpu": {
+       "copyMs": 0.223232,
+       "curlMs": 0.393216,
+       "linesMs": 0.103424,
+       "noiseMs": 0.300032,
+       "totalMs": 1.189888,
+       "widthMs": 0.169984
+      },
+      "runs": 602,
+      "uploadMB": 24.39854,
+      "uploadMs": 3.2758,
+      "uploads": 4,
+      "videoMB": 126.792828,
+      "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "upload_ms": 3.2758,
+     "upload_mb": 24.39854,
+     "check": {
+      "bitangents": {
+       "count": 1599904,
+       "max": 0.0035768619272857904,
+       "mean": 3.5589499842923254e-06
+      },
+      "normals": {
+       "count": 1599904,
+       "max": 8.371866897505242e-06,
+       "mean": 4.814452376878224e-07
+      },
+      "points": 1599904,
+      "positions": {
+       "count": 1599904,
+       "max": 9.314358067058492e-06,
+       "mean": 9.34006652779782e-07
+      },
+      "strands": 99994,
+      "tangents": {
+       "count": 1599904,
+       "max": 1.318317481491249e-05,
+       "mean": 5.684081511899294e-07
+      },
+      "widths": {
+       "max": 4.889443516731262e-09,
+       "mean": 4.3225143229261057e-10
+      }
+     },
+     "cpu_noise_median_s": 0.04732810000000143,
+     "cpu_clump_median_s": 0.049425899999999245
+    }
+   },
+   "load_after": {
+    "cpu_percent": 7,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 500000,
+   "phase": "static",
+   "run": 1,
+   "load_before": {
+    "cpu_percent": 7,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 36.1848653,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 500000,
+     "phase": "static",
+     "out": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\result.json",
+     "work": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.1327360999999989,
+    "creation": {
+     "to_first_frame_s": 0.49125000000000085,
+     "commands_s": 0.09876769999999979,
+     "redraw_s": 0.0020849999999992264,
+     "count": 500008,
+     "ws_delta_mb": 1146.1875,
+     "private_delta_mb": 1654.9296875,
+     "ws_after_mb": 3305.79296875,
+     "gpu_device_delta_mb": 485.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 8000128,
+     "strands": 500008,
+     "lastEvaluationNodeMs": {
+      "centers": 12.6754,
+      "clump": 22.4137,
+      "curl": 31.7912,
+      "guides": 0.5001,
+      "interpolate": 50.4834,
+      "noise": 43.0573,
+      "output": 0.0009,
+      "resample": 1.0244,
+      "scalp": 0.0079,
+      "scatter": 29.7449,
+      "width": 10.769
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\look.png",
+    "gpu": {
+     "api": "DirectX11",
+     "cpu_noise_s": [
+      0.18821780000000032,
+      0.14796399999999998,
+      0.14780969999999982,
+      0.15003719999999987,
+      0.15345540000000035,
+      0.15414009999999934,
+      0.15385099999999952,
+      0.15844869999999922,
+      0.2012879999999999
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 88.607,
+       "draw": {
+        "updateMs": 76.55,
+        "buildMs": 2.397,
+        "uploadMs": 74.016,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 24.609,
+          "commitMs": 49.141,
+          "bindMs": 0.073,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 71.236,
+       "draw": {
+        "updateMs": 53.578,
+        "buildMs": 2.457,
+        "uploadMs": 50.984,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.365,
+          "commitMs": 27.455,
+          "bindMs": 0.068,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 71.802,
+       "draw": {
+        "updateMs": 53.748,
+        "buildMs": 2.634,
+        "uploadMs": 50.985,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.216,
+          "commitMs": 27.609,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.588,
+       "draw": {
+        "updateMs": 55.077,
+        "buildMs": 2.51,
+        "uploadMs": 52.433,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 24.597,
+          "commitMs": 27.66,
+          "bindMs": 0.071,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.288,
+       "draw": {
+        "updateMs": 54.502,
+        "buildMs": 2.497,
+        "uploadMs": 51.873,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.548,
+          "commitMs": 28.085,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.388,
+       "draw": {
+        "updateMs": 53.728,
+        "buildMs": 2.672,
+        "uploadMs": 50.914,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 24.013,
+          "commitMs": 26.73,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.2,
+       "draw": {
+        "updateMs": 54.1,
+        "buildMs": 2.512,
+        "uploadMs": 51.456,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.944,
+          "commitMs": 27.361,
+          "bindMs": 0.06,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.561,
+       "draw": {
+        "updateMs": 59.457,
+        "buildMs": 2.467,
+        "uploadMs": 56.86,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 24.176,
+          "commitMs": 32.529,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 71.674,
+       "draw": {
+        "updateMs": 53.948,
+        "buildMs": 2.493,
+        "uploadMs": 51.317,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.641,
+          "commitMs": 27.45,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 24.0923,
+      "noise": 35.2445,
+      "output": 0.0003,
+      "resample": 1.0418,
+      "width": 7.9452
+     },
+     "cpu_clump_s": [
+      0.17765659999999883,
+      0.17459999999999987,
+      0.1776560000000007,
+      0.17668659999999825,
+      0.17598809999999787,
+      0.17978450000000024,
+      0.18348100000000045,
+      0.1752621999999988,
+      0.17592769999999902
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 96.2,
+       "draw": {
+        "updateMs": 56.755,
+        "buildMs": 4.854,
+        "uploadMs": 51.766,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.687,
+          "commitMs": 27.906,
+          "bindMs": 0.067,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 94.633,
+       "draw": {
+        "updateMs": 56.183,
+        "buildMs": 4.849,
+        "uploadMs": 51.203,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.482,
+          "commitMs": 27.483,
+          "bindMs": 0.061,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 97.145,
+       "draw": {
+        "updateMs": 55.835,
+        "buildMs": 4.905,
+        "uploadMs": 50.802,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 23.509,
+          "commitMs": 27.132,
+          "bindMs": 0.063,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.055,
+       "draw": {
+        "updateMs": 57.252,
+        "buildMs": 5.074,
+        "uploadMs": 52.045,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 24.234,
+          "commitMs": 27.614,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.16,
+       "draw": {
+        "updateMs": 56.556,
+        "buildMs": 4.937,
+        "uploadMs": 51.486,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 23.829,
+          "commitMs": 27.364,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 97.059,
+       "draw": {
+        "updateMs": 57.956,
+        "buildMs": 5.143,
+        "uploadMs": 52.677,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 24.966,
+          "commitMs": 27.51,
+          "bindMs": 0.065,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 100.377,
+       "draw": {
+        "updateMs": 58.47,
+        "buildMs": 5.06,
+        "uploadMs": 53.262,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 24.07,
+          "commitMs": 29.03,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 94.576,
+       "draw": {
+        "updateMs": 56.691,
+        "buildMs": 4.886,
+        "uploadMs": 51.647,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 23.961,
+          "commitMs": 27.454,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 94.882,
+       "draw": {
+        "updateMs": 56.153,
+        "buildMs": 4.854,
+        "uploadMs": 51.164,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.936,
+          "commitMs": 27.067,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 14.939,
+      "curl": 30.3384,
+      "noise": 36.9205,
+      "output": 0.0005,
+      "resample": 1.0692,
+      "width": 8.255
+     },
+     "first_s": 1.1202603999999994,
+     "first_taken": true,
+     "first_stats": {
+      "api": "DirectX11",
+      "cpuMs": 984.3226,
+      "gpu": {
+       "copyMs": 13.76768,
+       "curlMs": 26.596352,
+       "linesMs": 8.910848,
+       "noiseMs": 5.966848,
+       "totalMs": 69.052416,
+       "widthMs": 13.810688
+      },
+      "runs": 1,
+      "uploadMB": 122.001956,
+      "uploadMs": 14.2821,
+      "uploads": 1,
+      "videoMB": 634.01058,
+      "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "gpu_device_delta_mb": 602.0,
+     "cold_s": [
+      0.01171109999999942,
+      0.01132780000000011,
+      0.010330499999998466,
+      0.010926800000000014,
+      0.011016399999999038,
+      0.010217499999999546,
+      0.010341500000002668,
+      0.01006399999999985,
+      0.009860899999999617
+     ],
+     "cold_stats": [
+      {
+       "copyMs": 0.954464,
+       "curlMs": 2.101248,
+       "linesMs": 0.505856,
+       "noiseMs": 2.08384,
+       "totalMs": 6.528096,
+       "widthMs": 0.882688
+      },
+      {
+       "copyMs": 1.01376,
+       "curlMs": 2.079744,
+       "linesMs": 0.48128,
+       "noiseMs": 1.624064,
+       "totalMs": 6.076416,
+       "widthMs": 0.877568
+      },
+      {
+       "copyMs": 0.9472,
+       "curlMs": 2.08896,
+       "linesMs": 0.483328,
+       "noiseMs": 1.625088,
+       "totalMs": 6.023168,
+       "widthMs": 0.878592
+      },
+      {
+       "copyMs": 0.96768,
+       "curlMs": 2.326528,
+       "linesMs": 0.50688,
+       "noiseMs": 2.103296,
+       "totalMs": 6.779904,
+       "widthMs": 0.87552
+      },
+      {
+       "copyMs": 0.943136,
+       "curlMs": 2.075648,
+       "linesMs": 0.480256,
+       "noiseMs": 1.625088,
+       "totalMs": 6.001696,
+       "widthMs": 0.877568
+      },
+      {
+       "copyMs": 0.946176,
+       "curlMs": 2.072576,
+       "linesMs": 0.485376,
+       "noiseMs": 1.63328,
+       "totalMs": 5.832704,
+       "widthMs": 0.695296
+      },
+      {
+       "copyMs": 0.969728,
+       "curlMs": 2.855936,
+       "linesMs": 0.49664,
+       "noiseMs": 1.57168,
+       "totalMs": 6.58928,
+       "widthMs": 0.695296
+      },
+      {
+       "copyMs": 0.946176,
+       "curlMs": 2.049024,
+       "linesMs": 0.48128,
+       "noiseMs": 1.5656,
+       "totalMs": 5.741472,
+       "widthMs": 0.699392
+      },
+      {
+       "copyMs": 0.955392,
+       "curlMs": 2.096128,
+       "linesMs": 0.483328,
+       "noiseMs": 1.564352,
+       "totalMs": 5.798592,
+       "widthMs": 0.699392
+      }
+     ],
+     "cold_median_s": 0.010341500000002668,
+     "gpu_noise_s": [
+      0.010913699999999693,
+      0.009741699999999298,
+      0.00980819999999838,
+      0.010190800000000166,
+      0.009544900000001633,
+      0.010216500000002071,
+      0.009565500000000782,
+      0.009986099999998999,
+      0.010286300000000637
+     ],
+     "gpu_noise_median_s": 0.009986099999998999,
+     "gpu_curl_s": [
+      0.009595300000000861,
+      0.010016200000002584,
+      0.009521100000000615,
+      0.009961100000001721,
+      0.009807400000003241,
+      0.00934170000000023,
+      0.009933600000000098,
+      0.009361699999999473,
+      0.009826300000000288
+     ],
+     "gpu_curl_median_s": 0.009807400000003241,
+     "gpu_width_s": [
+      0.00993649999999846,
+      0.009616499999999917,
+      0.010242600000001545,
+      0.009438800000001635,
+      0.009889400000002269,
+      0.0093943000000003,
+      0.009484799999999183,
+      0.009642899999999344,
+      0.009383200000002034
+     ],
+     "gpu_width_median_s": 0.009616499999999917,
+     "stats": [
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1865,
+       "gpu": {
+        "copyMs": 0.961536,
+        "curlMs": 2.471936,
+        "linesMs": 0.887808,
+        "noiseMs": 1.498112,
+        "totalMs": 6.516736,
+        "widthMs": 0.697344
+       },
+       "runs": 131,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.109,
+       "gpu": {
+        "copyMs": 0.945152,
+        "curlMs": 2.061312,
+        "linesMs": 0.48128,
+        "noiseMs": 1.4848,
+        "totalMs": 5.660672,
+        "widthMs": 0.688128
+       },
+       "runs": 132,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0708,
+       "gpu": {
+        "copyMs": 0.949248,
+        "curlMs": 2.09408,
+        "linesMs": 0.507904,
+        "noiseMs": 1.485824,
+        "totalMs": 5.732352,
+        "widthMs": 0.695296
+       },
+       "runs": 133,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.102,
+       "gpu": {
+        "copyMs": 0.943104,
+        "curlMs": 2.05824,
+        "linesMs": 0.478208,
+        "noiseMs": 1.472512,
+        "totalMs": 5.641216,
+        "widthMs": 0.689152
+       },
+       "runs": 134,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.113,
+       "gpu": {
+        "copyMs": 0.949248,
+        "curlMs": 2.055168,
+        "linesMs": 0.483328,
+        "noiseMs": 1.472512,
+        "totalMs": 5.64736,
+        "widthMs": 0.687104
+       },
+       "runs": 135,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1247,
+       "gpu": {
+        "copyMs": 0.961536,
+        "curlMs": 2.449408,
+        "linesMs": 0.876544,
+        "noiseMs": 1.460896,
+        "totalMs": 6.440608,
+        "widthMs": 0.692224
+       },
+       "runs": 136,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1262,
+       "gpu": {
+        "copyMs": 0.943104,
+        "curlMs": 2.066432,
+        "linesMs": 0.48128,
+        "noiseMs": 1.462016,
+        "totalMs": 5.643008,
+        "widthMs": 0.690176
+       },
+       "runs": 137,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1131,
+       "gpu": {
+        "copyMs": 0.954592,
+        "curlMs": 2.085888,
+        "linesMs": 0.50176,
+        "noiseMs": 1.843168,
+        "totalMs": 6.078656,
+        "widthMs": 0.693248
+       },
+       "runs": 138,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1403,
+       "gpu": {
+        "copyMs": 0.942336,
+        "curlMs": 2.05312,
+        "linesMs": 0.478208,
+        "noiseMs": 1.44896,
+        "totalMs": 5.619968,
+        "widthMs": 0.697344
+       },
+       "runs": 139,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.157,
+       "gpu": {
+        "copyMs": 0.948224,
+        "curlMs": 2.106368,
+        "linesMs": 0.483328,
+        "noiseMs": 1.437696,
+        "totalMs": 5.666816,
+        "widthMs": 0.6912
+       },
+       "runs": 140,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1359,
+       "gpu": {
+        "copyMs": 1.2032,
+        "curlMs": 2.110464,
+        "linesMs": 0.490496,
+        "noiseMs": 1.437696,
+        "totalMs": 6.34368,
+        "widthMs": 1.101824
+       },
+       "runs": 141,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1468,
+       "gpu": {
+        "copyMs": 0.944448,
+        "curlMs": 2.069504,
+        "linesMs": 0.48128,
+        "noiseMs": 1.426432,
+        "totalMs": 5.61184,
+        "widthMs": 0.690176
+       },
+       "runs": 142,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0691,
+       "gpu": {
+        "copyMs": 0.955392,
+        "curlMs": 2.276352,
+        "linesMs": 0.505856,
+        "noiseMs": 1.872896,
+        "totalMs": 6.295552,
+        "widthMs": 0.685056
+       },
+       "runs": 143,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1238,
+       "gpu": {
+        "copyMs": 0.944128,
+        "curlMs": 2.064384,
+        "linesMs": 0.478208,
+        "noiseMs": 1.414144,
+        "totalMs": 5.588992,
+        "widthMs": 0.688128
+       },
+       "runs": 144,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1098,
+       "gpu": {
+        "copyMs": 0.9472,
+        "curlMs": 2.089984,
+        "linesMs": 0.4864,
+        "noiseMs": 1.417216,
+        "totalMs": 5.62688,
+        "widthMs": 0.68608
+       },
+       "runs": 145,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0648,
+       "gpu": {
+        "copyMs": 1.341632,
+        "curlMs": 2.060288,
+        "linesMs": 0.504832,
+        "noiseMs": 1.416192,
+        "totalMs": 6.429888,
+        "widthMs": 1.106944
+       },
+       "runs": 146,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1054,
+       "gpu": {
+        "copyMs": 0.9472,
+        "curlMs": 2.069504,
+        "linesMs": 0.480256,
+        "noiseMs": 1.417216,
+        "totalMs": 5.6064,
+        "widthMs": 0.692224
+       },
+       "runs": 147,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0986,
+       "gpu": {
+        "copyMs": 0.96768,
+        "curlMs": 2.699264,
+        "linesMs": 0.50176,
+        "noiseMs": 1.417216,
+        "totalMs": 6.267904,
+        "widthMs": 0.681984
+       },
+       "runs": 148,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0692,
+       "gpu": {
+        "copyMs": 0.943104,
+        "curlMs": 2.059264,
+        "linesMs": 0.480256,
+        "noiseMs": 1.417216,
+        "totalMs": 5.772288,
+        "widthMs": 0.872448
+       },
+       "runs": 149,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1393,
+       "gpu": {
+        "copyMs": 0.953344,
+        "curlMs": 2.115584,
+        "linesMs": 0.482304,
+        "noiseMs": 1.417216,
+        "totalMs": 5.666816,
+        "widthMs": 0.698368
+       },
+       "runs": 150,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1174,
+       "gpu": {
+        "copyMs": 1.427456,
+        "curlMs": 2.05824,
+        "linesMs": 0.479232,
+        "noiseMs": 1.420288,
+        "totalMs": 6.075392,
+        "widthMs": 0.690176
+       },
+       "runs": 151,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1325,
+       "gpu": {
+        "copyMs": 0.945152,
+        "curlMs": 2.071552,
+        "linesMs": 0.482304,
+        "noiseMs": 1.417024,
+        "totalMs": 5.601088,
+        "widthMs": 0.685056
+       },
+       "runs": 152,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1135,
+       "gpu": {
+        "copyMs": 0.965824,
+        "curlMs": 2.7136,
+        "linesMs": 0.493568,
+        "noiseMs": 1.417088,
+        "totalMs": 6.27616,
+        "widthMs": 0.68608
+       },
+       "runs": 153,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1232,
+       "gpu": {
+        "copyMs": 0.941056,
+        "curlMs": 2.08384,
+        "linesMs": 0.479232,
+        "noiseMs": 1.416192,
+        "totalMs": 5.613568,
+        "widthMs": 0.693248
+       },
+       "runs": 154,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1121,
+       "gpu": {
+        "copyMs": 0.945376,
+        "curlMs": 2.093056,
+        "linesMs": 0.502784,
+        "noiseMs": 1.415136,
+        "totalMs": 5.648576,
+        "widthMs": 0.692224
+       },
+       "runs": 155,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0976,
+       "gpu": {
+        "copyMs": 0.941056,
+        "curlMs": 2.064384,
+        "linesMs": 0.479232,
+        "noiseMs": 1.414144,
+        "totalMs": 5.592064,
+        "widthMs": 0.693248
+       },
+       "runs": 156,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1098,
+       "gpu": {
+        "copyMs": 0.949248,
+        "curlMs": 2.091008,
+        "linesMs": 0.4864,
+        "noiseMs": 1.414784,
+        "totalMs": 5.62752,
+        "widthMs": 0.68608
+       },
+       "runs": 157,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.2821,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      }
+     ],
+     "kernels_noise_median_ms": 1.420288,
+     "kernels_curl_median_ms": 2.08384,
+     "kernels_lines_median_ms": 0.483328,
+     "kernels_copy_median_ms": 0.948224,
+     "kernels_total_median_ms": 5.660672,
+     "apply_cpu_median_ms": 0.1131,
+     "video_mb": 634.01058,
+     "vp2_buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+     "draw_after_drag": {
+      "computeMs": 95.709,
+      "draw": {
+       "updateMs": 0.176,
+       "buildMs": 0.001,
+       "uploadMs": 0.02,
+       "items": {
+        "gpuPreview": {
+         "acquireMs": 0.0,
+         "writeMs": 0.11,
+         "commitMs": 0.0,
+         "bindMs": 0.0,
+         "megabytes": 0.0
+        }
+       }
+      }
+     },
+     "frames_compared": {
+      "gpu_vs_cpu": {
+       "differing_pixels": 868,
+       "share": 0.0015069444444444444,
+       "largest_step": 90,
+       "mean_step": 0.010621527777777778,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\gpu_drag.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\cpu_commit.png"
+       ]
+      },
+      "cpu_vs_same_cpu": {
+       "differing_pixels": 0,
+       "share": 0.0,
+       "largest_step": 0,
+       "mean_step": 0.0,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\cpu_commit_again.png"
+       ]
+      },
+      "cpu_vs_cpu_1pc_away": {
+       "differing_pixels": 42366,
+       "share": 0.07355208333333334,
+       "largest_step": 123,
+       "mean_step": 0.3753767361111111,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\cpu_commit_1pc.png"
+       ]
+      },
+      "gpu_in_cpu_frame_vs_cpu": {
+       "differing_pixels": 757,
+       "share": 0.001314236111111111,
+       "largest_step": 84,
+       "mean_step": 0.010920138888888889,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\gpu_same_frame_as_cpu.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r1\\cpu_clump_and_noise.png"
+       ]
+      }
+     },
+     "commit_s": [
+      0.1771193999999987,
+      0.15540440000000189,
+      0.15281949999999966
+     ],
+     "commit_median_s": 0.15540440000000189,
+     "after_clump_s": 0.04097160000000244,
+     "after_clump_stats": {
+      "api": "DirectX11",
+      "cpuMs": 16.1713,
+      "gpu": {
+       "copyMs": 1.780736,
+       "curlMs": 2.880512,
+       "linesMs": 0.913408,
+       "noiseMs": 4.163584,
+       "totalMs": 11.209728,
+       "widthMs": 1.471488
+      },
+      "runs": 163,
+      "uploadMB": 122.001956,
+      "uploadMs": 15.2828,
+      "uploads": 4,
+      "videoMB": 634.01058,
+      "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "upload_ms": 15.2828,
+     "upload_mb": 122.001956,
+     "check": {
+      "bitangents": {
+       "count": 8000128,
+       "max": 0.00538230175152421,
+       "mean": 3.557511175997109e-06
+      },
+      "normals": {
+       "count": 8000128,
+       "max": 9.722776667331345e-06,
+       "mean": 4.809786965700015e-07
+      },
+      "points": 8000128,
+      "positions": {
+       "count": 8000128,
+       "max": 1.1201481356692966e-05,
+       "mean": 9.336303592997935e-07
+      },
+      "strands": 500008,
+      "tangents": {
+       "count": 8000128,
+       "max": 1.5916253687464632e-05,
+       "mean": 5.67932804242491e-07
+      },
+      "widths": {
+       "max": 4.889443516731262e-09,
+       "mean": 4.3228455903737386e-10
+      }
+     },
+     "cpu_noise_median_s": 0.15385099999999952,
+     "cpu_clump_median_s": 0.17668659999999825
+    }
+   },
+   "load_after": {
+    "cpu_percent": 8,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 100000,
+   "phase": "static",
+   "run": 2,
+   "load_before": {
+    "cpu_percent": 6,
+    "free_ram_gb": 97.8,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 25.837952600000023,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 100000,
+     "phase": "static",
+     "out": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\result.json",
+     "work": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.13382059999999996,
+    "creation": {
+     "to_first_frame_s": 0.27798319999999954,
+     "commands_s": 0.09714259999999975,
+     "redraw_s": 0.002880100000000496,
+     "count": 99994,
+     "ws_delta_mb": 272.30078125,
+     "private_delta_mb": 374.7421875,
+     "ws_after_mb": 2433.41796875,
+     "gpu_device_delta_mb": 97.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 1599904,
+     "strands": 99994,
+     "lastEvaluationNodeMs": {
+      "centers": 4.0226,
+      "clump": 5.149,
+      "curl": 6.6994,
+      "guides": 0.3901,
+      "interpolate": 12.5452,
+      "noise": 8.9262,
+      "output": 0.0004,
+      "resample": 0.2072,
+      "scalp": 0.0079,
+      "scatter": 6.6657,
+      "width": 2.2911
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\look.png",
+    "gpu": {
+     "api": "DirectX11",
+     "cpu_noise_s": [
+      0.05613699999999966,
+      0.051590799999999604,
+      0.04536119999999855,
+      0.046452300000000335,
+      0.043619599999999537,
+      0.04801879999999947,
+      0.052933600000001135,
+      0.04665590000000108,
+      0.04403940000000084
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 19.494,
+       "draw": {
+        "updateMs": 16.611,
+        "buildMs": 0.49,
+        "uploadMs": 16.0,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.012,
+          "commitMs": 10.815,
+          "bindMs": 0.07,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.882,
+       "draw": {
+        "updateMs": 16.595,
+        "buildMs": 0.479,
+        "uploadMs": 15.992,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.099,
+          "commitMs": 10.751,
+          "bindMs": 0.06,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.531,
+       "draw": {
+        "updateMs": 10.535,
+        "buildMs": 0.476,
+        "uploadMs": 9.934,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 5.099,
+          "commitMs": 4.628,
+          "bindMs": 0.061,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.7,
+       "draw": {
+        "updateMs": 10.544,
+        "buildMs": 0.482,
+        "uploadMs": 9.94,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.322,
+          "commitMs": 4.479,
+          "bindMs": 0.061,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.858,
+       "draw": {
+        "updateMs": 10.191,
+        "buildMs": 0.48,
+        "uploadMs": 9.587,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 4.919,
+          "commitMs": 4.542,
+          "bindMs": 0.053,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.494,
+       "draw": {
+        "updateMs": 10.162,
+        "buildMs": 0.478,
+        "uploadMs": 9.54,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 5.011,
+          "commitMs": 4.383,
+          "bindMs": 0.058,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.538,
+       "draw": {
+        "updateMs": 17.066,
+        "buildMs": 0.5,
+        "uploadMs": 16.422,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.57,
+          "commitMs": 10.701,
+          "bindMs": 0.06,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.528,
+       "draw": {
+        "updateMs": 12.149,
+        "buildMs": 0.487,
+        "uploadMs": 11.532,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.204,
+          "commitMs": 6.182,
+          "bindMs": 0.063,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.476,
+       "draw": {
+        "updateMs": 10.358,
+        "buildMs": 0.491,
+        "uploadMs": 9.752,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.102,
+          "commitMs": 4.512,
+          "bindMs": 0.061,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 4.9622,
+      "noise": 7.4881,
+      "output": 0.0014,
+      "resample": 0.1488,
+      "width": 1.5999
+     },
+     "cpu_clump_s": [
+      0.05023609999999934,
+      0.05104620000000004,
+      0.05045890000000064,
+      0.03779010000000049,
+      0.03808380000000078,
+      0.038898100000000824,
+      0.0372558999999999,
+      0.037612600000000995,
+      0.0374680000000005
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 20.694,
+       "draw": {
+        "updateMs": 10.923,
+        "buildMs": 0.989,
+        "uploadMs": 9.807,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.003,
+          "writeMs": 4.847,
+          "commitMs": 4.817,
+          "bindMs": 0.061,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.558,
+       "draw": {
+        "updateMs": 11.609,
+        "buildMs": 1.01,
+        "uploadMs": 10.47,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.527,
+          "commitMs": 4.794,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.966,
+       "draw": {
+        "updateMs": 11.017,
+        "buildMs": 1.032,
+        "uploadMs": 9.859,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.003,
+          "writeMs": 5.065,
+          "commitMs": 4.644,
+          "bindMs": 0.059,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.24,
+       "draw": {
+        "updateMs": 11.175,
+        "buildMs": 1.02,
+        "uploadMs": 10.03,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 4.961,
+          "commitMs": 4.833,
+          "bindMs": 0.062,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.93,
+       "draw": {
+        "updateMs": 11.045,
+        "buildMs": 1.045,
+        "uploadMs": 9.876,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 5.094,
+          "commitMs": 4.633,
+          "bindMs": 0.063,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.893,
+       "draw": {
+        "updateMs": 11.216,
+        "buildMs": 1.023,
+        "uploadMs": 10.066,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.268,
+          "commitMs": 4.658,
+          "bindMs": 0.056,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.532,
+       "draw": {
+        "updateMs": 10.802,
+        "buildMs": 1.026,
+        "uploadMs": 9.649,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 5.007,
+          "commitMs": 4.478,
+          "bindMs": 0.081,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.458,
+       "draw": {
+        "updateMs": 11.112,
+        "buildMs": 0.996,
+        "uploadMs": 9.972,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.003,
+          "writeMs": 5.327,
+          "commitMs": 4.508,
+          "bindMs": 0.058,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.703,
+       "draw": {
+        "updateMs": 10.79,
+        "buildMs": 1.015,
+        "uploadMs": 9.649,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 4.95,
+          "commitMs": 4.568,
+          "bindMs": 0.053,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 3.7181,
+      "curl": 6.5675,
+      "noise": 7.2649,
+      "output": 0.0007,
+      "resample": 0.1137,
+      "width": 1.7174
+     },
+     "first_s": 0.9857344000000001,
+     "first_taken": true,
+     "first_stats": {
+      "api": "DirectX11",
+      "cpuMs": 974.5955,
+      "gpu": {
+       "copyMs": 0.420864,
+       "curlMs": 0.566272,
+       "linesMs": 0.198656,
+       "noiseMs": 0.523264,
+       "totalMs": 1.990656,
+       "widthMs": 0.2816
+      },
+      "runs": 1,
+      "uploadMB": 24.39854,
+      "uploadMs": 3.3469,
+      "uploads": 1,
+      "videoMB": 126.792828,
+      "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "gpu_device_delta_mb": 122.0,
+     "cold_s": [
+      0.004948900000000478,
+      0.005557500000000104,
+      0.004054000000000002,
+      0.004043100000000521,
+      0.004467099999999391,
+      0.004879900000000603,
+      0.0038505999999998153,
+      0.0037532999999996264,
+      0.003745299999998508
+     ],
+     "cold_stats": [
+      {
+       "copyMs": 0.395264,
+       "curlMs": 0.556032,
+       "linesMs": 0.183296,
+       "noiseMs": 0.512,
+       "totalMs": 1.916928,
+       "widthMs": 0.270336
+      },
+      {
+       "copyMs": 0.40448,
+       "curlMs": 1.28512,
+       "linesMs": 0.196608,
+       "noiseMs": 0.512,
+       "totalMs": 2.671616,
+       "widthMs": 0.273408
+      },
+      {
+       "copyMs": 0.39424,
+       "curlMs": 0.570368,
+       "linesMs": 0.186368,
+       "noiseMs": 0.513024,
+       "totalMs": 1.933312,
+       "widthMs": 0.269312
+      },
+      {
+       "copyMs": 0.398336,
+       "curlMs": 0.557056,
+       "linesMs": 0.18432,
+       "noiseMs": 0.510976,
+       "totalMs": 1.92,
+       "widthMs": 0.269312
+      },
+      {
+       "copyMs": 0.396288,
+       "curlMs": 0.546816,
+       "linesMs": 0.182272,
+       "noiseMs": 0.513024,
+       "totalMs": 1.90976,
+       "widthMs": 0.27136
+      },
+      {
+       "copyMs": 0.407552,
+       "curlMs": 0.562176,
+       "linesMs": 0.192512,
+       "noiseMs": 0.521216,
+       "totalMs": 1.91488,
+       "widthMs": 0.231424
+      },
+      {
+       "copyMs": 0.420864,
+       "curlMs": 0.550912,
+       "linesMs": 0.185344,
+       "noiseMs": 0.493568,
+       "totalMs": 1.876992,
+       "widthMs": 0.226304
+      },
+      {
+       "copyMs": 0.396288,
+       "curlMs": 0.54272,
+       "linesMs": 0.18432,
+       "noiseMs": 0.482304,
+       "totalMs": 1.829888,
+       "widthMs": 0.224256
+      },
+      {
+       "copyMs": 0.395264,
+       "curlMs": 0.544768,
+       "linesMs": 0.181248,
+       "noiseMs": 0.48128,
+       "totalMs": 1.82784,
+       "widthMs": 0.22528
+      }
+     ],
+     "cold_median_s": 0.004054000000000002,
+     "gpu_noise_s": [
+      0.0026555000000030304,
+      0.0027721999999990032,
+      0.002508399999999966,
+      0.0025478000000020984,
+      0.0032428000000024326,
+      0.0026778999999983455,
+      0.0025215999999979033,
+      0.0024809999999995114,
+      0.002533100000000843
+     ],
+     "gpu_noise_median_s": 0.0025478000000020984,
+     "gpu_curl_s": [
+      0.002500300000001232,
+      0.0031145000000023515,
+      0.002875599999999423,
+      0.0026703000000019017,
+      0.002530499999998881,
+      0.0026095000000019297,
+      0.002612199999997955,
+      0.003002999999999645,
+      0.0027764000000018996
+     ],
+     "gpu_curl_median_s": 0.0026703000000019017,
+     "gpu_width_s": [
+      0.0025946999999995057,
+      0.002555000000000973,
+      0.002502799999998473,
+      0.002468699999997881,
+      0.0031028000000006273,
+      0.002765199999998913,
+      0.0025399999999997647,
+      0.002479799999999699,
+      0.0026198000000015043
+     ],
+     "gpu_width_median_s": 0.002555000000000973,
+     "stats": [
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0364,
+       "gpu": {
+        "copyMs": 0.222208,
+        "curlMs": 0.391168,
+        "linesMs": 0.099328,
+        "noiseMs": 0.308224,
+        "totalMs": 1.159168,
+        "widthMs": 0.13824
+       },
+       "runs": 568,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0387,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.388096,
+        "linesMs": 0.098304,
+        "noiseMs": 0.308224,
+        "totalMs": 1.15712,
+        "widthMs": 0.14336
+       },
+       "runs": 569,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0304,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.385024,
+        "linesMs": 0.098304,
+        "noiseMs": 0.309184,
+        "totalMs": 1.150912,
+        "widthMs": 0.141312
+       },
+       "runs": 570,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0307,
+       "gpu": {
+        "copyMs": 0.219328,
+        "curlMs": 0.385024,
+        "linesMs": 0.09728,
+        "noiseMs": 0.309088,
+        "totalMs": 1.15408,
+        "widthMs": 0.14336
+       },
+       "runs": 571,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0375,
+       "gpu": {
+        "copyMs": 0.621792,
+        "curlMs": 0.387072,
+        "linesMs": 0.103424,
+        "noiseMs": 0.308224,
+        "totalMs": 1.561824,
+        "widthMs": 0.141312
+       },
+       "runs": 572,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0315,
+       "gpu": {
+        "copyMs": 0.22128,
+        "curlMs": 0.386048,
+        "linesMs": 0.1024,
+        "noiseMs": 0.308224,
+        "totalMs": 1.15824,
+        "widthMs": 0.140288
+       },
+       "runs": 573,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0298,
+       "gpu": {
+        "copyMs": 0.221184,
+        "curlMs": 0.384,
+        "linesMs": 0.098304,
+        "noiseMs": 0.308224,
+        "totalMs": 1.153024,
+        "widthMs": 0.141312
+       },
+       "runs": 574,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0303,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.381952,
+        "linesMs": 0.098304,
+        "noiseMs": 0.309984,
+        "totalMs": 1.147616,
+        "widthMs": 0.13824
+       },
+       "runs": 575,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0308,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.381952,
+        "linesMs": 0.098304,
+        "noiseMs": 0.309248,
+        "totalMs": 1.150976,
+        "widthMs": 0.14336
+       },
+       "runs": 576,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0316,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.392192,
+        "linesMs": 0.098304,
+        "noiseMs": 0.308224,
+        "totalMs": 1.16224,
+        "widthMs": 0.145408
+       },
+       "runs": 577,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.037,
+       "gpu": {
+        "copyMs": 0.68096,
+        "curlMs": 0.407552,
+        "linesMs": 0.104448,
+        "noiseMs": 0.308224,
+        "totalMs": 1.642496,
+        "widthMs": 0.141312
+       },
+       "runs": 578,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0407,
+       "gpu": {
+        "copyMs": 0.222208,
+        "curlMs": 0.385024,
+        "linesMs": 0.103424,
+        "noiseMs": 0.301056,
+        "totalMs": 1.150976,
+        "widthMs": 0.139264
+       },
+       "runs": 579,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0376,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.37888,
+        "linesMs": 0.09728,
+        "noiseMs": 0.301824,
+        "totalMs": 1.138432,
+        "widthMs": 0.141312
+       },
+       "runs": 580,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0308,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.380928,
+        "linesMs": 0.09728,
+        "noiseMs": 0.301056,
+        "totalMs": 1.138688,
+        "widthMs": 0.141312
+       },
+       "runs": 581,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.054,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.379904,
+        "linesMs": 0.098304,
+        "noiseMs": 0.301984,
+        "totalMs": 1.141664,
+        "widthMs": 0.14336
+       },
+       "runs": 582,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0372,
+       "gpu": {
+        "copyMs": 0.218112,
+        "curlMs": 0.375808,
+        "linesMs": 0.09728,
+        "noiseMs": 0.30208,
+        "totalMs": 1.135616,
+        "widthMs": 0.142336
+       },
+       "runs": 583,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0306,
+       "gpu": {
+        "copyMs": 0.67072,
+        "curlMs": 0.401408,
+        "linesMs": 0.104448,
+        "noiseMs": 0.301056,
+        "totalMs": 1.614848,
+        "widthMs": 0.137216
+       },
+       "runs": 584,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0449,
+       "gpu": {
+        "copyMs": 0.221312,
+        "curlMs": 0.385024,
+        "linesMs": 0.1024,
+        "noiseMs": 0.300864,
+        "totalMs": 1.150912,
+        "widthMs": 0.141312
+       },
+       "runs": 585,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0579,
+       "gpu": {
+        "copyMs": 0.219136,
+        "curlMs": 0.377856,
+        "linesMs": 0.099328,
+        "noiseMs": 0.2968,
+        "totalMs": 1.160032,
+        "widthMs": 0.166912
+       },
+       "runs": 586,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0315,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.386048,
+        "linesMs": 0.099328,
+        "noiseMs": 0.295936,
+        "totalMs": 1.14176,
+        "widthMs": 0.14336
+       },
+       "runs": 587,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0312,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.377856,
+        "linesMs": 0.098304,
+        "noiseMs": 0.29696,
+        "totalMs": 1.133568,
+        "widthMs": 0.14336
+       },
+       "runs": 588,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.031,
+       "gpu": {
+        "copyMs": 0.217088,
+        "curlMs": 0.380928,
+        "linesMs": 0.098304,
+        "noiseMs": 0.296864,
+        "totalMs": 1.131424,
+        "widthMs": 0.13824
+       },
+       "runs": 589,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0301,
+       "gpu": {
+        "copyMs": 0.659456,
+        "curlMs": 0.413696,
+        "linesMs": 0.103424,
+        "noiseMs": 0.295936,
+        "totalMs": 1.613824,
+        "widthMs": 0.141312
+       },
+       "runs": 590,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0462,
+       "gpu": {
+        "copyMs": 0.222208,
+        "curlMs": 0.386048,
+        "linesMs": 0.103424,
+        "noiseMs": 0.295808,
+        "totalMs": 1.141632,
+        "widthMs": 0.134144
+       },
+       "runs": 591,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0529,
+       "gpu": {
+        "copyMs": 0.21504,
+        "curlMs": 0.381952,
+        "linesMs": 0.099328,
+        "noiseMs": 0.295936,
+        "totalMs": 1.134592,
+        "widthMs": 0.142336
+       },
+       "runs": 592,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0323,
+       "gpu": {
+        "copyMs": 0.217344,
+        "curlMs": 0.381952,
+        "linesMs": 0.100352,
+        "noiseMs": 0.294464,
+        "totalMs": 1.135424,
+        "widthMs": 0.141312
+       },
+       "runs": 593,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0371,
+       "gpu": {
+        "copyMs": 0.217216,
+        "curlMs": 0.381952,
+        "linesMs": 0.09728,
+        "noiseMs": 0.294528,
+        "totalMs": 1.13024,
+        "widthMs": 0.139264
+       },
+       "runs": 594,
+       "uploadMB": 24.39854,
+       "uploadMs": 3.3469,
+       "uploads": 1,
+       "videoMB": 126.792828,
+       "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      }
+     ],
+     "kernels_noise_median_ms": 0.301824,
+     "kernels_curl_median_ms": 0.385024,
+     "kernels_lines_median_ms": 0.098304,
+     "kernels_copy_median_ms": 0.219136,
+     "kernels_total_median_ms": 1.150912,
+     "apply_cpu_median_ms": 0.0323,
+     "video_mb": 126.792828,
+     "vp2_buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+     "draw_after_drag": {
+      "computeMs": 20.459,
+      "draw": {
+       "updateMs": 0.108,
+       "buildMs": 0.001,
+       "uploadMs": 0.021,
+       "items": {
+        "gpuPreview": {
+         "acquireMs": 0.0,
+         "writeMs": 0.037,
+         "commitMs": 0.0,
+         "bindMs": 0.0,
+         "megabytes": 0.0
+        }
+       }
+      }
+     },
+     "frames_compared": {
+      "gpu_vs_cpu": {
+       "differing_pixels": 487,
+       "share": 0.0008454861111111111,
+       "largest_step": 96,
+       "mean_step": 0.008,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\gpu_drag.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\cpu_commit.png"
+       ]
+      },
+      "cpu_vs_same_cpu": {
+       "differing_pixels": 0,
+       "share": 0.0,
+       "largest_step": 0,
+       "mean_step": 0.0,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\cpu_commit_again.png"
+       ]
+      },
+      "cpu_vs_cpu_1pc_away": {
+       "differing_pixels": 34211,
+       "share": 0.05939409722222222,
+       "largest_step": 123,
+       "mean_step": 0.3166267361111111,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\cpu_commit_1pc.png"
+       ]
+      },
+      "gpu_in_cpu_frame_vs_cpu": {
+       "differing_pixels": 415,
+       "share": 0.0007204861111111111,
+       "largest_step": 103,
+       "mean_step": 0.006328125,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\gpu_same_frame_as_cpu.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_100000_r2\\cpu_clump_and_noise.png"
+       ]
+      }
+     },
+     "commit_s": [
+      0.03129239999999811,
+      0.03174939999999893,
+      0.032515800000002315
+     ],
+     "commit_median_s": 0.03174939999999893,
+     "after_clump_s": 0.006678199999999634,
+     "after_clump_stats": {
+      "api": "DirectX11",
+      "cpuMs": 3.0754,
+      "gpu": {
+       "copyMs": 0.224256,
+       "curlMs": 0.39936,
+       "linesMs": 0.103424,
+       "noiseMs": 0.30272,
+       "totalMs": 1.197696,
+       "widthMs": 0.167936
+      },
+      "runs": 600,
+      "uploadMB": 24.39854,
+      "uploadMs": 2.8873,
+      "uploads": 4,
+      "videoMB": 126.792828,
+      "vp2Buffer": "bytes 19198848 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "upload_ms": 2.8873,
+     "upload_mb": 24.39854,
+     "check": {
+      "bitangents": {
+       "count": 1599904,
+       "max": 0.0035768619272857904,
+       "mean": 3.5589499842923254e-06
+      },
+      "normals": {
+       "count": 1599904,
+       "max": 8.371866897505242e-06,
+       "mean": 4.814452376878224e-07
+      },
+      "points": 1599904,
+      "positions": {
+       "count": 1599904,
+       "max": 9.314358067058492e-06,
+       "mean": 9.34006652779782e-07
+      },
+      "strands": 99994,
+      "tangents": {
+       "count": 1599904,
+       "max": 1.318317481491249e-05,
+       "mean": 5.684081511899294e-07
+      },
+      "widths": {
+       "max": 4.889443516731262e-09,
+       "mean": 4.3225143229261057e-10
+      }
+     },
+     "cpu_noise_median_s": 0.04665590000000108,
+     "cpu_clump_median_s": 0.03808380000000078
+    }
+   },
+   "load_after": {
+    "cpu_percent": 7,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 500000,
+   "phase": "static",
+   "run": 2,
+   "load_before": {
+    "cpu_percent": 9,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 36.29743210000001,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 500000,
+     "phase": "static",
+     "out": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\result.json",
+     "work": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.1321432999999992,
+    "creation": {
+     "to_first_frame_s": 0.5561261000000002,
+     "commands_s": 0.09708299999999959,
+     "redraw_s": 0.0026206999999995872,
+     "count": 500008,
+     "ws_delta_mb": 1206.8984375,
+     "private_delta_mb": 1715.77734375,
+     "ws_after_mb": 3364.23828125,
+     "gpu_device_delta_mb": 485.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 8000128,
+     "strands": 500008,
+     "lastEvaluationNodeMs": {
+      "centers": 12.1818,
+      "clump": 22.0542,
+      "curl": 31.067,
+      "guides": 0.5362,
+      "interpolate": 49.2437,
+      "noise": 42.6705,
+      "output": 0.0003,
+      "resample": 0.979,
+      "scalp": 0.0077,
+      "scatter": 30.1411,
+      "width": 10.3065
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\look.png",
+    "gpu": {
+     "api": "DirectX11",
+     "cpu_noise_s": [
+      0.24527649999999923,
+      0.14647189999999988,
+      0.14873470000000033,
+      0.1499365000000008,
+      0.15011639999999993,
+      0.14924249999999972,
+      0.16901999999999973,
+      0.15484100000000112,
+      0.14864829999999962
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 91.068,
+       "draw": {
+        "updateMs": 75.238,
+        "buildMs": 2.421,
+        "uploadMs": 72.683,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.163,
+          "commitMs": 49.24,
+          "bindMs": 0.074,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 71.053,
+       "draw": {
+        "updateMs": 52.987,
+        "buildMs": 2.43,
+        "uploadMs": 50.425,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 23.076,
+          "commitMs": 27.194,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.023,
+       "draw": {
+        "updateMs": 53.885,
+        "buildMs": 2.499,
+        "uploadMs": 51.247,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.261,
+          "commitMs": 27.788,
+          "bindMs": 0.065,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.007,
+       "draw": {
+        "updateMs": 54.103,
+        "buildMs": 2.491,
+        "uploadMs": 51.481,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.5,
+          "commitMs": 27.738,
+          "bindMs": 0.062,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.168,
+       "draw": {
+        "updateMs": 53.947,
+        "buildMs": 2.486,
+        "uploadMs": 51.327,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.954,
+          "commitMs": 27.219,
+          "bindMs": 0.063,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.503,
+       "draw": {
+        "updateMs": 53.706,
+        "buildMs": 2.548,
+        "uploadMs": 51.027,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.271,
+          "commitMs": 27.552,
+          "bindMs": 0.066,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.968,
+       "draw": {
+        "updateMs": 73.58,
+        "buildMs": 2.582,
+        "uploadMs": 70.862,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.907,
+          "commitMs": 46.783,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.141,
+       "draw": {
+        "updateMs": 59.218,
+        "buildMs": 2.452,
+        "uploadMs": 56.613,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 23.574,
+          "commitMs": 32.805,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.603,
+       "draw": {
+        "updateMs": 54.01,
+        "buildMs": 2.487,
+        "uploadMs": 51.38,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.332,
+          "commitMs": 27.872,
+          "bindMs": 0.07,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 24.6657,
+      "noise": 35.379,
+      "output": 0.0013,
+      "resample": 1.1225,
+      "width": 8.0178
+     },
+     "cpu_clump_s": [
+      0.1757989999999996,
+      0.1758153999999994,
+      0.17400130000000047,
+      0.175161000000001,
+      0.17697089999999882,
+      0.17495720000000148,
+      0.17412440000000018,
+      0.17462700000000098,
+      0.17427059999999983
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 96.613,
+       "draw": {
+        "updateMs": 56.877,
+        "buildMs": 4.938,
+        "uploadMs": 51.802,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.512,
+          "commitMs": 28.115,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.903,
+       "draw": {
+        "updateMs": 57.273,
+        "buildMs": 5.029,
+        "uploadMs": 52.107,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.649,
+          "commitMs": 28.206,
+          "bindMs": 0.061,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.127,
+       "draw": {
+        "updateMs": 56.862,
+        "buildMs": 5.049,
+        "uploadMs": 51.671,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.703,
+          "commitMs": 27.766,
+          "bindMs": 0.066,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.736,
+       "draw": {
+        "updateMs": 56.589,
+        "buildMs": 5.113,
+        "uploadMs": 51.322,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 23.449,
+          "commitMs": 27.695,
+          "bindMs": 0.065,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.762,
+       "draw": {
+        "updateMs": 58.595,
+        "buildMs": 5.17,
+        "uploadMs": 53.283,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.004,
+          "writeMs": 24.057,
+          "commitMs": 28.953,
+          "bindMs": 0.069,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.752,
+       "draw": {
+        "updateMs": 56.691,
+        "buildMs": 4.952,
+        "uploadMs": 51.608,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.006,
+          "writeMs": 24.136,
+          "commitMs": 27.301,
+          "bindMs": 0.065,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.492,
+       "draw": {
+        "updateMs": 56.221,
+        "buildMs": 4.879,
+        "uploadMs": 51.195,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.435,
+          "commitMs": 27.602,
+          "bindMs": 0.061,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.777,
+       "draw": {
+        "updateMs": 56.389,
+        "buildMs": 4.957,
+        "uploadMs": 51.293,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 23.599,
+          "commitMs": 27.458,
+          "bindMs": 0.061,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 94.68,
+       "draw": {
+        "updateMs": 57.559,
+        "buildMs": 4.997,
+        "uploadMs": 52.431,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.005,
+          "writeMs": 24.173,
+          "commitMs": 28.078,
+          "bindMs": 0.064,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 14.8849,
+      "curl": 30.7415,
+      "noise": 36.6569,
+      "output": 0.0007,
+      "resample": 1.0484,
+      "width": 8.0
+     },
+     "first_s": 1.1160159000000007,
+     "first_taken": true,
+     "first_stats": {
+      "api": "DirectX11",
+      "cpuMs": 983.035,
+      "gpu": {
+       "copyMs": 13.791232,
+       "curlMs": 26.38848,
+       "linesMs": 8.578048,
+       "noiseMs": 3.79392,
+       "totalMs": 69.10976,
+       "widthMs": 16.55808
+      },
+      "runs": 1,
+      "uploadMB": 122.001956,
+      "uploadMs": 14.0309,
+      "uploads": 1,
+      "videoMB": 634.01058,
+      "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "gpu_device_delta_mb": 605.0,
+     "cold_s": [
+      0.0850067999999986,
+      0.0847970999999994,
+      0.0674779999999977,
+      0.010341000000000378,
+      0.010145699999998925,
+      0.011984300000001724,
+      0.009541200000001027,
+      0.009763599999999428,
+      0.009259799999998819
+     ],
+     "cold_stats": [
+      {
+       "copyMs": 13.714432,
+       "curlMs": 25.843712,
+       "linesMs": 10.175488,
+       "noiseMs": 3.94752,
+       "totalMs": 70.603776,
+       "widthMs": 16.922624
+      },
+      {
+       "copyMs": 13.727744,
+       "curlMs": 26.021888,
+       "linesMs": 9.7536,
+       "noiseMs": 3.82976,
+       "totalMs": 70.882304,
+       "widthMs": 17.549312
+      },
+      {
+       "copyMs": 6.325248,
+       "curlMs": 26.025984,
+       "linesMs": 9.668608,
+       "noiseMs": 3.54304,
+       "totalMs": 62.79168,
+       "widthMs": 17.2288
+      },
+      {
+       "copyMs": 0.945152,
+       "curlMs": 2.103296,
+       "linesMs": 0.48128,
+       "noiseMs": 1.425056,
+       "totalMs": 5.825184,
+       "widthMs": 0.8704
+      },
+      {
+       "copyMs": 0.96768,
+       "curlMs": 2.125824,
+       "linesMs": 0.504832,
+       "noiseMs": 1.880032,
+       "totalMs": 6.347744,
+       "widthMs": 0.869376
+      },
+      {
+       "copyMs": 1.396736,
+       "curlMs": 2.074624,
+       "linesMs": 0.48128,
+       "noiseMs": 1.432576,
+       "totalMs": 6.0672,
+       "widthMs": 0.681984
+      },
+      {
+       "copyMs": 0.945248,
+       "curlMs": 2.072576,
+       "linesMs": 0.48128,
+       "noiseMs": 1.39136,
+       "totalMs": 5.572448,
+       "widthMs": 0.681984
+      },
+      {
+       "copyMs": 0.96896,
+       "curlMs": 2.512896,
+       "linesMs": 0.72704,
+       "noiseMs": 1.38544,
+       "totalMs": 6.279392,
+       "widthMs": 0.685056
+      },
+      {
+       "copyMs": 0.943104,
+       "curlMs": 2.062336,
+       "linesMs": 0.480256,
+       "noiseMs": 1.386496,
+       "totalMs": 5.562368,
+       "widthMs": 0.690176
+      }
+     ],
+     "cold_median_s": 0.010341000000000378,
+     "gpu_noise_s": [
+      0.010567500000000507,
+      0.01024759999999958,
+      0.009489500000000817,
+      0.009966999999999615,
+      0.00985329999999962,
+      0.009966999999999615,
+      0.01043239999999912,
+      0.009589299999998246,
+      0.010257299999999248
+     ],
+     "gpu_noise_median_s": 0.009966999999999615,
+     "gpu_curl_s": [
+      0.009713800000000106,
+      0.01000060000000147,
+      0.010375599999999707,
+      0.009578000000001197,
+      0.009797400000000067,
+      0.009230999999999767,
+      0.009776999999999703,
+      0.0097132000000002,
+      0.009712699999997909
+     ],
+     "gpu_curl_median_s": 0.009713800000000106,
+     "gpu_width_s": [
+      0.010565899999999573,
+      0.009870100000000548,
+      0.010349400000002618,
+      0.010670600000000974,
+      0.00964790000000093,
+      0.010172600000000642,
+      0.009428100000000939,
+      0.00966460000000069,
+      0.009713400000002537
+     ],
+     "gpu_width_median_s": 0.009870100000000548,
+     "stats": [
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1135,
+       "gpu": {
+        "copyMs": 0.960512,
+        "curlMs": 2.285568,
+        "linesMs": 0.50688,
+        "noiseMs": 1.966752,
+        "totalMs": 6.413984,
+        "widthMs": 0.694272
+       },
+       "runs": 131,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.078,
+       "gpu": {
+        "copyMs": 0.941056,
+        "curlMs": 2.059264,
+        "linesMs": 0.479232,
+        "noiseMs": 1.473344,
+        "totalMs": 5.644096,
+        "widthMs": 0.6912
+       },
+       "runs": 132,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0754,
+       "gpu": {
+        "copyMs": 0.949376,
+        "curlMs": 2.075648,
+        "linesMs": 0.483328,
+        "noiseMs": 1.473536,
+        "totalMs": 5.667968,
+        "widthMs": 0.68608
+       },
+       "runs": 133,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0641,
+       "gpu": {
+        "copyMs": 1.204224,
+        "curlMs": 2.076672,
+        "linesMs": 0.497664,
+        "noiseMs": 1.456128,
+        "totalMs": 6.358016,
+        "widthMs": 1.123328
+       },
+       "runs": 134,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1128,
+       "gpu": {
+        "copyMs": 0.941056,
+        "curlMs": 2.067456,
+        "linesMs": 0.483328,
+        "noiseMs": 1.45168,
+        "totalMs": 5.6296,
+        "widthMs": 0.68608
+       },
+       "runs": 135,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0674,
+       "gpu": {
+        "copyMs": 0.960512,
+        "curlMs": 2.26816,
+        "linesMs": 0.504832,
+        "noiseMs": 1.890304,
+        "totalMs": 6.317056,
+        "widthMs": 0.693248
+       },
+       "runs": 136,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1656,
+       "gpu": {
+        "copyMs": 0.941056,
+        "curlMs": 2.064384,
+        "linesMs": 0.478208,
+        "noiseMs": 1.440576,
+        "totalMs": 5.611328,
+        "widthMs": 0.687104
+       },
+       "runs": 137,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1489,
+       "gpu": {
+        "copyMs": 0.945152,
+        "curlMs": 2.079744,
+        "linesMs": 0.48128,
+        "noiseMs": 1.428064,
+        "totalMs": 5.62032,
+        "widthMs": 0.68608
+       },
+       "runs": 138,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1519,
+       "gpu": {
+        "copyMs": 0.960544,
+        "curlMs": 2.471936,
+        "linesMs": 0.869376,
+        "noiseMs": 1.429344,
+        "totalMs": 6.423424,
+        "widthMs": 0.692224
+       },
+       "runs": 139,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1669,
+       "gpu": {
+        "copyMs": 0.943104,
+        "curlMs": 2.0992,
+        "linesMs": 0.48128,
+        "noiseMs": 1.416192,
+        "totalMs": 5.628928,
+        "widthMs": 0.689152
+       },
+       "runs": 140,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1686,
+       "gpu": {
+        "copyMs": 0.9472,
+        "curlMs": 2.105344,
+        "linesMs": 0.500736,
+        "noiseMs": 1.4168,
+        "totalMs": 5.65616,
+        "widthMs": 0.68608
+       },
+       "runs": 141,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1658,
+       "gpu": {
+        "copyMs": 0.951296,
+        "curlMs": 2.069504,
+        "linesMs": 0.478208,
+        "noiseMs": 1.405952,
+        "totalMs": 5.590016,
+        "widthMs": 0.685056
+       },
+       "runs": 142,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1485,
+       "gpu": {
+        "copyMs": 0.948256,
+        "curlMs": 2.072576,
+        "linesMs": 0.485376,
+        "noiseMs": 1.405952,
+        "totalMs": 5.595168,
+        "widthMs": 0.683008
+       },
+       "runs": 143,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0687,
+       "gpu": {
+        "copyMs": 0.963584,
+        "curlMs": 2.515968,
+        "linesMs": 0.728064,
+        "noiseMs": 1.405632,
+        "totalMs": 6.301376,
+        "widthMs": 0.688128
+       },
+       "runs": 144,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0728,
+       "gpu": {
+        "copyMs": 0.943104,
+        "curlMs": 2.067456,
+        "linesMs": 0.482304,
+        "noiseMs": 1.406656,
+        "totalMs": 5.59072,
+        "widthMs": 0.6912
+       },
+       "runs": 145,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.082,
+       "gpu": {
+        "copyMs": 0.964608,
+        "curlMs": 2.266112,
+        "linesMs": 0.504832,
+        "noiseMs": 1.848192,
+        "totalMs": 6.270848,
+        "widthMs": 0.687104
+       },
+       "runs": 146,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0723,
+       "gpu": {
+        "copyMs": 0.941056,
+        "curlMs": 2.060288,
+        "linesMs": 0.479232,
+        "noiseMs": 1.407552,
+        "totalMs": 5.573184,
+        "widthMs": 0.685056
+       },
+       "runs": 147,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1851,
+       "gpu": {
+        "copyMs": 0.9472,
+        "curlMs": 2.084864,
+        "linesMs": 0.485376,
+        "noiseMs": 1.406976,
+        "totalMs": 5.608448,
+        "widthMs": 0.684032
+       },
+       "runs": 148,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1916,
+       "gpu": {
+        "copyMs": 1.202176,
+        "curlMs": 2.06336,
+        "linesMs": 0.497664,
+        "noiseMs": 1.405632,
+        "totalMs": 6.456,
+        "widthMs": 1.287168
+       },
+       "runs": 149,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.2033,
+       "gpu": {
+        "copyMs": 0.943104,
+        "curlMs": 2.059264,
+        "linesMs": 0.482304,
+        "noiseMs": 1.405952,
+        "totalMs": 5.576704,
+        "widthMs": 0.68608
+       },
+       "runs": 150,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.2116,
+       "gpu": {
+        "copyMs": 0.944128,
+        "curlMs": 2.10432,
+        "linesMs": 0.500736,
+        "noiseMs": 1.791808,
+        "totalMs": 6.035264,
+        "widthMs": 0.694272
+       },
+       "runs": 151,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.2254,
+       "gpu": {
+        "copyMs": 0.978944,
+        "curlMs": 2.059264,
+        "linesMs": 0.478208,
+        "noiseMs": 1.405952,
+        "totalMs": 5.612544,
+        "widthMs": 0.690176
+       },
+       "runs": 152,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1863,
+       "gpu": {
+        "copyMs": 0.94336,
+        "curlMs": 2.065408,
+        "linesMs": 0.482304,
+        "noiseMs": 1.406976,
+        "totalMs": 5.581056,
+        "widthMs": 0.683008
+       },
+       "runs": 153,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.1732,
+       "gpu": {
+        "copyMs": 0.971776,
+        "curlMs": 2.50368,
+        "linesMs": 0.730112,
+        "noiseMs": 1.405952,
+        "totalMs": 6.30272,
+        "widthMs": 0.6912
+       },
+       "runs": 154,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0826,
+       "gpu": {
+        "copyMs": 0.945152,
+        "curlMs": 2.069504,
+        "linesMs": 0.479232,
+        "noiseMs": 1.40288,
+        "totalMs": 5.587968,
+        "widthMs": 0.6912
+       },
+       "runs": 155,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.0721,
+       "gpu": {
+        "copyMs": 0.945152,
+        "curlMs": 2.097152,
+        "linesMs": 0.504832,
+        "noiseMs": 1.78688,
+        "totalMs": 6.024192,
+        "widthMs": 0.690176
+       },
+       "runs": 156,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      },
+      {
+       "api": "DirectX11",
+       "cpuMs": 0.079,
+       "gpu": {
+        "copyMs": 0.9392,
+        "curlMs": 2.050048,
+        "linesMs": 0.478208,
+        "noiseMs": 1.403904,
+        "totalMs": 5.553344,
+        "widthMs": 0.681984
+       },
+       "runs": 157,
+       "uploadMB": 122.001956,
+       "uploadMs": 14.0309,
+       "uploads": 1,
+       "videoMB": 634.01058,
+       "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+       "why": ""
+      }
+     ],
+     "kernels_noise_median_ms": 1.416192,
+     "kernels_curl_median_ms": 2.075648,
+     "kernels_lines_median_ms": 0.483328,
+     "kernels_copy_median_ms": 0.9472,
+     "kernels_total_median_ms": 5.6296,
+     "apply_cpu_median_ms": 0.1485,
+     "video_mb": 634.01058,
+     "vp2_buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+     "draw_after_drag": {
+      "computeMs": 97.627,
+      "draw": {
+       "updateMs": 0.155,
+       "buildMs": 0.002,
+       "uploadMs": 0.024,
+       "items": {
+        "gpuPreview": {
+         "acquireMs": 0.0,
+         "writeMs": 0.079,
+         "commitMs": 0.0,
+         "bindMs": 0.0,
+         "megabytes": 0.0
+        }
+       }
+      }
+     },
+     "frames_compared": {
+      "gpu_vs_cpu": {
+       "differing_pixels": 868,
+       "share": 0.0015069444444444444,
+       "largest_step": 90,
+       "mean_step": 0.010621527777777778,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\gpu_drag.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\cpu_commit.png"
+       ]
+      },
+      "cpu_vs_same_cpu": {
+       "differing_pixels": 0,
+       "share": 0.0,
+       "largest_step": 0,
+       "mean_step": 0.0,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\cpu_commit_again.png"
+       ]
+      },
+      "cpu_vs_cpu_1pc_away": {
+       "differing_pixels": 42366,
+       "share": 0.07355208333333334,
+       "largest_step": 123,
+       "mean_step": 0.3753767361111111,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\cpu_commit.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\cpu_commit_1pc.png"
+       ]
+      },
+      "gpu_in_cpu_frame_vs_cpu": {
+       "differing_pixels": 757,
+       "share": 0.001314236111111111,
+       "largest_step": 84,
+       "mean_step": 0.010920138888888889,
+       "images": [
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\gpu_same_frame_as_cpu.png",
+        "<tmp>\\bench_dx11\\gui_groomlab_gpu_static_500000_r2\\cpu_clump_and_noise.png"
+       ]
+      }
+     },
+     "commit_s": [
+      0.17346599999999768,
+      0.15207360000000136,
+      0.1520916000000021
+     ],
+     "commit_median_s": 0.1520916000000021,
+     "after_clump_s": 0.040638900000001144,
+     "after_clump_stats": {
+      "api": "DirectX11",
+      "cpuMs": 16.3485,
+      "gpu": {
+       "copyMs": 1.847296,
+       "curlMs": 2.83136,
+       "linesMs": 0.932864,
+       "noiseMs": 3.296256,
+       "totalMs": 11.119616,
+       "widthMs": 2.21184
+      },
+      "runs": 163,
+      "uploadMB": 122.001956,
+      "uploadMs": 15.4552,
+      "uploads": 4,
+      "videoMB": 634.01058,
+      "vp2Buffer": "bytes 96001536 usage 0 bind 0x1 cpu 0x0 misc 0x0",
+      "why": ""
+     },
+     "upload_ms": 15.4552,
+     "upload_mb": 122.001956,
+     "check": {
+      "bitangents": {
+       "count": 8000128,
+       "max": 0.00538230175152421,
+       "mean": 3.557511175997109e-06
+      },
+      "normals": {
+       "count": 8000128,
+       "max": 9.722776667331345e-06,
+       "mean": 4.809786965700015e-07
+      },
+      "points": 8000128,
+      "positions": {
+       "count": 8000128,
+       "max": 1.1201481356692966e-05,
+       "mean": 9.336303592997935e-07
+      },
+      "strands": 500008,
+      "tangents": {
+       "count": 8000128,
+       "max": 1.5916253687464632e-05,
+       "mean": 5.67932804242491e-07
+      },
+      "widths": {
+       "max": 4.889443516731262e-09,
+       "mean": 4.3228455903737386e-10
+      }
+     },
+     "cpu_noise_median_s": 0.1499365000000008,
+     "cpu_clump_median_s": 0.17495720000000148
+    }
+   },
+   "load_after": {
+    "cpu_percent": 2,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  }
+ ],
+ "finished": "2026-10-01T19:43:37",
+ "summary": {
+  "Creation to first drawn frame (GUI)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.27798319999999954,
+     "min": 0.27437559999999905,
+     "max": 0.2907200999999997,
+     "n": 3,
+     "unit": "s"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.5407028,
+     "min": 0.49125000000000085,
+     "max": 0.5561261000000002,
+     "n": 3,
+     "unit": "s"
+    }
+   }
+  },
+  "Creation working set delta (GUI, incl. draw buffers)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 272.8359375,
+     "min": 272.30078125,
+     "max": 276.58984375,
+     "n": 3,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 1204.69140625,
+     "min": 1146.1875,
+     "max": 1206.8984375,
+     "n": 3,
+     "unit": "MB"
+    }
+   }
+  },
+  "GPU memory delta, whole device (GUI, nvidia-smi)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 98.0,
+     "min": 97.0,
+     "max": 98.0,
+     "n": 3,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 485.0,
+     "min": 485.0,
+     "max": 485.0,
+     "n": 3,
+     "unit": "MB"
+    }
+   }
+  },
+  "Redraw, nothing changed (GUI)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 2.8457999999993433,
+     "min": 1.7844999999994116,
+     "max": 2.880100000000496,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 2.0849999999992264,
+     "min": 1.6517000000000337,
+     "max": 2.6206999999995872,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Noise tweak to drawn frame, GPU waited for: CPU evaluation": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 46.78859999999929,
+     "min": 46.65590000000108,
+     "max": 47.32810000000143,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 153.85099999999952,
+     "min": 149.93650000000082,
+     "max": 166.1248999999998,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Clump tweak to drawn frame, GPU waited for: CPU evaluation": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 49.216600000001165,
+     "min": 38.08380000000078,
+     "max": 49.425899999999245,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 174.95720000000148,
+     "min": 174.49339999999935,
+     "max": 176.68659999999824,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Noise drag to drawn frame: GPU preview": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 2.576999999998719,
+     "min": 2.5478000000020984,
+     "max": 2.6751999999987675,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 9.966999999999615,
+     "min": 9.762500000000784,
+     "max": 9.986099999998999,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Noise drag to drawn frame: GPU preview, GPU at idle clocks": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 4.351399999999117,
+     "min": 4.054000000000002,
+     "max": 4.965800000000797,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 10.341500000002668,
+     "min": 10.341000000000378,
+     "max": 20.513299999997514,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Curl drag to drawn frame: GPU preview": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 2.6203999999978578,
+     "min": 2.528399999999209,
+     "max": 2.6703000000019017,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 9.807400000003241,
+     "min": 9.713800000000106,
+     "max": 10.002000000000066,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Width drag to drawn frame: GPU preview": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 2.555000000000973,
+     "min": 2.5428000000005113,
+     "max": 2.60640000000123,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 9.870100000000548,
+     "min": 9.616499999999917,
+     "max": 9.984100000000495,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "GPU kernels + copy into VP2 buffers (timestamps)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 1.155072,
+     "min": 1.150912,
+     "max": 1.15616,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 5.635712,
+     "min": 5.6296,
+     "max": 5.660672,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "GPU Noise kernel": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.3072,
+     "min": 0.301824,
+     "max": 0.309248,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 1.420288,
+     "min": 1.416192,
+     "max": 1.426432,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "GPU Curl kernel": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.385024,
+     "min": 0.380928,
+     "max": 0.385024,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 2.075648,
+     "min": 2.074624,
+     "max": 2.08384,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "GPU lit frames kernel": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.098304,
+     "min": 0.098304,
+     "max": 0.099328,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.483328,
+     "min": 0.483328,
+     "max": 0.485376,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "GPU copy into VP2 buffers": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.219136,
+     "min": 0.218272,
+     "max": 0.219136,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.9472,
+     "min": 0.9472,
+     "max": 0.948224,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "GPU preview apply on the CPU (params, dispatch)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.0311,
+     "min": 0.0309,
+     "max": 0.0323,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.1274,
+     "min": 0.1131,
+     "max": 0.1485,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "First drag (kernels compiled, strands uploaded)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 978.8023999999994,
+     "min": 959.8201999999993,
+     "max": 985.7344000000002,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 1116.0159000000008,
+     "min": 1038.9005000000004,
+     "max": 1120.2603999999994,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Noise drag after a clump change (CPU to Clump + upload + GPU)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 6.678199999999634,
+     "min": 6.642400000000492,
+     "max": 7.155400000002032,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 40.97160000000244,
+     "min": 40.638900000001144,
+     "max": 41.43120000000167,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Upload of Clump's strands (CPU side)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 2.9063,
+     "min": 2.8873,
+     "max": 3.2758,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 15.2828,
+     "min": 15.1656,
+     "max": 15.4552,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "Upload size": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 24.39854,
+     "min": 24.39854,
+     "max": 24.39854,
+     "n": 3,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 122.001956,
+     "min": 122.001956,
+     "max": 122.001956,
+     "n": 3,
+     "unit": "MB"
+    }
+   }
+  },
+  "GPU preview buffers (VRAM)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 126.792828,
+     "min": 126.792828,
+     "max": 126.792828,
+     "n": 3,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 634.01058,
+     "min": 634.01058,
+     "max": 634.01058,
+     "n": 3,
+     "unit": "MB"
+    }
+   }
+  },
+  "Release: drag ends, CPU commit to drawn frame": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 31.70300000000026,
+     "min": 31.012399999998053,
+     "max": 31.74939999999893,
+     "n": 3,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 155.40440000000189,
+     "min": 152.0916000000021,
+     "max": 158.84259999999983,
+     "n": 3,
+     "unit": "ms"
+    }
+   }
+  },
+  "GPU vs CPU positions, max error": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 9.314358067058492e-06,
+     "min": 9.314358067058492e-06,
+     "max": 9.314358067058492e-06,
+     "n": 3,
+     "unit": "cm"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 1.1201481356692966e-05,
+     "min": 1.1201481356692966e-05,
+     "max": 1.1201481356692966e-05,
+     "n": 3,
+     "unit": "cm"
+    }
+   }
+  },
+  "GPU vs CPU positions, mean error": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 9.34006652779782e-07,
+     "min": 9.34006652779782e-07,
+     "max": 9.34006652779782e-07,
+     "n": 3,
+     "unit": "cm"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 9.336303592997935e-07,
+     "min": 9.336303592997935e-07,
+     "max": 9.336303592997935e-07,
+     "n": 3,
+     "unit": "cm"
+    }
+   }
+  },
+  "GPU vs CPU normals, max error": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 8.371866897505242e-06,
+     "min": 8.371866897505242e-06,
+     "max": 8.371866897505242e-06,
+     "n": 3,
+     "unit": ""
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 9.722776667331345e-06,
+     "min": 9.722776667331345e-06,
+     "max": 9.722776667331345e-06,
+     "n": 3,
+     "unit": ""
+    }
+   }
+  },
+  "Frame pixels differing: GPU drag vs CPU commit, same value": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.08454861111111112,
+     "min": 0.08454861111111112,
+     "max": 0.08454861111111112,
+     "n": 3,
+     "unit": "%"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.15069444444444444,
+     "min": 0.15069444444444444,
+     "max": 0.15069444444444444,
+     "n": 3,
+     "unit": "%"
+    }
+   }
+  },
+  "Frame pixels differing: GPU drag in the frame a clump change evaluates vs CPU": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.0720486111111111,
+     "min": 0.0720486111111111,
+     "max": 0.0720486111111111,
+     "n": 3,
+     "unit": "%"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.13142361111111112,
+     "min": 0.13142361111111112,
+     "max": 0.13142361111111112,
+     "n": 3,
+     "unit": "%"
+    }
+   }
+  },
+  "Frame pixels differing: CPU vs the same CPU frame again": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.0,
+     "min": 0.0,
+     "max": 0.0,
+     "n": 3,
+     "unit": "%"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.0,
+     "min": 0.0,
+     "max": 0.0,
+     "n": 3,
+     "unit": "%"
+    }
+   }
+  },
+  "Frame pixels differing: CPU vs CPU at a value 1% away": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 5.939409722222222,
+     "min": 5.939409722222222,
+     "max": 5.939409722222222,
+     "n": 3,
+     "unit": "%"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 7.355208333333334,
+     "min": 7.355208333333334,
+     "max": 7.355208333333334,
+     "n": 3,
+     "unit": "%"
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.exr binary
+*.abc binary
+*.ma text eol=lf
+*.mb binary
+*.pgm binary
+*.ppm binary
+*.tga binary
+*.tif binary
+*.tiff binary

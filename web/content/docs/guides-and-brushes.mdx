@@ -1,0 +1,225 @@
+---
+title: Guides & brushes
+description: The guide hierarchy (primary and child guides), guide groups with show/hide and color, freezing and soloing guides, and the grooming brushes and their settings.
+---
+
+Guides are the curves you shape by hand; the render strands are interpolated between them. The
+basic workflow:
+
+1. Open **GroomLab > Groom Tools**, pick **Place** and click or drag on the scalp.
+2. Shape the guides with **Comb**, then refine them with the other Shape brushes.
+3. Select some guides and choose **Edit Guides > Children** to generate child guides inside their
+   tubes.
+4. Continue brushing; the strands update with every stroke.
+
+<Example
+  name="viewport-guides.png"
+  alt="A wolf's guides in the viewport over its fur"
+  caption="Guides are colored by level: primaries blue, children emerald, then yellow, red, white."
+/>
+
+## The hierarchy
+
+Primary guides are the top level. **Child guides** are generated inside each parent's **tube**
+(the volume around a guide in which its children are placed), grandchildren inside the children's
+tubes, to any depth. A child stores its shape relative to its parent, so editing a parent moves
+and reshapes all its descendants.
+
+- **Generate children:** select guides, set the count in the box beside **Edit Guides** (under
+  **Guide groups & edits**) and choose **Edit Guides > Children**. Only the selected parents get
+  children (with no selection, the group picked in the list). Select children and repeat for
+  grandchildren.
+- **Place children by hand:** pick a child group in **Group** (top of the Groom Tools) and use
+  Place or Draw; each new child is parented to the nearest guide of the parent group.
+- **Restructure:** **Reparent...** (move the selected children under another parent) and
+  **Promote / Demote...** (move a group one level up, or under a sibling group) in Edit Guides
+  change the hierarchy while keeping the guides' shapes.
+- **Segments:** the slider under Guide groups & edits shows the point count of the selected guides
+  (of every guide when none are selected). Dragging it resamples them live; releasing applies it as
+  one undo step. Give guides more segments before combing tight curls.
+- **Which guides drive the strands:** by default Interpolate uses the deepest level of the
+  hierarchy. Once children exist, the strands are interpolated from the children, and the
+  primaries shape the strands through them ([Interpolate](/docs/node-graph#interpolate-and-guide-influence)).
+
+## Guide groups
+
+Guides belong to named **guide groups**. A group is either a top-level group of primary guides
+(`primary` by default, `braids`...) or a child group whose guides are children of the guides in
+its parent group. Groups are listed in **Groom Tools > Tools > Guide groups & edits**, a tree with
+the columns **Group**, a color swatch, **Guides** (count) and **Level**.
+
+| Action | How |
+| --- | --- |
+| Create a group | **+ New Group**: a name and a parent (**None** for a top-level group, or a parent group for a child group). |
+| Make it the active group | Click its row, or pick it in the **Group** menu at the top of the Groom Tools. Brushes only edit the active group's guides, and Place and Draw add guides to it. **All groups** brushes every guide. **Page Up** / **Page Down** step one level up or down. |
+| Rename | Double-click the name, or **rename**. Guides node params that name the group are updated. |
+| Show / hide | The row's checkbox. |
+| Color | Click the swatch; right-click it (or **Default Color**) to clear. **Hue per group** gives every group without its own color a distinct hue; off, guides are colored by level. |
+| Select its guides | **select**, or right-click > **Select Guides**. |
+| Delete | **delete**: the group, its child groups and their guides. The dialog lists graph nodes that use the group. |
+| Mirror | **Edit Guides > Mirror Group...** copies a top-level group to the other side. |
+
+**Isolate**, next to the Group menu, draws the active group's level at full color and dims the
+other levels.
+
+**Hidden groups** are not drawn, not affected by brushes and not picked by the Select tool. Hiding
+does not change the groom: the guides still drive their strands. Hiding applies to the named group
+only, not to its child groups.
+
+In the graph, groups are referenced by name: a **Guides** node's `group` and `exclude` params
+choose which groups feed Interpolate, and a **Group** node with `by` `guideGroup` makes a strand
+mask from the strands nearest a group's guides ([Restricting a node](/docs/node-graph#restricting-a-node-to-some-strands)).
+Groups, and the guides in them, are saved with the scene and in `.groom` files; hidden state and
+group colors are stored on the Maya node (`hiddenGuideGroups`, `guideGroupColors`) and not in the
+`.groom` file.
+
+```python
+groomlab.list_guide_groups(groom)                      # [{name, parent, depth, count}, ...]
+groomlab.add_guide_group(groom, "bangs", parent=None)
+groomlab.rename_guide_group(groom, "bangs", "fringe")
+groomlab.show_guide_group(groom, "primary", visible=False)
+groomlab.set_guide_group_color(groom, "fringe", (1.0, 0.5, 0.2))
+groomlab.select_guides(groom, group="fringe")
+groomlab.guide_ids(groom, "fringe")                    # the group's guide IDs
+```
+
+A guide's group is set when it is created (the active group for Place and Draw, the child group
+for Edit Guides > Children). There is no command to move existing guides to another group.
+
+## Freeze and solo
+
+Freezing protects guides from brushes. The freeze state is a per-guide value from 0 to 1, the
+**freeze mask**; brushes scale their effect on each guide by 1 minus its freeze value, so a
+partial value gives a partial effect. Child guides inherit their parent's freeze value. Frozen
+guides are drawn blue. Freezing does not affect the strands.
+
+- **Freeze** (a brush in the Guides category) paints the freeze mask; **Ctrl** unfreezes.
+  **Unfreeze All**, next to it, clears the mask on every guide.
+- **Shift+click** a guide with any brush to solo it: it is unfrozen, every other guide is
+  frozen, and the brush switches to that guide's group. **Shift+click** off a guide (on bare
+  scalp or empty space) unfreezes all guides.
+- **Select** works the same way: the selected guides stay live, all others are frozen, and a
+  click on nothing unfreezes all.
+- **Solo new guides** (Place and Draw settings, off by default): each guide you place stays live
+  and all others are frozen, so you can shape it immediately.
+- With **Symmetry** on, the mirrored guides are soloed too. Each of these is one undo step.
+- **Freeze exact guides:** the freeze mask is a guide map named `freeze`. Select guides, then in
+  the **Paint** tab pick `freeze`, set **Value** to 1 and click **Fill**, which fills the selected
+  guides only. From Python: `groomlab.freeze_guides(groom, guides)` (the selected guides by
+  default; `value=0` unfreezes) and `groomlab.unfreeze_all(groom)`.
+
+To freeze a whole group, select its guides (**select** in the group list) and fill `freeze`, or
+in Python `groomlab.freeze_guides(groom, groomlab.guide_ids(groom, "fringe"))`.
+
+### Detailing at higher density
+
+A typical way to work from coarse to fine:
+
+1. Groom the primary guides with the `primary` group active, until the overall shape is right.
+2. Generate children (**Edit Guides > Children**), then make the child group active. Brushes now
+   only affect the children, and the primaries stay as they are.
+3. Hide the primary group if its curves get in the way, or turn on **Isolate** to dim it.
+4. Solo areas while detailing: select or Shift+click the guides to work on, and everything else is
+   frozen. Shift+click on empty space to release them.
+5. Editing a primary later still carries its children, with their detail, along with it.
+
+For more density than hand-placed children, interpolate dense guides procedurally with a
+**ToGuides** node and edit them with a **Sculpt** node, whose edits survive upstream changes
+([Other main nodes](/docs/node-graph#other-main-nodes)).
+
+## Brushes
+
+Select the groom and pick a brush. The radius is in screen pixels, strokes act in screen space,
+and each drag is one undo step. The brushes are the same, in the same order, in Maya, the
+[app](/docs/app) and [Blender](/docs/blender).
+
+| Category | Brush | Effect |
+| --- | --- | --- |
+| Create | **Place** | Click for one guide, drag to place several (at least **Spacing** apart). New guides take the shape of the nearby guides (**Match nearby guides**). |
+| | **Draw** | Press on the scalp and draw the guide's shape. |
+| | **Part** | Draw a part line; interpolation does not blend guides across it. |
+| | **Flow** | Draw direction arrows and whorls for short hair without guides (see below). |
+| Shape | **Comb** | The main shaping brush: drags guides along the stroke with roots pinned. With **Stretch** on, combing also lengthens or shortens them. |
+| | **Slide** | Moves roots along the scalp; the guides keep their shape. |
+| | **Smooth**, **Straighten** | Remove kinks; relax guides toward a straight line. |
+| | **Lift**, **Twist**, **Curl** | Raise guides off the scalp, rotate them around their root, curl them toward the tip. |
+| | **Attract** | Pulls tips together (negative strength pushes them apart). |
+| | **Direction** | Rotates guides about their roots toward the stroke direction, keeping lengths. |
+| | **Noise** | Adds smooth random displacement that builds up with each stroke (Ctrl smooths it out). |
+| | **Tube** | Widens a guide's tube, where its children are placed. |
+| Trim | **Cut**, **Length**, **Erase** | Cut guides where the brush touches; lengthen or shorten them uniformly; delete guides, part lines or flow arrows (not the scattered hair: see below). |
+| Paint (in the Paint tab) | **Paint** | Paints the map picked in the Paint tab, including the maps that drive settings such as density and width (see below, and [Painting maps](/docs/painting-maps)). |
+| Guides | **Select**, **Freeze** | Select guides; paint the freeze mask. **Unfreeze All** is next to them. |
+
+**Painting a setting** (density, width, length, clumping...). In the Paint tab, click **+ New Map**
+and set **For** to the setting: **Density**, **Width**, **Length**, **Clump strength**, **Curl**,
+**Noise amplitude**, **Flyaways**, or **Other setting...** for any other mappable parameter. GroomLab
+creates a white map (so nothing changes yet), connects it to the setting, selects it and starts the
+Paint brush on it, all in one undo step. If the setting already reads a map, that map is selected
+instead. A stroke paints toward the **Value** (1 is the setting's full value); **Ctrl** paints
+toward 0: thinner hair on the width map, no hair on the density map. For example, to thin the
+sideburns, create the map for Density and Ctrl+paint over them.
+
+**Erasing hair.** The **Erase** brush removes guides (with their children), part lines and flow
+arrows, so it does nothing on a groom whose hair comes from the Scatter alone. To take hair away,
+paint the density map holding **Ctrl** (Paint tab > **+ New Map** > For: **Density**); paint it
+back without Ctrl.
+
+### Keys
+
+- **Ctrl** reverses a brush (Ctrl+Length shortens, Ctrl+Lift lays guides down, Ctrl+Paint on the
+  density map removes hair).
+- **Alt+Shift+X** turns symmetry on or off, after **GroomLab > Install GroomLab Hotkeys**.
+- **Shift+drag** smooths, with any brush.
+- **B** + drag sets the radius, **M** + drag the strength (or middle-drag and Shift+middle-drag).
+- **Shift+click** a guide to solo it; **Shift+click** off a guide to unfreeze all (see
+  [Freeze and solo](#freeze-and-solo)).
+- **Page Up** and **Page Down** step the active group up or down a level.
+- **Y** + click opens a marking menu, after **GroomLab > Install GroomLab Hotkeys**.
+- Tablet **pen pressure** scales the strength.
+
+<Example name="groom-tools.png" alt="The Groom Tools panel" caption="The Groom Tools: brushes as icons, settings below." />
+
+## Brush settings
+
+The active brush's settings are shown below the tabs; each brush shows only the settings it uses.
+
+| Setting | Effect |
+| --- | --- |
+| **Radius**, **Strength** | Brush radius (pixels) and the amount applied per dab. Negative strength reverses the brushes that work in both directions. |
+| **Falloff** | How the effect fades toward the brush edge: 0 hard, 1 soft from the center out. |
+| **Falloff curve** | The falloff as a curve, center (left) to edge (right). Right-click it for presets. |
+| **Root to tip** | How much of the strength each part of a guide receives, root (left) to tip (right); for example, style the ends and leave the roots. |
+| **Symmetry** | Mirrors every stroke: across world **X**, or with **Topology** across the scalp's own left and right (for a head that is rotated, animated or not quite symmetric). |
+| **Selected only** | Brush only the selected guides, weighted by the soft selection. |
+| **Keep off scalp** | Guides never go below the scalp; points pushed under it slide along it. |
+| **Front facing only** | A stroke does not reach what is on the far side of the head from the camera: guides, parts, flow arrows or paint. |
+| **Acts on** | What a shaping brush moves: guides, part lines, flow arrows. |
+
+## Selection
+
+**Select** selects guides with a lasso or a click: Shift toggles, Ctrl deselects, Ctrl+Shift adds.
+Its settings include a **Soft radius** for soft selection. **Edit Guides** has **Mirror
+Selection** and **Clear Selection**.
+
+## Symmetry
+
+- **Symmetric grooming:** turn on **Symmetry** (first in the brush settings, or **Alt+Shift+X**) and
+  every stroke is mirrored. While it is on, a red line on the scalp shows the mirror plane (with
+  **Topology**, the scalp's middle loop) for as long as a brush is on, the cursor anywhere.
+- **Mirroring one side:** groom one side, then use **Edit Guides > Mirror Group...** or **Sync
+  +X → -X**. Sync also copies children, hand edits, locks and painted attributes.
+
+## Parting
+
+Pick **Part** and draw along the parting on the scalp. Interpolation no longer blends guides
+across the line, and a **Part** node opens the gap (its `width` sets how far). If the parting is
+already combed into the guides, set the Part node's `partsFrom` to `auto` instead; it detects
+the parts where the hair splits, with no drawing needed.
+
+## Short hair without guides
+
+For vellus hair, brows and short fur, the **Flow** brush grooms a direction field: drag arrows on
+the scalp (drag over arrows to comb them, Ctrl to erase), or click to place whorls and other
+singular points that hair turns around. A **Flow** node lays the strands along the field. See
+[Fur & feathers](/docs/fur-and-feathers).

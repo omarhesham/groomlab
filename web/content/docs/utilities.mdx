@@ -1,0 +1,104 @@
+---
+title: Utilities
+description: Converting between guides, strands and Maya curves or meshes, starting from existing curves, transferring a groom to a new scalp, copying graphs between grooms, relinking missing files, and colliders.
+---
+
+These commands are in **GroomLab > Utilities**. They act on the active groom (Find Missing Files:
+the selected grooms), and each is one undo step.
+
+## Conversions
+
+| Command | Result |
+| --- | --- |
+| **Guides to Curves** | One NURBS curve per guide, tagged with its guide ID. |
+| **Curves to Guides...** | Tagged curves update their own guide in place; any other curve becomes a new guide. |
+| **Strands to Curves...** | The evaluated strands as plain Maya curves (20,000 by default), with their attributes. |
+| **Strands to Mesh...** | The strands as one mesh of tubes or ribbons, with UVs. |
+| **Bake Node to Guides...** | The groom's output, or any node's strands or guides, converted to brushable guides. To keep them procedural instead, use a ToGuides followed by a Sculpt node ([Node graph](/docs/node-graph#other-main-nodes)). |
+
+To edit guides with Maya tools: **Guides to Curves**, edit the curves (CVs, lattices, a sculpt
+deformer), then **Curves to Guides...**.
+
+## Start from existing curves
+
+- **Maya curves:** select the scalp and the curves, then **Create Groom from Selection**. Or add
+  them later with **From Curves** under Guide groups & edits.
+- **Alembic curves** (from Houdini or XGen): `groomlab.import_guides_from_alembic(groom, path)`.
+
+## Transfer to a new scalp
+
+To move a groom to a new sculpt, a retopologized head or another character, open **Utilities >
+Transfer Groom to Scalp...**. The groom's scalp is shown on the left and the mesh picked in **New
+scalp** on the right, each in its own view (Alt moves the camera).
+
+Pick a **Method**:
+
+| Method | For |
+| --- | --- |
+| Closest point | The new mesh where the old one was (a new sculpt in place). |
+| Fit bounds | The same shape elsewhere or of another size. |
+| Markers: align | The same head moved, turned or scaled. 3 marker pairs or more. |
+| Markers: warp | Another character: a head of other proportions, mapped feature to feature. 4 pairs or more. |
+| UV | Both meshes share their UV layout (a retopology). Exact, no markers. |
+
+**Markers** work as in Wrap: click a point on each mesh. Pair N is the Nth point on the left and
+the Nth on the right, in any click order (five on the old head, then five on the new, or
+alternating).
+
+- A point without its partner yet shows as a hollow ring; it fills in once paired.
+- **Ctrl+click** deletes a point and its partner, and both sides renumber.
+- **Drag** a point to slide it; hover one to light its partner.
+- **Ctrl+Z / Ctrl+Y** in the window undo and redo marker edits; **Symmetry X** mirrors each new
+  point across the mesh's middle.
+- Ears, temples, crown, nape and brow make good pairs; six to ten are plenty for a warp.
+- The pairs are saved with the groom (and in `.groom` files), so a later transfer reuses them.
+
+Guides, parts, flow arrows and painted maps are all transferred through the mapping; each guide is
+rotated and scaled with the surface around its root (**Keep guide lengths** disables the
+scaling). **Copy mesh color sets** also copies Maya color sets. One **Ctrl+Z** in Maya undoes the
+whole transfer, and the window updates accordingly.
+
+Without the window: click **Pick** on the Scalp row of the groom's Attribute Editor, or choose the
+mesh in the Scalp node's **Mesh** field (closest point method).
+
+```python
+groomlab.transfer_groom(groom, "newHead")                                  # closest point
+groomlab.transfer_groom(groom, "bigCat", method="bounds")                  # another size or place
+groomlab.transfer_groom(groom, "otherHead", method="markersWarp",
+                        markers=[("head.vtx[12]", "otherHead.vtx[40]"), ...])
+```
+
+## Copy Graph to Other Grooms
+
+Pin (or select first) the source groom, select the target grooms and choose **Copy Graph to Other
+Grooms...**. Choose whether to keep or replace their guides; **Copy painted maps** also copies the
+maps the graph reads.
+
+## Find Missing Files
+
+After a failed copy or a moved project, **Find Missing Files...** relinks the files the selected
+grooms (or every groom) cannot find: texture maps, images and Alembic files referenced in the
+graph, guide caches and groom files. Pick a folder; it searches it and its subfolders for files of
+the same name.
+
+- Names compare without case on Windows.
+- When several files share a name, the one whose folders best match the stored path is used. If
+  none matches, the file is reported as ambiguous and not relinked.
+- The Script Editor lists every file relinked, ambiguous or still missing. It is one undo step.
+
+```python
+groomlab.missing_files(groom)                         # what is missing, by kind
+groomlab.find_missing_files([groom], "D:/recovered")  # relinked, still_missing, ambiguous
+```
+
+## Colliders
+
+Click **Pick** on the Collider row of the Attribute Editor's **Inputs**, then click the body,
+collar or hat in the viewport or the Outliner (`groomlab.add_collider(groom, mesh)`). The button
+reads **Cancel** while waiting; Esc cancels. GroomLab adds a ColliderMesh node and a Collide node
+before the output. Animated collision meshes are evaluated per frame in the viewport, renders and
+exports.
+
+In the Graph Editor, a **Scalp** or **ColliderMesh** node's panel has a **Mesh** field: a menu of
+the scene's meshes, the same pick button and **Select**. Choosing a mesh there reconnects the
+scalp or that collider, as the Attribute Editor does.

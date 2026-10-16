@@ -1,0 +1,14 @@
+{
+  "name": "Fractal patches",
+  "description": "Patches with ragged edges: fractal noise (fbm) over the scalp, cut soft",
+  "expression": "# fbm: noise at several scales, around 0.5; * 2 - 1 centres it on 0\n$n = fbm(P * $scale, $octaves, 2, $roughness) * 2 - 1;\nsmoothstep($n + $bias, -$softness, $softness)",
+  "variables": {
+    "scale": 2.5,
+    "octaves": 5,
+    "roughness": 0.5,
+    "softness": 0.15,
+    "bias": 0
+  },
+  "min": 0.0,
+  "max": 1.0
+}

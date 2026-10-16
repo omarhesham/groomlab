@@ -1,0 +1,83 @@
+{
+  "about": "The Unreal hair material of docs/UNREAL_HAIR_MATERIAL.md as data: a GroomLab groom's per-point color and its iridescence. Nodes by name, their Unreal expression class, values, and links (node.pin -> node.pin).",
+  "materials": [
+    {
+      "name": "M_GroomLabStrands",
+      "settings": {"MaterialDomain": "Surface", "ShadingModel": "Hair", "BlendMode": "Opaque", "bUsedWithHairStrands": true},
+      "parameters": [
+        {"name": "IridescenceColor", "class": "MaterialExpressionVectorParameter", "default": [0.05, 0.55, 0.2, 1.0], "from": "FeatherColor.iridescenceColor (linear)"},
+        {"name": "IridescenceShift", "class": "MaterialExpressionScalarParameter", "default": 0.3, "from": "FeatherColor.iridescenceShift (turns)"},
+        {"name": "Roughness", "class": "MaterialExpressionScalarParameter", "default": 0.3, "from": "0.1 + 0.4 x HairColor.roughness"}
+      ],
+      "nodes": [
+        {"name": "Hair", "class": "MaterialExpressionHairAttributes"},
+        {"name": "View", "class": "MaterialExpressionCameraVectorWS"},
+        {"name": "Facing", "class": "MaterialExpressionDotProduct"},
+        {"name": "Grazing", "class": "MaterialExpressionAbs"},
+        {"name": "Turn", "class": "MaterialExpressionMultiply"},
+        {"name": "Structural", "class": "MaterialExpressionMaterialFunctionCall", "function": "/Engine/Functions/Engine_MaterialFunctions02/HueShift.HueShift"},
+        {"name": "BaseColor", "class": "MaterialExpressionLinearInterpolate"}
+      ],
+      "links": [
+        ["View.Output", "Facing.A"],
+        ["Hair.Tangent", "Facing.B"],
+        ["Facing.Output", "Grazing.Input"],
+        ["IridescenceShift.Output", "Turn.A"],
+        ["Grazing.Output", "Turn.B"],
+        ["IridescenceColor.Output", "Structural.Texture"],
+        ["Turn.Output", "Structural.Hue Shift Percentage"],
+        ["Hair.Color", "BaseColor.A"],
+        ["Structural.Result", "BaseColor.B"],
+        ["Hair.AO", "BaseColor.Alpha"],
+        ["BaseColor.Output", "Material.BaseColor"],
+        ["Roughness.Output", "Material.Roughness"]
+      ],
+      "export": "groomlab.export_unreal_groom(groom, path, iridescence_as_ao=True): the iridescence in groom_ao, which Hair.AO reads"
+    },
+    {
+      "name": "M_GroomLabCards",
+      "settings": {"MaterialDomain": "Surface", "ShadingModel": "Hair", "BlendMode": "Masked", "TwoSided": true},
+      "parameters": [
+        {"name": "ColorMap", "class": "MaterialExpressionTextureSampleParameter2D", "texture": "<bake>_Color (sRGB; alpha: the iridescence)"},
+        {"name": "CoverageMap", "class": "MaterialExpressionTextureSampleParameter2D", "texture": "<bake>_Coverage (linear)"},
+        {"name": "IridescenceColor", "class": "MaterialExpressionVectorParameter", "default": [0.05, 0.55, 0.2, 1.0]},
+        {"name": "IridescenceShift", "class": "MaterialExpressionScalarParameter", "default": 0.3},
+        {"name": "Roughness", "class": "MaterialExpressionScalarParameter", "default": 0.3}
+      ],
+      "nodes": [
+        {"name": "Tint", "class": "MaterialExpressionVertexColor"},
+        {"name": "Two", "class": "MaterialExpressionConstant", "value": 2.0},
+        {"name": "TintScaled", "class": "MaterialExpressionMultiply"},
+        {"name": "CardColor", "class": "MaterialExpressionMultiply"},
+        {"name": "View", "class": "MaterialExpressionCameraVectorWS"},
+        {"name": "Normal", "class": "MaterialExpressionVertexNormalWS"},
+        {"name": "Facing", "class": "MaterialExpressionDotProduct"},
+        {"name": "FacingAbs", "class": "MaterialExpressionAbs"},
+        {"name": "Grazing", "class": "MaterialExpressionOneMinus"},
+        {"name": "Turn", "class": "MaterialExpressionMultiply"},
+        {"name": "Structural", "class": "MaterialExpressionMaterialFunctionCall", "function": "/Engine/Functions/Engine_MaterialFunctions02/HueShift.HueShift"},
+        {"name": "BaseColor", "class": "MaterialExpressionLinearInterpolate"}
+      ],
+      "links": [
+        ["Tint.Output", "TintScaled.A"],
+        ["Two.Output", "TintScaled.B"],
+        ["ColorMap.RGB", "CardColor.A"],
+        ["TintScaled.Output", "CardColor.B"],
+        ["View.Output", "Facing.A"],
+        ["Normal.Output", "Facing.B"],
+        ["Facing.Output", "FacingAbs.Input"],
+        ["FacingAbs.Output", "Grazing.Input"],
+        ["IridescenceShift.Output", "Turn.A"],
+        ["Grazing.Output", "Turn.B"],
+        ["IridescenceColor.Output", "Structural.Texture"],
+        ["Turn.Output", "Structural.Hue Shift Percentage"],
+        ["CardColor.Output", "BaseColor.A"],
+        ["Structural.Result", "BaseColor.B"],
+        ["ColorMap.A", "BaseColor.Alpha"],
+        ["BaseColor.Output", "Material.BaseColor"],
+        ["CoverageMap.R", "Material.OpacityMask"],
+        ["Roughness.Output", "Material.Roughness"]
+      ]
+    }
+  ]
+}

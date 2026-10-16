@@ -1,0 +1,1306 @@
+# SPDX-License-Identifier: Apache-2.0
+"""GroomLab Groom Tools: everything you do to a groom's guides, in four tabs (Qt: groomlab.ui.qt).
+
+    Tools      make a groom; the brushes (create, shape, trim, freeze);
+               the guide group they work in; guide groups and edits on many guides
+    Paint      painted maps (0-1 values on the guides any param can read)
+    Sculpt     correctives (sculpt layers on top of the groom)
+    Reference  photos as cameras to groom to (look through, align by points, lock)
+
+Pick a tool and drag in the viewport over the groom (the pinned one, else the
+selected one). The brush settings under the tabs follow the tool: radius,
+strength (signed for tools that work both ways), which guides, symmetry, pen
+pressure, keeping off the scalp; Place and Draw add the new guide's shape.
+Radius and strength changed in the viewport (middle-drag) show up here.
+
+    import groomlab.ui.palette as palette
+    palette.show()               # or show(tab="paint"), show(tab="reference")
+"""
+
+from groomlab.ui import qt
+from groomlab.ui.qt import QtCore, QtWidgets
+
+import groomlab
+import groomlab_core
+from groomlab.ui import theme, tool_tabs, widgets
+
+# The tools are the core's brush catalog (brush_catalog.h), the one list both hosts build their
+# palettes from: id, label, category, default strength, whether the strength is signed, a hint
+# and the settings its card shows. "select" is the lasso and "freeze" the mask; the rest are
+# brush modes.
+CATALOG = groomlab_core.brush_catalog()
+CATEGORIES = groomlab_core.brush_categories()
+SETTINGS = dict((s["id"], s) for s in groomlab_core.brush_settings())
+# (section, [(tool, label, tooltip)]) per category, in the catalog's order.
+SECTIONS = [(c, [(t["id"], t["label"], t["hint"]) for t in CATALOG if t["category"] == c]) for c in CATEGORIES]
+# The settings each tool's card shows (SETTINGS' ids).
+TOOL_SETTINGS = dict((t["id"], set(t["settings"])) for t in CATALOG)
+SIGNED = set(t["id"] for t in CATALOG if t["signed"])
+DEFAULT_STRENGTH = dict((t["id"], t["default_strength"]) for t in CATALOG)
+CREATORS = set(t for t, s in TOOL_SETTINGS.items() if "newGuides" in s)
+# Brushes that also shape part lines and flow arrows (the Brushes box picks what they act on).
+TARGETABLE = set(t for t, s in TOOL_SETTINGS.items() if "targets" in s)
+PART = "part"
+TABS = ["tools", "paint", "sculpt", "reference"]
+# What each tool does, shown under its name while it is active (the tiles' tooltips say the same).
+HINTS = dict((t["id"], t["hint"]) for t in CATALOG)
+NAMES = dict((t["id"], t["label"]) for t in CATALOG)
+GESTURES = ("Middle-drag: radius · Shift+middle-drag: strength · Shift+click a guide: solo it (the rest frozen) "
+            "and brush its group · Shift+click off a guide: unfreeze all · Alt+Shift+X: symmetry on or off")
+SYMMETRY_TIP = ("Alt+Shift+X turns it on or off (the GroomLab hotkey set). While it is on, a red line on the scalp "
+                "shows the mirror plane for as long as a brush is on.")
+# What the Erase brush does not do, said under its settings: the hair itself goes with the density map.
+ERASE_NOTE = ("Erase removes guides (with their children), parts and flow arrows, not the scattered hair. "
+              "To take hair away, paint the density map holding Ctrl (Paint tab > + New Map > for a setting > "
+              "Density).")
+
+
+def tools_of(*ids):
+    """(tool, label, tooltip) for the catalog's tools `ids`, in the catalog's order."""
+    return [(t["id"], t["label"], t["hint"]) for t in CATALOG if t["id"] in ids]
+
+
+STARTER_VAR = "groomLabHideStarter"
+# A first groom, step by step: (key, what to do, the tip on how). The card ticks each off as the
+# groom gets there; clicking a step still to do takes you to it.
+STARTER_STEPS = [
+    ("guides", "Place some guides", "Place: click the scalp, or drag to lay down many."),
+    ("look", "Give it a look", "Graph Editor: add Clump, Noise or Curl after Interpolate."),
+]
+LOOK_TYPES = {"Clump", "Noise", "Curl", "Flyaway", "Tangle", "Wet", "Twist", "Braid",
+              "Gravity", "Displace", "HairColor", "Bend", "Direction", "Transform", "SelfCollide", "Static", "Tie"}
+
+
+def starter_progress(groom):
+    """{step key: done} for the first-groom card."""
+    groups = groomlab.list_guide_groups(groom)
+    # The default graph has a look of its own (Noise, HairColor): the step is the groom's own graph.
+    types = {n.get("type") for n in groomlab.get_graph(groom).get("nodes", [])}
+    return {"guides": any(g["count"] for g in groups), "look": bool(types & LOOK_TYPES)}
+
+
+class StarterCard(QtWidgets.QFrame):
+    """The first-groom checklist: a step per row, done ones ticked; hides once all are done
+    or it is dismissed (remembered)."""
+
+    def __init__(self, owner):
+        super(StarterCard, self).__init__()
+        self.owner = owner
+        self.setProperty("role", "empty")
+        column = QtWidgets.QVBoxLayout(self)
+        pad = theme.px(12)
+        column.setContentsMargins(pad, theme.px(10), theme.px(6), pad)
+        column.setSpacing(theme.px(4))
+        top = QtWidgets.QHBoxLayout()
+        title = QtWidgets.QLabel("Your first groom")
+        title.setProperty("role", "subheading")
+        top.addWidget(title, 1)
+        close = QtWidgets.QToolButton()
+        close.setText("\u2715")
+        close.setAutoRaise(True)
+        close.setToolTip("Hide these steps (for good)")
+        close.clicked.connect(self.dismiss)
+        top.addWidget(close)
+        column.addLayout(top)
+        self.rows = {}
+        for key, text, tip in STARTER_STEPS:
+            b = QtWidgets.QPushButton(text)
+            b.setToolTip(tip)
+            b.setFlat(True)
+            b.setProperty("role", "step")
+            b.clicked.connect(lambda _=False, k=key: self.go(k))
+            column.addWidget(b)
+            self.rows[key] = (b, text)
+        self.tip = QtWidgets.QLabel()
+        self.tip.setWordWrap(True)
+        self.tip.setProperty("role", "hint")
+        column.addWidget(self.tip)
+        self._state = None
+        self._dismissed = False
+
+    def following(self):
+        """Whether the poll should still ask the card: not once it is dismissed, nor once every
+        step is done for the groom (a new groom asks again)."""
+        return not self._dismissed and not (self._state and all(self._state.values()))
+
+    @staticmethod
+    def dismissed():
+        try:
+            from maya import cmds
+            return cmds.optionVar(exists=STARTER_VAR) and bool(cmds.optionVar(query=STARTER_VAR))
+        except ImportError:
+            return False
+
+    def dismiss(self):
+        from maya import cmds
+        cmds.optionVar(intValue=(STARTER_VAR, 1))
+        self._dismissed = True
+        self.setVisible(False)
+
+    def refresh(self, groom):
+        self._dismissed = self.dismissed()
+        if groom != getattr(self, "_groom", None):
+            self._groom = groom
+            self._state = None
+        if not groom or self._dismissed:
+            self.setVisible(False)
+            return
+        try:
+            done = starter_progress(groom)
+        except (RuntimeError, ValueError):
+            self.setVisible(False)
+            return
+        self.setVisible(not all(done.values()))
+        if done == self._state:
+            return
+        self._state = done
+        following = None
+        for key, _, tip in STARTER_STEPS:
+            button, text = self.rows[key]
+            if done[key]:
+                button.setText("\u2713  " + text)
+                button.setProperty("done", True)
+            else:
+                button.setText(("\u25cb  " if following else "\u25b6  ") + text)
+                button.setProperty("done", False)
+                following = following or tip
+            widgets.repolish(button)
+        self.tip.setText(following or "")
+
+    def go(self, key):
+        if key == "guides":
+            self.owner.show_tab("tools")
+            self.owner.activate("place")
+        else:
+            self.owner.open_graph()
+
+
+class ToolPalette(QtWidgets.QWidget):
+    def __init__(self, parent=None):
+        super(ToolPalette, self).__init__(parent)
+        self.setWindowTitle("GroomLab Groom Tools")
+        self.setWindowIcon(widgets.icon("logo"))
+        self.tool = None
+        self.strengths = dict(DEFAULT_STRENGTH)
+        self.buttons = {}  # tool -> its tile (the first made; a tool with tiles on two tabs: tiles)
+        self.tiles = {}    # tool -> every tile of it
+
+        # Everything scrolls in one themed column; the window paints the theme's background.
+        frame = QtWidgets.QVBoxLayout(self)
+        frame.setContentsMargins(0, 0, 0, 0)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        frame.addWidget(scroll)
+        content = QtWidgets.QWidget()
+        content.setObjectName("groomToolsContent")
+        scroll.setWidget(content)
+        outer = QtWidgets.QVBoxLayout(content)
+        outer.setContentsMargins(theme.px(12), theme.px(10), theme.px(12), theme.px(12))
+        outer.setSpacing(theme.px(10))
+
+        # What the tools work on: the groom (pinned, or following the selection) and its group.
+        top = QtWidgets.QHBoxLayout()
+        top.setSpacing(theme.px(4))
+        self.grooms = QtWidgets.QComboBox()
+        self.grooms.setToolTip("The groom every tool works on: the selected one, or pick one to stay on it whatever is selected")
+        self.grooms.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.grooms.setMinimumContentsLength(8)
+        self.grooms.activated.connect(self.groom_picked)
+        top.addWidget(self.grooms, 1)
+        self.visible = self.header_button("eye", "Show or hide the groom", checkable=True)
+        self.visible.toggled.connect(self.groom_visibility)
+        top.addWidget(self.visible)
+        self.header_icons = {}
+        graph = self.header_button(None, "Graph Editor: the groom's look")
+        graph.setIcon(widgets.icon("graph"))
+        graph.clicked.connect(self.open_graph)
+        self.header_icons["graph"] = graph
+        top.addWidget(graph)
+        more = self.header_button("more", "More: new groom, theme")
+        more.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        self.more_menu = QtWidgets.QMenu(more)
+        self.more_menu.addAction("Create Groom from Selection", self.create_groom)
+        self.more_menu.addSeparator()
+        self.more_menu.addMenu(widgets.theme_menu(self))
+        more.setMenu(self.more_menu)
+        top.addWidget(more)
+        outer.addLayout(top)
+        # A newer GroomLab (the startup check's): a quiet note linking to GroomLab > Check for Updates.
+        from groomlab.ui import updates_window
+        self.update_note = updates_window.UpdateNote()
+        outer.addWidget(self.update_note)
+
+        # The group brushes edit and Place and Draw add to (children follow their parents).
+        self.target_row = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(self.target_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(theme.px(8))
+        group_label = QtWidgets.QLabel("Group")
+        group_label.setProperty("role", "about")
+        row.addWidget(group_label)
+        self.level = QtWidgets.QComboBox()
+        self.level.setToolTip("The guide group brushes edit and new guides go into; All groups: every guide")
+        self.level.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.level.setMinimumContentsLength(8)
+        self.level.currentIndexChanged.connect(self.target_changed)
+        row.addWidget(self.level, 1)
+        self.isolate = QtWidgets.QCheckBox("Isolate")
+        self.isolate.setToolTip("Show the group's level at full color and dim the others")
+        self.isolate.toggled.connect(lambda _: self.apply_isolation())
+        row.addWidget(self.isolate)
+        outer.addWidget(self.target_row)
+
+        self.status = widgets.StatusLabel()  # made early: the tabs report into it
+        outer.addWidget(self.status)
+
+        # No groom to work on: how to start one.
+        self.empty = QtWidgets.QFrame()
+        self.empty.setProperty("role", "empty")
+        column = QtWidgets.QVBoxLayout(self.empty)
+        pad = theme.px(14)
+        column.setContentsMargins(pad, pad, pad, pad)
+        column.setSpacing(theme.px(8))
+        title = QtWidgets.QLabel("Start a groom")
+        title.setProperty("role", "title")
+        column.addWidget(title)
+        self.empty_text = QtWidgets.QLabel()
+        self.empty_text.setWordWrap(True)
+        self.empty_text.setProperty("role", "about")
+        column.addWidget(self.empty_text)
+        make = QtWidgets.QPushButton("Create Groom from Selection")
+        make.setProperty("role", "primary")
+        make.setToolTip("Select the scalp mesh (and any guide curves), then click: a new groom on it")
+        make.clicked.connect(self.create_groom)
+        column.addWidget(make)
+        outer.addWidget(self.empty)
+        self.starter = StarterCard(self)
+        self.starter.setVisible(False)
+        outer.addWidget(self.starter)
+
+        self.group = QtWidgets.QButtonGroup(self)
+        self.group.setExclusive(False)  # the active tool's tiles are checked by hand (one tool, maybe two tiles)
+        self.tabs = widgets.Pages()
+        tools_tab = QtWidgets.QWidget()
+        tools_layout = QtWidgets.QVBoxLayout(tools_tab)
+        tools_layout.setContentsMargins(0, 0, 0, 0)
+        tools_layout.setSpacing(theme.px(6))
+        for section, tools in SECTIONS:
+            if section == "Paint":
+                continue  # the painting brushes live in the Paint tab, beside the maps they paint
+            tools_layout.addWidget(self.heading(section))
+            # Beside Freeze: Unfreeze All, a button (not a tool).
+            extra = [self.unfreeze_tile()] if any(t[0] == "freeze" for t in tools) else []
+            tools_layout.addWidget(self.tool_grid(tools, extra=extra))
+        self.paint_tab = tool_tabs.PaintTab(self)
+        sculpt_tab = QtWidgets.QWidget()
+        self.sculpt_layout = QtWidgets.QVBoxLayout(sculpt_tab)
+        self.sculpt_layout.setContentsMargins(0, 0, 0, 0)
+        self.sculpt_layout.setSpacing(theme.px(8))
+        self.reference_tab = tool_tabs.ReferenceTab(self)
+        for widget, title in ((tools_tab, "Tools"), (self.paint_tab, "Paint"), (sculpt_tab, "Sculpt"),
+                              (self.reference_tab, "Reference")):
+            self.tabs.addTab(widget, title)
+        self.tabs.currentChanged.connect(self.tab_changed)
+        outer.addWidget(self.tabs)
+
+        # The active tool: its name, what it does, and its settings in one card.
+        self.settings_heading = self.heading("Brush")
+        outer.addWidget(self.settings_heading)
+        self.hint = QtWidgets.QLabel()
+        self.hint.setWordWrap(True)
+        self.hint.setProperty("role", "about")
+        outer.addWidget(self.hint)
+        self.settings = QtWidgets.QFrame()
+        self.settings.setProperty("role", "card")
+        card = QtWidgets.QVBoxLayout(self.settings)
+        pad = theme.px(12)
+        card.setContentsMargins(pad, pad, pad, pad)
+        card.setSpacing(theme.px(10))
+        self.brush_form = QtWidgets.QWidget()
+        self.brush_form.setProperty("role", "options")
+        form = QtWidgets.QFormLayout(self.brush_form)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setVerticalSpacing(theme.px(8))
+        form.setHorizontalSpacing(theme.px(10))
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        form.setRowWrapPolicy(QtWidgets.QFormLayout.DontWrapRows)
+        self.radius = widgets.SoftSlider(60, 5, 400, integer=True, minimum=1, key="palette.radius")
+        self.radius.committed.connect(lambda v: self.push(radius=v))
+        self.radius.dragged.connect(lambda v: self.push(radius=v))
+        self.strength = widgets.SoftSlider(1.0, 0.0, 1.0, key=None)
+        self.strength.committed.connect(self.set_strength)
+        self.strength.dragged.connect(self.set_strength)
+        # Falloff as the catalog names it in both hosts: 0 hard (full strength to the edge), 1 soft
+        # (fading from the center out); the brush's hardness is 1 - falloff.
+        self.falloff = widgets.SoftSlider(1.0, 0.0, 1.0, key="palette.falloff")
+        self.falloff.setToolTip(SETTINGS["falloff"]["hint"])
+        self.falloff.committed.connect(lambda v: self.push(hardness=1.0 - v))
+        self.falloff.dragged.connect(lambda v: self.push(hardness=1.0 - v))
+        self.smooth_strength = widgets.SoftSlider(1.0, 0.0, 3.0, key="palette.smoothStrength")
+        self.smooth_strength.setToolTip(SETTINGS["smoothStrength"]["hint"])
+        self.smooth_strength.committed.connect(lambda v: self.push(smoothStrength=v))
+        self.smooth_strength.dragged.connect(lambda v: self.push(smoothStrength=v))
+        self.radius_label = QtWidgets.QLabel(SETTINGS["radius"]["label"])
+        self.strength_label = QtWidgets.QLabel(SETTINGS["strength"]["label"])
+        self.falloff_label = QtWidgets.QLabel(SETTINGS["falloff"]["label"])
+        self.smooth_label = QtWidgets.QLabel(SETTINGS["smoothStrength"]["label"])
+        for label, slider in ((self.radius_label, self.radius), (self.strength_label, self.strength),
+                              (self.falloff_label, self.falloff), (self.smooth_label, self.smooth_strength)):
+            form.addRow(label, slider)
+        card.addWidget(self.brush_form)
+        # The brush's curves (the catalog's falloffProfile and strengthProfile): each off until its
+        # box is ticked, then drawn in a curve editor (right-click: presets).
+        self.falloff_curve_box, self.falloff_curve = self.curve_setting(
+            "falloffProfile", [[0, 1], [0.5, 0.56], [1, 0]], ("center", "edge"))
+        self.strength_curve_box, self.strength_curve = self.curve_setting(
+            "strengthProfile", [[0, 0.25], [1, 1]], ("root", "tip"))
+        for box in (self.falloff_curve_box, self.strength_curve_box):
+            card.addWidget(box)
+        # Symmetry, and across what: world X, or the scalp's own topology (a head turned, or not
+        # quite symmetric).
+        self.symmetry = self.setting_box("symmetry")
+        self.symmetry_mode = QtWidgets.QComboBox()
+        self.symmetry_mode.setObjectName("symmetryMode")
+        for label, name, tip in (("World X", "x", "Across the plane x = 0"),
+                                 ("Topology", "topology", "Across the scalp's own surface: its left and right "
+                                                          "vertices matched once, whatever its pose")):
+            self.symmetry_mode.addItem(label, name)
+            self.symmetry_mode.setItemData(self.symmetry_mode.count() - 1, tip, QtCore.Qt.ToolTipRole)
+        self.symmetry_mode.setToolTip(SETTINGS["symmetry"]["hint"])
+        self.symmetry_mode.setEnabled(False)
+        self.symmetry.toggled.connect(lambda on: (self.symmetry_mode.setEnabled(on), self.push(symmetry=self.symmetry_name())))
+        self.symmetry_mode.currentIndexChanged.connect(lambda _i: self.push(symmetry=self.symmetry_name()))
+        self.symmetry_row = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(self.symmetry_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(theme.px(6))
+        row.addWidget(self.symmetry)
+        row.addWidget(self.symmetry_mode, 1)
+        self.symmetry.setToolTip(SETTINGS["symmetry"]["hint"] + ". " + SYMMETRY_TIP)
+        # First in the card, not packed among the other checkboxes: easy to find, and its state seen.
+        card.insertWidget(0, self.symmetry_row)
+        self.selected_only = self.setting_box("selectedOnly")
+        self.selected_only.toggled.connect(lambda on: self.push(selectedOnly=on))
+        self.pressure = self.setting_box("pressure")
+        self.pressure.setChecked(True)
+        self.pressure.toggled.connect(lambda on: self.push(pressure=on))
+        self.collide = self.setting_box("collide")
+        self.collide.setChecked(True)
+        self.collide.toggled.connect(lambda on: self.push(collide=on))
+        self.mask_scalp = self.setting_box("frontFacingOnly")  # "Front facing only" in both hosts
+        self.mask_scalp.setChecked(True)
+        self.mask_scalp.toggled.connect(lambda on: self.push(maskByScalp=on))
+        self.checks = QtWidgets.QGridLayout()  # refilled with the tool's own (show_tool_settings)
+        self.checks.setHorizontalSpacing(theme.px(10))
+        self.checks.setVerticalSpacing(theme.px(6))
+        self.check_boxes = (self.selected_only, self.pressure, self.collide, self.mask_scalp)
+        card.addLayout(self.checks)
+
+        # Place and Draw
+        self.create_box, column = self.options("New guides")
+        form = self.options_form(column)
+        self.match = QtWidgets.QCheckBox("Match nearby guides")
+        self.match.setChecked(True)
+        self.match.setToolTip("New guides take the shape, length and painted maps of the nearest guides: the "
+                              "group's own, or the groups around it while it has none. Draw takes the maps. "
+                              "Off: they stand straight up, with no maps")
+        self.match.toggled.connect(lambda on: self.push(matchNeighbors=on))
+        from groomlab import units
+        self.length_factor = units.factor("length")  # shown in real units, stored in scene units
+        length_key = "palette.length@" + units.unit("length")[0]
+        self.length = widgets.SoftSlider(0.5 * self.length_factor, minimum=0.001 * self.length_factor, key=length_key)
+        self.length.committed.connect(lambda v: self.push(length=v / self.length_factor))
+        self.segments = widgets.SoftSlider(12, 1, 32, integer=True, minimum=1, maximum=256, key="palette.segments")
+        self.segments.committed.connect(lambda v: self.push(segments=v))
+        self.spacing = widgets.SoftSlider(0.1 * self.length_factor, minimum=0.0,
+                                          key="palette.spacing@" + units.unit("length")[0])
+        self.spacing.committed.connect(lambda v: self.push(spacing=v / self.length_factor))
+        self.spacing_label = QtWidgets.QLabel("Spacing (%s)" % units.label("length"))
+        form.addRow(self.match)
+        form.addRow("Length (%s)" % units.label("length"), self.length)
+        form.addRow("Segments", self.segments)
+        form.addRow(self.spacing_label, self.spacing)
+        self.solo_new = self.setting_box("soloNewGuides")
+        self.solo_new.setChecked(False)  # (off by default: placing freezes nothing unless asked)
+        self.solo_new.toggled.connect(lambda on: self.push(soloNewGuides=on))
+        form.addRow(self.solo_new)
+        card.addWidget(self.create_box)
+
+        # Parts
+        self.part_box, column = self.options("Parts")
+        form = self.options_form(column)
+        self.part_name = QtWidgets.QLineEdit("part")
+        self.part_name.setToolTip("Name for the next part (made unique)")
+        self.part_name.editingFinished.connect(lambda: self.push(partName=self.part_name.text() or "part"))
+        self.part_list = QtWidgets.QListWidget()
+        self.part_list.setMaximumHeight(theme.px(90))
+        part_buttons = QtWidgets.QHBoxLayout()
+        for label, slot, tip in (("From Curves", self.parts_from_curves, "Add the selected Maya curves as parts"),
+                                 ("Remove", self.remove_part, "Remove the part picked above"),
+                                 ("Clear All", self.clear_parts, "Remove every part")):
+            b = QtWidgets.QPushButton(label)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            part_buttons.addWidget(b)
+        form.addRow("Name", self.part_name)
+        column.addWidget(self.part_list)
+        column.addLayout(part_buttons)
+        card.addWidget(self.part_box)
+
+        # Flow arrows
+        self.flow_box, column = self.options("Flow")
+        row = QtWidgets.QHBoxLayout()
+        self.flow_sink = QtWidgets.QComboBox()
+        for label, kind, tip in (("Arrows", "", "Drag to lay arrows; drag over arrows to comb them"),
+                                 ("Whorl", "whorl", "Hair spirals out counter-clockwise around the click (a crown)"),
+                                 ("Whorl (clockwise)", "whorlcw", "Hair spirals out clockwise around the click"),
+                                 ("Gather", "converge", "Hair points in toward the click"),
+                                 ("Part out", "part", "Hair points away from the click (a cowlick)")):
+            self.flow_sink.addItem(label, kind)
+            self.flow_sink.setItemData(self.flow_sink.count() - 1, tip, QtCore.Qt.ToolTipRole)
+        self.flow_sink.setToolTip("What a click or drag lays: arrows, or a sink (brush-sized) hair turns around")
+        self.flow_sink.currentIndexChanged.connect(self.flow_sink_changed)
+        row.addWidget(QtWidgets.QLabel("Place"))
+        row.addWidget(self.flow_sink, 1)
+        clear_flow = QtWidgets.QPushButton("Clear All")
+        clear_flow.setToolTip("Remove every arrow and sink")
+        clear_flow.clicked.connect(self.clear_flow)
+        row.addWidget(clear_flow)
+        column.addLayout(row)
+        self.flow_hint = QtWidgets.QLabel()
+        self.flow_hint.setWordWrap(True)
+        self.flow_hint.setProperty("role", "hint")
+        column.addWidget(self.flow_hint)
+        self.flow_sink_changed()
+        card.addWidget(self.flow_box)
+
+        # Comb: keep lengths, or stretch
+        self.stretch_box, column = self.options()
+        self.stretch = self.setting_box("stretch")
+        self.stretch.toggled.connect(lambda on: self.push(stretch=on))
+        column.addWidget(self.stretch)
+        card.addWidget(self.stretch_box)
+
+        # Erase: what it removes
+        self.erase_box, column = self.options("Erases")
+        row = QtWidgets.QHBoxLayout()
+        self.erase_guides = QtWidgets.QCheckBox("Guides")
+        self.erase_parts = QtWidgets.QCheckBox("Parts")
+        self.erase_flow = QtWidgets.QCheckBox("Flow")
+        for box, flag in ((self.erase_guides, "eraseGuides"), (self.erase_parts, "eraseParts"),
+                          (self.erase_flow, "eraseFlow")):
+            box.setChecked(True)
+            box.toggled.connect(lambda on, f=flag: self.push(**{f: on}))
+            row.addWidget(box)
+        row.addStretch(1)
+        column.addLayout(row)
+        erase_note = QtWidgets.QLabel(ERASE_NOTE)
+        erase_note.setWordWrap(True)
+        erase_note.setProperty("role", "hint")
+        column.addWidget(erase_note)
+        self.erase_box.setToolTip("What the Erase brush removes where it passes (one undo step)")
+        card.addWidget(self.erase_box)
+
+        # Shaping brushes: what they act on (guides, part lines, flow arrows and sinks)
+        self.target_box, column = self.options("Acts on")
+        row = QtWidgets.QHBoxLayout()
+        self.target_guides = QtWidgets.QCheckBox("Guides")
+        self.target_parts = QtWidgets.QCheckBox("Parts")
+        self.target_flow = QtWidgets.QCheckBox("Flow")
+        for box, on in ((self.target_guides, True), (self.target_parts, False), (self.target_flow, False)):
+            box.setChecked(on)
+            box.toggled.connect(self.push_targets)
+            row.addWidget(box)
+        row.addStretch(1)
+        column.addLayout(row)
+        self.target_box.setToolTip("What the brush shapes where it passes: guides, part lines, flow arrows and sinks "
+                                   "(Comb slides and lays arrows along the stroke; Twist turns arrows and whorls; "
+                                   "Length sizes whorls; Smooth, Straighten and Attract shape both; Cut splits parts)")
+        card.addWidget(self.target_box)
+
+        # Guide selection
+        self.select_box, column = self.options("Selection")
+        form = self.options_form(column)
+        self.soft = widgets.SoftSlider(0.0, 0.0, 1.0, minimum=0.0, key="palette.soft")
+        self.soft.setToolTip("Soft selection radius (scene units): guides near the selection are partly selected; "
+                             "brushes with Selected only fade out over it")
+        self.soft.committed.connect(self.set_soft_selection)
+        form.addRow("Soft radius", self.soft)
+        card.addWidget(self.select_box)
+
+        # Freeze: the mask as a whole
+        self.freeze_box, column = self.options("Freeze mask")
+        unfreeze = QtWidgets.QPushButton("Unfreeze All")
+        unfreeze.setToolTip("Clear the freeze mask: every guide can be brushed again")
+        unfreeze.clicked.connect(lambda: self.paint_tab.unfreeze_all())
+        column.addWidget(unfreeze)
+        card.addWidget(self.freeze_box)
+
+        self.gestures = QtWidgets.QLabel(GESTURES)
+        self.gestures.setWordWrap(True)
+        self.gestures.setProperty("role", "hint")
+        card.addWidget(self.gestures)
+        outer.addWidget(self.settings)
+
+        # How the strands draw while a stroke is live: set once, rarely changed.
+        display = QtWidgets.QWidget()
+        form = QtWidgets.QFormLayout(display)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        self.sculpt = QtWidgets.QComboBox()
+        self.sculpt.addItems(["Strands as they are", "Strands dimmed", "Guides only"])
+        self.sculpt.setCurrentIndex(1)
+        self.sculpt.setToolTip("How strands draw while a stroke is live (they also drop to a lighter density "
+                               "unless Full density is on)")
+        self.sculpt.currentIndexChanged.connect(self.apply_sculpt_display)
+        form.addRow("Strands", self.sculpt)
+        self.full_density = QtWidgets.QCheckBox("Full density")
+        self.full_density.setObjectName("sculptFullDensity")
+        self.full_density.setToolTip("Keep every strand of the preview up while a stroke is live, instead of a "
+                                     "lighter share of them (slower on heavy grooms, but nothing pops)")
+        self.full_density.toggled.connect(lambda _: self.apply_sculpt_display(self.sculpt.currentIndex()))
+        form.addRow(self.full_density)
+        self.display_section = widgets.Section("While sculpting", display)
+        outer.addWidget(self.display_section)
+
+        # Guide groups and edits on many guides (Tools tab).
+        self.guides_tab = tool_tabs.GuidesTab(self)
+        self.guides_section = widgets.Section("Guide groups & edits", self.guides_tab)
+        outer.addWidget(self.guides_section)
+
+        # Correctives: the groom as a stack (base groom + correctives); the picked row is what brushes edit.
+        self.sculpt_layout.addWidget(self.heading("Correctives"))
+        self.correctives = tool_tabs.CorrectivesBox(self)
+        self.sculpt_layout.addWidget(self.correctives)
+        outer.addStretch(1)
+
+        theme.style(self)
+        theme.listen(self, "apply_theme")
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(400)
+        self.timer.timeout.connect(self.poll)
+        self.timer.start()
+        self.poll()
+        self.tab_changed(self.tabs.currentIndex())
+        self.show_tool_settings()
+
+    def header_button(self, glyph, tip, checkable=False):
+        b = QtWidgets.QToolButton()
+        if glyph:
+            b.setIcon(widgets.glyph(glyph))
+            b.glyph = glyph
+        b.setIconSize(QtCore.QSize(theme.px(20), theme.px(20)))
+        b.setToolTip(tip)
+        b.setAutoRaise(True)
+        b.setCheckable(checkable)
+        b.setProperty("role", "glyph")
+        return b
+
+    @staticmethod
+    def setting_box(setting):
+        """A checkbox for one of the catalog's settings: its label and hint."""
+        box = QtWidgets.QCheckBox(SETTINGS[setting]["label"])
+        box.setToolTip(SETTINGS[setting]["hint"])
+        return box
+
+    def curve_setting(self, setting, keys, ends):
+        """A brush curve of the catalog's: a checkbox (its label and hint) over a curve editor shown
+        while it is ticked; the curve goes to the tool as it settles ("" when unticked)."""
+        box, column = self.options()
+        check = self.setting_box(setting)
+        column.addWidget(check)
+        editor = widgets.RampEditor(keys, ends=ends)
+        editor.setToolTip(SETTINGS[setting]["hint"] + " (right-click: presets)")
+        editor.setVisible(False)
+        column.addWidget(editor)
+        flag = setting  # the tool's flag has the setting's name
+        check.toggled.connect(lambda on: (editor.setVisible(on), self.push(**{flag: self.curve_of(check, editor)})))
+        editor.committed.connect(lambda _keys: self.push(**{flag: self.curve_of(check, editor)}))
+        editor.check = check
+        return box, editor
+
+    @staticmethod
+    def curve_of(check, editor):
+        """A curve setting as the tool takes it: the editor's keys as JSON, or "" while it is off."""
+        import json
+        return json.dumps(editor.value()) if check.isChecked() else ""
+
+    def options(self, title=None):
+        """A tool's own options inside the settings card: a small heading (if any) over a column."""
+        box = QtWidgets.QWidget()
+        box.setProperty("role", "options")
+        column = QtWidgets.QVBoxLayout(box)
+        column.setContentsMargins(0, theme.px(4) if title else 0, 0, 0)
+        column.setSpacing(theme.px(6))
+        if title:
+            heading = QtWidgets.QLabel(title.upper())
+            heading.setProperty("role", "subheading")
+            column.addWidget(heading)
+        return box, column
+
+    @staticmethod
+    def options_form(column):
+        form = QtWidgets.QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        form.setRowWrapPolicy(QtWidgets.QFormLayout.DontWrapRows)
+        column.addLayout(form)
+        return form
+
+    def closeEvent(self, event):
+        self.stop_following()
+        super(ToolPalette, self).closeEvent(event)
+
+    def stop_following(self):
+        """The tabs stop following their groom (their Maya callbacks go), and the poll stops:
+        closing, or Maya quitting."""
+        self.timer.stop()
+        for tab in (self.guides_tab, self.paint_tab, self.correctives, self.reference_tab):
+            tab.unwatch()
+
+    def showEvent(self, event):
+        super(ToolPalette, self).showEvent(event)
+        if not self.timer.isActive():  # closed and shown again: follow the groom once more
+            for tab in (self.guides_tab, self.paint_tab, self.correctives, self.reference_tab):
+                tab._watch()
+                tab.refresh()
+            self.timer.start()
+
+    @staticmethod
+    def heading(text):
+        label = QtWidgets.QLabel(text.upper())
+        label.setProperty("role", "heading")
+        return label
+
+    def apply_theme(self, t):
+        """A new theme: the icons in its colors (the style sheet follows by itself)."""
+        for tool, button in self.buttons.items():
+            button.setIcon(widgets.icon(tool))
+        for name, button in self.header_icons.items():
+            button.setIcon(widgets.icon(name))
+        for button in self.findChildren(QtWidgets.QToolButton):
+            if getattr(button, "glyph", None):
+                button.setIcon(widgets.glyph(button.glyph))
+
+    def unfreeze_tile(self):
+        """Unfreeze All as a tile beside the Freeze tool's: every guide brushable again."""
+        b = QtWidgets.QToolButton()
+        b.setObjectName("unfreezeAllTile")
+        b.setText("Unfreeze All")
+        b.setIcon(widgets.icon("unfreeze"))
+        b.setIconSize(QtCore.QSize(theme.px(28), theme.px(28)))
+        b.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+        b.setAutoRaise(True)
+        b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        b.setMinimumSize(theme.px(64), theme.px(56))
+        b.setProperty("role", "tool")
+        b.setToolTip("<b>Unfreeze All</b><br>Clear the freeze mask: every guide can be brushed again "
+                     "(Shift+click off a guide with a brush does the same)")
+        b.clicked.connect(lambda: self.paint_tab.unfreeze_all())
+        self.buttons.setdefault("unfreeze", b)  # its icon follows the theme
+        return b
+
+    def tool_grid(self, tools, columns=4, extra=()):
+        """Tool tiles (tool, label, tooltip) that reflow to the panel's width, and any `extra`
+        buttons after them; one tool is active across every tab."""
+        tiles = []
+        for tool, label, tip in tools:
+            b = QtWidgets.QToolButton()
+            b.setText(label)
+            b.setIcon(widgets.icon(tool))
+            b.setIconSize(QtCore.QSize(theme.px(28), theme.px(28)))
+            b.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+            b.setCheckable(True)
+            b.setAutoRaise(True)
+            b.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            b.setMinimumSize(theme.px(64), theme.px(56))
+            b.setProperty("role", "tool")  # a rounded tile: the theme colors it
+            b.setToolTip("<b>%s</b><br>%s" % (NAMES.get(tool, label), tip))
+            b.clicked.connect(lambda _=False, t=tool: self.activate(t))
+            self.group.addButton(b)
+            self.buttons.setdefault(tool, b)
+            self.tiles.setdefault(tool, []).append(b)
+            tiles.append(b)
+        tiles.extend(extra)
+        return widgets.ToolGrid(tiles, columns)
+
+    def check_tiles(self, tool):
+        """The active tool's tiles on, every other off."""
+        for t, tiles in self.tiles.items():
+            for b in tiles:
+                b.setChecked(t == tool)
+
+    def show_tab(self, name):
+        """Show tab `name`; "guides" is the Tools tab with its guide groups open."""
+        if name == "guides":
+            self.tabs.setCurrentIndex(TABS.index("tools"))
+            self.guides_section.set_expanded(True)
+        else:
+            self.tabs.setCurrentIndex(TABS.index(name))
+
+    def tab_changed(self, index):
+        self.guides_section.setVisible(TABS[index] == "tools")
+        self.show_tool_settings()
+
+    # -- Groom and syncing ---------------------------------------------------
+
+    def groom(self):
+        return groomlab.active_groom()
+
+    FOLLOW = "\x00follow"  # the groom list's "Follow selection" row
+
+    def fill_grooms(self, active, pinned):
+        """The groom choice: Follow selection, then each groom; the current one is the pinned
+        groom, or Follow selection. The eye shows or hides the groom the tools work on."""
+        from maya import cmds
+        shapes = sorted(cmds.ls(type=groomlab.GROOM_TYPE) or [])
+        shown = active and (cmds.listRelatives(active, parent=True) or [active])[0]
+        rows = [(self.FOLLOW, "Selected: %s" % self._short(shown) if shown and not pinned else "Selected groom")]
+        for shape in shapes:
+            rows.append((shape, self._short((cmds.listRelatives(shape, parent=True) or [shape])[0])))
+        visible = None
+        if active and cmds.objExists(active):
+            visible = bool(cmds.getAttr((cmds.listRelatives(active, parent=True) or [active])[0] + ".visibility"))
+        state = (rows, pinned, visible)
+        if state == getattr(self, "_groom_rows", None):
+            return
+        self._groom_rows = state
+        self.grooms.blockSignals(True)
+        self.grooms.clear()
+        for key, text in rows:
+            self.grooms.addItem(text, key)
+        self.grooms.setCurrentIndex(max(0, self.grooms.findData(pinned or self.FOLLOW)))
+        self.grooms.blockSignals(False)
+        self.visible.blockSignals(True)
+        self.visible.setEnabled(visible is not None)
+        self.visible.setChecked(bool(visible))
+        self.visible.glyph = "eye" if visible or visible is None else "eyeOff"
+        self.visible.setIcon(widgets.glyph(self.visible.glyph))
+        self.visible.blockSignals(False)
+        # Nothing to work on: how to start a groom, in place of the group row.
+        self.target_row.setVisible(bool(active))
+        self.empty.setVisible(not active)
+        self.empty_text.setText(
+            "Pick a groom above, or select a scalp mesh (and any guide curves) to grow a new one." if shapes else
+            "Select the scalp mesh, and any curves to start the guides from, then:")
+
+    @staticmethod
+    def _short(name):
+        return name.split("|")[-1]
+
+    def groom_picked(self, index):
+        """Work on the picked groom (pinned), or follow the selection again."""
+        key = self.grooms.itemData(index)
+        groomlab.pin_groom(None if key == self.FOLLOW else key)
+        self._groom_rows = None
+        QtCore.QTimer.singleShot(0, self.poll)  # after the pick: the list may change under it
+
+    def groom_visibility(self, on):
+        """The eye: show or hide the groom the tools work on."""
+        from maya import cmds
+        groom = self.groom()
+        if not groom or not cmds.objExists(groom):
+            return
+        transform = (cmds.listRelatives(groom, parent=True) or [groom])[0]
+        cmds.setAttr(transform + ".visibility", bool(on))
+        self._groom_rows = None
+        self.poll()
+
+    def apply_isolation(self):
+        groom = self.groom()
+        if groom:
+            level = self.level.currentData()
+            groomlab.isolate_level(groom, level if self.isolate.isChecked() and level is not None and level >= 0 else None)
+
+    def apply_sculpt_display(self, index):
+        groom = self.groom()
+        if groom:
+            cmds_mode = ("normal", "dimStrands", "guidesOnly")[index]
+            groomlab.set_sculpt_display(groom, cmds_mode, density=1.0 if self.full_density.isChecked() else 0.35)
+
+    def sync(self, from_negative):
+        from groomlab.ui import menu
+        menu.symmetry_sync(from_negative)
+
+    # -- The target group --------------------------------------------------------
+
+    def current_group(self):
+        """The group picked for brushes and new guides ("" for all groups)."""
+        return self.level.currentData(QtCore.Qt.UserRole + 1) or ""
+
+    def target_changed(self, _index=None):
+        self._target = (self.current_group(), self.level.currentData())
+        self.push(level=self.level.currentData(), group=self.current_group())
+        self.apply_isolation()
+
+    def pick_group(self, name):
+        """Brushes and new guides use group `name` (from the groups list)."""
+        index = next((i for i in range(self.level.count())
+                      if self.level.itemData(i, QtCore.Qt.UserRole + 1) == name), -1)
+        if index >= 0:
+            self.level.setCurrentIndex(index)
+
+    def new_group(self):
+        """Ask for a name (and a parent group), make the group and work in it."""
+        groom = self.groom()
+        if not groom:
+            self.status.setText("Select a groom first.")
+            return
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("New Guide Group")
+        form = QtWidgets.QFormLayout(dialog)
+        name = QtWidgets.QLineEdit()
+        name.setPlaceholderText("e.g. bangs, beard, flyaways")
+        parent = QtWidgets.QComboBox()
+        parent.addItem("None: a top-level group", "")
+        for g in groomlab.list_guide_groups(groom):
+            parent.addItem("child of %s" % g["name"], g["name"])
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow("Name", name)
+        form.addRow("Parent", parent)
+        form.addRow(buttons)
+        theme.style(dialog)
+        if qt.exec_(dialog) != QtWidgets.QDialog.Accepted or not name.text().strip():
+            return
+        group = name.text().strip()
+        try:
+            groomlab.add_guide_group(groom, group, parent.currentData() or None)
+        except (RuntimeError, ValueError) as e:
+            self.status.setText(str(e).strip())
+            return
+        self.fill_levels(groom, select=group)
+        self.guides_tab.refresh()
+        self.status.setText("New guides go into %s." % group)
+
+    def create_groom(self):
+        from maya import cmds
+        from groomlab.ui import menu
+        meshes = cmds.ls(selection=True, dag=True, type="mesh", noIntermediate=True)
+        if not meshes:
+            self.status.setText("Select the scalp mesh (and any guide curves) first.")
+            return
+        menu.create_groom_from_selection()
+        self.status.setText("")
+        self.poll()
+
+    def step_level(self, delta):
+        """Move the Guides choice one level (Page Up / Page Down)."""
+        index = self.level.currentIndex()
+        levels = [self.level.itemData(i) for i in range(self.level.count())]
+        current = levels[index] if index >= 0 else 0
+        candidates = sorted(l for l in levels if l is not None and l >= 0)
+        if not candidates:
+            return
+        target = min(candidates, key=lambda l: abs(l - (max(current, 0) + delta)))
+        self.level.setCurrentIndex(levels.index(target))
+
+    def poll(self):
+        """Follow the selection and the tool's settings changed in the viewport (middle-drag)."""
+        if not self.isVisible():
+            return
+        app = QtWidgets.QApplication.instance()
+        if app.activePopupWidget() or app.activeModalWidget():  # a menu or dialog is open: wait
+            return
+        from maya import cmds
+        pinned_groom = groomlab.pinned_groom()
+        groom = groomlab.active_groom()
+        self.fill_grooms(groom, pinned_groom)
+        # Levels and layers: on a groom change, and every few seconds for edits made elsewhere.
+        self._ticks = getattr(self, "_ticks", 0) + 1
+        # The node, not just its name: a new scene's groom of the same name is another groom.
+        node = (groom, (cmds.ls(groom, uuid=True) or [""])[0] if groom else "")
+        if node != getattr(self, "_last_groom", "?"):
+            self._last_groom = node
+            for tab in (self.guides_tab, self.paint_tab, self.correctives, self.reference_tab):
+                tab.set_groom(groom)
+        # The group list follows the guides through the Guides tab (its callback on guideData); here
+        # only a new groom. The first-groom card: now and then until it is done or dismissed.
+        if groom != getattr(self, "_levels_groom", "?"):
+            self._levels_groom = groom
+            self.starter.refresh(groom)
+            self.fill_levels(groom, select=self.current_group())
+        elif self._ticks % 6 == 0 and self.starter.following():
+            self.starter.refresh(groom)
+        if self.tool == PART:
+            self.fill_parts(groom)
+        # Weights change with the frame: read them every tick, the stack itself now and then
+        # (keys edited in the timeline) and whenever the groom's correctives change (its callback);
+        # only while the Correctives box shows.
+        self.correctives.tick(full=self._ticks % 6 == 0)
+        if self.reference_tab.isVisible():  # the photos follow the scene and the viewport's camera
+            self.reference_tab.poll()
+        ctx = groomlab.BRUSH_CONTEXT
+        current = cmds.currentCtx()
+        if current == ctx and cmds.contextInfo(ctx, exists=True):
+            mode = cmds.groomLabBrushCtx(ctx, query=True, mode=True)
+            if mode == "paint" and cmds.groomLabBrushCtx(ctx, query=True, attribute=True) == "freeze":
+                mode = "freeze"
+            if mode != self.tool and mode in self.buttons:
+                if self.tool == "paint":
+                    self.paint_tab.end_painting()  # the brush left Paint (a hotkey, the tool settings)
+                self.tool = mode
+                self.buttons[mode].setChecked(True)
+                self.show_tool_settings()
+            if not self.radius.slider.isSliderDown():
+                self.radius.setValue(cmds.groomLabBrushCtx(ctx, query=True, radius=True))
+            # Shift+click on a guide in the viewport solos it and picks its group.
+            if self.tool != PART:
+                picked = cmds.groomLabBrushCtx(ctx, query=True, group=True)
+                if picked:
+                    index = next((i for i in range(self.level.count())
+                                  if self.level.itemData(i, QtCore.Qt.UserRole + 1) == picked), -1)
+                else:
+                    index = self.level.findData(cmds.groomLabBrushCtx(ctx, query=True, level=True))
+                if index >= 0 and index != self.level.currentIndex():
+                    self.level.blockSignals(True)
+                    self.level.setCurrentIndex(index)
+                    self.level.blockSignals(False)
+                    self._target = (self.current_group(), self.level.currentData())
+                    self.apply_isolation()
+            if not self.strength.slider.isSliderDown():
+                strength = cmds.groomLabBrushCtx(ctx, query=True, strength=True)
+                self.strength.setValue(strength)
+                if self.tool in self.strengths:
+                    self.strengths[self.tool] = strength
+        elif current == groomlab.SELECT_CONTEXT and self.tool != "select":
+            self.tool = "select"
+            self.buttons["select"].setChecked(True)
+            self.show_tool_settings()
+        elif current not in (ctx, groomlab.SELECT_CONTEXT) and self.tool is not None:
+            self.clear_tool()  # another Maya tool took over: nothing is active here
+
+    def fill_levels(self, groom, select=None, groups=None):
+        """The group choices: All groups, then each group (children under their parents).
+        `groups`: groomlab.list_guide_groups(groom) when the caller has read it."""
+        role = QtCore.Qt.UserRole + 1
+        wanted = select if select is not None else self.current_group()
+        first = getattr(self, "_target", None) is None  # a new window starts on the first group
+        if groups is None:
+            groups = []
+            if groom:
+                try:
+                    groups = groomlab.list_guide_groups(groom)
+                except RuntimeError:
+                    groups = []
+        items = [("All groups", -1, "")]
+        ordered = []
+
+        def walk(parent, depth):
+            for g in groups:
+                if g["parent"] == parent:
+                    ordered.append(("    " * depth + g["name"], g["depth"], g["name"]))
+                    walk(g["name"], depth + 1)
+        walk(None, 0)
+        items += ordered or [("primary", 0, "primary")]  # a new groom: Place starts the primary group
+        state = [(text, level, group) for text, level, group in items]
+        if state == getattr(self, "_level_items", None) and wanted == self.current_group():
+            return
+        self._level_items = state
+        self.level.blockSignals(True)
+        self.level.clear()
+        for text, level, group in items:
+            self.level.addItem(text, level)
+            self.level.setItemData(self.level.count() - 1, group, role)
+        index = -1 if first else next((i for i in range(self.level.count()) if self.level.itemData(i, role) == wanted), -1)
+        if index < 0:
+            index = next((i for i in range(self.level.count()) if self.level.itemData(i) == 0), 0)
+        self.level.setCurrentIndex(index)
+        self.level.blockSignals(False)
+        if self.current_group() != getattr(self, "_target", ("?",))[0]:
+            self._target = (self.current_group(), self.level.currentData())
+            self.push(level=self.level.currentData(), group=self.current_group())
+
+    # -- Tools -----------------------------------------------------------------
+
+    def activate(self, tool):
+        from maya import cmds
+        if tool == "paint" and self.tool == "paint" and cmds.currentCtx() == groomlab.BRUSH_CONTEXT:
+            self.stop_tool()  # the Paint tile again: done painting
+            return
+        if tool != "paint":
+            self.paint_tab.end_painting()
+        self.tool = tool
+        self.check_tiles(tool)
+        self.status.setText("")
+        if not self.groom():
+            self.status.setText("Select a groom first; tools work on the selected groom.")
+        if tool == "select":
+            groomlab.select_tool(level=max(self.level.currentData() or 0, 0), group=self.current_group(),
+                                 symmetry=self.symmetry_name())
+            self.show_tool_settings()
+            return
+        if tool == "freeze":
+            try:
+                groomlab.freeze_tool(radius=self.radius.value(), strength=self.strengths.get("freeze", 1.0),
+                                     level=self.level.currentData() if self.level.currentData() is not None else 0,
+                                     group=self.current_group(),
+                                     symmetry=self.symmetry_name(),
+                                     pressure=self.pressure.isChecked())
+            except (RuntimeError, ValueError) as e:
+                self.tool_failed(e)
+            self.show_tool_settings()
+            return
+        if tool == PART:
+            groom = self.groom()
+            if groom:
+                try:
+                    groomlab.draw_part_tool(groom, name=self.part_name.text() or "part",
+                                            symmetry=self.symmetry_name())
+                except (RuntimeError, ValueError) as e:
+                    self.tool_failed(e)
+            self.fill_parts(groom)
+            self.show_tool_settings()
+            return
+        kwargs = dict(radius=self.radius.value(), strength=self.strengths.get(tool, 1.0),
+                      level=self.level.currentData() if self.level.currentData() is not None else 0,
+                      group=self.current_group(), selected_only=self.selected_only.isChecked(),
+                      erase_guides=self.erase_guides.isChecked(), erase_parts=self.erase_parts.isChecked(),
+                      erase_flow=self.erase_flow.isChecked(), stretch=self.stretch.isChecked(),
+                      flow_sink=self.flow_sink.currentData() or "",
+                      symmetry=self.symmetry_name(), pressure=self.pressure.isChecked(),
+                      collide=self.collide.isChecked(), mask_by_scalp=self.mask_scalp.isChecked(),
+                      match_neighbors=self.match.isChecked(), solo_new_guides=self.solo_new.isChecked(),
+                      length=self.length.value() / self.length_factor, segments=self.segments.value(),
+                      spacing=self.spacing.value() / self.length_factor,
+                      value=self.paint_tab.value.value(),
+                      targets=self.targets_name(),
+                      hardness=1.0 - self.falloff.value(), smooth_strength=self.smooth_strength.value(),
+                      falloff_profile=self.curve_of(self.falloff_curve.check, self.falloff_curve),
+                      strength_profile=self.curve_of(self.strength_curve.check, self.strength_curve))
+        if tool == "paint":
+            self.show_tab("paint")
+            name = self.paint_tab.current() or self.paint_tab.new_map()
+            if not name:
+                self.status.setText("Make a map to paint (New...).")
+                return
+            kwargs["attribute"] = name
+            kwargs.update(self.paint_tab.paint_flags())
+            if self.groom():
+                self.paint_tab.show_while_painting(name)
+        try:
+            groomlab.brush_tool(tool, **kwargs)
+        except (RuntimeError, ValueError) as e:
+            self.tool_failed(e)
+        self.show_tool_settings()
+        try:
+            cmds.setFocus("MayaWindow")  # keyboard shortcuts go back to Maya
+        except RuntimeError:
+            pass
+
+    def clear_tool(self):
+        """No tool here: every tile off, the card back to how to start."""
+        self.check_tiles(None)
+        self.tool = None
+        self.paint_tab.end_painting()  # the map shown while painting goes back to how it was
+        self.show_tool_settings()
+
+    def stop_tool(self):
+        """No GroomLab tool: Maya's Select tool, every tile off."""
+        from maya import cmds
+        self.clear_tool()
+        cmds.setToolTo("selectSuperContext")
+
+    def tool_failed(self, error):
+        """A tool that couldn't start: say why, and leave no tool active, so a drag
+        in the viewport doesn't quietly use the one picked before."""
+        self.status.setText("%s: %s" % ((self.tool or "tool").capitalize(), str(error).strip()))
+        self.stop_tool()
+
+    def show_tool_settings(self):
+        """The card shows what the active tool uses (the catalog's settings for it), and nothing
+        else; with no tool, how to start."""
+        tool = self.tool
+        uses = TOOL_SETTINGS.get(tool, set())
+        self.settings_heading.setText((NAMES.get(tool, tool) if tool else "Tool").upper())
+        self.hint.setText(HINTS.get(tool, "Pick a tool, then drag over the groom in the viewport.")
+                          if tool else "Pick a tool, then drag over the groom in the viewport.")
+        self.settings.setVisible(tool is not None)
+        brush = "radius" in uses
+        for label, slider in ((self.radius_label, self.radius), (self.strength_label, self.strength),
+                              (self.falloff_label, self.falloff)):
+            label.setVisible(brush)
+            slider.setVisible(brush)
+            slider.setEnabled(brush)
+        self.falloff_curve_box.setVisible("falloffProfile" in uses)
+        self.strength_curve_box.setVisible("strengthProfile" in uses)
+        self.smooth_strength.setVisible("smoothStrength" in uses)
+        self.smooth_label.setVisible("smoothStrength" in uses)
+        self.symmetry_row.setVisible("symmetry" in uses)
+        self.selected_only.setVisible("selectedOnly" in uses)
+        self.pressure.setVisible("pressure" in uses)
+        self.pressure.setEnabled("pressure" in uses)
+        self.collide.setVisible("collide" in uses)
+        self.mask_scalp.setVisible("frontFacingOnly" in uses)
+        self.collide.setEnabled(tool != "select")
+        self.brush_form.setVisible(brush)
+        # The tool's checkboxes packed two to a row, with no holes where others are hidden.
+        for box in self.check_boxes:
+            self.checks.removeWidget(box)
+        shown = [box for box in self.check_boxes if not box.isHidden()]
+        for i, box in enumerate(shown):
+            self.checks.addWidget(box, i // 2, i % 2)
+        self.gestures.setVisible(brush)
+        self.create_box.setVisible("newGuides" in uses)
+        self.spacing.setVisible("spacing" in uses)
+        self.spacing_label.setVisible("spacing" in uses)
+        self.part_box.setVisible("parts" in uses)
+        self.erase_box.setVisible("erases" in uses)
+        self.target_box.setVisible("targets" in uses)
+        self.stretch_box.setVisible("stretch" in uses)
+        self.flow_box.setVisible("flow" in uses)
+        self.select_box.setVisible("selection" in uses)
+        self.freeze_box.setVisible("freezeMask" in uses)
+        self.level.setEnabled(tool != PART)
+        if tool in self.strengths:
+            signed = tool in SIGNED
+            self.strength.setRange(-1.0 if signed else 0.0, 1.0)
+            self.strength.setValue(self.strengths[tool])
+            self.strength_label.setText("Strength (±)" if signed else "Strength")
+
+    def push(self, **flags):
+        """Send changed settings to the active tool."""
+        from maya import cmds
+        ctx = groomlab.BRUSH_CONTEXT
+        if self.tool in (None, "select") or not cmds.contextInfo(ctx, exists=True):
+            if self.tool == "select" and ("level" in flags or "symmetry" in flags):
+                groomlab.select_tool(level=max(self.level.currentData() or 0, 0), group=self.current_group(),
+                                     symmetry=self.symmetry_name())
+            return
+        try:
+            cmds.groomLabBrushCtx(ctx, edit=True, **flags)
+        except RuntimeError as e:
+            self.status.setText(str(e))
+
+    def toggle_symmetry(self):
+        """Symmetry on or off (Alt+Shift+X): the box, which tells the tool. Returns whether it is on."""
+        self.symmetry.setChecked(not self.symmetry.isChecked())
+        return self.symmetry.isChecked()
+
+    def symmetry_name(self):
+        """The tools' -symmetry: "none", "x" (world X) or "topology"."""
+        return self.symmetry_mode.currentData() if self.symmetry.isChecked() else "none"
+
+    def set_strength(self, v):
+        if self.tool in self.strengths:
+            self.strengths[self.tool] = v
+        self.push(strength=v)
+
+    def targets_name(self):
+        """The Brushes checkboxes as the tool's -targets: "guides,parts,flow" (any subset) or "none"."""
+        names = [name for box, name in ((self.target_guides, "guides"), (self.target_parts, "parts"),
+                                        (self.target_flow, "flow")) if box.isChecked()]
+        return ",".join(names) or "none"
+
+    def push_targets(self):
+        """The Brushes checkboxes: what the shaping brushes act on, sent to the active tool."""
+        self.push(targets=self.targets_name())
+
+    # -- Actions ---------------------------------------------------------------
+
+    def fill_parts(self, groom):
+        names = groomlab.list_parts(groom) if groom else []
+        if [self.part_list.item(i).text() for i in range(self.part_list.count())] != names:
+            self.part_list.clear()
+            self.part_list.addItems(names)
+
+    def remove_part(self):
+        groom, item = self.groom(), self.part_list.currentItem()
+        if groom and item:
+            groomlab.remove_part(groom, item.text())
+            self.fill_parts(groom)
+
+    def parts_from_curves(self):
+        from maya import cmds
+        groom = self.groom()
+        curves = cmds.ls(selection=True, dag=True, type="nurbsCurve")
+        if not groom or not curves:
+            self.status.setText("Select the part curves (and pin the groom, or select it too).")
+            return
+        try:
+            names = groomlab.add_part(groom, [cmds.listRelatives(c, parent=True)[0] for c in curves],
+                                      delete_curves=True)
+            groomlab.add_part_node(groom, if_missing=True)
+        except (RuntimeError, ValueError) as e:
+            self.status.setText(str(e))
+            return
+        self.status.setText("Added %s." % ", ".join(names))
+        self.fill_parts(groom)
+
+    def flow_sink_changed(self, *_):
+        kind = self.flow_sink.currentData() or ""
+        self.flow_hint.setText("Drag to lay arrows; drag over arrows to comb them; Ctrl erases." if not kind else
+                               "Click to place, the size of the brush; Ctrl-click removes sinks.")
+        self.push(flowSink=kind)
+
+    def clear_flow(self):
+        groom = self.groom()
+        if groom:
+            groomlab.clear_flow(groom)
+
+    def set_soft_selection(self, radius):
+        groom = self.groom()
+        if groom:
+            groomlab.set_soft_selection(groom, radius)
+
+    def clear_parts(self):
+        groom = self.groom()
+        if groom:
+            groomlab.clear_parts(groom)
+            self.fill_parts(groom)
+
+    def open_graph(self):
+        from groomlab.ui import graph_editor
+        graph_editor.show(self.groom())
+
+_window = None
+
+
+def current():
+    """The open palette, or None."""
+    try:
+        return _window if _window is not None and _window.isVisible() else None
+    except RuntimeError:  # its widget was deleted
+        return None
+
+
+def select_map(name):
+    """Pick map `name` in the Paint tab of the open Groom Tools (show() first)."""
+    if _window is not None:
+        _window.paint_tab.select(name)
+
+
+def show(tab=None):
+    """Open (or raise) the dockable Groom Tools; `tab` picks "tools", "paint", "sculpt" or "reference" ("guides":
+    the Tools tab with its guide groups open)."""
+    global _window
+    from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
+
+    class DockableToolPalette(MayaQWidgetDockableMixin, ToolPalette):
+        pass
+
+    if _window is not None and not widgets.alive(_window):  # its dock was deleted
+        _window = None
+    if _window is None:
+        widgets.free_dock("groomLabToolPalette")
+        _window = DockableToolPalette()
+        _window.setObjectName("groomLabToolPalette")
+        widgets.at_exit(_close_at_exit)
+    _window.show(dockable=True, area="left", floating=False)
+    if tab:
+        _window.show_tab(tab)
+    _window.poll()
+    return _window
+
+
+def _close_at_exit():
+    """Maya quits: the palette stops its poll and callbacks and its widgets go while Qt and Python
+    are whole (see widgets.at_exit). Its dock stays as Maya saves it."""
+    global _window
+    window, _window = _window, None
+    if window is not None and widgets.alive(window):
+        window.stop_following()
+        widgets.dispose(window)

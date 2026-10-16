@@ -1,0 +1,53 @@
+Curl v2; head size 17.5 (units: cm), curl radius 0.393, frequency 0.458 turns/unit, strand width 0.0070, preview density 0.10
+
+curly: limit 256 segments, 12744 strands, 257 points a strand (mean)
+  segments  16:  17.0 points a strand (max  17),   4.5 a turn (median, min  3.6); Curl 7.8 ms
+      the groom's curl off the limit's (polyline):               mean 1.0201 mm p99 1.8557 mm max 2.2065 mm (31.60 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0567 mm p99 0.2060 mm max 0.2819 mm (4.04 widths)
+      Curl alone, the limit's curl off its polyline:             mean 1.0161 mm p99 1.8367 mm max 2.1942 mm (31.43 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.2677 mm p99 0.6933 mm max 0.9655 mm (13.83 widths)
+  segments  40:  41.0 points a strand (max  41),  11.1 a turn (median, min  9.1); Curl 6.5 ms
+      the groom's curl off the limit's (polyline):               mean 0.2914 mm p99 0.6397 mm max 0.8759 mm (12.54 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0248 mm p99 0.0956 mm max 0.1670 mm (2.39 widths)
+      Curl alone, the limit's curl off its polyline:             mean 0.2891 mm p99 0.6359 mm max 0.8759 mm (12.55 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.2381 mm p99 0.6330 mm max 0.8769 mm (12.56 widths)
+  segments  64:  65.0 points a strand (max  65),  17.8 a turn (median, min 14.6); Curl 13.2 ms
+      the groom's curl off the limit's (polyline):               mean 0.2245 mm p99 0.5568 mm max 0.7505 mm (10.75 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0063 mm p99 0.0391 mm max 0.0674 mm (0.97 widths)
+      Curl alone, the limit's curl off its polyline:             mean 0.2221 mm p99 0.5562 mm max 0.7475 mm (10.71 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.2088 mm p99 0.5526 mm max 0.7474 mm (10.71 widths)
+  segments 128: 129.0 points a strand (max 129),  35.7 a turn (median, min 29.1); Curl 19.2 ms
+      the groom's curl off the limit's (polyline):               mean 0.1310 mm p99 0.2908 mm max 0.5093 mm (7.30 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0037 mm p99 0.0290 mm max 0.0799 mm (1.14 widths)
+      Curl alone, the limit's curl off its polyline:             mean 0.1280 mm p99 0.2892 mm max 0.3290 mm (4.71 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.1253 mm p99 0.2892 mm max 0.3272 mm (4.69 widths)
+
+coily: limit 256 segments, 12744 strands, 257 points a strand (mean)
+  segments  16:  82.6 points a strand (max 113),   3.5 a turn (median, min  2.5); Curl 36.7 ms
+      the groom's curl off the limit's (polyline):               mean 0.2781 mm p99 0.6822 mm max 1.0742 mm (15.39 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0081 mm p99 0.0482 mm max 0.1122 mm (1.61 widths)
+      Curl alone, the limit's curl off its polyline:             mean 0.2713 mm p99 0.6820 mm max 0.9393 mm (13.45 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.2677 mm p99 0.6933 mm max 0.9655 mm (13.83 widths)
+  segments  40:  93.8 points a strand (max 161),   3.8 a turn (median, min  2.8); Curl 50.0 ms
+      the groom's curl off the limit's (polyline):               mean 0.2359 mm p99 0.6018 mm max 0.8734 mm (12.51 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0144 mm p99 0.0916 mm max 0.1335 mm (1.91 widths)
+      Curl alone, the limit's curl off its polyline:             mean 0.2330 mm p99 0.6019 mm max 0.8738 mm (12.52 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.2381 mm p99 0.6330 mm max 0.8769 mm (12.56 widths)
+  segments  64: 117.4 points a strand (max 129),   5.2 a turn (median, min  2.5); Curl 79.7 ms
+      the groom's curl off the limit's (polyline):               mean 0.1973 mm p99 0.5266 mm max 0.6771 mm (9.70 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0019 mm p99 0.0287 mm max 0.0824 mm (1.18 widths)
+      Curl alone, the limit's curl off its polyline:             mean 0.1953 mm p99 0.5272 mm max 0.6771 mm (9.70 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.2088 mm p99 0.5526 mm max 0.7474 mm (10.71 widths)
+  segments 128: 129.0 points a strand (max 129),   5.4 a turn (median, min  4.4); Curl 22.2 ms
+      the groom's curl off the limit's (polyline):               mean 0.1309 mm p99 0.2917 mm max 0.3284 mm (4.70 widths)
+      Curl alone, each point off the limit's curl at its share:  mean 0.0008 mm p99 0.0137 mm max 0.0451 mm (0.65 widths)
+      Curl alone, the limit's curl off its polyline:             mean 0.1299 mm p99 0.2906 mm max 0.3285 mm (4.70 widths)
+      (the input alone, the limit's off its polyline:)           mean 0.1253 mm p99 0.2892 mm max 0.3272 mm (4.69 widths)
+
+Curl (strand, before v2) on 500009 strands of 16 points: 22.8 ms (16.0 points a strand out)
+Curl (strand, v2, tolerance 0) on 500009 strands of 16 points: 57.0 ms (16.0 points a strand out)
+Curl (strand, v2, tolerance 0.1) on 500009 strands of 16 points: 209.6 ms (34.1 points a strand out)
+
+Curl (clump, before v2) on 500009 strands of 16 points: 66.7 ms (16.0 points a strand out)
+Curl (clump, v2, tolerance 0) on 500009 strands of 16 points: 76.5 ms (16.0 points a strand out)
+Curl (clump, v2, tolerance 0.1) on 500009 strands of 16 points: 279.4 ms (34.3 points a strand out)

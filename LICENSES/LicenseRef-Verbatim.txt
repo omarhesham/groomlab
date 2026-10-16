@@ -1,0 +1,3 @@
+License texts reproduced verbatim from their publishers (the FSF, the Apache Software Foundation,
+SPDX and others). Each may be copied and distributed verbatim; changing it is not allowed. Each
+text's own terms say so where they apply.

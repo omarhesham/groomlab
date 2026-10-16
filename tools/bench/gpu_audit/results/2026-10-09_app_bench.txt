@@ -1,0 +1,44 @@
+=== 100k lookdev interactive 1080p
+GroomLab: 30 frames at 1920x1080 on D3D11: 16.19 ms/frame; creation (open, evaluate) 699.7 ms, the first frame 2813.8 ms
+=== 100k lookdev interactive 1080p full
+GroomLab: 30 frames at 1920x1080 on D3D11: 19.75 ms/frame; creation (open, evaluate) 696.9 ms, the first frame 2861.3 ms
+=== 100k lookdev refine 1080p
+GroomLab: 30 frames at 1920x1080 on D3D11: 17.82 ms/frame; creation (open, evaluate) 713.6 ms, the first frame 2932.4 ms
+=== 100k lookdev interactive 960x540
+GroomLab: 30 frames at 960x540 on D3D11: 14.58 ms/frame; creation (open, evaluate) 705.4 ms, the first frame 2838.2 ms
+=== 100k lines 1080p
+GroomLab: 30 frames at 1920x1080 on D3D11: 0.75 ms/frame; creation (open, evaluate) 686.7 ms, the first frame 100.8 ms
+=== 100k lookdev orbit 1080p
+GroomLab: benchmark orbit: 60 frames at 1920x1080 in 0.42 s: 144.2 fps (lookdev)
+=== 100k lines orbit 1080p
+GroomLab: benchmark orbit: 60 frames at 1920x1080 in 0.04 s: 1666.5 fps (lines)
+=== 100k lookdev drag noise 1080p
+GroomLab: benchmark drag noise.amplitude GPU: median 16.74 ms to the drawn frame (evaluate 0.78, draw 15.80, of it the upload's CPU side 12.67), release 54.10 ms
+=== 100k lookdev drag interpolate 1080p
+GroomLab: benchmark drag interpolate.limitDistance CPU: median 103.21 ms to the drawn frame (evaluate 48.46, draw 51.14, of it the upload's CPU side 13.54), release 18.71 ms
+=== 100k d3d12 lookdev 1080p
+GroomLab: 30 frames at 1920x1080 on D3D12: 3.04 ms/frame; creation (open, evaluate) 684.8 ms, the first frame 2881.5 ms
+=== 100k d3d12 lookdev orbit 1080p
+GroomLab: benchmark orbit: 60 frames at 1920x1080 in 0.29 s: 204.8 fps (lookdev)
+=== 500k lookdev interactive 1080p
+GroomLab: 30 frames at 1920x1080 on D3D11: 55.59 ms/frame; creation (open, evaluate) 953.5 ms, the first frame 3204.2 ms
+=== 500k lookdev interactive 1080p full
+GroomLab: 30 frames at 1920x1080 on D3D11: 56.63 ms/frame; creation (open, evaluate) 965.4 ms, the first frame 3142.6 ms
+=== 500k lookdev refine 1080p
+GroomLab: 30 frames at 1920x1080 on D3D11: 55.39 ms/frame; creation (open, evaluate) 959.9 ms, the first frame 3222.7 ms
+=== 500k lookdev interactive 960x540
+GroomLab: 30 frames at 960x540 on D3D11: 39.02 ms/frame; creation (open, evaluate) 1010.8 ms, the first frame 3232.4 ms
+=== 500k lines 1080p
+GroomLab: 30 frames at 1920x1080 on D3D11: 2.89 ms/frame; creation (open, evaluate) 986.9 ms, the first frame 260.3 ms
+=== 500k lookdev orbit 1080p
+GroomLab: benchmark orbit: 60 frames at 1920x1080 in 1.22 s: 49.2 fps (lookdev)
+=== 500k lines orbit 1080p
+GroomLab: benchmark orbit: 60 frames at 1920x1080 in 0.15 s: 387.4 fps (lines)
+=== 500k lookdev drag noise 1080p
+GroomLab: benchmark drag noise.amplitude GPU: median 55.44 ms to the drawn frame (evaluate 0.88, draw 54.23, of it the upload's CPU side 62.54), release 280.10 ms
+=== 500k lookdev drag interpolate 1080p
+GroomLab: benchmark drag interpolate.limitDistance CPU: median 400.65 ms to the drawn frame (evaluate 213.74, draw 184.94, of it the upload's CPU side 62.84), release 33.72 ms
+=== 500k d3d12 lookdev 1080p
+GroomLab: 30 frames at 1920x1080 on D3D12: 3.86 ms/frame; creation (open, evaluate) 996.5 ms, the first frame 3078.0 ms
+=== 500k d3d12 lookdev orbit 1080p
+GroomLab: benchmark orbit: 60 frames at 1920x1080 in 0.45 s: 134.1 fps (lookdev)

@@ -1,0 +1,11 @@
+{
+  "name": "Pulse over time",
+  "description": "Rises and falls with the timeline, each strand a little out of step (animated: it changes every frame)",
+  "expression": "# $time: seconds on the timeline ($frame: the frame)\n$phase = $rand * $spread;\n0.5 + 0.5 * sin(($time * $speed + $phase) * 6.2832)",
+  "variables": {
+    "speed": 0.5,
+    "spread": 0.25
+  },
+  "min": 0.0,
+  "max": 1.0
+}

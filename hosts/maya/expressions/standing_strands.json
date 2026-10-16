@@ -1,0 +1,8 @@
+{
+  "name": "Standing strands",
+  "description": "1 where strands stand off the scalp, 0 where they lie along it",
+  "expression": "clamp($lift, 0, 1)",
+  "variables": {},
+  "min": 0.0,
+  "max": 1.0
+}

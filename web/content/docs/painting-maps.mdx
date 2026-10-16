@@ -1,0 +1,103 @@
+---
+title: Painting maps
+description: Painting maps that drive node parameters - guide, vertex and texture maps, grayscale and color maps, packed masks, importing and relinking images, and other map sources.
+---
+
+<Example name="paint-maps.png" alt="A painted clump-strength map shown on the scalp, with the Paint tab" caption="Groom Tools > Paint: a map of clump strength, displayed on the scalp" />
+
+## Paint a parameter
+
+1. In Groom Tools > **Paint**, click **+ New Map** and set **For** to a setting: **Density**,
+   **Width**, **Length**, **Clump strength**, **Curl**, **Noise amplitude**, **Flyaways**, or
+   **Other setting...** to pick any mappable parameter of the graph. Choose where the map lives
+   (**On the scalp's vertices** by default, **A texture**, or **On the guides**) and click OK.
+   Or, in the Graph Editor, right-click a parameter and choose **Paint** > **On Guides**,
+   **On Scalp Vertices** or **As Texture**: it does the same.
+2. A white map named `<node>_<parameter>` is created, a **Map** node connects it to the
+   parameter, the map is selected and the **Paint** brush starts on it, all in one undo step. If
+   the parameter already reads a map, that map is selected instead and nothing new is made.
+3. Strokes paint toward the **Value** (1: the parameter's full value), **Ctrl** paints toward 0,
+   **Shift+drag** smooths. The groom updates with every stroke.
+
+The map multiplies the parameter: white is the parameter's value, black is 0. On the density map,
+**Ctrl** removes hair where you paint; on the width map it thins the hair. One map can drive
+several parameters (**Feed Param** on the Map node).
+
+**Ctrl** on any grayscale map paints toward 0 (toward 1 when the **Value** is 0), whatever map it
+is: the freeze mask, a mask, or a map that drives a setting. On a color map it paints toward the
+inverse color.
+
+All map types are painted on the surface, not in UV space, so there are no seams: a dab reaches
+both sides of a UV seam but never jumps across a gap to another part of the scalp (the back of an
+ear), and smoothing also blends across seams.
+
+<Callout type="warn" title="Save the scene first">
+  Texture maps are written as PNGs in the scene's folder, `groomlab/<scene name>/masks/<groom>/`.
+</Callout>
+
+## Map types
+
+| Type | Storage | Resolution | Use for |
+| --- | --- | --- | --- |
+| **Guides** | A value per guide (or per guide point, for a layer along the guides); children inherit it and strands get it by interpolation | Guide spacing | Regions, density, clumping: anything that follows the guides |
+| **Vertices** | A value per scalp vertex (a color set), stored in the scene | Scalp vertices | Finer detail, with no files on disk |
+| **Texture** | A PNG read at the scalp's UVs | Image resolution | The finest detail; editing in an image editor; game engines |
+
+**Convert to** changes a map's type while keeping its name, so the nodes that read it keep
+working: for example, rough out a mask on the guides, then convert it to a 4K texture for the
+engine.
+
+## Map images
+
+**Import...** (beside **+ New Map** in the Paint tab, or right-click > **Import Image as Map...**)
+makes a texture map from an image in one step, named after the file. A color image makes a color
+map, a grayscale image a grayscale one. A PNG is used in place; other formats are copied into the
+masks folder as a PNG. In Python: `groomlab.import_map(groom, path)`.
+
+Right-click a map in the Paint tab:
+
+- **Relink Image...** points the map at another image. A PNG is used in place, and painting
+  modifies that file. A JPEG, TGA, PSD or other format is copied into the masks folder as a PNG,
+  so the source is never painted over. A guide or vertex map becomes a texture map; the nodes that
+  read it follow.
+- **Reload Image** re-reads the image after editing it in another program.
+- **Show in Explorer** opens the image's folder.
+
+The map keeps its grayscale or color setting. A grayscale map reads a color image's luminance.
+
+A map whose image is missing shows a warning in the list; its tooltip names the expected file.
+The Map node's panel in the Graph Editor shows the same warning, with a **Relink Image...**
+button. To relink many files at once, use **GroomLab > Utilities > Find Missing Files...**.
+
+## Color maps and packed masks
+
+A vertex or texture map can store a **color** (RGBA) instead of a grayscale value: choose
+**Values: Color** when creating it, or **Make Color** on an existing map. The Paint tab then shows
+a swatch and **R G B A** toggles, and the brush paints only the enabled channels.
+
+- **Packed masks:** paint up to four masks in one map, one per channel. The Map node has an output
+  port per channel (`luminance`, `r`, `g`, `b`, `a`, and `rgb` for the color), so R can drive Clump strength, G Noise
+  fraction and B Length from one node. For an engine, that is one RGBA PNG instead of three
+  grayscale ones.
+- **Painted hair color:** a HairColor node's `map` names a color map (or a color set on the scalp,
+  or an image file). Or link a Map node's `rgb` output to HairColor's `color`, `dye` or `tipColor`
+  (expose the param as an input first): the map's color, times the param's, colors each strand at
+  its root. Either way the color reaches the viewport, Arnold, RenderMan, the cards and every
+  export.
+- **Painted regions:** an Interpolate node's `regionMap` names a color map painted in one color per
+  region. Each strand only uses the guides rooted in its own region, and Clump, BlendNeighbors and
+  Tangle stay within regions too (see [Regions](/docs/node-graph#regions)).
+
+## Settings
+
+- **Value** (or **Color**) is what the brush paints toward; **Fill** sets the whole map to it (for
+  a guide map with guides selected, only the selected guides).
+- **Show on** Guides, Strands or Scalp displays the map from black to white; "Read by" lists the
+  parameters it drives.
+- In the brush settings, **Falloff** sets the brush edge softness and **Smooth** sets how strongly
+  Shift+drag blurs.
+
+## Other map sources
+
+Any mappable parameter can also read a texture at the root's UV, a Maya color set, a strand
+attribute, or an expression such as `smoothstep(-1, 1, $y)` ([Expressions](/docs/expressions)).

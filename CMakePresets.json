@@ -1,0 +1,249 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "installDir": "${sourceDir}/install/${presetName}",
+            "cacheVariables": { "GROOMLAB_PORTABLE_MATH": "ON" }
+        },
+        {
+            "name": "maya2022",
+            "hidden": true,
+            "cacheVariables": {
+                "GROOMLAB_BUILD_MAYA": "ON",
+                "MAYA_LOCATION": "C:/Program Files/Autodesk/Maya2022",
+                "MTOA_LOCATION": "C:/Program Files/Autodesk/Arnold/maya2022"
+            }
+        },
+        {
+            "name": "ninja",
+            "hidden": true,
+            "inherits": "base",
+            "description": "Ninja Multi-Config with MSVC: run from a Visual Studio x64 developer environment (tools/dev/vsenv.ps1)",
+            "generator": "Ninja Multi-Config",
+            "architecture": { "value": "x64", "strategy": "external" },
+            "toolset": { "value": "host=x64", "strategy": "external" },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl",
+                "CMAKE_CXX_COMPILER": "cl",
+                "CMAKE_CONFIGURATION_TYPES": "RelWithDebInfo;Debug;Release",
+                "CMAKE_DEFAULT_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "win-maya2022",
+            "displayName": "Windows, Maya 2022 plugin + core (Visual Studio)",
+            "inherits": ["base", "maya2022"],
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+        },
+        {
+            "name": "win-core",
+            "displayName": "Windows, core only (no Maya, Visual Studio)",
+            "inherits": "base",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+            "cacheVariables": { "GROOMLAB_BUILD_MAYA": "OFF", "GROOMLAB_BUILD_PYTHON": "OFF" }
+        },
+        {
+            "name": "ninja-maya2022",
+            "displayName": "Windows, Maya 2022 plugin + core + GUI tests (Ninja)",
+            "inherits": ["ninja", "maya2022"],
+            "cacheVariables": { "GROOMLAB_GUI_TESTS": "ON" }
+        },
+        {
+            "name": "ninja-app",
+            "displayName": "Windows, Maya 2022 plugin + core + the standalone app (Ninja, Qt 6.8.3)",
+            "inherits": ["ninja", "maya2022"],
+            "cacheVariables": {
+                "GROOMLAB_BUILD_APP": "ON",
+                "GROOMLAB_QT_DIR": "$env{USERPROFILE}/groomlab-deps/Qt/6.8.3/msvc2022_64"
+            }
+        },
+        {
+            "name": "maya-devkit",
+            "hidden": true,
+            "inherits": "ninja",
+            "description": "Another Maya version's plugin, its Python module and MtoA translator, from that version's devkit (no Maya install): docs/DEVELOPING.md, Other Maya versions",
+            "cacheVariables": {
+                "GROOMLAB_BUILD_MAYA": "ON",
+                "GROOMLAB_BUILD_TESTS": "OFF",
+                "GROOMLAB_BUILD_CLI": "OFF",
+                "GROOMLAB_BUILD_CAPI": "OFF",
+                "GROOMLAB_BUILD_BLENDER_HELPER": "OFF",
+                "GROOMLAB_BUILD_PROCEDURAL": "OFF",
+                "GROOMLAB_BUILD_RENDERMAN": "OFF"
+            }
+        },
+        {
+            "name": "ninja-maya2023",
+            "displayName": "Windows, Maya 2023 plugin from its devkit (Python 3.9, MtoA 5.2.1 / Arnold 7.1.3)",
+            "inherits": "maya-devkit",
+            "cacheVariables": {
+                "MAYA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/maya-devkit-2023",
+                "GROOMLAB_PYTHON_ROOT": "$env{USERPROFILE}/groomlab-deps/sdks/python-3.9.7/tools",
+                "MTOA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/mtoa-5.2.1-maya2024"
+            }
+        },
+        {
+            "name": "ninja-maya2024",
+            "displayName": "Windows, Maya 2024 plugin from its devkit (Python 3.10, no Arnold translator: no MtoA SDK for Maya 2024)",
+            "inherits": "maya-devkit",
+            "cacheVariables": {
+                "MAYA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/maya-devkit-2024",
+                "GROOMLAB_PYTHON_ROOT": "$env{USERPROFILE}/groomlab-deps/sdks/python-3.10.8/tools",
+                "GROOMLAB_BUILD_ARNOLD": "OFF",
+                "MTOA_LOCATION": ""
+            }
+        },
+        {
+            "name": "ninja-maya2025",
+            "displayName": "Windows, Maya 2025 plugin from its devkit (Python 3.11, Qt 6, MtoA 5.4.0 / Arnold 7.3.0)",
+            "inherits": "maya-devkit",
+            "cacheVariables": {
+                "MAYA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/maya-devkit-2025",
+                "GROOMLAB_PYTHON_ROOT": "$env{USERPROFILE}/groomlab-deps/sdks/python-3.11.4/tools",
+                "MTOA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/mtoa-5.4.0-maya2025"
+            }
+        },
+        {
+            "name": "ninja-maya2026",
+            "displayName": "Windows, Maya 2026 plugin from its devkit (Python 3.11, Qt 6, oneTBB, MtoA 5.6.1.1 / Arnold 7.5.1)",
+            "inherits": "maya-devkit",
+            "cacheVariables": {
+                "MAYA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/maya-devkit-2026",
+                "GROOMLAB_PYTHON_ROOT": "$env{USERPROFILE}/groomlab-deps/sdks/python-3.11.9/tools",
+                "MTOA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/mtoa-5.6.1.1-maya2026"
+            }
+        },
+        {
+            "name": "ninja-maya2027",
+            "displayName": "Windows, Maya 2027 plugin from its devkit (Python 3.13, Qt 6, oneTBB, MtoA 5.6.1.1 / Arnold 7.5.1)",
+            "inherits": "maya-devkit",
+            "cacheVariables": {
+                "MAYA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/maya-devkit-2027",
+                "GROOMLAB_PYTHON_ROOT": "$env{USERPROFILE}/groomlab-deps/sdks/python-3.13.9/tools",
+                "MTOA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/mtoa-5.6.1.1-maya2027"
+            }
+        },
+        {
+            "name": "ninja-core",
+            "displayName": "Windows, core only (no Maya, Ninja)",
+            "inherits": "ninja",
+            "cacheVariables": { "GROOMLAB_BUILD_MAYA": "OFF", "GROOMLAB_BUILD_PYTHON": "OFF" }
+        },
+        {
+            "name": "linux",
+            "hidden": true,
+            "inherits": "base",
+            "description": "Linux with GCC or Clang and Ninja (tools/dev/linux_build.sh; from Windows: tools/dev/linux_build.ps1 builds in WSL)",
+            "generator": "Ninja",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "GROOMLAB_BUILD_MAYA": "OFF"
+            }
+        },
+        {
+            "name": "linux-maya2022",
+            "displayName": "Linux, Maya 2022 plugin + core",
+            "inherits": "linux",
+            "cacheVariables": {
+                "GROOMLAB_BUILD_MAYA": "ON",
+                "MAYA_LOCATION": "/usr/autodesk/maya2022",
+                "MTOA_LOCATION": "/usr/autodesk/arnold/maya2022"
+            }
+        },
+        {
+            "name": "linux-core",
+            "displayName": "Linux, farm and pipeline build: core, C API + samples, groomlab-cli, Python module, tests (no Maya)",
+            "inherits": "linux"
+        },
+        {
+            "name": "linux-coverage",
+            "displayName": "Linux, core with gcov coverage",
+            "inherits": "linux-core",
+            "binaryDir": "${sourceDir}/build/linux-coverage",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "GROOMLAB_COVERAGE": "ON",
+                "GROOMLAB_BUILD_PYTHON": "OFF"
+            }
+        },
+        {
+            "name": "linux-asan",
+            "displayName": "Linux, core and tests under AddressSanitizer + UBSan (memory errors MSVC's heap hides)",
+            "inherits": "linux-core",
+            "cacheVariables": {
+                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined",
+                "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+                "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined",
+                "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=address,undefined",
+                "GROOMLAB_BUILD_PYTHON": "OFF",
+                "GROOMLAB_BUILD_BLENDER_HELPER": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "win-maya2022", "configurePreset": "win-maya2022", "configuration": "RelWithDebInfo" },
+        { "name": "win-core", "configurePreset": "win-core", "configuration": "RelWithDebInfo" },
+        { "name": "ninja-maya2022", "configurePreset": "ninja-maya2022", "configuration": "RelWithDebInfo" },
+        { "name": "ninja-app", "configurePreset": "ninja-app", "configuration": "RelWithDebInfo" },
+        {
+            "name": "ninja-maya2022-plugin", "configurePreset": "ninja-maya2022", "configuration": "RelWithDebInfo",
+            "displayName": "Maya 2022: only what the GroomLab install needs (no tests, Python module or Blender helper)",
+            "targets": [ "GroomLab", "groomLabTranslator", "groomlab_procedural", "groomlab-cli" ]
+        },
+        {
+            "name": "ninja-app-exe", "configurePreset": "ninja-app", "configuration": "RelWithDebInfo",
+            "displayName": "Standalone app: only the executable (no tests, Python module or Blender helper)",
+            "targets": [ "groomlab_app" ]
+        },
+        { "name": "ninja-maya2023", "configurePreset": "ninja-maya2023", "configuration": "RelWithDebInfo" },
+        { "name": "ninja-maya2024", "configurePreset": "ninja-maya2024", "configuration": "RelWithDebInfo" },
+        { "name": "ninja-maya2025", "configurePreset": "ninja-maya2025", "configuration": "RelWithDebInfo" },
+        { "name": "ninja-maya2026", "configurePreset": "ninja-maya2026", "configuration": "RelWithDebInfo" },
+        { "name": "ninja-maya2027", "configurePreset": "ninja-maya2027", "configuration": "RelWithDebInfo" },
+        { "name": "ninja-core", "configurePreset": "ninja-core", "configuration": "RelWithDebInfo" },
+        { "name": "linux-maya2022", "configurePreset": "linux-maya2022" },
+        { "name": "linux-core", "configurePreset": "linux-core" },
+        { "name": "linux-coverage", "configurePreset": "linux-coverage" },
+        { "name": "linux-asan", "configurePreset": "linux-asan" }
+    ],
+    "testPresets": [
+        {
+            "name": "win-maya2022", "configurePreset": "win-maya2022", "configuration": "RelWithDebInfo",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "win-core", "configurePreset": "win-core", "configuration": "RelWithDebInfo",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "ninja", "hidden": true, "configuration": "RelWithDebInfo",
+            "output": { "outputOnFailure": true },
+            "execution": { "jobs": 12 }
+        },
+        { "name": "ninja-maya2022", "inherits": "ninja", "configurePreset": "ninja-maya2022" },
+        { "name": "ninja-app", "inherits": "ninja", "configurePreset": "ninja-app" },
+        { "name": "ninja-core", "inherits": "ninja", "configurePreset": "ninja-core" },
+        { "name": "linux-maya2022", "configurePreset": "linux-maya2022", "output": { "outputOnFailure": true } },
+        { "name": "linux-core", "configurePreset": "linux-core", "output": { "outputOnFailure": true } },
+        {
+            "name": "linux-coverage", "configurePreset": "linux-coverage", "output": { "outputOnFailure": true },
+            "filter": { "exclude": { "name": "^Budget\\." } }
+        },
+        {
+            "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true },
+            "filter": { "exclude": { "name": "^(Budget|Performance)\\." } },
+            "environment": { "ASAN_OPTIONS": "detect_leaks=0" }
+        }
+    ]
+}

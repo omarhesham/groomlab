@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// GroomLab installer: drag this file onto Maya's viewport (Maya 2022 to 2027, Windows).
+// It registers the GroomLab module in this folder with Maya and loads it now;
+// see README_INSTALL.txt.
+
+global proc groomLabInstallHere() {}
+
+{
+    string $where = `whatIs "groomLabInstallHere"`;
+    string $file = `substitute "Mel procedure found in: " $where ""`;
+    string $folder = dirname(fromNativePath($file));
+    python("import runpy; runpy.run_path(r'" + $folder + "/install_groomlab.py', run_name='__main__')");
+}

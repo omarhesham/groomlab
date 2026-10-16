@@ -1,0 +1,10 @@
+{
+  "name": "Random per clump",
+  "description": "One random value shared by every strand of a clump (after Clump)",
+  "expression": "# a hash of the clump's number: the same for the whole clump\nhash($clumpId, $seed)",
+  "variables": {
+    "seed": 0
+  },
+  "min": 0.0,
+  "max": 1.0
+}

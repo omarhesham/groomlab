@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: Apache-2.0
+name: CI
+
+# Builds and tests the Maya-independent core, bindings and CLI.
+# The Maya plugin is not built here: CI runners have no Maya install.
+
+# Run by hand (Actions > CI > Run workflow).
+on:
+  # Performance budgets (tests/engine/core/test_budgets.cpp) report on the shared
+  # runners above (CI=1) and gate only where GROOMLAB_ENFORCE_BUDGETS=1: the
+  # `budgets` job below, run by hand or on a self-hosted runner sized like the
+  # spec's reference machine. Locally, budgets gate by default (no CI variable).
+  workflow_dispatch:
+    inputs:
+      enforce_budgets:
+        description: "Fail the budget tests that miss the spec (GROOMLAB_ENFORCE_BUDGETS=1)"
+        type: boolean
+        default: true
+      runner:
+        description: "Runner label for the budgets job (a self-hosted one sized like the reference machine)"
+        type: string
+        default: ubuntu-22.04
+
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            preset: linux-core
+          - os: windows-2022
+            preset: win-core
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install TBB (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libtbb-dev
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DGROOMLAB_BUILD_PYTHON=ON
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  coverage:
+    # Core line coverage (spec: at least 80%). Reported in the job summary;
+    # raise to a hard gate with --fail-under-line once the baseline is known.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y libtbb-dev
+          pip install gcovr
+
+      - name: Configure
+        run: cmake --preset linux-coverage
+
+      - name: Build
+        run: cmake --build --preset linux-coverage --parallel
+
+      - name: Test
+        run: ctest --preset linux-coverage
+
+      - name: Coverage report
+        run: |
+          gcovr --root . --filter engine/core/ --exclude-throw-branches --txt --txt-summary \
+                --markdown coverage.md build/linux-coverage
+          cat coverage.md >> "$GITHUB_STEP_SUMMARY"
+
+  budgets:
+    # The budget tests as a gate (Budget.* in test_budgets.cpp). Manual: the
+    # shared runners are slower than the spec's reference machine, so this job
+    # is started by hand (Actions > CI > Run workflow) or pointed at a
+    # self-hosted runner; the `core` job above runs the same tests reporting only.
+    # Linux, for a TBB package: the budgets assume parallel loops.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ inputs.runner }}
+    env:
+      GROOMLAB_ENFORCE_BUDGETS: ${{ inputs.enforce_budgets && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install TBB
+        run: sudo apt-get update && sudo apt-get install -y libtbb-dev
+
+      - name: Configure
+        run: cmake --preset linux-core
+
+      - name: Build
+        run: cmake --build --preset linux-core --parallel
+
+      - name: Budget tests
+        run: ctest --preset linux-core -R "^Budget\." --output-on-failure

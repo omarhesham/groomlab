@@ -1,0 +1,10 @@
+{
+  "name": "A few random strands",
+  "description": "1 for a random share of the strands, 0 for the rest",
+  "expression": "$rand < $share ? 1 : 0",
+  "variables": {
+    "share": 0.1
+  },
+  "min": 0.0,
+  "max": 1.0
+}

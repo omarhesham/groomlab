@@ -1,0 +1,14 @@
+{"kind":"sampling","curl":"Curl","case":"curly","segments":16,"points":17.00,"pointsMax":17,"perTurn":4.46,"perTurnMin":3.64,"curlMs":7.76,"groom":[1.0201,1.8557,2.2065],"point":[0.05666,0.20604,0.28193],"shape":[1.0161,1.8367,2.1942],"input":[0.2677,0.6933,0.9655]}
+{"kind":"sampling","curl":"Curl","case":"curly","segments":40,"points":41.00,"pointsMax":41,"perTurn":11.14,"perTurnMin":9.10,"curlMs":6.49,"groom":[0.2914,0.6397,0.8759],"point":[0.02476,0.09563,0.16703],"shape":[0.2891,0.6359,0.8759],"input":[0.2381,0.6330,0.8769]}
+{"kind":"sampling","curl":"Curl","case":"curly","segments":64,"points":65.00,"pointsMax":65,"perTurn":17.83,"perTurnMin":14.56,"curlMs":13.19,"groom":[0.2245,0.5568,0.7505],"point":[0.00631,0.03914,0.06744],"shape":[0.2221,0.5562,0.7475],"input":[0.2088,0.5526,0.7474]}
+{"kind":"sampling","curl":"Curl","case":"curly","segments":128,"points":129.00,"pointsMax":129,"perTurn":35.66,"perTurnMin":29.12,"curlMs":19.20,"groom":[0.1310,0.2908,0.5093],"point":[0.00369,0.02903,0.07986],"shape":[0.1280,0.2892,0.3290],"input":[0.1253,0.2892,0.3272]}
+{"kind":"sampling","curl":"Curl","case":"coily","segments":16,"points":82.57,"pointsMax":113,"perTurn":3.48,"perTurnMin":2.51,"curlMs":36.70,"groom":[0.2781,0.6822,1.0742],"point":[0.00806,0.04818,0.11221],"shape":[0.2713,0.6820,0.9393],"input":[0.2677,0.6933,0.9655]}
+{"kind":"sampling","curl":"Curl","case":"coily","segments":40,"points":93.75,"pointsMax":161,"perTurn":3.76,"perTurnMin":2.83,"curlMs":49.97,"groom":[0.2359,0.6018,0.8734],"point":[0.01435,0.09160,0.13351],"shape":[0.2330,0.6019,0.8738],"input":[0.2381,0.6330,0.8769]}
+{"kind":"sampling","curl":"Curl","case":"coily","segments":64,"points":117.44,"pointsMax":129,"perTurn":5.17,"perTurnMin":2.51,"curlMs":79.71,"groom":[0.1973,0.5266,0.6771],"point":[0.00194,0.02871,0.08238],"shape":[0.1953,0.5272,0.6771],"input":[0.2088,0.5526,0.7474]}
+{"kind":"sampling","curl":"Curl","case":"coily","segments":128,"points":129.00,"pointsMax":129,"perTurn":5.45,"perTurnMin":4.45,"curlMs":22.22,"groom":[0.1309,0.2917,0.3284],"point":[0.00081,0.01374,0.04511],"shape":[0.1299,0.2906,0.3285],"input":[0.1253,0.2892,0.3272]}
+{"kind":"time","variant":"before v2","coherence":"strand","strands":500009,"ms":22.77,"points":16.00}
+{"kind":"time","variant":"v2, tolerance 0","coherence":"strand","strands":500009,"ms":56.97,"points":16.00}
+{"kind":"time","variant":"v2, tolerance 0.1","coherence":"strand","strands":500009,"ms":209.60,"points":34.15}
+{"kind":"time","variant":"before v2","coherence":"clump","strands":500009,"ms":66.69,"points":16.00}
+{"kind":"time","variant":"v2, tolerance 0","coherence":"clump","strands":500009,"ms":76.53,"points":16.00}
+{"kind":"time","variant":"v2, tolerance 0.1","coherence":"clump","strands":500009,"ms":279.39,"points":34.30}

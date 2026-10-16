@@ -1,0 +1,11 @@
+{
+  "name": "Ramp up the head",
+  "description": "A curve over the root height: low at the nape, rising over the crown, easing off at the top",
+  "expression": "# curve(t, position, value, interpolation, ...): 4 is a smooth curve through the keys\n$h = fit($y, $bottom, $top, 0, 1);\ncurve($h, 0, 0, 4, 0.4, 0.3, 4, 0.8, 1, 4, 1, 0.8, 4)",
+  "variables": {
+    "bottom": -1,
+    "top": 1
+  },
+  "min": 0.0,
+  "max": 1.0
+}

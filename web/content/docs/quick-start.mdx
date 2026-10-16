@@ -1,0 +1,82 @@
+---
+title: Quick start
+description: Create a groom on a scalp mesh, place and comb guides, generate child guides and add look nodes.
+---
+
+<Steps>
+<Step>
+
+### Create a groom
+
+Select the scalp mesh and choose **GroomLab > Create Groom from Selection**.
+
+This creates a groom node with a default graph, scaled to the scalp's size:
+`Scalp → Scatter → Interpolate ← Guides → Length → Noise → HairColor → Width → Resample → Output`.
+The viewport draws 10% of the strands (`previewDensity`). The preview is a subset of the render
+strands, not a separate low-density groom, so clumps and curls look the same at any preview
+density.
+
+</Step>
+<Step>
+
+### Open the Groom Tools
+
+**GroomLab > Groom Tools** docks beside the viewport. The **Tools** tab lists the brushes as
+icons; the active brush's settings are shown below the tabs.
+
+</Step>
+<Step>
+
+### Place guides
+
+Pick **Place** and click on the scalp, or drag to place several. A new guide takes the shape of
+the guides near it, and the strands update as you work.
+
+</Step>
+<Step>
+
+### Shape them
+
+Shape the guides with **Comb**, then refine them with Smooth, Straighten, Lift, Twist, Curl,
+Direction and the other shaping brushes. **Stretch** lets Comb change guide length. Hold **B**
+(radius) or **M** (strength) and drag to resize the brush. Shift+click a guide to solo it (all
+other guides freeze). See [Guides & brushes](/docs/guides-and-brushes).
+
+</Step>
+<Step>
+
+### Add children
+
+Select some guides and choose **Edit Guides > Children** under **Guide groups & edits**. Child
+guides are generated inside each parent's tube and stored relative to the parent, so they follow
+it when you edit it.
+
+</Step>
+<Step>
+
+### Build the look
+
+Open **GroomLab > Graph Editor**. **Add Node** inserts a node after the selected one; drag between
+ports to connect nodes. Add a **Clump**, then a **Curl**, or load a look from **Presets**. See
+[Node graph](/docs/node-graph).
+
+</Step>
+</Steps>
+
+<Example name="graph-editor.png" alt="The Graph Editor" caption="The Graph Editor" />
+
+## The same in Python
+
+```python
+from maya import cmds
+import groomlab
+
+groom = groomlab.create_groom("head")
+groomlab.generate_children(groom, "primary", name="children", count=8)
+cmds.setAttr(groom + ".previewDensity", 1.0)
+```
+
+<Callout title="Errors">
+  Evaluation errors (a missing map, an expression that does not parse, invalid guide data) are
+  reported in the Graph Editor's status bar, in the Script Editor and by `groomlab.errors(groom)`.
+</Callout>

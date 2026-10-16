@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Package GroomLab for Blender: the extension zip users install with Blender's Install from Disk.
+
+    python tools/package_blender.py [--build build/ninja-maya2022] [--config RelWithDebInfo] [--out dist]
+
+Installs the build's Blender component (cmake --install --component Blender) into a clean staging
+folder: the add-on's Python (GPL-3.0-or-later, hosts/blender/addon) with blender_manifest.toml at
+the top, and bin/ with groomlab-helper, its DLLs, the presets and the helper's license and notices
+(Apache-2.0, hosts/blender/helper). Checks it with Blender's own validator when Blender is found
+(--blender or the newest under Program Files) and zips it to
+dist/GroomLab-Blender-<version>-<platform>.zip with the manifest at the zip's root, as Blender
+installs it. tools/publish_blender.py uploads it. The Maya package (package_release.py) is separate.
+"""
+
+import argparse
+import glob
+import os
+import shutil
+import subprocess
+import sys
+import tomllib
+import zipfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def find_blender():
+    found = glob.glob(os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Blender Foundation", "Blender *", "blender.exe"))
+    return sorted(found)[-1] if found else None
+
+
+def manifest_of(folder):
+    with open(os.path.join(folder, "blender_manifest.toml"), "rb") as f:
+        return tomllib.load(f)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--build", default=os.path.join(ROOT, "build", "ninja-maya2022"))
+    parser.add_argument("--config", default="RelWithDebInfo")
+    parser.add_argument("--out", default=os.path.join(ROOT, "dist"))
+    parser.add_argument("--blender", default=None, help="blender executable for validation (default: found)")
+    args = parser.parse_args()
+
+    stage = os.path.join(args.out, "blender_stage")
+    if os.path.isdir(stage):
+        shutil.rmtree(stage)
+    os.makedirs(stage)
+    subprocess.check_call(["cmake", "--install", args.build, "--config", args.config, "--component", "Blender",
+                           "--prefix", stage], stdout=subprocess.DEVNULL)
+    ext = os.path.join(stage, "GroomLabBlender")
+    exe = "groomlab-helper.exe" if sys.platform == "win32" else "groomlab-helper"
+    for need in ("blender_manifest.toml", "__init__.py", "LICENSE", os.path.join("bin", exe), os.path.join("bin", "LICENSE"),
+                 os.path.join("bin", "NOTICE"), os.path.join("bin", "THIRD_PARTY_NOTICES.txt"),
+                 os.path.join("bin", "LICENSE-HELPER.txt")):
+        if not os.path.isfile(os.path.join(ext, need)):
+            sys.exit("no %s in the install: build %s (%s) first" % (need, args.build, args.config))
+    for folder, dirs, _ in os.walk(ext):
+        for d in [d for d in dirs if d == "__pycache__"]:
+            shutil.rmtree(os.path.join(folder, d))
+    manifest = manifest_of(ext)
+    version, platform = manifest["version"], manifest["platforms"][0]
+
+    os.makedirs(args.out, exist_ok=True)
+    zip_path = os.path.join(args.out, "GroomLab-Blender-%s-%s.zip" % (version, platform))
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        for folder, _, files in os.walk(ext):
+            for name in sorted(files):
+                full = os.path.join(folder, name)
+                z.write(full, os.path.relpath(full, ext).replace(os.sep, "/"))
+    shutil.rmtree(stage)
+
+    blender = args.blender or find_blender()
+    if blender:
+        run = subprocess.run([blender, "--factory-startup", "--command", "extension", "validate", zip_path],
+                             capture_output=True, text=True)
+        if run.returncode != 0:
+            sys.exit("Blender refuses the extension:\n" + run.stdout + run.stderr)
+        print("validated with %s" % blender)
+    else:
+        print("no Blender found: the zip is not validated")
+    print("wrote %s (%.1f MB)" % (zip_path, os.path.getsize(zip_path) / 1e6))
+
+
+if __name__ == "__main__":
+    main()

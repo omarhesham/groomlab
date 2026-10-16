@@ -1,0 +1,88 @@
+---
+title: Game export
+description: Hair cards with LODs and baked texture maps, and strand exports for Unreal's groom system, Unity and glTF, including color patterns and feathers.
+---
+
+<Example name="game-cards.png" alt="Hair cards with baked maps" caption="Cards follow the groom's clumps; maps are baked from its own strands." />
+
+## Cards
+
+Add a **Cards** node (Add Node > Games) at the point in the graph that should be converted to
+cards, or run `groomlab.create_cards(groom, lod="mid")`. Cards are placed along the groom's clumps
+and shape, and their textures are baked from the groom's own strands.
+
+The node's panel shows the cards' cost and has **Show cards**, **Show textures**, **LOD**,
+**Bake Maps**, **Bake Scalp** and the exports.
+
+- **LODs:** Hero, Mid and Low set a triangle budget (about 50k, 15k and 4k) and a matching card
+  layout. Lower levels use fewer cards of the same size, so the silhouette is preserved.
+- **Shading consistency:** in the viewport, cards are lit like the strands (normals, highlight
+  and ambient), and each card is tinted with its own strands' color, root to tip, while the
+  textures stay shared across cards. The exports carry the same data: the normals, and the tint as
+  a vertex color (glTF: `_TINT`).
+- **Baked maps:** depth, coverage, tangent, attribute, color and AO, in Unreal's hair card texture
+  layout.
+- **Stable atlas:** after a bake, cards rebuilt by later edits keep their place in the atlas. A
+  node whose maps are out of date shows an orange badge.
+- **Bake Scalp** bakes the hair near the skin into the scalp's UVs, with a hair cap mesh, so low
+  LODs don't show bare skin between cards.
+- Cards are always built from the full groom; the viewport preview density does not affect them.
+
+## Export targets
+
+| Target | Menu | Output |
+| --- | --- | --- |
+| **Unreal** cards | Cards node > Export for Unreal... | `_cards.fbx`, the six maps, the hair cap and a JSON describing the channels |
+| **Unreal** strands | GroomLab > Export > Unreal Groom... | Alembic in Unreal's groom schema, with guides for simulation |
+| **Unity** cards | GroomLab > Export > Unity Cards... | FBX (Y up, meters), PNG maps and suggested HDRP and URP materials |
+| **Unity** strands | GroomLab > Export > Unity Strands (.abc)... | Alembic for Unity's strand hair package |
+| **glTF** cards | GroomLab > Export > glTF Cards... | `.glb` with embedded maps, one mesh per LOD |
+
+When several LODs are exported into one folder, file names end in `_hero`, `_mid` or `_low`.
+
+```python
+groomlab.create_cards(groom, lod="hero")
+groomlab.export_cards_unreal(groom, "C:/game/hair", "hair", lod="hero")
+groomlab.export_cards_gltf(groom, lods=["hero", "mid", "low"])
+groomlab.export_unreal_groom(groom, "C:/game/hair.abc")
+```
+
+### Unreal groom attributes
+
+The Unreal groom export writes the attributes Unreal's groom importer reads, as arbGeomParams:
+`groom_version_major` / `groom_version_minor`, `groom_group_name`, `groom_group_id` (from the
+`groupId` attribute), `groom_id`, `groom_width` (per point), `groom_root_uv` (with scalp UVs),
+`groom_color` (per point, with a color node: the hair's appearance, what it looks like, see
+[Base color and appearance](/docs/rendering#base-color-and-appearance)), `groom_roughness` (with HairColor's roughness),
+`groom_clump_id` (with a Clump), `groom_iridescence` (with FeatherColor iridescence) and
+`groom_guide` on the guide curves. It also writes the 64-bit strand ID as
+`groomlab_strand_id_low` / `groomlab_strand_id_high`. Other GroomLab attributes, including
+Attribute node output, are not written to the Unreal groom file.
+
+## Color patterns in engines
+
+Bands, FeatherColor patterns and HairColor tips are per-point colors, and FeatherColor's
+iridescence is a per-point mask ([Color patterns](/docs/color-patterns)):
+
+| Target | Colors | Iridescence |
+| --- | --- | --- |
+| Unreal strands | `groom_color` per vertex | `groom_iridescence` per vertex; with **Iridescence as AO** (`iridescence_as_ao=True`) also `groom_ao`, which the Hair Attributes material node exposes |
+| Cards (Unreal, glTF, Unity) | Baked into the Color map as the hair's appearance (a feather's card is its vane laid flat, so its patterns map directly) | The Color map's alpha (Unreal; RGBA only then); Unity's Mask map red channel; glTF: not carried |
+| Unity strands | One color per strand (`Cd`, as in GroomLab's Alembic; bands and patterns along a strand are not carried) | Not carried |
+| glTF cards | The baked `_BaseColor` and each card's `_TINT` | Not carried (the alpha is the coverage) |
+
+The repository's `docs/UNREAL_HAIR_MATERIAL.md` describes an Unreal material (for strands and
+cards) that mixes in the iridescent color by that mask, with the hue rotated by the view angle;
+`tools/unreal/groomlab_hair_material.json` describes the same graph node by node.
+
+## Feathers in engines
+
+- **As cards:** `groomlab.create_feather_cards(groom, lod="mid")` creates one alpha-tested strip
+  per feather, with both vanes and the rachis baked into its texture, and similar feathers
+  sharing a few textures. Each card is folded along a spine so lifted or cupped vanes form a V.
+  Unreal, Unity and glTF export them.
+- **As strands:** the rachis becomes a mesh to skin with the character, and the barbs are strands
+  rooted on it.
+  - Unreal: `groomlab.create_rachis_mesh`, `export_rachis` and `export_unreal_groom`.
+  - Unity: **GroomLab > Export > Unity Feathers...** writes the strands, the rachis FBX and a
+    manifest of the Hair Asset settings.

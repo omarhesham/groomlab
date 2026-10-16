@@ -1,0 +1,134 @@
+---
+title: Fur, feathers & scales
+description: Short fur groomed with flow fields, feathers grown procedurally from shafts with Propagate and layered with Plume, meshes instanced along strands, and scales placed by strands.
+---
+
+<Example name="fur-creature.png" alt="A wolf groomed in GroomLab" caption="Fur on a creature, in the Maya viewport" />
+
+## Fur
+
+Fur uses the same graph as hair: Scatter, Interpolate from guides, then Clump, Noise and other
+look nodes. Short fur can be groomed without guides:
+
+1. Draw direction arrows on the body with the **Flow** brush ([Guides & brushes](/docs/guides-and-brushes#short-hair-without-guides)).
+2. Load the `creature_fur` preset, or build `Scatter → Length → Flow → Width`; the **Flow** node
+   orients the strands along the arrows.
+3. Add guides only where you need tufts and cowlicks (the `flow_with_guides` preset), with
+   Interpolate's `limitDistance` so the guides only affect strands near them
+   ([Guide influence](/docs/node-graph#interpolate-and-guide-influence)).
+
+- **Fur only near the guides:** Scatter's `guideRadius` keeps only roots within that distance of a
+  guide, for a patch, a stripe or a mane.
+- **Fur parting around whiskers, horns or eyes:** give a **Clump** a negative `strength` (down to
+  -1), connect the whiskers' guides to its `centers` input and set `centersFrom` to
+  `inputCurves`. Fur within `repelRadius` of a whisker is pushed out to that distance along the
+  skin, keeping its length. Grow the whiskers themselves from those guides with ToStrands and
+  Merge them with the fur.
+- **Banded, tipped and shaded coats** (`agouti_fur`): see [Color patterns](/docs/color-patterns).
+
+## Feathers
+
+Feathers are generated procedurally. Every strand fed to a **Propagate** node (Add Node >
+Feathers) is treated as a **shaft** and grows barbs, and the barbs are ordinary strands for the
+nodes after it: Noise, Curl, Width, HairColor, FeatherColor, Clump and Cards all apply to them.
+
+<Example name="feathers.png" alt="Feathers grown with GroomLab" caption="Feathers" />
+
+### Add feathers
+
+- **From a scatter:** `groomlab.add_feathers(groom, "contour")` scatters shafts and shapes them
+  with your guides, so combing the guides along the body lays the feathers with them.
+- **Hand-placed:** draw curves from the skin, then
+  `groomlab.add_feathers(groom, "flight", source="guides", curves=curves)`. Each curve becomes a
+  guide you can brush.
+- **Assortments:** `groomlab.add_feathers(groom, ["contour", "down"], weights=[3, 1])` routes the
+  shafts through a **Split** node (outputs `a` to `d`, by fraction or by a painted map), one design
+  per output.
+
+### Designs
+
+| Design | Look |
+| --- | --- |
+| `contour` | Rounded vane lying on the body, with a few splits |
+| `down` | Short shafts, fluffy curly barbs all around |
+| `flight` | Long, stiff, asymmetric vane |
+| `afterfeather` | A contour vane whose base turns to fluff, like a chick's |
+| `barred` | White bars across one vane, the other iridescent green, a white downy base ([Color patterns](/docs/color-patterns)) |
+
+Each design is a **Compound**: right-click it > **Ungroup Compound** (Ctrl+Shift+G) to see and
+edit its nodes. On Propagate, `lengthProfile` defines the vane outline, `angle` the barb angle to
+the shaft, `curl` bends the barbs, `droop` cups the vane, and `splits` gathers barbs into the gaps
+real feathers have.
+
+- **Downy base:** Propagate's `down` (0.2-0.4) turns the barbs at the base into soft, curly down
+  (`downCount`, `downLength`, `downCurl`, `downFrizz`), colored by FeatherColor's `downColor`.
+- **Fluffier base:** a second Propagate on the same shafts (`start` 0, `end` about 0.4, longer
+  barbs with `droop` and `lift`), followed by Curl and Noise. A third Propagate on those barbs
+  grows barbules. Give each branch its own HairColor and join them with Merge; the
+  `afterfeather` design is built this way.
+- **Blending vane into fluff:** the per-strand `shaftU` attribute gives a barb's position on its
+  shaft (0 root, 1 tip). An expression such as `1 - smoothstep(0.2, 0.5, $shaftU)` is 1 at the
+  base and 0 further up the vane; use it for Noise `amplitude` and Curl `radius` to break up the
+  lowest barbs into fluff. Multiply by `1 - $isShaft` to exclude the shaft itself.
+
+Propagate writes these per-strand attributes, available to expressions, maps and renderers:
+`featherId`, `shaftU`, `side`, `barbIndex`, `isShaft`, `isDown` (with down), `vaneU`,
+`vaneTipU`, `vaneTipV`, `vaneNormalX/Y/Z`, `clumpId` and `groupId`
+([Strand attributes](/docs/rendering#strand-attributes)).
+
+### Layered feathers with Plume
+
+Each feather is grown independently, so neighboring vanes intersect and drooping barbs go under
+the skin. A **Plume** node after the feathers (similar to Yeti's Plume) stacks them: it sorts the
+feathers and rotates each one up about its root until it lies `offset` above the feathers under
+it and `bodyOffset` above the body (the scalp, and any mesh on its `collider` input). The
+`layered_feathers` preset adds one after the contour design.
+
+| Param | Effect |
+| --- | --- |
+| `rankBy` | Which feathers lie on top: `rootDistance` (rooted farther along `direction`; with `direction` (0, 0, 0) each tip lies over the base of the one behind it, like roof tiles), `length` (shorter over longer: coverts over flight feathers), `channel` (`rankChannel`) or `random`. `invert` reverses the order. |
+| `stiffness` | 1 rotates each feather rigidly; lower values bend it instead. |
+| `maxAngle` | Maximum rotation of a feather off the body, in degrees. |
+| `strength` | Fraction of its rotation each feather takes (mappable, per feather). |
+
+The base of each feather stays rooted, and feathers facing different directions (the two sides
+of a wing) are not stacked on each other. A few thousand feathers take well under a second.
+
+### Meshes along strands
+
+An **Instance** node places a mesh on the strands. With `deform` `alongStrand` each copy is bent
+along its strand (similar to Yeti's instance deformation): the mesh's long axis (`deformAxis`, +Y
+by default; model it from its base at the origin) is mapped along the strand from `tMin` to
+`tMax`. Use it for a modeled feather following its shaft (`tMin` and `tMax` 0, `sizeMode`
+`fitStrand`), leaves on vines (the `vine_leaves` preset) or ribbons. Set `spinRandom` to 0 to keep
+each copy aligned with its vane. Bent copies render and export as one mesh. See
+[Rendering](/docs/rendering#instances).
+
+### The rachis
+
+`shaftWidth` turns each shaft into a tube mesh that can be skinned with the character in a game
+engine, with the barbs rooted on its surface. See [Game export](/docs/game-export#feathers-in-engines).
+
+## Scales
+
+Scales are rigid plates positioned by strands. The **Scales** node (Look) places one plate at
+each strand's root, lying on the skin along the strand: its length is the strand length times
+`size`, its width the strand's root width. Everything that shapes strands therefore shapes the
+scales: Transform's `scale` and Width size them, Bend, Flow and the guides orient them, HairColor
+colors them.
+
+1. Load `dragon_scales`, or `scales_from_guides` or `scales_from_flow` to orient them with your
+   guides or flow arrows.
+2. Comb the guides (or draw flow arrows) and the scales rotate with them.
+3. Paint with the **Density** brush to thin them out.
+
+| Param | Effect |
+| --- | --- |
+| `prototype` | The plate: the built-in `groomlab:scale` (keeled), `groomlab:scaleRound` and `groomlab:scaleShield`, or your own mesh (1 unit long along +Y, top facing +Z). Several names mix them, at random or by a map (`variantBy`, `variant`). |
+| `tile`, `lift` | `tile` lifts each tip over the base of the next scale, like roof tiles; `lift` tilts them further. |
+| `conform`, `offset` | Bend each plate over the body's curvature without going inside it; raise the plates off the skin. |
+| `follow` | `strand` bends each plate along its strand's curve: swept scales, spikes and quills (the `swept_spikes` preset). |
+| `aim` | Orientation on the skin: toward the strand's tip (`tip`, the default) or its direction near the root (`root`), for strands that curl back. |
+| `preview` | `quads` (or `auto` on very large sets) draws flat quads while grooming; renders always use the plates. |
+
+For shading and exporting scales, see [Rendering](/docs/rendering#scales).

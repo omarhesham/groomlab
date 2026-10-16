@@ -1,0 +1,53 @@
+#version 440
+// SPDX-License-Identifier: Apache-2.0
+#extension GL_GOOGLE_include_directive : require
+
+// The hair's density in the voxel grid (the visibility path's shadows, after Unreal's hair
+// voxelization): one thread a strand segment, which drops its projected area (its width x its
+// length) into the voxels it passes, a sample about every voxel. A voxel then holds the area of
+// fiber in it over a voxel's face: the number of hairs a ray crossing it meets, for fibers across
+// the ray (hair_volume.comp counts them toward each light). Every strand, whatever the view's
+// level of detail: the shadows do not depend on the camera.
+
+layout(local_size_x = 256) in;
+
+#include "hair_voxel.glsl"
+
+layout(binding = 2) uniform sampler2D pointsTexture;   // (x, y, z, strand), (tx, ty, tz, width)
+layout(binding = 3) uniform sampler2D strandsTexture;  // (melanin, redness, random, first point), (r, g, b, point count), (root normal, 0)
+
+layout(std430, binding = 4) buffer Density {
+    uint density[];
+};
+
+vec4 fetch(sampler2D tex, uint texel) {
+    return texelFetch(tex, ivec2(int(texel & 4095u), int(texel >> 12u)), 0);
+}
+
+void main() {
+    uint p = gl_GlobalInvocationID.y * gridCounts.y + gl_GlobalInvocationID.x;
+    if (p >= gridCounts.x) return;
+    vec4 a0 = fetch(pointsTexture, p * 2u);
+    uint s = uint(a0.w + 0.5);
+    vec4 d0 = fetch(strandsTexture, s * 3u);
+    vec4 d1 = fetch(strandsTexture, s * 3u + 1u);
+    uint first = uint(d0.w + 0.5), count = uint(d1.w + 0.5);
+    if (p + 1u >= first + count) return;
+    vec4 b0 = fetch(pointsTexture, p * 2u + 1u);
+    vec4 a1 = fetch(pointsTexture, p * 2u + 2u);
+    vec4 b1 = fetch(pointsTexture, p * 2u + 3u);
+    float voxel = gridLo.w;
+    float len = length(a1.xyz - a0.xyz);
+    int samples = clamp(int(ceil(len / voxel)), 1, 256);
+    float step = len / float(samples);
+    ivec3 dims = ivec3(gridDims.xyz);
+    for (int k = 0; k < samples; ++k) {
+        float t = (float(k) + 0.5) / float(samples);
+        vec3 pos = mix(a0.xyz, a1.xyz, t);
+        ivec3 v = ivec3(floor((pos - gridLo.xyz) / voxel));
+        if (any(lessThan(v, ivec3(0))) || any(greaterThanEqual(v, dims))) continue;
+        float area = mix(b0.w, b1.w, t) * gridParams.x * gridParams.y * step / (voxel * voxel);
+        uint at = uint((v.z * dims.y + v.y) * dims.x + v.x);
+        atomicAdd(density[at], uint(area * gridParams.z + 0.5));
+    }
+}

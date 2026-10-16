@@ -1,0 +1,190 @@
+---
+title: Python API
+description: The groomlab Maya package and the groomlab_core module - creating grooms, guides, parameters, maps, keys, graph editing, exports, simulation, groom files, and evaluating without Maya.
+---
+
+GroomLab has two Python modules:
+
+- **`groomlab`**: the Maya package. Every UI action has a function here, operating on groom nodes
+  in the Maya scene. Most of this page covers it.
+- **`groomlab_core`**: the evaluation core without Maya: groom files, graphs, sessions, strands.
+  It runs in Maya's Python, in `mayapy` and on a farm. See [Without Maya](#without-maya).
+
+Import the package in Maya's Script Editor or `mayapy`:
+
+```python
+from maya import cmds
+import groomlab
+```
+
+## Create a groom
+
+```python
+scalp = "head"
+groom = groomlab.create_groom(scalp)
+cmds.setAttr(groom + ".previewDensity", 1.0)
+```
+
+## Guides
+
+```python
+curves = cmds.ls("guideCurve*", type="transform")
+groomlab.guides_from_curves(groom, curves, group="primary", tube_radius=0.15)
+groomlab.generate_children(groom, "primary", name="children", count=8, twist=0.5)
+groomlab.list_guide_groups(groom)
+groomlab.show_guide_group(groom, "primary", visible=False)
+groomlab.freeze_guides(groom, groomlab.guide_ids(groom, "children"))
+groomlab.unfreeze_all(groom)
+```
+
+See [Guide groups](/docs/guides-and-brushes#guide-groups) for the other group functions.
+
+Brush strokes can also be scripted, with stroke points in world space:
+
+```python
+groomlab.brush_stroke(groom, "comb", [(-1, 1.6, 0), (1.2, 1.6, 0)], radius=1.2)
+```
+
+## Parameters and maps
+
+```python
+groomlab.set_param(groom, "clump", "strength", groomlab.color_set_map("clumpMask"))
+groomlab.set_param(groom, "noise", "amplitude", groomlab.attribute_map("frizzy", max=0.05))
+
+groomlab.add_map(groom, "fur")                         # a painted map on the guides
+groomlab.use_map(groom, "scatter", "density", "fur")   # a Map node feeding density
+
+groomlab.set_map_texture(groom, "fur", "C:/art/fur.jpg")  # a texture map now, read from a PNG copy
+groomlab.import_map(groom, "C:/art/mask.png")  # a new texture map named "mask", in one step
+groomlab.reload_map(groom, "fur")                      # after editing the image elsewhere
+groomlab.missing_files(groom)                          # {"maps": ..., "params": ..., "attributes": ...}
+groomlab.find_missing_files([groom], "D:/recovered")   # relink by file name, one undo step
+```
+
+`set_map_texture` links a PNG in place and copies any other format into the masks folder as a PNG
+(`copy=True` copies a PNG too). It returns the stored path.
+
+## Animating parameters
+
+Key graph parameters as Maya animation (see [Animating parameters](/docs/node-graph#animating-parameters)):
+
+```python
+groomlab.set_param_key(groom, "clump", "strength", value=0.2, time=1)
+groomlab.set_param_key(groom, "clump", "strength", value=0.9, time=24)
+groomlab.param_control(groom, "clump", "strength")    # "groom.ctl_clump_strength"
+groomlab.param_key_state(groom, "clump", "strength")  # "keyed", "animated", "driven", ...
+groomlab.delete_param_key(groom, "clump", "strength", time=24)
+groomlab.remove_param_animation(groom, "clump", "strength")  # keeps the value now
+```
+
+## Editing the graph
+
+```python
+from groomlab import graph, presets
+
+model = graph.GraphModel.from_groom(groom)
+model.add_node("Curl", name="curl")
+model.insert_between("noise", "color", "curl")
+model.set_param("curl", "radius", 0.08)
+model.save(groom)                   # validates, then writes the graph (undoable)
+
+presets.save_preset(groom, "my_look")
+presets.apply_preset(other_groom, "my_look")
+
+text = groomlab.copy_graph_text(groom)               # the whole look as text (a preset)
+report = groomlab.paste_graph_text(other_groom, text)  # fitted, one undo step
+report["missing"]                   # maps, color sets, files, meshes... this groom lacks
+```
+
+`paste_graph_text` raises `ValueError` and changes nothing when the text is not a GroomLab
+graph. Pass `fit=False` to keep the sizes as they were.
+
+## Export
+
+```python
+groomlab.export_alembic(groom, "C:/cache/groom.abc", start=1, end=48)
+groomlab.export_usd(groom, "C:/cache/groom.usda", start=1, end=48)
+groomlab.export_unreal_groom(groom, "C:/game/hair.abc")
+groomlab.export_groom(groom, "C:/shots/010/hair.groom", scalp_cache=True, start=1, end=48)
+
+# Scales: an instancer for engines, an FBX mesh for Unreal, maps baked into the body's uvs.
+groomlab.export_usd(groom, "C:/game/dragon.usda", scales="instancer")
+groomlab.export_scales(groom, "C:/game/dragon_scales.fbx")
+maps = groomlab.bake_scale_maps(groom, resolution=4096)  # {"ScaleNormal": [...], ..., "max_height": h}
+```
+
+## Simulation
+
+The Simulate node ([Motion & simulation](/docs/motion-and-simulation#simulate-the-guides)) is
+added between the guides and Interpolate, stepped as time advances, filled over a range, and
+baked for renders:
+
+```python
+from groomlab import sim
+
+node = sim.add_simulate(groom, bend=0.6, damping=0.15)
+sim.simulate(groom, end=120)                  # Simulate Range: the frames into the cache
+sim.simulation_status(groom)                  # [{node, startFrame, ranges, frames, baked, ...}]
+sim.bake_simulation(groom)                    # {node: path}: the bake renders and exports read
+sim.clear_baked_simulation(groom)             # simulate again rather than read the bake
+```
+
+Outside Maya, the core's `groomlab_core.GroomSession` does the same (`simulate_to`,
+`simulation_status`, `set_simulation_feed` for the inputs at other times) and
+`groomlab_core.write_simulation_cache` writes a bake.
+
+## Groom files back into Maya
+
+`.groom` files are the interchange format between Maya, the standalone app and Blender. Import one
+as a new groom, save a groom back to the file it is linked to, and reload the file's edits into the
+same groom:
+
+```python
+groom = groomlab.import_groom("C:/shots/010/hair.groom")  # on the selected mesh, or a scalp made from the file
+groomlab.save_groom(groom)                                # back to hair.groom, for the app to open
+groomlab.reload_groom(groom)                              # the app's edits, one undo step
+groomlab.groom_file(groom)                                # the file it is linked to
+```
+
+A mesh passed or selected must be the file's scalp (the same vertices and faces); otherwise
+`import_groom` raises `ValueError`. In that case, import without it and use Transfer Groom to
+Scalp. Maps, card bakes and caches are imported too; a Z-up file is converted to Y-up.
+
+## Without Maya
+
+`groomlab_core` evaluates groom files without the Maya scene. It is in the module's `python`
+folder, built for each supported Maya's Python (3.7 in Maya 2022, 3.9 in 2023, 3.10 in 2024, 3.11
+in 2025 and 2026, 3.13 in 2027; another Maya version's build is under `maya<year>/python`): run it
+in that Maya's `mayapy`, or any Python of the same version with that folder on `sys.path`.
+
+```python
+import groomlab_core as gl
+
+scene = gl.GroomScene("C:/shots/010/hair.groom")   # opens the caches the file names
+strands = scene.evaluate(seconds=12 / scene.frames_per_second, density=1.0)
+print(strands.strand_count, strands.point_count)
+points = strands.positions_view()                  # read-only float32 buffer, (point_count, 3)
+offsets = strands.offsets_view()                   # strand i: points offsets[i] to offsets[i + 1] - 1
+```
+
+`groomlab_core` is versioned with GroomLab releases, and its names may change between them. For a
+bridge that must keep working across releases, use the stable [C API](/docs/c-api) (from Python
+through `ctypes`; see [Writing a host bridge](/docs/host-bridge#from-python-through-ctypes)).
+
+The strands' attributes are read with `strand_channel_names()` and `strand_channel(name)` (one
+float per strand), and `point_channel_names()` and `point_channel(name)` (one float per point),
+as read-only buffers ([Strand attributes](/docs/rendering#strand-attributes)).
+
+`groomlab-cli` evaluates groom files headless, for farms and other hosts:
+
+```bash
+groomlab-cli info hair.groom
+groomlab-cli eval hair.groom -o hair.abc -f 1-48 --density 1
+```
+
+The file itself is described in [The .groom format](/docs/groom-format).
+
+<Callout title="Errors">
+  `groomlab.errors(groom)` returns a groom's evaluation errors: an unknown operator, a map that
+  can't be read, invalid guide data.
+</Callout>

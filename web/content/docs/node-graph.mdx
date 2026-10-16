@@ -1,0 +1,342 @@
+---
+title: Node graph
+description: The Graph Editor, node categories, Clump and the other main nodes, guide interpolation and its influence settings, strand attributes, masking with Groups, and animating parameters.
+---
+
+The guides define the overall shape of the groom. The node graph generates the render strands
+from them: how many strands there are, how they are interpolated from the guides, and the
+clumping, curl, frizz, width and color applied on top. To edit the graph:
+
+1. Open **GroomLab > Graph Editor**.
+2. Select a node and click **Add Node** (or press **Tab**) to insert a new node after it.
+3. Select the new node and adjust its parameters; the groom re-evaluates while you drag a slider.
+4. Press **B** over a node to bypass it and compare the result with and without it.
+
+<Example name="graph-editor.png" alt="The Graph Editor" caption="GroomLab > Graph Editor" />
+
+## How it works
+
+Strands flow from the scalp through the graph to the **Output** node. **Scatter** generates the
+roots, **Interpolate** shapes them from the guides, and the look nodes (Clump, Noise, Curl...)
+follow it.
+
+- **Add Node** inserts after the selected node. **Tab**, or right-click on the canvas, opens a
+  search by node name or description.
+- **Connect** nodes by dragging from an output port to an input port. Compatible ports are
+  highlighted; an incompatible connection is refused, with the reason in the status bar.
+- **Live** applies each edit as one undo step.
+- **V** displays a node's result in the viewport instead of the Output's; **B** bypasses it.
+- **Ramps** (root-to-tip profiles) have a curve editor.
+- **Units:** lengths are shown in cm, widths in µm, densities in strands per cm² (**...** >
+  **Units**). Internally all lengths are in scene units, which GroomLab keeps in centimeters in
+  Maya.
+- A node that has no effect with its current settings (a Clump with no centers, an Instance whose
+  mesh is missing) shows a grey **i** badge with the reason.
+
+## Node categories
+
+| Category | Nodes | Purpose |
+| --- | --- | --- |
+| Sources | Scalp, Guides, ColliderMesh, ImportCurves, Reference | Inputs: the scalp mesh, guide groups, collision meshes, external curves, other groom files. |
+| Grow | Scatter, Interpolate, Cull | Generate roots, interpolate strands from the guides, remove strands. |
+| Shape | Length, Width, Resample, Sculpt, Direction, Bend, Transform, Flow, Part, Tie, Smooth, BlendNeighbors, Gravity, Displace, Mirror, Collide, SelfCollide, MeshCut, RestoreLength | Length, width, direction, gravity, symmetry, collisions and cuts. |
+| Look | Clump, Wet, Twist, Braid, Noise, Curl, Flyaway, Static, Tangle, Instance, Scales | Clumping, wet hair, locks, braids, frizz, curls, strays and static; meshes and scales along strands. |
+| Motion | Wind, Jiggle, Simulate | Procedural motion and guide simulation ([Motion & simulation](/docs/motion-and-simulation)). |
+| Feathers | Propagate, Plume, Split | Feathers grown from shafts and layered over the body ([Fur & feathers](/docs/fur-and-feathers)). |
+| Color | HairColor, Bands, FeatherColor, RenderData | Hair color, banded fur, feather patterns ([Color patterns](/docs/color-patterns)); opacity ([Rendering](/docs/rendering)). |
+| Convert | ToGuides, ToStrands | Convert strands to guides and back. |
+| Fields & Curves | Map, Expression, Control, FieldNoise, FieldRemap, FieldCombine, Curve | Drive parameters from maps, images, expressions or sliders. |
+| Utility | Group, Blend, Attribute, Merge, Switch, Output | Strand masks, custom attributes, blending and combining branches, variants. |
+| Games | Cards | Game hair cards ([Game export](/docs/game-export)). |
+
+Random values are seeded from each strand's stable ID, so a groom evaluates identically on every
+machine and with any number of threads, and a strand keeps its random values at any preview
+density.
+
+## Clump
+
+Clump pulls strands toward clump centers. Main parameters:
+
+| Param | Effect | Typical |
+| --- | --- | --- |
+| `strength` | Pull toward the center, mappable. Negative values push strands away (fur parting around whiskers, horns, eyes; `repelRadius` sets the distance). | 0.5-0.9 |
+| `centersFrom` | Source of the clump centers: `pick` selects them among the strands; `inputPoints` or `inputCurves` take them from the `centers` input (see below). | `pick` |
+| `clumpBy`, `count`, `size` | With `pick`: about `count` clumps, or (`clumpBy` `size`) clumps about `size` apart, so a body gets more clumps than a head at the same clump size. | 300 clumps |
+| `randomness` | 0 distributes the centers evenly, 1 places them at random. | |
+| `lockRadius` | Gathers strands into a round lock of this radius (dreads, wet strings); add a Twist after it for ropes. | 0 |
+| `flatness` | Flattens each clump into a ribbon (wet hair). | 0 |
+| `volumize`, `strengthRandom`, `lockRadiusRandom`, `copyAmount` | Fill each clump out near the root; randomize each clump's strength and lock radius; copy neighboring clumps' shape so adjacent clumps share one flow. | 0 |
+| `pastTip` | For strands longer than their clump's axis: `gather` them at the axis tip, or `extend` past it while keeping their length. | `gather` |
+| `clumpChannel` | Per-strand attribute that receives the clump index (`clumpId`). Chained Clumps should each use their own; Twist, Cards and HairColor's `clumpShare` read the one named by their own `clumpChannel`. | `clumpId` |
+
+**Custom clump centers.** Connect strands or guides to Clump's `centers` input: a low-density
+Scatter, a guide group or a ToGuides node. Connecting `centers` sets `centersFrom` to
+`inputPoints`.
+
+- `inputPoints` uses only the root positions of the centers. Each clump's axis is the interpolated
+  strand grown at that position (like XGen's clump guides), so short spikes from a Scatter can
+  place clumps on long, bent hair.
+- `inputCurves` uses the center curves themselves as clump axes (groomed clump curves, like
+  Yeti's clump input). A Noise on the center curves moves each clump as a unit.
+
+**Multi-level clumping:** chain Clumps from small to large. The small clumps form first and the
+large ones move them as a whole (`cinematic_hair` and `everyday_sim` do this). In the opposite
+order, the small clumps pull strands across the borders of the large ones.
+
+**Displaying the centers:** **V** on a Clump shows its result with the centers drawn as dots on
+the scalp.
+
+To keep strand lengths after clumping, add a **RestoreLength** after the Clump with its
+`reference` input connected to the Clump's input. To let a few strands escape their clump, drive
+`strength` per strand with an expression of `rand`.
+
+## Other main nodes
+
+| Node | Effect | Main params |
+| --- | --- | --- |
+| **Length** | Trims strands. Each keeps `keep` of its length; a `fraction` of them loses a random share between `trimMin` and `trimMax`, for uneven ends. To lengthen strands, use Transform's `scale`. | `keep`, `fraction`, `trimMin`, `trimMax` |
+| **Direction** | Sets the strand direction at the root by `inclination` (degrees from the scalp normal: 0 is straight out, 90 is flat) and `roll` (degrees around the normal). | `inclination`, `roll`, `strength` |
+| **Bend** | Bends strands toward the scalp normal (negative: down onto the scalp), the scalp's U direction or a world direction, between `start` and `end` along the length, without bending past it. With `start` and `end` at 0 it raises each strand at the root, for root volume. With `along` `direction`, the direction is projected onto the scalp, so `angle` 180 combs every strand that way; `direction` can also be a per-strand vector expression. | `angle`, `along`, `start`, `end` |
+| **Transform** | Translates, rotates and scales each strand about its root, or the whole set about a pivot. | `scale`, `scaleRandom` |
+| **Collide** | Pushes strands out of the scalp and of collision meshes (**Pick** on the Colliders row, or a ColliderMesh node), `offset` above the surface. `softness` ramps the push in over a band above the surface, so hair bends away before contact; `smoothing` spreads the correction up the strand, so hair resting on a surface slides along it instead of folding. Both apply to colliders only, not the scalp; 0 gives a hard projection. Place it last. | `offset`, `softness`, `smoothing` |
+| **SelfCollide** | Resolves hair-hair interpenetration as a volume constraint: where hair is packed denser than `packing` (the fraction of space hair may fill) allows, it is pushed apart, so layers rest on each other and volume builds up behind the ears and at the crown. Hair below that density is not moved, and nothing is pushed into the scalp. Lower `packing` for more volume. Place it near the end, after the shaping nodes. | `strength`, `packing`, `profile` |
+| **Static** | Electrostatic repulsion between strands: the outer layer puffs out, tips lift away from the head, and clumps fray into single strands. The charge increases toward the tips (`profile`); `randomness` lets some strands move farther. | `strength`, `randomness`, `profile` |
+| **Sculpt** | Brushable procedural guides: place it after a ToGuides (dense guides interpolated from your sparse ones), select it in the Graph Editor, and the shaping brushes edit its guides. Edits are stored as bends and length changes along each guide, so upstream changes (combing the sparse guides, changing density) are applied under them. **Clear Edits** in its panel removes them. | `strength` |
+| **ToGuides** | Converts strands to guides mid-graph: interpolate dense, even guides from a few hand guides (Scatter + Interpolate, then ToGuides) and feed them to a second Interpolate, to Clump's `centers` or to a Sculpt node. `color` sets their display color while brushing. | `fraction`, `color` |
+| **Part** | Opens the hair at parting lines: hair near a part turns away to its side. `partsFrom` `painted` uses lines drawn with the Part tool; `auto` detects parts where the hair splits to both sides of a line (a parting combed into the guides). `splitAngle` sets the minimum split angle; `minLength` discards short ones, such as a whorl's center. | `partsFrom`, `width`, `strength` |
+| **Tie** | Ponytails and hair ties. The affected strands (all, or a Group, map or expression in `affect`) run along the scalp from their roots to a ring at `center`, pass through it in order without crossing, and fan out into a tail along `direction`. Strands keep their length; strands too short to reach the tie lie along the scalp toward it. It writes a per-point `tail` attribute (0 before the tie, 1 after), so a Curl or Noise after it can be limited to the tail. Two Ties with different masks make a double ponytail; a second Tie further down gathers the tail again. In Maya, Pick beside `center` takes the selected vertex, locator or transform position. | `center`, `radius`, `direction`, `tightness`, `spread`, `twist`, `ease` |
+| **MeshCut** | Trims strands where they intersect a mesh (a ColliderMesh): `outside` for an obstacle, `inside` for a haircut hull. | `keep`, `offset` |
+| **Curl** | Helical curls, planar waves, zigzags (kinky hair) or tight coils. `frequencyProfile` varies the curl frequency along the strand, `spacingRandom` varies the spacing between turns, and `coherence` `clump` curls each clump as one (ringlets). `weight` simulates curls stretching under their own weight: turns spread apart near the root, where more hair hangs below, and stay tight at the tip. Only hair hanging along `weightDirection` (down by default) stretches. | `shape`, `radius`, `frequency`, `weight` |
+| **Noise** | Random displacement. Applied to a `fraction` of the strands at high frequency, it gives frizz (`mode` `kinky` for sharp kinks). | `amplitude`, `frequency`, `fraction` |
+| **Wet** | Wet hair in one node: small clumps near the root merge into larger clumps toward the tip, each small clump nested inside one large clump. `wetness` sets the amount (animate it to dry the hair); `clumpSize` is the spacing of the largest clumps, `levels` the number of nested clump sizes. It also writes a `wetness` attribute that darkens the shading and raises the gloss in the viewport, the app and Arnold. | `wetness`, `clumpSize`, `levels` |
+| **Smooth** | Removes bends from strands, keeping roots and lengths. `scale` is the wavelength it removes, as a fraction of strand length: small values remove kinks, 1 straightens the whole strand. The result does not depend on point count. | `strength`, `scale` |
+| **Scatter** | Generates roots on the scalp. `density` is in strands per unit area (shown per cm²). `layout` `uvGrid` places one root per cell of a UV grid (rows of fur, scale tracts). `previewAll` keeps every root in the viewport regardless of preview density, for a small number of large elements. `length` is the length of the straight strands it grows; an **Interpolate** after it gives them the guides' shapes and lengths, so with guides it only shows where no guide reaches (trim with the **Length** node). Past 2M strands the node notes it is heavy (a human head has about 100-150k hairs); past 50M it stops with an error. | `density`, `randomness`, `layout` |
+
+Curl is defined on the strand's curve, not on its points: 40 or 256 segments give the same curl,
+and Curl inserts points where a turn would otherwise be undersampled.
+
+## Interpolate and guide influence
+
+Interpolate builds each strand from the guides near its root. Each guide's offsets from its root
+are transported to the strand's root (rotated from the guide's root normal to the strand's) and
+blended with weights that fall off with distance, then the blended curve is resampled to the
+strand's point count.
+
+**Which guides are used.** Interpolate uses whatever its `guides` input delivers. In the default
+graph that is a **Guides** node with `level` -1, which delivers the deepest guide level only:
+once any child guides exist, strands interpolate from the children, and the primary guides drive
+the strands only through their children. Set the Guides node's `group` (one or more group names)
+to choose groups explicitly, or `exclude` to leave groups out (for example braid paths). Guide
+visibility and the freeze mask do not affect interpolation.
+
+**How the weights are computed.** Every guide has its own influence radius, its *reach*: `reach`
+times the distance to its `neighbors`-th nearest other guide. Guides are therefore wider where
+they are sparse and narrower where they are dense, without a global radius to tune. For a strand
+at distance *d* from a guide of reach *R*, the guide's weight is the modified Shepard term
+`(R - d) / (R·d)` (zero at the edge of the reach), divided by the largest such term among the
+strand's guides, raised to `power`, and finally normalized so the weights sum to 1. Distances
+are in scene units, measured between root positions on the scalp's rest pose (along the skin with
+`followSurface`, see below), never in UV space.
+
+A strand outside every guide's reach is still interpolated: near the outer 25% of the reaches the
+blend crossfades to plain inverse-distance weighting over its nearest `neighbors` guides, so no
+strand is left unguided. To leave strands far from guides unaffected, use `limitDistance`.
+
+| Param | Default | Effect | When to change it |
+| --- | --- | --- | --- |
+| `neighbors` | 3 | Sets each guide's reach (to its *n*-th nearest guide, times `reach`) and so how many guides blend into a strand. 1 takes the nearest guide only, with hard edges between guides (Voronoi cells). Range 1-16. | Raise it for smoother blending over sparse or uneven guides; 1 for stylized, cleanly separated locks. |
+| `reach` | 1.5 | Multiplier on each guide's reach (at least 1). | Raise it when strands between guides look pulled toward single guides; lower it to keep each guide's shape more local. |
+| `power` | 2 | Exponent on the normalized weights (advanced; hidden when `neighbors` is 1). Higher values make the nearest guide dominate; 0 blends all guides in reach equally. | Raise it for crisper transitions between guides, lower it for softer ones. |
+| `limitDistance` | 0 | Maximum distance (scene units) from the nearest guide root at which guides have any influence. Strands farther away keep their incoming shape (for example from a Flow node). 0 disables the limit, and `falloff` and `influenceChannel` are then unused. | Guides only for tufts or accents on otherwise flow-groomed fur (`flow_with_guides`). |
+| `falloff` | linear 1 to 0 | With `limitDistance` above 0: influence as a function of distance, from the guide root (left) to `limitDistance` (right). Between 0 and 1 the strand is a blend of its incoming shape and the interpolated one. | Shape the transition between guided and unguided areas. |
+| `influenceChannel` | `guideInfluence` | With `limitDistance` above 0: per-strand attribute that receives the influence, 0-1 (empty: not written). | Mask later nodes (Affect) by how strongly the guides apply. |
+| `take` | `shape` | `shape` takes the guides' shape and length. `length` keeps each strand's incoming shape and only scales it to the blended guide length. | `length` for fur shaped by Flow or Direction, with guides used only to paint length. |
+| `smoothGuides` | on | Reads each guide as a centripetal Catmull-Rom curve through its points, as the viewport draws it, rather than as a polyline. | Turn off only to reproduce polyline guides exactly. |
+| `preserveLength` | on | Rescales each blended strand to the weighted mean length of its guides (blending guides that point in different directions would otherwise shorten it; at most 2x). | Turn off to see the raw blend. |
+| `keepClearance` | on | Keeps each strand at least as far above the scalp as its guides are at the same fraction of their length; where the skin bulges more under the strand than under its guides (an ear, a cheek, the neck), the strand is lifted out with its length kept. Needs the `scalp` input. | Leave on; use a Collide node only for other meshes (shoulders, a collar). |
+| `followSurface` | on | Measures distances along the scalp surface instead of in a straight line, so a guide does not influence strands across an ear, a fold or a thin shell. Also transports guide shapes across the curved scalp, so hair combed back stays combed back over the whole head. | Leave on; turn off only on flat or open scalps where straight-line distance is wanted. |
+| `respectParts` | on | Ignores guides on the other side of a part line drawn with the Part tool. If every candidate guide is across a part, all are used. | Leave on whenever parts are drawn. |
+| `regionMap` | empty | A color map painted on the scalp. Each strand blends only the guides rooted in its own color region (see [Regions](#regions)). | Hard separation between areas, such as bangs and sides. |
+| `regionChannel` | `region` | Per-strand attribute that receives the region index (-1: none). | Rename it when several Interpolates write regions. |
+
+Per-guide attributes and painted guide layers are interpolated as well: each becomes a strand
+attribute (or a per-point attribute, for layers painted along the guides) of the same name, with
+the same weights. With no guides at all, Interpolate passes the strands through unchanged and
+reports it.
+
+### Regions
+
+To keep areas of hair separate, paint them in a different color each (a color map in Groom Tools >
+Paint: for example red for the bangs, green for the sides, blue for the back) and name the map in
+Interpolate's `regionMap`. Each strand then blends only the guides rooted in its own region, and
+reaches are computed within each region, which gives a hard edge between regions (a part along an
+area rather than a line).
+
+- Colors within an RGB distance of 0.1 count as one region. A strand on a soft-painted edge joins
+  the nearer region color, so soft paint needs no cleanup; use distinct colors, since a mix of two
+  colors reads as the edge between them.
+- A painted area with no guide rooted in it uses the nearest guides of any region.
+- `regionMap` can be a painted map, a color set on the scalp or an image file read at the scalp's
+  UVs. A guide-layer map is not accepted.
+- **Clump**, **BlendNeighbors** and **Tangle** read the region attribute (their `regionChannel`)
+  and stay within regions too.
+- To display the regions, color the strands by clump with `region` as the source (Maya's
+  `strandColorMode` `clump`, `strandColorSource` `region`).
+
+## Mappable parameters
+
+The **Map** button beside a value switches it to a texture, a color set, a strand attribute, an
+expression or a painted map. Right-click a parameter for **Paint** ([Painting maps](/docs/painting-maps))
+or **Drive with Slider**, which adds a **Control** node and a keyable attribute on the groom. For
+the expression language, see [Expressions](/docs/expressions).
+
+Connecting an input never hides a parameter; visibility only depends on the node's own menus
+(Clump's `count` is shown when `clumpBy` is `count`, for example).
+
+Some nodes have several output ports, along their right edge. **Map** has `luminance`, `r`, `g`,
+`b`, `a` and `rgb`, so one packed map can drive clumping from R and frizz from G, and `rgb`, the
+map's color, can drive a color param: expose HairColor's `color`, `dye` or `tipColor` (right-click
+the param > Expose as Input; also Bands' `dye` and `undercoatDye`, FeatherColor's `dye` and
+`downColor`) and link `rgb` to it. Each strand takes the map's color at its root, times the
+param's own color (white: the map as it is). A number param linked to `rgb` reads its luminance.
+**Split** routes
+strands to outputs `a` to `d`, by fraction or by a painted map.
+
+## Attributes
+
+Strands carry named float values, **attributes** (also called channels), from node to node. An
+attribute is either per strand (one value per curve) or per point (one value per vertex). Some
+nodes **write** one (Clump writes `clumpId`; Interpolate, Wet, Blend, Flyaway, Group and the
+Attribute node write their own), and later nodes **read** it by name: Curl, Twist, Cards and
+HairColor's `clumpShare` read a clump attribute to treat each clump as a unit, Clump reads
+`regionChannel` to clump within a region, and maps and expressions can read any attribute.
+
+The **Attribute** node writes a custom per-strand attribute: `name` is the attribute name and
+`value` the value, a constant or any map (a painted mask, a texture, an expression such as
+`rand(0.2, 0.8)` for a random value per strand). Attributes reach renderers and exports by
+name; see [Strand attributes](/docs/rendering#strand-attributes) for what each output carries and
+how to read it in a shader.
+
+The editors indicate which parameters read and which write. A parameter that writes shows
+**Writes** and a name field, with a warning when it overwrites an attribute written upstream. A
+parameter that reads shows **Reads** and lists only the attributes available at that node, with
+the node that writes each; a name that nothing upstream writes gets the grey **i** badge. Give
+chained Clumps different names (for example `lockId`, then `clumpId`) so later nodes can choose
+which one to follow.
+
+## Restricting a node to some strands
+
+Nodes that reshape or recolor strands (Noise, Clump, Bend, Gravity, Curl, HairColor, Width...)
+have **Affect** under **Common**: a per-strand blend between the node's result (1) and its input
+(0). Map it like any parameter: to a painted map, an expression such as `$y > 0`, or a **Group**.
+
+A **Group** node writes a per-strand mask attribute named after the group (1 inside, 0 outside,
+in between on soft edges). Membership is defined by the roots (or tips) inside a **sphere** or a
+**box** with an optional soft `falloff`, by a `value` (a map, an attribute or an expression)
+passing a **threshold**, or by proximity to the guides of named **guide groups** (blended from
+the 4 nearest guide roots). `combine` adds to, subtracts from or intersects with an earlier
+group of the same name. For example, to frizz only the crown:
+
+1. Add a **Group** after Interpolate: by sphere, centered on the crown, named `crown`.
+2. On the Noise after it, set **Affect** > **Map** > **Attribute** `crown`.
+
+Nodes that add, remove or resample strands (Scatter, Cull, Merge, Resample, Mirror, Cards...)
+have no Affect parameter.
+
+## Blending two looks
+
+Branch after Interpolate into two looks and join them with a **Blend** node. Its `mix` (0: input
+a, 1: input b) multiplied by its root-to-tip `profile` blends the shape and, with a **HairColor**
+in each branch, the color. Set `include` to `shape` to blend only the shape. Drive `mix` with a
+slider or a painted map to animate or paint it (the `blend_two_looks` preset).
+
+## Animating parameters
+
+Numbers, enums, toggles, vectors and colors can be keyed directly in the node editor, as in
+Maya's Channel Box.
+
+- **Set Key:** right-click a parameter > **Set Key**, or press **S** with the mouse over it. The
+  first key creates a keyable attribute on the groom, `ctl_<node>_<param>`.
+- **Colors:** red means a key on this frame, pink animated without a key on this frame, yellow
+  driven by a Control node or a connection.
+- **Curves** are ordinary Maya animation curves: edit them in the Graph Editor or Dope Sheet
+  (**Select Attribute** selects the groom with the attribute).
+- **Delete Key** removes the key on the current frame; **Remove Animation** deletes all keys and
+  keeps the current value.
+- **Not keyable:** parameters that set the number of strands, points or cards, or where they are
+  placed (densities, counts, segments, seeds). These must stay constant over time so that motion
+  blur and caches see the same topology on every frame. Set Key is disabled for them, with the
+  reason.
+- Renders and exports, including farm renders, evaluate the keyed values on every frame.
+
+```python
+groomlab.set_param_key(groom, "clump", "strength", value=0.2, time=1)
+groomlab.set_param_key(groom, "clump", "strength", value=0.9, time=24)
+groomlab.remove_param_animation(groom, "clump", "strength")
+```
+
+## Several scalps
+
+A groom can grow on more than one mesh: separate ears, a head and a body, eyebrow patches.
+
+1. In the groom's Attribute Editor, **Inputs**, click **Pick** on the **Scalps** row.
+2. Click the mesh in the viewport or the Outliner (`groomlab.add_scalp(groom, mesh)`).
+
+GroomLab adds a **Scalp** node reading that mesh, its own Scatter and Interpolate, and a Merge
+into the groom's strands. A Scalp node's `input` names the scalp it reads (`scalp` is the groom's
+own). Guides, brushes, parts, flow and painted maps work across all scalps, and every host and
+renderer supports them.
+
+## Reference node
+
+A **Reference** node reads the strands of another groom file, or its guides (second output): an
+eyebrow or fur patch groomed once and reused in other grooms. Merge it with the groom's strands.
+
+- `path`: the `.groom` file, resolved like a map's file (next to the scene or groom file, then
+  the search paths). It is re-read when the file changes.
+- `bind`: `world` keeps the strands where they are in the file; `closestPoint` re-roots each
+  strand at the closest point on this groom's scalp, rotated with the surface; `uv` re-roots it
+  at its root UV, for scalps that share a UV layout.
+- A missing file, or a file that references itself, is reported as an error naming the file.
+
+## Subdivided scalps
+
+When the render subdivides the head (Arnold subdivision) or you view it smoothed (Maya's 3 key),
+hair grown on the cage would float above or sink into the smoothed surface. The **Scalp** node's
+`subdivision` refines the scalp the same way: `matchRender` (the default) uses the mesh's Arnold
+subdivision iterations, or else its smooth preview level; `off` uses the cage as is; `1` to `3`
+set the level. Roots, guides, maps, collisions and simulation all use the subdivided surface, and
+the root layout does not change: toggling the smooth preview keeps the same strands in the same
+clumps. **ColliderMesh** has the same parameter.
+
+## Viewport-only and render-only nodes
+
+Right-click a node > **Evaluate**:
+
+- **Always**: the default.
+- **Viewport Only**: renders and exports pass its input through. Use it for a cheap stand-in
+  while working.
+- **Render Only**: the viewport passes its input through. Use it for expensive nodes (Collide on
+  a dense groom, Tangle) that only the final strands need.
+
+The node shows a tag, and the setting is saved with the groom.
+
+## Reuse
+
+- **Compounds:** select nodes and press **Ctrl+G** to collapse them into one node, then expose
+  the parameters you need. **Ctrl+Shift+G** (or right-click > **Ungroup Compound**) expands it
+  again.
+- **Presets:** the **Presets** menu holds complete looks and small example graphs that each show
+  one technique; **Save as Preset...** saves your own. See [Presets](/docs/presets).
+- **Copy Graph to Other Grooms...** (Utilities) applies one graph to several grooms.
+- **Copy Graph** and **Paste Graph** copy a whole graph as JSON text, to paste in a chat or save
+  as a `.json` file ([Presets](/docs/presets#share-a-look-as-text)).
+
+## Ranges and versions
+
+Every numeric parameter has a slider range, and hard limits where values outside them are
+meaningless (a 0-1 fraction, a count); typing a value past the slider range extends the slider.
+Saved grooms store every parameter and each node's behaviour version. During early access a
+parameter can still be renamed or replaced between releases ([What's new](/docs/whats-new)
+lists those changes and the values to set); after early access, updates will not change the
+result of a saved groom.

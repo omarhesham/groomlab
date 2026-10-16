@@ -1,0 +1,232 @@
+---
+title: GroomLab app
+description: The standalone GroomLab app for Windows (beta) - installing it, its layout, brushes, graph, look-dev, cards and export.
+---
+
+<Callout type="info" title="Beta">
+  The standalone app is in beta on Windows. It is usable, but details may change before the first
+  release. Keep backups of important grooms, and report problems to
+  [support@getgroomlab.com](mailto:support@getgroomlab.com) with the log file (see below).
+</Callout>
+
+The GroomLab app grooms, lights and exports grooms without Maya. It uses the same evaluation core
+as the Maya plug-in, so a `.groom` file evaluates to the same strands in both.
+
+## Install
+
+The app needs Windows 10 or 11 (64-bit) and a graphics card with Direct3D 11. There is no
+installer:
+
+1. [Download the GroomLab app](https://downloads.getgroomlab.com/app/GroomLab-App-windows-latest.zip)
+   (also on the [Download](/download) page, with its SHA-256).
+2. Unzip the whole folder anywhere you can write to, and run **GroomLab.exe** in it. Windows
+   SmartScreen may warn about a new download: choose **More info**, then **Run anyway**.
+3. It is free, with every feature and export enabled. **Help > Support GroomLab** opens the Ko-fi
+   page.
+
+**Help > Check for Updates** reports a newer version. To update, download it, close GroomLab and
+unzip it over the old folder; settings and recent files are kept. The log file for bug reports is
+`%LOCALAPPDATA%\GroomLab\logs\GroomLab.log`. `README_BETA.txt` in the app folder repeats these
+notes.
+
+## Open a groom
+
+With no groom open, the window shows **Open groom**, **New groom on mesh** and recent files.
+
+- **File > Open Groom...** (Ctrl+O) opens a `.groom` file, saved here or from Maya.
+- **File > New Groom on Mesh...** (Ctrl+N) starts a groom on an `.obj` or `.abc` mesh, with the
+  default graph and no guides. An animated Alembic mesh becomes the groom's scalp cache, so the
+  animation is kept.
+- Or drop a `.groom`, `.obj` or `.abc` file on the window.
+
+**File > Reload from File** (Ctrl+R) reads the saved file again. **Tools > Transfer Groom to
+Mesh...** moves the groom onto another mesh in the same two-view window as Maya's: pick a method,
+then click marker pairs on both meshes or import them from a JSON file
+([Utilities](/docs/utilities#transfer-to-a-new-scalp)).
+
+## The layout
+
+The viewport fills the window; all other UI is drawn over it.
+
+| Where | What |
+| --- | --- |
+| Top left | The menu button (File, Edit, View, Tools, Help) and the file name. A dot means unsaved edits. |
+| Top center | The modes: **Groom**, **Look**, **Cards** and **Export**. |
+| Top right | Undo, redo and **Render**. |
+| Left | The brush rail: every brush, then Select (Groom mode). |
+| Right | The panel rail (Groom mode): **Guide groups**, **Nodes**, **Maps**, **Correctives**, **Look**, **Display** and **Frame all**. |
+| Bottom | The brush bar (Groom mode), the stats, and the **Graph** and **Presets** pills. |
+
+Both rails expand on hover to show button labels.
+
+Each panel button toggles a floating panel beside it. Two other panels open from elsewhere:
+**Brush**, from the brush bar's settings button, and **Node**, when you select a node in the
+graph.
+
+A timeline appears at the bottom when the groom is animated (a scalp or guide cache, or a graph
+that reads the time). It supports play, scrub and loop; **Follow** toggles
+[follow-the-scalp](/docs/motion-and-simulation#follow-the-scalp). With a Simulate node in the
+graph it also shows **Simulate**, **Bake** and **Clear**.
+
+## Groom with brushes
+
+Pick a brush on the left rail. The rail holds the same brushes as Maya, in the same order:
+Create, Shape, Trim and Paint, then **Select** and **Freeze**. See
+[Guides and brushes](/docs/guides-and-brushes) for what each does.
+
+- Drag on the groom to stroke. **Ctrl** reverses the brush; **Shift** smooths.
+- **Freeze** paints a per-guide freeze mask; other brushes skip frozen guides, which draw blue.
+  **Ctrl** unfreezes; **Unfreeze All** in the brush panel clears the mask.
+- **Shift+click** a guide to solo it (all other guides freeze) and switch the brush to its level;
+  Shift+click off a guide to unfreeze all. **Page Up** and **Page Down** step the level. **Solo new
+  guides** in the panel solos guides as you place them; Select mode solos the selection.
+- Hold **B** and drag, or middle-drag, to set the radius. **Shift+middle-drag** sets the strength.
+- **Alt** with any mouse button moves the camera, whatever the tool.
+- **Esc** leaves the brush for the camera.
+
+The brush bar at the bottom holds the radius, strength, falloff, **Sym X** and pen pressure. Its
+settings button opens the **Brush** panel with every setting.
+
+**Guide groups** lists the guide groups. Untick a group to hide it; double-click to rename it. The
+panel's buttons add a root or child group, generate children, select or remove a group, delete
+the selected guides, mirror a group +X → -X, sync symmetry, promote a group and resample guides.
+Part lines and flow arrows drawn with the Part and Flow brushes are listed there too. See
+[Guide groups](/docs/guides-and-brushes#guide-groups).
+
+## The node graph
+
+Press **Tab** or click the **Graph** pill. The graph is drawn over the viewport, with the groom
+visible behind it.
+
+- **Tab** over the graph searches for a node to add. **Enter** adds it, wired after the selected
+  node when their ports match.
+- Drag from an output port to an input to wire them. Drag a wire off an input to disconnect it.
+- Click a node to select it; its params open in the **Node** panel.
+- Right-click a node to rename, duplicate, bypass or delete it, or set it as the output.
+  Right-click the canvas to add a node, tidy the layout or frame the graph.
+- Drag empty space to pan; scroll to zoom. Alt+drag moves the camera.
+
+Close the graph with **Esc**, the close button beside the pills, or by clicking a mode. Each edit
+is one undo step. See [Node graph](/docs/node-graph) for the nodes.
+
+### Presets
+
+The **Presets** pill (or **View > Graph Presets**) lists the presets by category; hover one for
+its description. Each preset has two actions:
+
+- **Apply** replaces the graph with the preset.
+- **Insert after selected node** keeps your graph and adds the preset's look as one Compound
+  node after the selected node, or before the output when nothing is selected.
+
+In both cases the preset's lengths and densities are scaled to your scalp, any maps it reads are
+created, and the change is one undo step. The same menu has **Save as Preset...**, **Copy Graph**
+and **Paste Graph** (the graph as JSON text, to share or paste onto another groom). See
+[Presets](/docs/presets).
+
+### Parameters
+
+Click a node in the **Nodes** panel or in the graph to edit it.
+
+- Params are grouped under collapsible headers. Rarely used params are in **Advanced**, collapsed.
+- A param is hidden while the node's other settings make it inactive.
+- Numbers show their unit (percentage, degrees, turns, seconds or pixels).
+- Ramps have a curve editor. Mappable params can take a constant, a painted map, a texture, a
+  color set, an expression or a field.
+- **Bypass** passes the node's input through unchanged.
+- **Upgrade** appears beside the title when the node was saved with an older version of its
+  operator. It switches the node to the newest behaviour, as one undo step.
+
+Dragging a slider updates the groom during the drag. With **GPU preview** on (Display panel), the
+GPU evaluates the preview during the drag and the CPU evaluation runs on release.
+
+## Painting maps
+
+Open **Maps**. **New map** creates a vertex map, a texture map or a guide layer, grayscale or
+color. Pick a map and click **Paint this map**; the brush paints toward the set value or color,
+**Ctrl** toward 0 on a grayscale map (toward 1 when the value is 0) and toward the inverse color on
+a color map. **Show on scalp** displays the map on the scalp.
+
+To paint a setting, set **New map**'s **For** to **Density**, **Width**, **Length**, **Clump
+strength**, **Curl**, **Noise amplitude**, **Flyaways**, or **Other setting...** (any mappable
+param of the graph), pick vertex or texture map, and click **Create**: a white map is created,
+connected to the setting, selected and painted with the paint brush, in one undo step (if the
+setting already reads a map, that map is selected instead). Strokes paint toward the value (1: the
+setting's full value); **Ctrl** paints toward 0, so Ctrl on the density map removes hair. A
+mappable param's **Paint** pill does the same for that param. See
+[Painting maps](/docs/painting-maps).
+
+## Correctives
+
+**Correctives** holds shot-sculpt layers applied over the animated groom. A **New layer** applies
+on every frame; **Fix this frame** creates a layer at full weight on the current frame that fades
+in and out over six frames. Pick a layer under **Sculpt into** to send brush strokes to it instead
+of the guides.
+
+## Look
+
+**Look** mode shows the look card, with three tabs:
+
+- **Material:** hair color swatches (the groom's own, black, brown, blonde, red, white, dyed) and
+  melanin, redness and roughness sliders. These edit the groom's HairColor node, so they are saved
+  with the groom. **More settings** shows every hair material setting and the other surfaces
+  (scalp, props, eyes).
+- **Lighting:** presets (studio, daylight, overcast, sunset, rim), exposure, the lights, an
+  environment, the tone map and the background.
+- **Render:** interactive or refine quality, refine samples and resolution scale.
+
+**Render** at the top right restarts progressive rendering; the viewport accumulates samples until
+it converges. The **Look** panel on the right rail holds every look setting, including texture
+files.
+
+**Display** (right rail) sets what the viewport draws: preview density, the point budget, look-dev
+shading, GPU preview, strand colors (solid, color set, attribute, random, clump, density), guides,
+the scalp and a map on the scalp. The point budget defaults to 300k points to keep large grooms
+interactive; 0 means no limit.
+
+## Game cards
+
+**Cards** mode generates hair cards from the groom. Click **Add Cards node** if the graph has
+none.
+
+- **Strands** or **Cards** switches what the viewport shows. **Maps** shows the baked maps on the
+  cards, alpha-tested by coverage as in Maya and in a game engine. Before a bake the cards are
+  untextured.
+- **LOD** picks **Hero**, **Mid**, **Low** or **Custom**. Sliders set cards per clump,
+  layers, width, segments, variations, the atlas size and a card budget.
+- **Bake maps** writes the cards' maps (depth, coverage, tangent, attribute, color, occlusion) as
+  TGA files in a `_cards` folder beside the saved groom file. The baked atlas shows in the panel.
+
+The panel shows card, triangle and texture counts, and indicates when the cards have changed since
+the last bake. See [Game export](/docs/game-export).
+
+## Export
+
+**Export** mode (Ctrl+E) writes the groom to other formats. Pick a target:
+
+| Target | What you get |
+| --- | --- |
+| **Alembic curves** | Every strand with its ID, attributes, color and root UV ([Strand attributes](/docs/rendering#strand-attributes)). |
+| **USD curves** | BasisCurves in a text `.usda` layer. |
+| **Unreal groom** | Alembic for Unreal's groom importer, with the guides it simulates. |
+| **Cards (glTF)** | The cards at this frame as `.glb` (or `.gltf`), maps inside, with the hair cap. |
+| **Unity strands** | Alembic for Unity's hair package, resampled to a fixed point count. |
+
+Set the frames (the current frame, or a range for an animated groom), the density and the target's
+options, then the output file (type a path or pick it with **...**). **Export** shows progress and
+can be cancelled. FBX card export is only available in Maya.
+
+## Save and open in Maya
+
+**File > Save** (Ctrl+S) and **Save As...** (Ctrl+Shift+S) write a `.groom` file: the graph,
+guides, scalp, maps, parts, flow and correctives. Export mode has **Save** and **Save as...** too.
+
+In Maya, choose **GroomLab > Groom Files > Import Groom File...**. Select the scalp mesh first if
+the scene has it; otherwise GroomLab creates the scalp from the file. To pull later edits into a
+groom linked to the file, save in the app, then choose **GroomLab > Groom Files > Reload from
+Groom File** in Maya (one undo step). See [The .groom format](/docs/groom-format).
+
+## Keyboard shortcuts
+
+**Help > Keyboard Shortcuts** shows the same list in the app.
+
+<AppShortcuts />

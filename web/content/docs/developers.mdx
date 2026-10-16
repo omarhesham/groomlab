@@ -1,0 +1,102 @@
+---
+title: Developer overview
+description: Overview of GroomLab's developer interfaces (C API, C++ wrapper, .groom format, Python) and their stability and versioning rules.
+---
+
+GroomLab is open source (Apache License 2.0), and its source code is [on GitHub](https://github.com/thekesslereffect/groomlab). You
+can build a bridge to another host (Houdini, Blender, a game engine, a render farm tool) or a
+pipeline tool on the public C API below without touching the engine's source, or embed and change
+the engine itself.
+
+## What you get
+
+| Piece | What it is | Use it for |
+| --- | --- | --- |
+| **C API** (`groomlab_c.h`) | Plain C99 functions over opaque handles, in one library (`groomlab.dll`). | Host plugins and any language with a C FFI. |
+| **C++ wrapper** (`groomlab.hpp`) | Header-only C++17 over the C API: RAII, views, exceptions. | C++ hosts. It adds no binary of its own. |
+| **The `.groom` format** | A JSON file holding a groom: graph, guides, scalp, maps. | Moving grooms between hosts, and reading them without the library. |
+| **Python** | Maya's `groomlab` package, and the core's `groomlab_core` module. | Scripting inside Maya and Maya's Python. See [Python API](/docs/python-api). |
+| **Samples** | `groom_to_obj` (C++) and `groom_counts` (C), MIT licensed. | A starting point for your own bridge. |
+
+The C API, its headers and the samples come in the **GroomLab SDK** (a `GroomLabSDK` folder). See
+[C and C++ API](/docs/c-api) to build against it, and [Writing a host bridge](/docs/host-bridge)
+for the steps a bridge takes.
+
+<Callout title="Free to use">
+  GroomLab and its bridges are free for any use, commercial included. The engine is Apache-2.0
+  (with its patent grant), so studios and engine plugins may embed it. The samples are MIT
+  licensed, so you may copy them into your own tools.
+</Callout>
+
+## What is stable
+
+Three things are versioned, each with its own compatibility rule.
+
+### The C API: semantic versioning
+
+`GROOMLAB_C_API_VERSION_MAJOR` and `_MINOR` in `groomlab_c.h` name the API the header declares.
+`gl_api_version()` gives the library's.
+
+- **Same major: binary compatible.** A minor release only adds functions, and fields at the end
+  of option structs (which carry their own `struct_size`). A program built against 1.0 runs on
+  1.3.
+- **A new major** may change or remove functions. Check it when you load the library:
+  `GROOMLAB_C_API_COMPATIBLE(gl_api_version())`. The C++ wrapper does this for you when it makes
+  a `Session`.
+- The CMake package `GroomLabSDK` has the same version, so `find_package(GroomLabSDK 1.0)` takes
+  any 1.x.
+
+Only `groomlab_c.h` and `groomlab.hpp` are the API. Nothing else in GroomLab is, including the
+core's C++ classes and the Python modules' internals.
+
+### The .groom file: a format version
+
+A `.groom` file has `"format": "groomlab.groom"` and a whole-number `"version"` (1 today).
+
+- A file from a **newer** GroomLab is refused with a clear error ("update GroomLab to open it").
+  It is never half-read.
+- GroomLab does not migrate files. The version only goes up when an old file would no longer
+  read back, and then files of the old version are refused too. Additions that have defaults (a
+  new optional field) keep the version.
+- GroomLab ignores fields it does not know when it reads a file, and does not keep them when it
+  writes one.
+
+The full layout is in [The .groom format](/docs/groom-format).
+
+### Nodes: a version per node
+
+Each operator (Scatter, Clump, Noise...) has a behaviour version. A saved graph stores, per node,
+the version it was made with, and every param's value, set or not.
+
+- A newer GroomLab keeps evaluating an old node the old way, so a saved groom keeps its look.
+  A later change of a default never changes a saved file either.
+- When a node has a newer behaviour, its panel shows **Upgrade**. Upgrading is a choice: the look
+  may change.
+- A graph holding a node **newer** than the library knows is refused, as files are.
+
+From the API, `gl_session_node_spec_json` gives a node's `"nodeVersion"` and `"outdated"` (true
+when an upgrade exists), and `gl_session_upgrade_node` upgrades it (API 1.1). See
+[Node versions](/docs/groom-format#node-versions).
+
+### Up axis
+
+Points come out in the groom's up axis (`"upAxis"`, Y by default). A Z-up host turns the groom
+into its own axis with `gl_session_set_up_axis` (API 1.2): the scalp, the guides, the colliders
+and the graph's world directions turn with it.
+
+## What is not stable yet
+
+- **Inner documents of a groom file.** The guide hierarchy, parts, flow and correctives are
+  stored as GroomLab writes them. Their inner layout may change within a format version. Keep
+  them as they are; don't edit them by hand.
+- **Operator specs.** Node and param names change rarely, and old ones keep loading. Read them
+  from `gl_operator_specs_json` rather than hard-coding a list.
+
+## Next
+
+<Cards>
+  <Card title="C and C++ API" href="/docs/c-api" description="Evaluate a groom in 20 lines, and the full function reference." />
+  <Card title="Writing a host bridge" href="/docs/host-bridge" description="Load a groom, feed the scalp per frame, read the strands." />
+  <Card title="The .groom format" href="/docs/groom-format" description="Every field of the file format." />
+  <Card title="Python API" href="/docs/python-api" description="Maya's groomlab package and the core module." />
+</Cards>

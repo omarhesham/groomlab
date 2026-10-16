@@ -1,0 +1,89 @@
+##RenderMan RIB
+# A groom file rendered by GroomLab's RenderMan procedural, shaded by PxrMarschnerHair with
+# PxrHairColor reading the procedural's primvars (engine/core renderman_look.h; docs/DEVELOPING.md,
+# "RenderMan procedural"). Render with:
+#
+#   prman groom.rib
+#
+# from this folder (it holds groomlab_renderman.dll; elsewhere put the folder on the procedural
+# search path below, or on RMAN_PROCEDURALPATH). Replace hair.groom with your groom file: the
+# example frames a groom about 30 units across around the origin, Y up.
+version 3.04
+Option "searchpath" "string procedural" [".:@"]
+Format 960 720 1
+Display "groom.exr" "openexr" "rgba"
+Hider "raytrace" "int maxsamples" [64] "int minsamples" [16]
+Integrator "PxrPathTracer" "integrator" "int maxIndirectBounces" [10]
+Projection "PxrPerspective" "float fov" [35]
+# The camera at (30, 2, 45) looking at (0, -4, 0): Y up, a right-handed scene.
+Transform [0.832050 -0.061163 -0.551318 0  0 0.993902 -0.110264 0  -0.554700 -0.091745 -0.826977 0  0 3.975610 53.974017 1]
+Shutter 0 0.5
+
+WorldBegin
+  # A key light from the front left above (PxrDistantLight shines down its +Z; its intensity is
+  # the radiance of its disk: 33400 at half a degree is an irradiance of 2), and a soft dome.
+  AttributeBegin
+    ConcatTransform [-0.819152 0 -0.573576 0  0.328990 0.819152 -0.469846 0  0.469846 -0.573576 -0.671010 0  0 0 0 1]
+    Light "PxrDistantLight" "key" "float intensity" [33400] "float angleExtent" [0.5]
+  AttributeEnd
+  AttributeBegin
+    Attribute "visibility" "int camera" [0]
+    Light "PxrDomeLight" "dome" "float intensity" [0.15]
+  AttributeEnd
+
+  AttributeBegin
+    Attribute "identifier" "string name" ["hair"]
+
+    # The primvars the procedural writes (renderman_look.h curvePrimvars).
+    Pattern "PxrPrimvar" "pv_melanin" "string varname" ["rman_melanin"] "string type" ["float"]
+    Pattern "PxrPrimvar" "pv_redness" "string varname" ["rman_redness"] "string type" ["float"]
+    Pattern "PxrPrimvar" "pv_dye" "string varname" ["rman_dye"] "string type" ["color"] "color defaultColor" [1 1 1]
+    Pattern "PxrPrimvar" "pv_color" "string varname" ["rman_color"] "string type" ["color"]
+    Pattern "PxrPrimvar" "pv_share" "string varname" ["rman_rgbShare"] "string type" ["float"]
+    Pattern "PxrPrimvar" "pv_gainR" "string varname" ["rman_specularGainR"] "string type" ["float"] "float defaultFloat" [1.75]
+    Pattern "PxrPrimvar" "pv_coneR" "string varname" ["rman_coneAngleR"] "string type" ["float"] "float defaultFloat" [8]
+    Pattern "PxrPrimvar" "pv_coneTT" "string varname" ["rman_coneAngleTT"] "string type" ["float"] "float defaultFloat" [4]
+    Pattern "PxrPrimvar" "pv_coneTRT" "string varname" ["rman_coneAngleTRT"] "string type" ["float"] "float defaultFloat" [16]
+    Pattern "PxrPrimvar" "pv_opacity" "string varname" ["opacity"] "string type" ["float"] "float defaultFloat" [1]
+
+    # The pigment (GroomLab's melanin and redness as PxrHairColor's; its own randomness and stray
+    # hairs off: GroomLab varied every strand already, and its greys are in the melanin).
+    Pattern "PxrHairColor" "pigment" "int mode" [0]
+        "reference float melanin" ["pv_melanin:resultF"] "reference float redness" ["pv_redness:resultF"]
+        "reference color dye" ["pv_dye:resultRGB"] "float randomMelanin" [0] "float strayDensity" [0]
+        "string hairIndexPrimvar" ["hair_index"]
+    # The RGB look (a map, bands, a tip color, a feather pattern: what Arnold renders as
+    # aiStandardHair's base color), PxrHairColor's Artistic mode.
+    Pattern "PxrHairColor" "rgb" "int mode" [1] "reference color Color" ["pv_color:resultRGB"]
+        "color randomColor" [0 0 0] "float strayDensity" [0]
+    # Strand by strand: 0 the pigment's look, 1 the RGB's.
+    Pattern "PxrMix" "mix_diff" "reference color color1" ["pigment:resultDiff"] "reference color color2" ["rgb:resultDiff"]
+        "reference float mixer" ["pv_share:resultF"]
+    Pattern "PxrMix" "mix_tt" "reference color color1" ["pigment:resultTT"] "reference color color2" ["rgb:resultTT"]
+        "reference float mixer" ["pv_share:resultF"]
+    Pattern "PxrMix" "mix_trt" "reference color color1" ["pigment:resultTRT"] "reference color color2" ["rgb:resultTRT"]
+        "reference float mixer" ["pv_share:resultF"]
+
+    Bxdf "PxrMarschnerHair" "hair"
+        "reference color diffuseColor" ["mix_diff:resultRGB"]
+        "reference color specularColorTT" ["mix_tt:resultRGB"]
+        "reference color specularColorTRT" ["mix_trt:resultRGB"]
+        "reference float specularGainR" ["pv_gainR:resultF"]
+        "float specularGainTT" [2] "float specularGainTRT" [1.2]
+        "reference float specularConeAngleR" ["pv_coneR:resultF"]
+        "reference float specularConeAngleTT" ["pv_coneTT:resultF"]
+        "reference float specularConeAngleTRT" ["pv_coneTRT:resultF"]
+        "float specularOffset" [-3] "float specularIor" [1.55]
+        # (specularOffset: minus HairColor's tilt, the rman_specularOffset primvar's value; it
+        # takes no connection, so it is set here.)
+        "reference float presence" ["pv_opacity:resultF"]
+
+    # The groom at frame 1, with deformation blur over the shutter when it moves.
+    Procedural2 "DynamicLoad" "DSOBound"
+        "string dsoname" ["groomlab_renderman"]
+        "string filename" ["hair.groom"]
+        "float frame" [1]
+        "float motionStart" [0] "float motionEnd" [0.5] "int motionKeys" [2]
+        "float density" [1] "float widthScale" [1] "float lengthScale" [1]
+  AttributeEnd
+WorldEnd

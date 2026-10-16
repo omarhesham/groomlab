@@ -1,0 +1,27 @@
+schema_version = "1.0.0"
+
+# GroomLab for Blender: the extension (GPL add-on + the Apache-2.0 groomlab-helper in bin/).
+# Configured by hosts/blender/addon/CMakeLists.txt (the version is the project's).
+id = "groomlab"
+version = "@PROJECT_VERSION@"
+name = "GroomLab"
+tagline = "Node-based hair grooming on Blender's hair curves and brushes"
+maintainer = "GroomLab"
+type = "add-on"
+website = "https://getgroomlab.com/docs/blender"
+tags = ["Sculpt", "Node", "Render"]
+
+blender_version_min = "5.0.0"
+
+# The add-on's Python is GPL-3.0-or-later (LICENSE). bin/groomlab-helper is a separate program
+# under Apache-2.0 that the add-on starts (bin/LICENSE-HELPER.txt, bin/THIRD_PARTY_NOTICES.txt).
+license = ["SPDX:GPL-3.0-or-later"]
+copyright = ["2026 Nick Rutlinh"]
+
+platforms = ["@GROOMLAB_BLENDER_PLATFORM@"]
+
+[permissions]
+files = "Open and save grooms, export, run the bundled GroomLab helper"
+
+[build]
+paths_exclude_pattern = ["__pycache__/", "*.pyc", "/.git/", "/*.zip"]

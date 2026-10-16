@@ -1,0 +1,14 @@
+/build/
+/install/
+/out/
+.vs/
+.vscode/
+.idea/
+CMakeUserPresets.json
+__pycache__/
+*.pyc
+dist/
+
+.claude/worktrees/
+.claude/settings.local.json
+CLAUDE.local.md

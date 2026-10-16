@@ -1,0 +1,4 @@
+These files are trademarks or logos of their owners (Autodesk, Inc.: Arnold; Pixar: RenderMan).
+They are not licensed under GroomLab's licenses. GroomLab's website shows them only to say that
+GroomLab works with those products, within their owners' brand guidelines. Don't reuse them
+without the owner's permission.

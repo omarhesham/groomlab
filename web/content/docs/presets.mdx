@@ -1,0 +1,157 @@
+---
+title: Presets
+description: The shipped graph presets (hair, fur, feathers, scales, motion, techniques, add-ons), how they scale to your scalp, inserting a preset as a compound, saving your own and sharing a graph as text.
+---
+
+## Load one
+
+In the Graph Editor, **Presets** lists the presets by category. Hover a preset for a one-line
+description; pick it to load its graph, laid out left to right (backdrops label the branches of
+the technique presets).
+
+- **Scaled to the scalp.** The hair presets are built on a 20 cm head, the fur presets on a
+  wolf-sized body (100 cm). On a larger or smaller scalp, lengths and widths are scaled with its
+  size, densities with its area, and curl frequency (turns per centimeter) inversely, so the look
+  is the same on any size of scalp.
+- **Clumps sized by distance.** Clumps are sized in centimeters (Clump's `clumpBy` `size`), so a
+  whole body gets more clumps than a head at the same clump size.
+- **Guides required.** Most presets interpolate from your guides; place or comb a few first. The
+  fur presets marked "no guides" follow flow arrows instead.
+- **Descriptive node names.** For example, `frizzNoise` is a Noise applied to a fraction of the
+  strands (frizz is a Noise setting, not a separate node); `curlsControl` is a slider on the
+  groom.
+- **Insert instead of replace.** Each preset's submenu has **Apply** (replaces the graph) and
+  **Insert after selected node**: the preset's look (every node between its sources and its
+  Output) is inserted as one Compound after the selected node (or before the Output), scaled to
+  your scalp, in one undo step. The **Add-ons** below are small looks meant for this.
+- **Exposed controls.** An inserted Compound shows the look's main parameters on its own panel
+  (clump strength and count, noise, curl, color, width, depending on the preset), with the same
+  groups, units and sliders as the nodes inside. Edit, key or save them like any parameter; they
+  set the nodes inside.
+
+## Hair
+
+| Preset | What it shows |
+| --- | --- |
+| `hair_basics` | The basic chain: Scatter, Interpolate, soft clumps, a little noise, brown color, tapered width. |
+| `cinematic_hair` | A detailed hero look: large locks with finer clumps inside them, restrained noise, frizz on a few strands near the tips, a few flyaways, uneven lengths and widths, color variation. |
+| `curly` | Ringlets: small clumps curled together (Curl with `coherence` `clump`), a little frizz, and the segments curls need. |
+| `braids` | Box braids without drawn paths: the Braid node places one braid per 2.6 cm of scalp (`braidSpacing`). |
+| `parted_style` | A part drawn with the Part tool, respected by Interpolate and Clump. |
+
+## Fur
+
+| Preset | What it shows |
+| --- | --- |
+| `creature_fur` | Fur for a whole animal, laid by flow arrows (no guides): soft tufts about a centimeter across, lighter tips. |
+| `agouti_fur` | The creature fur in wild-type bands (a Bands node after HairColor): dark roots, a pale band, black tips, a plain undercoat. |
+| `white_wool` | Dense, crimped white fleece in soft locks: a picked off-white (HairColor's `color` mode), white tips. |
+| `flow_with_guides` | Flow everywhere, guides only for tufts and accents (a ruff, a mane, ear tufts). |
+
+## Feathers
+
+`feathers_contour`, `feathers_down`, `feathers_flight`, `feathers_afterfeather` and
+`feathers_barred` (bars, iridescence and a downy base: [Color patterns](/docs/color-patterns)):
+one per design of the Feathers tool, each as a Compound with its main params exposed.
+`feathers_afterfeather` shows branching inside a design: the vane, a fluffy base and its barbules
+are three Propagates on the same shafts, each with its own HairColor, joined by Merge.
+`feathers_spotted`, `feathers_eye_spot` and `feathers_iridescent` are stylized color patterns of
+the barred design. `layered_feathers` lays the contour design's feathers over one another and off
+the body with a Plume node. See [Fur & feathers](/docs/fur-and-feathers).
+
+## Scales
+
+| Preset | What it shows |
+| --- | --- |
+| `dragon_scales` | Scales placed by strands: combed down the body, larger on the back, green with darker tips, keeled plates on the back and shields on the belly, overlapping and conformed to the skin. |
+| `scales_from_guides` | Scales pointed by your guides through Interpolate: comb or brush the guides and the scales turn with them. A Bend lays them down the body until you place guides. |
+| `scales_from_flow` | Scales pointed by flow arrows, no guides: draw flow arrows with the Flow tool and the scales follow. |
+| `swept_spikes` | Spikes or quills that bend with the guides: long, narrow plates in the Scales node's `follow` `strand`, based on the skin and bent along their strands' curves. |
+
+## Motion and games
+
+| Preset | What it shows |
+| --- | --- |
+| `everyday_sim` | Shoulder-length hair whose guides are simulated with calm settings. Play the timeline. |
+| `wind_and_jiggle` | Wind and Jiggle after the look, before Collide. Play the timeline. |
+| `game_cards` | A Cards node at the mid level of detail: Show cards, Bake Maps, export. |
+
+## Techniques
+
+| Preset | What it shows |
+| --- | --- |
+| `expression_driven` | Expressions: longer hair at the crown (a keyable variable), harder clumps on long strands. |
+| `painted_maps` | One color map, three masks: R clumps, G frizz, B length. The map is made for you. |
+| `blend_two_looks` | Blend mixes a sleek and a curly look; its `mix` is the keyable `ctl_curls`. Key it to animate. |
+| `merge_layers` | Layers, compounds and switches: a sparse layer of longer, wavy strands with its own Scatter (its waves packed in a Compound with its own sliders), merged onto the base; a Switch picks the full look or a light one. |
+| `vine_leaves` | The Instance node: leaves along curling vines, each bent along its vine (`deform` `alongStrand`). Pick your leaf with Prototype from Selection. |
+
+## Add-ons
+
+Small looks meant for **Insert after selected node**; each adds one effect to an existing groom.
+They can also be applied on their own.
+
+| Preset | What it adds |
+| --- | --- |
+| `wet` | Tight clumps and a darker color, for hair just out of water. |
+| `frizz` | Kinky noise on a share of the strands, growing toward the tips. |
+| `flyaways` | A few strands leave the flow near the tip and stand out. |
+| `cards_mid` | A Cards node at the mid level of detail; insert it before the Output. |
+| `gravity` | Strands hang under their weight, stiff at the root (a Collide after it keeps them off the scalp). |
+| `two_tone_tips` | A picked root color (a skin tone) blending to white tips, each strand a little lighter or darker ([Color patterns](/docs/color-patterns#white-hair-and-tips-a-different-color)). |
+
+## Save your own
+
+**Presets** > **Save as Preset...** saves the graph, its layout and its compounds to your
+presets folder. Your presets appear at the top level of the menu. From Python:
+
+```python
+from groomlab import presets
+presets.save_preset(groom, "my_look", about={"title": "My look", "category": "Hair",
+                                             "description": "Wavy, for the lead."})
+presets.apply_preset(other_groom, "my_look")
+```
+
+Studios can share presets through the `GROOMLAB_PRESET_PATH` environment variable.
+
+### Choose what an inserted preset shows
+
+A preset file may list the params its Compound shows when inserted, in an `"exposed"` field:
+
+```json
+"exposed": [
+  {"node": "clump", "param": "strength", "name": "clumpStrength"},
+  {"node": "color", "param": "melanin", "name": "melanin"},
+  {"node": "width", "param": "width"}
+]
+```
+
+Each entry names a node of the look and one of its params; `name` is what the Compound calls it
+(the param's own name when left out, or node and param together, `clumpStrength`, when the
+Compound has that name already). Entries naming a node outside the look (its Scatter or Guides)
+are skipped. The panel lists them in the look's order, each with its node's slider range, unit
+and group. Every shipped preset with a look lists 1 to 8.
+
+A preset without the list (for example one saved from a graph) exposes a default selection: one
+param per look node for up to six nodes, prioritizing clumps, curls, noise, braids, tangles,
+flyaways, gravity, combs, length, color and width, and using each node's first plain numeric
+param (not an advanced one, and not one driven by a map, a port or a key).
+
+## Share a look as text
+
+**Presets** > **Copy Graph** copies the groom's graph to the clipboard as JSON text, in the same
+format Save as Preset writes, titled after the groom, in the "Shared" category, plus its control
+values (`"controls"`). It can be pasted in a chat, a forum or an email.
+
+- **Paste Graph** puts copied text on the groom shown, fitted to its scalp, in one undo step.
+  Text in a code block (```` ```json ````) works too.
+- **Saved as a `.json` file** in a presets folder, the text is a preset like any other: it
+  shows under Shared, and loading it sets the control values too.
+- **Not included:** painted maps, keys, referenced files and scene meshes are not part of the
+  text. The status bar lists what the target groom lacks; those nodes use their defaults.
+
+```python
+text = groomlab.copy_graph_text(groom)
+report = groomlab.paste_graph_text(other_groom, text)
+print(report["message"])
+```

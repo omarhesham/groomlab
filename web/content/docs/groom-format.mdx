@@ -1,0 +1,325 @@
+---
+title: The .groom format
+description: Specification of the .groom JSON file, format version 1 - top-level fields, scalp, guides, maps, graph, colliders, units, up axis and time.
+---
+
+A `.groom` file holds one groom: its node graph, guides, scalp and maps. Maya, the standalone app,
+Blender, `groomlab-cli`, the Arnold and RenderMan procedurals and the [C API](/docs/c-api) read
+it. This page describes **format version 1**.
+
+The file stores the inputs of the groom, not its strands. Readers evaluate the graph to produce
+the strands and their attributes; for the attributes renderers and exporters receive, see
+[Strand attributes](/docs/rendering#strand-attributes).
+
+Fields marked **unstable** are GroomLab's own data: keep them as they are when you rewrite a file,
+but don't build on their inner layout.
+
+## The basics
+
+- One JSON object, UTF-8. GroomLab writes it without indentation.
+- Point arrays are flat: `[x, y, z, x, y, z, ...]`.
+- Floats are written in the shortest form that reads back to the same 32-bit float, so a groom
+  evaluates the same from the file as in Maya. `-0.0` keeps its sign.
+- NaN and infinity cannot be written (the writer refuses them). A `null` in a number array reads
+  as 0.
+- Fields a reader does not know are ignored. GroomLab does not keep them when it saves.
+- Saving is atomic: the file is written beside the target, then moved over it.
+
+## Versions
+
+```json
+{"format": "groomlab.groom", "version": 1, ...}
+```
+
+- `"format"` must be `"groomlab.groom"`. Anything else is "not a GroomLab groom file".
+- `"version"` is a whole number; a file without one is version 1.
+- **A newer version is refused** ("newer than this GroomLab supports; update GroomLab to open
+  it"). It is never half-read.
+- An older version is refused too: there are no migrations. The version only goes up when an old
+  file would no longer read back, so this is rare. Version 1 is the only one so far.
+- Adding an optional field with a default does not change the version.
+
+The graph inside (`"graph"`) and the guide hierarchy (`"hierarchy"`) carry their own `"version"`
+(1 today), with the same rule.
+
+## Top level
+
+GroomLab always writes the fields marked *always*; the others only when they hold something.
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| `format` | string | required | `"groomlab.groom"` |
+| `version` | integer | 1 | The format version (above). |
+| `framesPerSecond` | number | 24 | The frame rate frames are counted in ([Time](#time)). *Always.* |
+| `units` | string | `"cm"` | The scene unit of every point in the file: `"cm"`, `"m"`, `"in"`... *Always.* |
+| `upAxis` | `"Y"` or `"Z"` | `"Y"` | The world's up axis the points are in. Anything else is refused. *Always.* |
+| `source` | string | `""` | Where the groom came from, e.g. `"scene.ma\|groomLab1Shape"`. Informational. *Always.* |
+| `graph` | object | the default graph | The node graph ([below](#graph)). `{}` means the default graph. *Always.* |
+| `hierarchy` | object or null | null | The guide hierarchy: groups, guides and their shapes. **Unstable.** *Always.* |
+| `parts` | object | none | Parting lines bound to the scalp's triangles as stored (before any subdivision). **Unstable.** |
+| `flow` | object | none | Flow arrows and sinks bound to the scalp's triangles as stored (before any subdivision). **Unstable.** |
+| `correctives` | object | none | Shot sculpt layers. **Unstable.** |
+| `sculpts` | object | none | Sculpt nodes' edits by node name: `{"sculpt1": {"guides": {"<id>": [t, ax, ay, scale, ...]}}}`, per edited guide one sample per segment (where along it, a turn in its own frame, a length factor). |
+| `transferMarkers` | array | none | Marker pairs for Transfer Groom: `[{"old": {"face", "u", "v", "point"}, "new": {...}}]`, each side a point on its scalp (a triangle and barycentrics, and the point). |
+| `controls` | object | none | `{"name": number}`: Control values when the file was saved. |
+| `maps` | object | none | The painted maps, by name ([below](#maps)). |
+| `scalp` | object or null | null | The scalp mesh, inline ([below](#scalp)). *Always.* |
+| `scalps` | array | none | The groom's other scalps, joined after `scalp` ([below](#other-scalps)). |
+| `guides` | array | `[]` | Flat guides ([below](#guides)). *Always.* |
+| `scalpCache` | object or null | null | An animated scalp: `{"file", "object"}` in an Alembic cache. *Always.* |
+| `guideCache` | object or null | null | Animated guide poses in an Alembic cache, matched to hierarchy guides by ID. *Always.* |
+| `searchPaths` | array of strings | none | Where relative paths in the graph resolve, after the file's own folder. May use environment variables. |
+| `followScalp` | boolean | false | The groom is evaluated on the scalp's rest pose and carried by each root. Written only when true. |
+| `cardBake` | object | none | The last game-card bake: `{"prefix", "strands"}`. **Unstable.** |
+| `simCaches` | object | none | Baked Simulate nodes: `{"<node>": {"file", "object", "stamp"}}`. **Unstable.** |
+| `prototypes` | object | none | Meshes the Instance nodes name, inline ([below](#prototypes)). |
+| `colliders` | object | none | Meshes the ColliderMesh nodes name, inline ([below](#colliders)). |
+
+A cache reference is `{"file": "scalp.abc", "object": "headShape"}`. `object` is the object's name
+in the cache; empty takes the first match.
+
+## Scalp
+
+```json
+"scalp": {
+  "points": [x, y, z, ...],
+  "triangles": [a, b, c, ...],
+  "topology": "9f3a0c41d2e87b65",
+  "polygons": [2, 2, 1, ...],
+  "subdivision": 1, "subdivisionFrom": "...",
+  "restPoints": [x, y, z, ...],
+  "uvs": [u, v, ...],
+  "colorSets": {"name": [r, g, b, a, ...]}
+}
+```
+
+| Field | Required | What it is |
+| --- | --- | --- |
+| `points` | yes | World-space points at the time the file was saved. |
+| `triangles` | yes | Three 0-based point indices per triangle. Guides and strands are rooted on these, and `parts` and `flow` bound to them whatever the Scalp node's subdivision: a subdivided scalp shows them at the same places of its surface. |
+| `topology` | no | The scalp's fingerprint: 16 hex digits hashing the point count and the triangles' indices ([below](#the-scalp-fingerprint)). GroomLab always writes it. Left out, a reader takes the scalp's own. |
+| `polygons` | no | The host's polygons the triangles came from: polygon *i* made the next `polygons[i]` triangles. They must add up to the triangle count. Subdivision refines these polygons, not the triangles. |
+| `subdivision` | no | Catmull-Clark levels the render applies, for a Scalp node set to match the render. `subdivisionFrom` says where it came from. |
+| `restPoints` | no | The undeformed points, as many as `points`. Strands keep their roots and count while the scalp deforms. |
+| `uvs` | no | Two floats per **triangle corner**: 6 per triangle, in triangle order. |
+| `colorSets` | no | Named RGBA values per triangle corner (4 floats each). A vertex map painted in GroomLab is the color set of the map's name. |
+
+### The scalp fingerprint
+
+Guides, strands, parts, flow and vertex maps are tied to the scalp's triangles and point order.
+`topology` records them. When a host later hands the groom a scalp with another fingerprint
+(another point order, point count or triangulation, such as a quad split along its other
+diagonal), every evaluation says so in its errors:
+
+> the scalp's vertex order or triangles differ from the groom's: strands are rooted again by position
+
+The strands are still produced, with the guides re-rooted at their closest points, but the result
+no longer matches the groom in the file. Moving the scalp's points (a pose, a deformation) never
+changes the fingerprint; UVs and polygons are not part of it either.
+
+## Guides
+
+```json
+"guides": [{"id": 3, "root": [face, u, v], "points": [x, y, z, ...]}]
+```
+
+Flat guides (for example Maya curves used as guides), in world space. `root` is the triangle index
+and barycentric coordinates `u`, `v` (the third weight is 1 - u - v). `id` is a stable 64-bit ID.
+
+Guides made with GroomLab's guide tools live in `hierarchy` instead.
+
+## Maps
+
+```json
+"maps": {
+  "crown": {"kind": "vertices"},
+  "tint": {"kind": "vertices", "channels": 4},
+  "detail": {"kind": "texture", "texture": "masks/detail.png"}
+}
+```
+
+The maps painted on the scalp, so a Map node finds its map by name alone.
+
+- `kind`: `"vertices"` (the values are the scalp's color set of that name), `"texture"` (an image
+  file) or `"guides"` (a layer on the guides, in `hierarchy`).
+- `texture`: the image, relative to the groom file when it can be.
+- `channels`: 4 for a color map (r g b a). Left out, the map is gray.
+- Names use letters, digits and `_`, and don't start with a digit.
+
+## Graph
+
+```json
+"graph": {
+  "version": 1,
+  "nodes": [
+    {"name": "scatter", "type": "Scatter", "version": 1, "params": {"density": 200.0, ...}},
+    {"name": "clump", "type": "Clump", "version": 1, "params": {...},
+     "paramControls": {"strength": "clump_strength"}, "ui": {"x": 120, "y": 40}}
+  ],
+  "connections": [
+    {"from": "scalp", "to": "scatter", "input": "scalp"},
+    {"from": "mask", "to": "clump", "input": "strength", "output": "r"}
+  ],
+  "output": "output",
+  "backdrops": [{"title": "Look", "x": 0, "y": 0, "w": 400, "h": 300, "color": "..."}]
+}
+```
+
+### Nodes
+
+| Field | Required | What it is |
+| --- | --- | --- |
+| `name` | yes | Unique in the graph. Connections and the API name nodes by it. |
+| `type` | yes | The operator, e.g. `"Scatter"`. An unknown type fails the load. |
+| `version` | no | The behaviour the node was saved with ([below](#node-versions)). Left out: the newest. |
+| `params` | no | `{"param": value}`. GroomLab writes every param, set or not. A param left out takes its operator's default. Unknown params are kept but unused. |
+| `paramControls` | no | Params driven by the host's controls: `{"param": "control"}`, or three names for a vec3. `params` keeps the value used when no control is set. |
+| `paramInputs` | no | Params exposed as input ports, so another node can drive them. |
+| `bypass` | no | `true`: the node passes its input through. |
+| `evaluation` | no | When the node runs: `"viewportOnly"` (renders, exports, the procedural and the CLI pass its input through) or `"renderOnly"` (the viewport does). Left out: always. |
+| `ui` | no | `{"x", "y"}`: where the editors draw the node. Never evaluated. |
+
+The operators, their ports and params (names, kinds, defaults, ranges) come from
+`gl_operator_specs_json` in the C API. They are not repeated here.
+
+### Param values
+
+| Kind | JSON |
+| --- | --- |
+| bool | `true` / `false` |
+| int | A whole number. A fraction is truncated. |
+| float | A number. |
+| string | A string. |
+| vec3 | `[x, y, z]`; a direction that takes one (`vectorExpression` in its spec: Bend's, Gravity's and Displace's `direction`) also `{"expression": "..."}` giving a vector per strand. |
+| ramp | `[[position, value], ...]`, or `{"keys": [[position, value], ...], "linear": true}` for straight segments. |
+| map | An object with exactly one source: `"texture"`, `"colorSet"`, `"attribute"`, `"expression"` or `"guide"` (its value names it), plus `"component"` (`"r"`, `"g"`, `"b"`, `"a"` or `"luminance"`; default `"r"`), `"min"` (0) and `"max"` (1). Only mappable params take one. |
+
+A Compound node's `definition` param is an object holding its own graph. **Unstable.**
+
+### Connections
+
+`from` and `to` name nodes; `input` names the input port on `to`. `output` names which of
+`from`'s outputs it reads (a Map node has `luminance`, `r`, `g`, `b`, `a`); left out, the first.
+`output` (top level) names the node whose result is the groom.
+
+### Node versions
+
+Each operator has a behaviour version. When an operator's result changes in a way that would
+alter saved grooms, its version goes up and the old behaviour stays, for nodes saved before.
+
+- A node's `"version"` is the behaviour it evaluates with. A new node takes the newest.
+- A node with a version **newer** than the library knows fails the load ("update GroomLab to
+  open it").
+- **Upgrade** raises a node to the newest version. The look may change.
+
+From the API, `gl_session_node_spec_json` tells you `"nodeVersion"` and `"outdated"`, and
+`gl_session_upgrade_node` (C++: `session.upgradeNode(node)`) upgrades a node: its `"version"`
+becomes the operator's newest, and the params that version added are written with their
+defaults. Saving the groom keeps it.
+
+## Prototypes
+
+```json
+"prototypes": {"leafScale": {"points": [...], "triangles": [...], "normals": [...], "uvs": [...]}}
+```
+
+The scene meshes the Instance nodes name (the artist's own scale plates), inline, so a farm renders
+them without the scene. Points are in the prototype's own space. `normals` (per point) are made
+smooth when left out; `uvs` are 2 floats per point. The built-in plates are not stored.
+
+## Colliders
+
+```json
+"colliders": {"body": {"points": [...], "triangles": [...], "polygons": [...], "subdivision": 1, "restPoints": [...]}}
+```
+
+The meshes the ColliderMesh nodes read, by the name the node gives (`"name"` param). Every reader
+(the CLI, the Arnold procedural, `groomlab_core`, the C API, the app) collides with them as the
+host that wrote the file did, so a Collide node gives the same strands everywhere.
+
+- Points are world space, as they were when the file was saved. A moving collider is that frame.
+- `polygons` and `subdivision` work as the scalp's: a ColliderMesh node set to match the render
+  refines the polygons.
+- `restPoints`: the collider undeformed, as many as `points`. Collide then asks the rest pose's
+  distance field, made once.
+- A host with its own colliders (Maya's scene, the app's props) uses those: one of the same name
+  takes the file's place.
+
+## Other scalps
+
+```json
+"scalps": [{"name": "ears", "points": [...], "triangles": [...], "uvs": [...], "colorSets": {...}, "restPoints": [...]}]
+```
+
+A groom's other scalps (several meshes the hair grows on), in order, each as `"scalp"` is (world
+space, polygons, subdivision, UVs, color sets, rest pose) with its `name` (letters, digits and
+`_`, not `scalp`) and no `topology`. Readers join them after the scalp into one surface: roots in
+`"guides"` and in the strands index its triangles (the scalp's first, then each scalp's in order).
+A Scalp node whose `input` is a name reads that scalp alone. Absent for a groom of one scalp.
+
+## Inline and external
+
+| Inline in the file | External files it names |
+| --- | --- |
+| The graph, controls, guides, hierarchy, parts, flow, correctives | Texture maps (images): paths in graph params and in `maps` |
+| The scalp: points, triangles, polygons, rest pose, UVs, color sets (vertex maps) | `scalpCache`, `guideCache`: Alembic caches of an animated scalp and guides |
+| Instance prototypes, colliders | `simCaches`: Alembic bakes of Simulate nodes |
+| | `cardBake`: card textures (`.tga`), an atlas (`.json`) and a preview (`.png`) |
+| | Other groom files: a Reference node's `path` (resolved as texture paths are) |
+
+Relative paths of caches and bakes are relative to the groom file's folder. Environment variables
+(`$VAR`, `${VAR}`, `%VAR%`) are expanded. Relative texture paths in the graph resolve against the
+file's folder, then `searchPaths`.
+
+The C API reads the inline data only. It does not open caches: a bridge feeds the moving scalp
+itself (see [Writing a host bridge](/docs/host-bridge)).
+
+## Units and up axis
+
+`units` and `upAxis` describe every point in the file. Reading a file changes neither.
+
+**Up axis.** Maya writes the scene's axis (Y, or Z in a Z-up scene); the app writes Y. A reader in
+the other axis rotates the whole groom a quarter turn about X: Z-up `(x, y, z)` is Y-up
+`(x, z, -y)`. Maya's import and the app do this, and a C API bridge requests it with
+`gl_session_set_up_axis`. It is one core function, so every host converts a groom the same way.
+It rotates:
+
+- the scalp and its rest pose, flat guides, the hierarchy's world shapes, and the colliders;
+- every param that is a **world direction**. Their specs say so (`"worldDirection": true` in
+  `gl_operator_specs_json`): the `direction` of Gravity, Wind, Displace, Bend, Direction
+  and Plume, Clump's `flattenDirection`, Transform's `pivot` (a point, turned
+  about the origin as the points are), Simulate's gravity, wind and current directions as vectors, and Mirror's
+  `axis` as the axis it becomes. A param a node leaves out is turned from its default. Inside
+  compounds too.
+
+Data stored on the surface or in the guides' local frames (roots, parts, flow, correctives) needs
+no conversion.
+
+**Units.** GroomLab never rescales. Lengths in params (a Width, a Length, a Collide offset) are in
+the file's units too, so a bridge whose host uses another unit scales points on the way in and
+out, and leaves the groom in its own units. See [Writing a host bridge](/docs/host-bridge#units-and-up-axis)
+for a worked example.
+
+## Time
+
+Frame *f* is at *f* / `framesPerSecond` seconds. A rate within rounding of an NTSC one (23.976, 29.97,
+59.94: *n* × 1000 / 1001) is taken as that rate exactly, however it is written: frame 7 at 23.976 is
+7 × 1001 / 24000 = 0.29195833... seconds. Maya, the CLI, the Arnold procedural, the app, Python
+(`frame_to_seconds`) and the C API (`gl_frame_to_seconds`) all use this one rule, so nodes that read
+the time (Wind, ImportCurves, Simulate) give the same strands to the bit everywhere.
+
+## A minimal file
+
+```json
+{
+  "format": "groomlab.groom",
+  "version": 1,
+  "graph": {},
+  "scalp": {
+    "points": [-5, 0, -5, 5, 0, -5, 5, 0, 5, -5, 0, 5],
+    "triangles": [0, 2, 1, 0, 3, 2]
+  }
+}
+```
+
+A 10 cm square of hair with the default graph. Everything else takes its default.

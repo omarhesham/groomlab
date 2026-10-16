@@ -1,0 +1,249 @@
+---
+title: Writing a host bridge
+description: Integrating the GroomLab library into another host - loading a groom, feeding the scalp per frame, reading strands and attributes, units and up axis, and saving back.
+---
+
+A bridge connects a host (Houdini, a game engine, a render farm tool) to the GroomLab library. It
+loads a groom, feeds it the host's scalp on each frame, evaluates, and converts the strands to the
+host's curve type. The SDK's `groom_to_obj` sample does all of this in about 150 lines; read it
+alongside this page.
+
+The examples use the C++ wrapper. Every call has a C twin in [C and C++ API](/docs/c-api).
+
+<Steps>
+<Step>
+
+### Load the groom
+
+```cpp
+#include "groomlab/groomlab.hpp"
+namespace gl = groomlab::api;
+
+gl::Session session = gl::Session::fromFile("C:/shots/010/hair.groom");
+```
+
+The file brings the graph, guides, scalp, colliders, maps, controls and frame rate. Texture maps
+with relative paths resolve against the file's folder, then its search paths
+(`session.setSearchPaths`).
+
+A Z-up host turns the groom into its axis right away, before feeding any points:
+
+```cpp
+session.setUpAxis("Z");   // the scalp, guides, colliders and world-direction params, a quarter about X
+```
+
+See [Units and up axis](#units-and-up-axis) below.
+
+The library does not open the Alembic caches a file names (an animated scalp, guide caches,
+simulation bakes). Your bridge feeds the motion itself, as below.
+
+Making a `Session` also checks that the library's API version matches the header's. In C, check
+`GROOMLAB_C_API_COMPATIBLE(gl_api_version())` once at load time.
+
+</Step>
+<Step>
+
+### Give it the scalp
+
+A groom file already holds the scalp it was made on. When the host has that same mesh (the same
+points in the same order), feed only its points:
+
+```cpp
+std::vector<float> rest = hostPointsAtRest();   // x y z per point, in the groom's units and axis
+session.updateScalpPoints(rest, &rest);         // the rest pose, once
+```
+
+To grow on another mesh, hand the whole mesh to `setScalp`: points, polygon sizes, point indices
+and, optionally, UVs per polygon corner.
+
+```cpp
+session.setScalp(points, faceCounts, faceIndices, uvs);   // uvs: u v per corner, or {}
+```
+
+- GroomLab cuts each polygon into a fan of triangles from its first corner. Guides and strands are
+  rooted on those triangles, so a different mesh (or the same mesh triangulated differently) moves
+  them. To keep a groom exactly, feed the file's own triangles: three-corner faces in the order of
+  its `"triangles"`.
+- The groom remembers the scalp it was made on (its [fingerprint](/docs/groom-format#the-scalp-fingerprint)).
+  When the mesh you give has another point order or other triangles, `evalErrorsJson()` says
+  "the scalp's vertex order or triangles differ from the groom's: strands are rooted again by
+  position". The strands still come, but they are not the file's. Show it to the artist.
+- Pass UVs when the groom reads texture maps or the `rootUV` attribute.
+- `setScalp` replaces the rest pose too: the mesh you give is the rest.
+
+</Step>
+<Step>
+
+### Deform per frame
+
+For each frame, set the time and the scalp's points at that time:
+
+```cpp
+session.setFrame(frame);                       // seconds by every host's rule (below)
+session.updateScalpPoints(hostPointsAt(frame));
+```
+
+`setFrame` turns the frame into seconds the way Maya, the CLI and the Arnold procedural do:
+frame / fps, an NTSC rate exact (23.976 is 24000 / 1001). Use it, or `gl_frame_to_seconds`, rather
+than dividing yourself: an ulp of difference in the time moves Wind's strands.
+
+- The point count must stay the scalp's (`scalpPointCount()`). Topology and UVs stay as set.
+- Keep the rest pose set (step 2). Strands then keep their count, IDs and roots while the scalp
+  moves; only their shape follows.
+- Set host-driven values with `session.setControl("name", value)`. Params animated in Maya are
+  linked to controls; the file stores the controls' values when it was saved, not their keys, so
+  set them per frame if your host animates them.
+- Keep one session for the whole shot. It caches what does not change, so later frames cost
+  less.
+
+</Step>
+<Step>
+
+### Evaluate and read the strands
+
+```cpp
+gl::EvalOptions options;
+options.density = 0.25f;                       // a viewport preview; 1 for the render
+gl::Strands strands = session.evaluate(options);
+
+gl::View<float> points = strands.positions();       // x y z per point, strand after strand
+gl::View<std::uint64_t> first = strands.offsets();  // strand s: points first[s] to first[s + 1] - 1
+gl::View<float> widths = strands.widths();          // per point, a diameter in scene units
+gl::View<std::uint64_t> ids = strands.ids();        // per strand, stable across frames and densities
+```
+
+Attributes carry the look and any data the graph writes. List them with `attributes()` (each with
+its scope: per strand or per point); read one with `attribute(name)`, or `attribute(name, scope)`
+when a name exists in both scopes. All attribute data is float:
+
+| Attribute | Scope | Values |
+| --- | --- | --- |
+| `width` | point | 1: the width, as `widths()` |
+| `rootUV` | strand | 2: the scalp's UV at the root (with scalp UVs) |
+| `color` | strand | 3: linear RGB |
+| `pointColor` | point | 3: linear RGB, when the color changes along the strand |
+| `melanin`, `roughness`, `clumpId`... | strand or point | 1: whatever the graph's nodes wrote ([Strand attributes](/docs/rendering#strand-attributes)) |
+
+```cpp
+gl::Attribute color = strands.attribute("color");  // color.values: 3 floats per strand
+gl::Attribute banded = strands.attribute("colorR", gl::Scope::Point);  // a Bands node's, per point
+```
+
+A name can be listed twice, once per scope: a Bands node writes `colorR`, `colorG` and `colorB`
+per strand and per point. `attribute(name)` returns the per-strand one.
+
+A result is independent of the session: you can pass it to another thread for drawing while the
+session evaluates the next frame.
+
+If a node fails, the evaluation still returns the result of the rest of the graph. Show
+`session.evalErrorsJson()` to the artist when it is not `[]`.
+
+</Step>
+<Step>
+
+### Render or export
+
+Convert the strands to the host's curves:
+
+- **Points:** linear curves, one per strand, from `positions()` and `offsets()`. Scale units here
+  (cm by default); the up axis is the groom's (`setUpAxis`).
+- **Width:** most renderers take a per-point width (a diameter). Some take a radius: halve it.
+- **IDs:** keep `ids()` as a per-curve attribute. Motion blur and caches match strands across
+  frames by ID.
+- **Color:** `color` and `melanin` map onto the host's hair shader.
+- **Other attributes:** pass per-strand attributes as per-curve (uniform) attributes and
+  per-point ones as per-vertex attributes, under the same names, as GroomLab's own exporters do.
+
+For a cache, write one sample per frame: Alembic curves or USD `BasisCurves` (linear, widths per
+vertex) take these arrays as they are.
+
+</Step>
+</Steps>
+
+## Units and up axis
+
+GroomLab converts axes but never rescales. The core converts a groom to another up axis
+(`setUpAxis`): the scalp, rest pose, guides, colliders, and every param that is a world direction
+(Gravity's, Wind's, Bend's directions, Mirror's axis: the specs flag them `"worldDirection"`). The
+groom keeps its file's units: its points, and its length params (widths, lengths, offsets). The
+bridge scales points on the way in and out, and does any mirroring its host needs.
+
+A worked example: a groom made in Maya (cm, Y up), read in Blender (m, Z up) and Unreal (cm, Z up).
+
+| | Maya | Blender bridge | Unreal bridge |
+| --- | --- | --- | --- |
+| Host units, axes | cm, Y up | m, Z up | cm, Z up, left-handed |
+| The file says | `"units": "cm"`, `"upAxis": "Y"` | the same file | the same file |
+| The core | nothing to do | `setUpAxis("Z")` | `setUpAxis("Z")` |
+| Scalp points in | as they are | Blender's × 100 (m to cm) | Unreal's with y negated |
+| Strand points out | as they are | × 0.01 (cm to m) | y negated |
+| Widths out | as they are | × 0.01 | as they are |
+
+For example, take one strand tip. In Maya it is at `(0, 170, 5)` cm. After `setUpAxis("Z")` the
+groom holds it at `(0, -5, 170)` cm (Z-up `(x, y, z)` is Y-up `(x, z, -y)`). Blender draws it at
+`(0, -0.05, 1.70)` m; Unreal, whose axes are mirrored, at `(0, 5, 170)` cm. A Gravity node that
+pulled toward `(0, -1, 0)` in Maya pulls toward `(0, 0, -1)` after the turn: down, in each host.
+Its strength, a Width's 0.008 cm and a Collide offset are unchanged, in cm, because the groom is
+still in cm.
+
+Saved back, the file says `"upAxis": "Z"`. Maya turns it again on import into a Y-up scene.
+
+## Colliders
+
+A groom file carries the meshes its ColliderMesh nodes read (see
+[the format](/docs/groom-format#colliders)), as they were when it was saved, with their rest
+poses. The session collides with them as Maya did. A moving collider stays at that frame through
+the C API for now.
+
+## Save back
+
+`session.saveFile(path)` writes the groom as a `.groom` file: graph, guides, scalp as last set, and
+everything else the loaded file carried. Param edits made through the API are in it. See
+[The .groom format](/docs/groom-format).
+
+## From Python, through ctypes
+
+Hosts with Python (Houdini, a pipeline tool) can call the C API directly:
+
+```python
+import ctypes
+
+gl = ctypes.CDLL(r"C:\GroomLabSDK\bin\groomlab.dll")
+gl.gl_last_error.restype = ctypes.c_char_p
+gl.gl_session_set_frame.argtypes = [ctypes.c_void_p, ctypes.c_double]
+for name in ("gl_strands_strand_count", "gl_strands_point_count"):
+    getattr(gl, name).restype = ctypes.c_size_t
+    getattr(gl, name).argtypes = [ctypes.c_void_p]
+gl.gl_strands_positions.restype = ctypes.POINTER(ctypes.c_float)
+gl.gl_strands_positions.argtypes = [ctypes.c_void_p]
+
+session, strands = ctypes.c_void_p(), ctypes.c_void_p()
+if (gl.gl_session_create(ctypes.byref(session)) or gl.gl_session_load_file(session, b"hair.groom")
+        or gl.gl_session_set_frame(session, 12) or gl.gl_session_evaluate(session, None, ctypes.byref(strands))):
+    raise RuntimeError(gl.gl_last_error().decode())
+print(gl.gl_strands_strand_count(strands), "strands")
+points = gl.gl_strands_positions(strands)  # 3 * point_count floats
+gl.gl_strands_release(strands)
+gl.gl_session_destroy(session)
+```
+
+Inside Maya, use the [Python API](/docs/python-api) instead.
+
+## Blender
+
+GroomLab ships its own Blender extension ([Blender](/docs/blender)): a GPL add-on that runs the
+core (Apache-2.0) in a separate helper process. Blender add-ons must be released under the GPL,
+because they use Blender's Python API, so a Blender bridge of your own has to be a GPL add-on too.
+It can reach the GroomLab library through the C API, as above. Apache-2.0 code may be combined
+into a GPL-3.0 work, so the library can also ship inside such an add-on.
+
+## Checklist
+
+- Check the API version at load time.
+- Turn the groom into the host's up axis (`setUpAxis`); scale units on the way in and out.
+- Feed the file's own scalp triangles; show the fingerprint warning when it comes.
+- Set frames with `setFrame` (or `gl_frame_to_seconds`), never your own division.
+- Set the rest pose once; update points per frame.
+- Keep one session per groom; evaluate at a low density for the viewport.
+- Keep strand IDs for motion blur.
+- Read `gl_last_error()` before your next `gl_` call; show eval errors to the artist.

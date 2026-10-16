@@ -1,0 +1,160 @@
+#version 440
+// SPDX-License-Identifier: Apache-2.0
+#extension GL_GOOGLE_include_directive : require
+
+// The visibility buffer's rasterizer (lookdev_renderer.cpp, HairPath::Visibility): one thread a
+// strand segment, no triangles and no multisampling. A segment is projected and walked a pixel
+// column at a time along its major axis (pixel centers along it, the half-open rule so the
+// segments of a strand share no column); in each column the strand covers the interval of its
+// true projected width across it (width x the secant of its slope), and each pixel takes the
+// share of that interval inside it: the analytic box-filtered coverage of a fiber, a twentieth
+// of a pixel or ten pixels wide alike. Hair behind the surfaces (their view depth, drawn
+// before) is not drawn.
+//
+// The pass (Vis params2.w) runs the same walk twice, so both see the same fragments bit for bit:
+//   0: every fragment adds -ln(1 - c) to its pixel's optical depth (the order-independent
+//      coverage: alpha = 1 - exp(-tau)) and offers its key (depth, and whether its hashed
+//      coverage keeps it) to the pixel's minimum;
+//   1: the fragment whose key is its pixel's minimum writes its segment and where on it.
+// A fragment is kept where its coverage reaches a threshold hashed from its strand and the
+// stretch of it the pixel lies on (display.h's lineHashThreshold, the line path's rule: the
+// pattern belongs to the strands, so a still view draws the same, an orbit carries it along).
+// The visible fragment is the nearest kept one: n strands over a pixel show strand i with the
+// weight c_i x the product of (1 - c_j) in front of it, as their ribbons would; the refine frames
+// hash with a new seed each (and jitter), so their mean is the exact transparency.
+//
+// The level of detail (strand_lod.h) passes each strand's exponent: a strand of a thinned clump
+// stands for e strands, its coverage widened to 1 - (1 - c)^e; 0 skips it.
+
+layout(local_size_x = 256) in;
+
+#include "hair_vis.glsl"
+
+layout(std430, binding = 5) buffer Lod {
+    float lodExponent[];
+};
+// The surfaces' view depth (surface_depth.frag through the camera's pass; 0: none there).
+layout(binding = 6) uniform sampler2D surfaceDepth;
+
+// display.h's linePcg3d and lineHashThreshold's stretch threshold (line_coverage.glsl, the line
+// shaders' source): a threshold per stretch, the refine frames' new seeds averaging it out.
+#include "../../../engine/gpu/shaders/line_coverage.glsl"
+
+// Clip space to the buffer's pixels (x right, y down the rows as memory holds them) and 1 / w.
+vec3 toPixels(vec4 c) {
+    vec2 ndc = c.xy / c.w;
+    float x = (ndc.x * 0.5 + 0.5) * target.x;
+    float fy = ndc.y * 0.5 + 0.5;
+    float yRhi = (params2.z > 0.5 ? fy : 1.0 - fy) * target.y;  // from the drawn region's bottom (QRhi's viewport origin)
+    float y = params.w > 0.5 ? target.w - yRhi : yRhi;
+    return vec3(x, y, 1.0 / c.w);
+}
+
+void main() {
+    uint p = gl_GlobalInvocationID.y * counts.y + gl_GlobalInvocationID.x;
+    if (p >= counts.x) return;
+    vec4 a0 = fetch(pointsTexture, p * 2u);
+    uint s = uint(a0.w + 0.5);
+    vec4 d0 = fetch(strandsTexture, s * 3u);
+    vec4 d1 = fetch(strandsTexture, s * 3u + 1u);
+    uint first = uint(d0.w + 0.5), count = uint(d1.w + 0.5);
+    if (p + 1u >= first + count) return;  // a strand's last point starts no segment
+    float exponent = params2.x > 0.5 ? lodExponent[s] : 1.0;
+    if (exponent <= 0.0) return;
+    vec4 b0 = fetch(pointsTexture, p * 2u + 1u);
+    vec4 a1 = fetch(pointsTexture, p * 2u + 2u);
+    vec4 b1 = fetch(pointsTexture, p * 2u + 3u);
+
+    // Clipped to the near side of the eye, then rejected when wholly off one side of the view.
+    vec4 c0 = viewProj * vec4(a0.xyz, 1.0), c1 = viewProj * vec4(a1.xyz, 1.0);
+    const float kNearW = 1e-4;
+    if (c0.w < kNearW && c1.w < kNearW) return;
+    float t0 = 0.0, t1 = 1.0;
+    if (c0.w < kNearW) {
+        t0 = (kNearW - c0.w) / (c1.w - c0.w);
+        c0 = mix(c0, c1, t0);
+    } else if (c1.w < kNearW) {
+        t1 = (kNearW - c0.w) / (c1.w - c0.w);
+        c1 = mix(c0, c1, t1);
+    }
+    if ((c0.x < -c0.w && c1.x < -c1.w) || (c0.x > c0.w && c1.x > c1.w) || (c0.y < -c0.w && c1.y < -c1.w) || (c0.y > c0.w && c1.y > c1.w)) return;
+    float wWorld0 = mix(b0.w, b1.w, t0), wWorld1 = mix(b0.w, b1.w, t1);
+    vec3 s0 = toPixels(c0), s1 = toPixels(c1);
+
+    // The walk along the major axis (A), across the minor (C), from the lower A to the higher.
+    bool alongX = abs(s1.x - s0.x) >= abs(s1.y - s0.y);
+    vec3 e0 = s0, e1 = s1;  // x: A, y: C, z: 1 / w
+    float u0 = t0, u1 = t1, ww0 = wWorld0, ww1 = wWorld1;
+    if (!alongX) {
+        e0 = s0.yxz;
+        e1 = s1.yxz;
+    }
+    if (e1.x < e0.x) {
+        vec3 e = e0; e0 = e1; e1 = e;
+        float u = u0; u0 = u1; u1 = u;
+        float w = ww0; ww0 = ww1; ww1 = w;
+    }
+    float len = e1.x - e0.x;
+    float rowLo = params.w > 0.5 ? target.w - target.y : 0.0;
+    float aLimit = alongX ? target.x : target.y;  // the drawn region along A and C
+    float aBase = alongX ? 0.0 : rowLo;
+    float cLimit = alongX ? target.y : target.x;
+    float cBase = alongX ? rowLo : 0.0;
+    int iStart = int(ceil(e0.x - 0.5)), iEnd = int(ceil(e1.x - 0.5));
+    iStart = max(iStart, int(aBase));
+    iEnd = min(iEnd, int(aBase + aLimit));
+    if (iEnd <= iStart || len < 1e-6) return;
+    iEnd = min(iEnd, iStart + 8192);
+    float slope = (e1.y - e0.y) / len;
+    float secant = sqrt(1.0 + slope * slope);
+
+    float widthScale = params.y * params.x;  // world width to pixels at w 1
+    float opacity = params.z;
+    uint stride = uint(target.z);
+    // The strand's number for the hash (its random, from its ID), a new one each refine frame.
+    uint strandNumber = uint(d0.z * 16777216.0) ^ (eyeFrame.w > 0.0 ? linePcg3d(uvec3(uint(eyeFrame.w), 0x51EDu, 7u)).x : 0u);
+    float points = max(float(count) - 1.0, 1.0);
+    float segmentPixels = max(len * secant, 1e-4);
+    float uPerPixel = (abs(u1 - u0) / points) / segmentPixels;
+    float uFirst = float(p - first);
+    bool idPass = params2.w > 0.5;
+    bool testSurfaces = params2.y > 0.5;
+
+    for (int i = iStart; i < iEnd; ++i) {
+        float a = float(i) + 0.5;
+        float ts = (a - e0.x) / len;
+        float invW = mix(e0.z, e1.z, ts);
+        float tw = ts * e1.z / invW;  // perspective-correct, from e0 to e1
+        float t = mix(u0, u1, tw);    // along the segment, from its first point
+        float depth = 1.0 / invW;
+        float cc = e0.y + slope * (a - e0.x);
+        float wpx = mix(ww0, ww1, tw) * widthScale * invW;
+        float h = 0.5 * wpx * secant;
+        float lo = cc - h, hi = cc + h;
+        int jLo = max(int(floor(lo)), int(cBase)), jHi = min(int(floor(hi)), int(cBase + cLimit) - 1);
+        jHi = min(jHi, jLo + 63);
+        float u = (uFirst + t) / points;
+        float threshold = lineStretchThreshold(strandNumber, u, uPerPixel);
+        for (int j = jLo; j <= jHi; ++j) {
+            float cover = clamp(min(hi, float(j + 1)) - max(lo, float(j)), 0.0, 1.0) * opacity;
+            if (cover <= 0.0) continue;
+            float c = exponent == 1.0 ? cover : 1.0 - pow(max(1.0 - cover, 0.0), exponent);
+            uvec2 px = alongX ? uvec2(uint(i), uint(j)) : uvec2(uint(j), uint(i));
+            if (testSurfaces) {
+                float surface = texelFetch(surfaceDepth, ivec2(px), 0).r;
+                if (surface > 0.0 && depth > surface) continue;
+            }
+            uint at = (px.y * stride + px.x) * 4u;
+            uint key = (threshold <= c ? 0u : 0x80000000u) | (floatBitsToUint(depth) >> 1u);
+            if (!idPass) {
+                float tau = -log(max(1.0 - min(c, 0.9999), 1e-4));
+                atomicAdd(pix[at + 1u], uint(tau * kTauScale + 0.5));
+                if (key < pix[at]) atomicMin(pix[at], key);
+            } else if (pix[at] == key) {
+                float side = h > 1e-6 ? clamp((float(j) + 0.5 - cc) / h, -1.0, 1.0) : 0.0;
+                pix[at + 2u] = p;
+                pix[at + 3u] = packUnorm2x16(vec2(t, side * 0.5 + 0.5));
+            }
+        }
+    }
+}

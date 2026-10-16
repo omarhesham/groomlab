@@ -1,0 +1,4608 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Node-based graph editor for grooms (Qt: groomlab.ui.qt).
+
+Edits a GraphModel (groomlab.graph) and writes it back to the groom:
+- drag from an output port (right) to an input port (left) to connect; a node
+  with several outputs (a Map node: luminance, r, g, b, a) shows one labelled
+  port per output, stacked down its right edge, and a link starts at the one
+  dragged from;
+- Delete removes selected nodes or connections;
+- right-click a node for Set Output / Rename / Delete;
+- parameters of the selected node appear on the right; numbers get a slider
+  whose range stretches to any value you type (right-click it for the
+  range), and dragging previews live; mappable ones can switch between a
+  value and a texture, color set, attribute, expression or painted map;
+- right-click a param > Set Key (or S with the mouse over it) keys it: the first key links it to
+  an attribute of its own on the groom (groomlab.set_param_key), and its field takes the Channel
+  Box's colors (red: a key here, pink: animated, yellow: driven) and value on every frame.
+With Live on (default), every edit is applied to the groom (undoable) as soon
+as the graph is valid; Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) in the editor are Maya's
+undo and redo (Edit menu), and the editor follows them; in a text field with
+typing to undo, Ctrl+Z undoes the typing first. Node positions go in the groom's graph (each
+node's "ui", as the standalone app keeps them, so groom files carry them) outside undo; no node
+evaluates again for a move (every one is a cache hit).
+Node types come from the plugin's operator catalog: one it registers that CATEGORIES does not list
+goes under its spec's category, and each node's one-line description (the panel's top, the search)
+is its spec's.
+
+    import groomlab.ui.graph_editor as ge
+    ge.show()            # dockable, for the selected groom
+"""
+
+import json
+import os
+
+from groomlab.ui import qt
+from groomlab.ui.qt import QtCore, QtGui, QtWidgets
+
+from groomlab import graph as gm
+from groomlab.ui import theme, widgets
+
+
+def _time_moving():
+    """Whether the scene's time is playing or being scrubbed (the time slider held)."""
+    from maya import cmds, mel
+    try:
+        if cmds.play(query=True, state=True):
+            return True
+        slider = mel.eval("$tmpVar = $gPlayBackSlider")
+        return bool(slider) and bool(cmds.timeControl(slider, query=True, pressed=True))
+    except RuntimeError:
+        return False
+
+
+NODE_W = 208
+HEADER_H = 40
+ROW_H = 22
+PORT_R = 5.5      # drawn radius
+PORT_HIT = 11.0   # picking radius: ports are easy to grab
+SNAP = 28.0       # a dragged link snaps to a compatible port this close (scene units)
+CORNER = 9.0
+TOGGLE_ROOM = 44.0  # header space for the Focus and Disable toggles
+
+TYPE_COLORS = {"Strands": QtGui.QColor(232, 168, 92), "Guides": QtGui.QColor(92, 196, 232),
+               "Mesh": QtGui.QColor(140, 206, 110), "Field": QtGui.QColor(214, 122, 214),
+               "Curve": QtGui.QColor(245, 215, 90), "Curves": QtGui.QColor(206, 210, 218)}
+NODE_BG = QtGui.QColor(43, 45, 50)
+NODE_BG_TOP = QtGui.QColor(50, 53, 59)
+NODE_BORDER = QtGui.QColor(24, 25, 28)
+TEXT = QtGui.QColor(232, 234, 237)
+MUTED = QtGui.QColor(142, 150, 158)
+SELECTED = QtGui.QColor(255, 190, 70)
+CANVAS = QtGui.QColor(33, 34, 37)
+GRID_DOT = QtGui.QColor(58, 60, 66)
+
+# The Add Node menu, in the order a groom is built: what it reads, the strands grown from it, their
+# shape, the look (clumps and detail), color, then fields and plumbing. Input is left out: it only
+# means something inside a compound, where Group makes them.
+CATEGORIES = [
+    ("Sources", ["Scalp", "Guides", "ColliderMesh", "ImportCurves", "Reference"]),
+    ("Grow", ["Scatter", "Interpolate", "Cull"]),
+    ("Shape", ["Length", "Width", "Resample", "Direction", "Bend", "Transform", "Flow", "Part", "Tie",
+               "Smooth", "BlendNeighbors", "Gravity", "Displace", "Mirror", "Collide", "SelfCollide", "MeshCut",
+               "RestoreLength", "Sculpt"]),
+    ("Look", ["Clump", "Twist", "Braid", "Noise", "Curl", "Flyaway", "Static", "Tangle", "Wet", "Instance",
+              "Scales"]),
+    ("Motion", ["Wind", "Jiggle", "Simulate"]),
+    ("Feathers", ["Propagate", "Plume", "Split"]),
+    ("Color", ["HairColor", "Bands", "FeatherColor", "RenderData"]),
+    ("Convert", ["ToGuides", "ToStrands"]),
+    ("Fields & Curves", ["Map", "Expression", "Control", "FieldNoise", "FieldRemap", "FieldCombine", "Curve"]),
+    ("Utility", ["Group", "Blend", "Attribute", "Merge", "Switch", "Output"]),
+    ("Games", ["Cards"]),
+]
+HIDDEN_TYPES = {"Compound", "Input"}  # made by Group, not from the Add menu
+# Nodes whose `path` names a file: the file dialog's filter for it.
+FILE_PATH_FILTERS = {"Reference": "Groom files (*.groom)", "ImportCurves": "Alembic (*.abc)"}
+# When a node runs (its Evaluate menu): (mode, label, what it does); the tag under a node set so.
+EVALUATION_CHOICES = [
+    ("always", "Always", "In the viewport and in renders"),
+    ("viewportOnly", "Viewport Only", "Renders, exports, the Arnold procedural and the CLI skip it: a fast stand-in"),
+    ("renderOnly", "Render Only", "The viewport skips it: a heavy node kept for the final strands"),
+]
+EVALUATION_TAGS = {"viewportOnly": "viewport only", "renderOnly": "render only"}
+CATEGORY_COLORS = {"Sources": QtGui.QColor(72, 190, 170), "Grow": QtGui.QColor(79, 209, 197),
+                   "Color": QtGui.QColor(255, 122, 182), "Shape": QtGui.QColor(90, 150, 240),
+                   "Look": QtGui.QColor(170, 120, 240), "Fields & Curves": QtGui.QColor(214, 122, 214),
+                   "Utility": QtGui.QColor(140, 148, 158), "Output": QtGui.QColor(245, 176, 66),
+                   "Compound": QtGui.QColor(110, 200, 120), "Games": QtGui.QColor(90, 200, 230),
+                   "Convert": QtGui.QColor(240, 140, 95), "Motion": QtGui.QColor(120, 200, 255),
+                   "Feathers": QtGui.QColor(226, 186, 90)}
+
+
+
+
+# Params naming the host's inputs (the external data a groom feeds the graph):
+# plumbing for scripts and compounds, hidden from the panel unless changed.
+PLUMBING = {("Scalp", "input"), ("Guides", "input"), ("Guides", "hierarchy")}
+
+SCATTER_LENGTH_TIP = ("An Interpolate after this Scatter gives its strands the guides' shapes and lengths, so this "
+                      "length only shows where no guide reaches (and before any guide is placed). To make the hair "
+                      "longer or shorter, brush the guides (Length, Cut) or trim with the Length node.")
+
+
+def guides_shape(model, name):
+    """Whether node `name`'s strands reach an Interpolate with guides wired in (which then sets their
+    shape and length), following the connections downstream."""
+    seen, todo = set(), [name]
+    while todo:
+        node = todo.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        for c in model.connections:
+            if c["from"] != node:
+                continue
+            target = c["to"]
+            if target in model.nodes and model.node_type(target) == "Interpolate" and any(
+                    d["to"] == target and d["input"] == "guides" for d in model.connections):
+                return True
+            todo.append(target)
+    return False
+
+
+HEADER_STYLE = "tinted"  # "filled": the header in the category color; "tinted": a wash and an accent bar
+SHADOW = True
+
+UNDO_KEYS = [QtGui.QKeySequence("Ctrl+Z")]
+REDO_KEYS = [QtGui.QKeySequence("Ctrl+Y"), QtGui.QKeySequence("Ctrl+Shift+Z")]
+
+
+def _key_of(event):
+    """(key, modifiers) of a key event, the keypad flag dropped."""
+    return event.key(), qt.to_int(event.modifiers()) & ~qt.to_int(QtCore.Qt.KeypadModifier)
+
+
+def undo_key(event):
+    """Ctrl+Z: Maya's undo."""
+    return _key_of(event) == (QtCore.Qt.Key_Z, qt.to_int(QtCore.Qt.ControlModifier))
+
+
+def redo_key(event):
+    """Ctrl+Y or Ctrl+Shift+Z: Maya's redo."""
+    key, mods = _key_of(event)
+    return (key == QtCore.Qt.Key_Y and mods == qt.to_int(QtCore.Qt.ControlModifier)) or (
+        key == QtCore.Qt.Key_Z and mods == qt.to_int(QtCore.Qt.ControlModifier | QtCore.Qt.ShiftModifier))
+
+
+def text_history(widget, redo=False):
+    """Whether a text field has typing to undo (or redo): then Ctrl+Z is its own, not Maya's."""
+    if isinstance(widget, QtWidgets.QAbstractSpinBox):
+        widget = widget.findChild(QtWidgets.QLineEdit)
+    if isinstance(widget, QtWidgets.QLineEdit):
+        if widget.isReadOnly():
+            return False
+        return widget.isRedoAvailable() if redo else widget.isUndoAvailable()
+    if isinstance(widget, (QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit)):
+        if widget.isReadOnly():
+            return False
+        doc = widget.document()
+        return doc.isRedoAvailable() if redo else doc.isUndoAvailable()
+    return False
+
+
+def load_model(groom, catalog=None):
+    """The groom's graph as a GraphModel, laid out (from_groom places nodes that have no position):
+    what the editor shows on open, Reload, and after the groom's graph changes elsewhere (a preset,
+    a script, undo and redo)."""
+    return gm.GraphModel.from_groom(groom, catalog)
+
+
+def apply_theme(t=None):
+    """Take the graph's colors and shapes from a theme (the active one by default)."""
+    global NODE_BG, NODE_BG_TOP, NODE_BORDER, TEXT, MUTED, SELECTED, CANVAS, GRID_DOT, CORNER, HEADER_STYLE, SHADOW
+    t = t or theme.current()
+    NODE_BG = t.qcolor("graph.node")
+    NODE_BG_TOP = t.qcolor(t.get("graph.nodeTop") or "graph.node") if t.get("graph.nodeTop") else QtGui.QColor(NODE_BG)
+    NODE_BORDER = t.qcolor("graph.nodeBorder")
+    TEXT = t.qcolor("graph.text")
+    MUTED = t.qcolor("graph.textDim")
+    SELECTED = t.qcolor(t.get("graph.selected", "white"))
+    CANVAS = t.qcolor("graph.canvas")
+    GRID_DOT = t.qcolor("graph.grid")
+    CORNER = float(t.get("graph.cornerRadius", 9))
+    HEADER_STYLE = t.get("graph.headerStyle", "tinted")
+    SHADOW = bool(t.get("graph.shadow", True))
+    for name, value in (t.get("graph.categories") or {}).items():
+        CATEGORY_COLORS[name] = t.qcolor(value)
+    for name, value in (t.get("graph.ports") or {}).items():
+        TYPE_COLORS[name] = t.qcolor(value)
+
+
+def readable_on(color):
+    """Dark or light text, whichever reads on `color`."""
+    luma = 0.2126 * color.redF() + 0.7152 * color.greenF() + 0.0722 * color.blueF()
+    return QtGui.QColor(28, 29, 33) if luma > 0.55 else QtGui.QColor(255, 255, 255)
+
+
+# -- Keyed params: the param fields in the Channel Box's colors ------------------------------------
+
+KEYABLE_KINDS = ("float", "int", "bool", "vec3")
+# A state's theme color (ui.keyed, ...) and Maya's own where a theme has none.
+KEY_COLORS = {"keyed": ("ui.keyed", "#CD4C4C"), "animated": ("ui.animated", "#E3A3A8"),
+              "driven": ("ui.driven", "#E4D46C")}
+KEY_TIPS = {"keyed": "Keyed on this frame", "animated": "Animated (no key on this frame)",
+            "driven": "Driven by a Control node or a connection", "linked": "Set by its attribute (no keys left)"}
+
+
+def key_state(groom, node, param, model):
+    """groomlab.param_key_state, or None where it cannot be read (no groom, a scene change)."""
+    if model.control_of(node, param) is None:
+        driver = model.driver_of(node, param)
+        return "driven" if driver and model.node_type(driver) == "Control" else None
+    if not groom:
+        return None
+    import groomlab
+    try:
+        return groomlab.param_key_state(groom, node, param, model)
+    except (RuntimeError, ValueError):
+        return None
+
+
+def _key_fields(field):
+    """The editable boxes of a param's field: a slider's number, a vector's three, a checkbox."""
+    if isinstance(field, widgets.SoftSlider):
+        return [field.field]
+    return list(getattr(field, "boxes", None) or [field])
+
+
+def show_value(field, value):
+    """Show a keyed param's value on this frame, without signals (nothing is written back)."""
+    if isinstance(field, widgets.SoftSlider):
+        field.setValue(float(value) * getattr(field, "unit_factor", 1.0))
+    elif isinstance(field, QtWidgets.QCheckBox):
+        field.blockSignals(True)
+        field.setChecked(bool(value))
+        field.blockSignals(False)
+    elif getattr(field, "boxes", None) and isinstance(value, (list, tuple)):
+        for box, v in zip(field.boxes, value):
+            if box.hasFocus():
+                continue  # being typed into
+            box.blockSignals(True)
+            box.setValue(float(v))
+            box.blockSignals(False)
+        if getattr(field, "swatch", None) is not None:  # a keyed color: its swatch follows
+            field.swatch.set_color([float(v) for v in value])
+
+
+def paint_key_state(field, state):
+    """Color a param's field by its state as the Channel Box does (None: the theme's own look)."""
+    field.setProperty("keyState", state or "")
+    color = None
+    if state in KEY_COLORS:
+        path, fallback = KEY_COLORS[state]
+        color = QtGui.QColor(theme.current().color(path, fallback))
+    for box in _key_fields(field):
+        if color is None:
+            box.setStyleSheet("")
+        else:
+            box.setStyleSheet("background-color: %s; color: %s;" % (color.name(), readable_on(color).name()))
+        base = box.property("glBaseTip")
+        if base is None:
+            base = box.toolTip() or ""
+            box.setProperty("glBaseTip", base)
+        box.setToolTip("\n".join(t for t in (KEY_TIPS.get(state or ""), base) if t))
+
+
+# Spec categories (lowercase, from the plugin) to the names above.
+SPEC_CATEGORIES = {"sources": "Sources", "source": "Sources", "grow": "Grow", "shape": "Shape", "look": "Look",
+                   "color": "Color", "convert": "Convert",
+                   "fields": "Fields & Curves", "fields & curves": "Fields & Curves", "field": "Fields & Curves",
+                   "curves": "Fields & Curves", "utility": "Utility", "games": "Games", "cards": "Games",
+                   "motion": "Motion",
+                   "feathers": "Feathers"}
+
+
+# What an attribute param does with the attribute it names (the spec's "channel").
+ATTRIBUTE_TIPS = {
+    "writes": "Writes the attribute named here: a value per strand that nodes after it read by name (an attribute "
+              "map, a Curl or Cards by clump, a renderer). A name a node upstream writes is overwritten from here on.",
+    "reads": "Reads the attribute named here, written by a node upstream (the list shows those reaching this node "
+             "and which node writes each). A name that does not reach this node is ignored.",
+}
+
+
+def pretty(name):
+    """A param name as a label: "guideRadius" reads "Guide radius" (the name stays in the tooltip)."""
+    import re
+    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).replace("_", " ").strip()
+    words = " ".join(w if w.isupper() and len(w) > 1 else w.lower() for w in words.split())
+    return words[:1].upper() + words[1:]
+
+
+ADVANCED = "Advanced"  # the section the advanced params fold away in, last (and a group of that name)
+
+
+def param_sections(specs):
+    """[(section, [spec, ...])] in the panel's order: the main params ("" : no header), each group in
+    the order the spec lists them, then Advanced (every advanced param, whatever its group). With
+    fewer than two groups there are no group headers: the params read as one list, as before."""
+    groups = []
+    for spec in specs:
+        group = spec.get("group") or ""
+        if group and group != ADVANCED and not spec.get("advanced") and group not in groups:
+            groups.append(group)
+    headed = len(groups) >= 2
+
+    def section_of(spec):
+        group = spec.get("group") or ""
+        if spec.get("advanced") or group == ADVANCED:
+            return ADVANCED
+        return group if headed else ""
+
+    sections = [(key, [s for s in specs if section_of(s) == key]) for key in [""] + groups + [ADVANCED]]
+    return [(key, members) for key, members in sections if members]
+
+
+def shown_when(spec, value_of, spec_of=None):
+    """Whether a param shows: its spec's showWhen holds (graph.h ParamCondition): {"param", "in"}
+    for the node's values (value_of(param)): a bool as "true" or "false", a number as JSON writes
+    it; and the param it names shows too (spec_of(name): that param's spec, None: unknown), so
+    Clump's count hides with clumpBy. No condition: always."""
+    seen = set()
+    while True:
+        condition = spec.get("showWhen") or {}
+        param = condition.get("param")
+        if not param:
+            return True
+        value = value_of(param)
+        if isinstance(value, bool):
+            text = "true" if value else "false"
+        elif isinstance(value, str):
+            text = value
+        else:
+            text = json.dumps(value)
+        if text not in (condition.get("in") or []):
+            return False
+        seen.add(spec.get("name"))
+        spec = spec_of(param) if spec_of else None
+        if spec is None or spec.get("name") in seen:
+            return True
+
+
+def unit_of(spec, value_of):
+    """What a param measures for the node now: its spec's unit while its unitWhen holds (graph.h
+    ParamSpec::unitWhen, read as showWhen's param part: Noise's frequency is per scene unit in
+    world space, per strand length in strand space), else "" (unitless)."""
+    unit = spec.get("unit") or ""
+    when = spec.get("unitWhen")
+    if unit and when and not shown_when({"showWhen": {"param": when.get("param"), "in": when.get("in")}}, value_of):
+        return ""
+    return unit
+
+
+def spec_category(spec):
+    """The category an operator spec names, in this module's terms ("Utility" when it names none)."""
+    name = (spec or {}).get("category") or ""
+    if not name:
+        return "Utility"
+    return SPEC_CATEGORIES.get(name.lower(), name[:1].upper() + name[1:])
+
+
+def category_of(op_type, catalog=None):
+    """A node type's category: the hardcoded list first, else what its operator spec says."""
+    if op_type == "Compound":
+        return "Compound"
+    if op_type == "Input":
+        return "Utility"
+    listed = next((c for c, types in CATEGORIES if op_type in types), None)
+    if listed:
+        return listed
+    if catalog is not None:
+        try:
+            return spec_category(catalog.spec(op_type))
+        except gm.GraphError:
+            pass
+    return "Utility"
+
+
+def describe(op_type, catalog):
+    """What a node type does, in a line: its operator spec's description (the core's, as every host
+    shows it); empty for a type the catalog does not know."""
+    if catalog is None:
+        return ""
+    try:
+        return catalog.spec(op_type).get("description", "")
+    except gm.GraphError:
+        return ""
+
+
+def categories(catalog):
+    """[(category, [types])] to offer: the hardcoded order, only types the plugin has, plus every
+    other registered operator under its spec's category (new categories after the known ones)."""
+    known = set(catalog.types()) if catalog is not None else None
+    result = []
+    for category, types in CATEGORIES:
+        result.append((category, [t for t in types if known is None or t in known]))
+    if known is not None:
+        listed = {t for _, types in CATEGORIES for t in types}
+        for op_type in catalog.types():
+            if op_type in listed or op_type in HIDDEN_TYPES:
+                continue
+            category = spec_category(catalog.spec(op_type))
+            bucket = next((types for c, types in result if c == category), None)
+            if bucket is None:
+                bucket = []
+                result.append((category, bucket))
+            bucket.append(op_type)
+    return [(c, types) for c, types in result if types]
+
+
+# ---------------------------------------------------------------------------
+# Scene items
+
+
+class PortItem(QtWidgets.QGraphicsItem):
+    """A port dot: hollow when free, filled when linked; larger to pick than to see."""
+
+    def __init__(self, node_item, name, port_type, is_output, is_param=False):
+        super(PortItem, self).__init__(node_item)
+        self.node_item = node_item
+        self.name = name
+        self.port_type = port_type
+        self.is_output = is_output
+        self.is_param = is_param   # an exposed param's Field input
+        self.highlight = False     # a compatible target while a link is dragged
+        self.hovered = False
+        self.setAcceptHoverEvents(True)
+        kind = "strands or guides" if port_type == "Curves" else port_type
+        self.setToolTip("%s (%s)%s" % (name, kind, " — exposed param" if is_param else ""))
+        self.setCursor(QtCore.Qt.CrossCursor)
+
+    def boundingRect(self):
+        return QtCore.QRectF(-PORT_HIT, -PORT_HIT, 2 * PORT_HIT, 2 * PORT_HIT)
+
+    def shape(self):
+        path = QtGui.QPainterPath()
+        path.addEllipse(self.boundingRect())
+        return path
+
+    def linked(self):
+        return self.node_item.editor.is_linked(self.node_item.name, self.name, self.is_output)
+
+    def paint(self, painter, option, widget=None):
+        color = TYPE_COLORS.get(self.port_type, QtGui.QColor(200, 200, 200))
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        r = PORT_R + (2.0 if self.hovered or self.highlight else 0.0)
+        if self.highlight:
+            glow = QtGui.QColor(color)
+            glow.setAlpha(70)
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(glow)
+            painter.drawEllipse(QtCore.QPointF(0, 0), r + 5, r + 5)
+        if self.port_type == "Curves":  # strands or guides: half each color
+            self.paint_either(painter, r)
+            return
+        painter.setPen(QtGui.QPen(color, 2.0))
+        painter.setBrush(color if self.linked() else CANVAS)
+        if self.is_param:  # a diamond: a param, not a data input
+            poly = QtGui.QPolygonF([QtCore.QPointF(0, -r), QtCore.QPointF(r, 0), QtCore.QPointF(0, r),
+                                    QtCore.QPointF(-r, 0)])
+            painter.drawPolygon(poly)
+        else:
+            painter.drawEllipse(QtCore.QPointF(0, 0), r, r)
+
+    def paint_either(self, painter, r):
+        """A port taking strands or guides: the left half in the strands color, the right in the guides'."""
+        rect = QtCore.QRectF(-r, -r, 2 * r, 2 * r)
+        linked = self.linked()
+        for color, start in ((TYPE_COLORS["Strands"], 90 * 16), (TYPE_COLORS["Guides"], 270 * 16)):
+            if linked:
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(color)
+                painter.drawPie(rect.adjusted(-1, -1, 1, 1), start, 180 * 16)
+            else:
+                painter.setBrush(QtCore.Qt.NoBrush)
+                painter.setPen(QtGui.QPen(color, 2.0))
+                painter.drawArc(rect, start, 180 * 16)
+
+    def hoverEnterEvent(self, event):
+        self.hovered = True
+        self.update()
+
+    def hoverLeaveEvent(self, event):
+        self.hovered = False
+        self.update()
+
+    def scene_center(self):
+        return self.mapToScene(QtCore.QPointF(0, 0))
+
+
+class NodeItem(QtWidgets.QGraphicsItem):
+    """A node card: category accent, name and type, ports with labels, a summary of changed params."""
+
+    def __init__(self, editor, name):
+        super(NodeItem, self).__init__()
+        self.editor = editor
+        self.name = name
+        model = editor.model
+        self.op_type = model.node_type(name)
+        self.category = "Output" if model.output == name else category_of(self.op_type, model.catalog)
+        spec = model.node_spec(name)
+        self.inputs = {}
+        y = HEADER_H + ROW_H / 2 + 4
+        for port in spec["inputs"]:
+            item = PortItem(self, port["name"], port["type"], False, port.get("param", False))
+            item.setPos(0, y)
+            self.inputs[port["name"]] = item
+            y += ROW_H
+        # One port per output, stacked down the right edge (the primary first). A shaping node's
+        # output shows what it gives as connected: strands, guides (or either, unconnected).
+        self.outputs = {}
+        y = HEADER_H + ROW_H / 2 + 4
+        for port in spec["outputs"]:
+            item = PortItem(self, port["name"], model.output_type(name, port["name"]), True)
+            item.setPos(NODE_W, y)
+            self.outputs[port["name"]] = item
+            y += ROW_H
+        self.output = self.outputs[spec["outputs"][0]["name"]]  # the primary
+        self.summary = self._summary(spec)
+        rows = max(1, len(spec["inputs"]), len(spec["outputs"]))
+        self.height = HEADER_H + ROW_H * rows + 10 + (18 if self.summary else 0)
+        self.edges = []  # before setPos: itemChange updates edges
+        self.hovered = False
+        self.setAcceptHoverEvents(True)
+        self.setFlags(QtWidgets.QGraphicsItem.ItemIsMovable | QtWidgets.QGraphicsItem.ItemIsSelectable |
+                      QtWidgets.QGraphicsItem.ItemSendsGeometryChanges)
+        self.setToolTip(self.op_type)
+        self.setPos(*model.position(name))
+
+    def _summary(self, spec):
+        """A few params that differ from their defaults, e.g. "density 300 · seed 7"."""
+        parts = []
+        model = self.editor.model
+        for p in spec["params"]:
+            if p["name"] == "definition":
+                continue
+            value = model.param(self.name, p["name"])
+            if value == p["default"]:
+                continue
+            if isinstance(value, bool):
+                text = "on" if value else "off"
+            elif isinstance(value, (int, float)):
+                text = "%g" % value
+            elif isinstance(value, dict):
+                source = next((k for k in ("texture", "colorSet", "attribute", "expression", "guide") if k in value), "map")
+                text = {"colorSet": "color set", "guide": "map"}.get(source, source)
+            elif isinstance(value, str) and len(value) < 14:
+                text = value
+            else:
+                text = "…"
+            parts.append("%s %s" % (p["name"], text))
+            if len(parts) == 2:
+                break
+        driven = [p for p in model.param_inputs(self.name) if model.driver_of(self.name, p)]
+        if driven and len(parts) < 2:
+            parts.append("%s × field" % driven[0])
+        return " · ".join(parts)
+
+    def boundingRect(self):
+        return QtCore.QRectF(-PORT_HIT, -12, NODE_W + 2 * PORT_HIT, self.height + 30)
+
+    def status(self):
+        """(bypassed, viewed, error text, milliseconds, warning text, note text) from the editor."""
+        editor = self.editor
+        return (editor.model.bypassed(self.name), editor.viewed == self.name,
+                editor.node_errors.get(self.name), editor.node_times.get(self.name),
+                editor.node_warnings.get(self.name), editor.note_of(self.name))
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        rect = QtCore.QRectF(0, 0, NODE_W, self.height)
+        accent = CATEGORY_COLORS.get(self.category, MUTED)
+        bypassed, viewed, error, ms, warning, note = self.status()
+        painter.setOpacity(0.45 if bypassed else 1.0)
+
+        # Soft drop shadow (flat themes go without).
+        for i, alpha in enumerate((40, 24, 12) if SHADOW else ()):
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(QtGui.QColor(0, 0, 0, alpha))
+            painter.drawRoundedRect(rect.translated(0, 3 + i).adjusted(-i, -i, i, i), CORNER + i, CORNER + i)
+
+        # Body with a gentle vertical gradient.
+        gradient = QtGui.QLinearGradient(0, 0, 0, self.height)
+        gradient.setColorAt(0.0, NODE_BG_TOP)
+        gradient.setColorAt(1.0, NODE_BG)
+        selected = self.isSelected()
+        border = SELECTED if selected else (QtGui.QColor(90, 94, 102) if self.hovered else NODE_BORDER)
+        painter.setPen(QtGui.QPen(border, 2.0 if selected else 1.0))
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(rect, CORNER, CORNER)
+
+        # The header: filled with the category color, or a wash under an accent bar.
+        header = QtCore.QRectF(0, 0, NODE_W, HEADER_H)
+        filled = HEADER_STYLE == "filled"
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(rect, CORNER, CORNER)
+        painter.save()
+        painter.setClipPath(clip)
+        if filled:
+            painter.fillRect(header, accent)
+        else:
+            tint = QtGui.QColor(accent)
+            tint.setAlpha(34)
+            painter.fillRect(header, tint)
+            painter.fillRect(QtCore.QRectF(0, 0, NODE_W, 3), accent)
+        painter.restore()
+        if not filled:
+            painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 14), 1))
+            painter.drawLine(QtCore.QPointF(10, HEADER_H), QtCore.QPointF(NODE_W - 10, HEADER_H))
+        on_header = readable_on(accent) if filled else TEXT
+        self.header_ink = on_header if filled else None
+
+        # Name, and the type underneath (pixel sizes: the same at any screen scale).
+        font = QtGui.QFont(painter.font())
+        font.setPixelSize(13)
+        font.setBold(True)
+        small = QtGui.QFont(font)
+        small.setBold(False)
+        small.setPixelSize(10)
+        small.setLetterSpacing(QtGui.QFont.AbsoluteSpacing, 0.6)
+        name_h = QtGui.QFontMetrics(font).height()
+        painter.setFont(font)
+        painter.setPen(on_header)
+        room = NODE_W - 24 - TOGGLE_ROOM
+        painter.drawText(QtCore.QRectF(12, 5, room, name_h), QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
+                         QtGui.QFontMetrics(font).elidedText(self.name, QtCore.Qt.ElideRight, room))
+        painter.setFont(small)
+        if filled:
+            kind = QtGui.QColor(on_header)
+            kind.setAlpha(165)
+            painter.setPen(kind)
+        else:
+            painter.setPen(accent.lighter(115))
+        label = self.op_type.upper() if self.category != "Output" else "OUTPUT"
+        painter.drawText(QtCore.QRectF(12, 5 + name_h, NODE_W - 24, QtGui.QFontMetrics(small).height()),
+                         QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label)
+
+        # Port labels.
+        body = QtGui.QFont(font)
+        body.setBold(False)
+        body.setPixelSize(11)
+        painter.setFont(body)
+        for name, port in self.inputs.items():
+            painter.setPen(TYPE_COLORS.get("Field").lighter(120) if port.is_param else TEXT)
+            painter.drawText(QtCore.QRectF(14, port.pos().y() - ROW_H / 2, NODE_W * 0.6, ROW_H),
+                             QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, name)
+        painter.setPen(TEXT)
+        for name, port in self.outputs.items():
+            painter.drawText(QtCore.QRectF(NODE_W * 0.4, port.pos().y() - ROW_H / 2, NODE_W * 0.6 - 14, ROW_H),
+                             QtCore.Qt.AlignVCenter | QtCore.Qt.AlignRight, name)
+        small.setLetterSpacing(QtGui.QFont.AbsoluteSpacing, 0.0)
+
+        painter.setOpacity(1.0)
+        # Badges: viewed (eye), bypassed, error, evaluation time.
+        badge = QtGui.QFont(small)
+        badge.setBold(True)
+        painter.setFont(badge)
+        self.paint_toggles(painter, viewed, bypassed)
+        if error:
+            painter.setPen(QtGui.QPen(QtGui.QColor(240, 80, 70), 2.0))
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), CORNER + 2, CORNER + 2)
+            painter.setBrush(QtGui.QColor(240, 80, 70))
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.drawEllipse(QtCore.QPointF(NODE_W, 0), 8, 8)
+            painter.setPen(QtGui.QColor(255, 255, 255))
+            painter.drawText(QtCore.QRectF(NODE_W - 8, -8, 16, 16), QtCore.Qt.AlignCenter, "!")
+        elif warning:  # e.g. a Cards node whose baked maps are out of date: rebake
+            painter.setPen(QtGui.QPen(QtGui.QColor(235, 170, 60), 2.0))
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), CORNER + 2, CORNER + 2)
+            painter.setBrush(QtGui.QColor(235, 170, 60))
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.drawEllipse(QtCore.QPointF(NODE_W, 0), 8, 8)
+            painter.setPen(QtGui.QColor(40, 30, 10))
+            painter.drawText(QtCore.QRectF(NODE_W - 8, -8, 16, 16), QtCore.Qt.AlignCenter, "!")
+        elif note:  # it does nothing as set (a Clump with no centers): a grey "i", informational
+            painter.setBrush(QtGui.QColor(128, 132, 140))
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.drawEllipse(QtCore.QPointF(NODE_W, 0), 8, 8)
+            painter.setPen(QtGui.QColor(245, 245, 245))
+            painter.drawText(QtCore.QRectF(NODE_W - 8, -8, 16, 16), QtCore.Qt.AlignCenter, "i")
+        # When it runs, unless always: a tag under the node's left corner.
+        tag = EVALUATION_TAGS.get(self.editor.model.evaluation(self.name))
+        if tag:
+            painter.setPen(MUTED)
+            painter.setFont(small)
+            painter.drawText(QtCore.QRectF(4, self.height + 1, NODE_W * 0.6, 14),
+                             QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, tag)
+        if ms is not None:
+            heat = QtGui.QColor(120, 200, 120) if ms < 5 else (QtGui.QColor(230, 190, 80) if ms < 25
+                                                                 else QtGui.QColor(240, 100, 80))
+            painter.setPen(heat)
+            painter.setFont(small)
+            painter.drawText(QtCore.QRectF(0, self.height + 1, NODE_W - 4, 14),
+                             QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter, "%.1f ms" % ms)
+        painter.setOpacity(0.45 if bypassed else 1.0)
+
+        if self.summary:
+            painter.setPen(MUTED)
+            painter.setFont(small)
+            painter.drawText(QtCore.QRectF(12, self.height - 22, NODE_W - 24, 16),
+                             QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
+                             QtGui.QFontMetrics(small).elidedText(self.summary, QtCore.Qt.ElideRight, NODE_W - 24))
+
+    # -- Header toggles: Focus (view up to here) and Disable (bypass), as in Yeti --
+
+    def viewable(self):
+        """Focus shows a node giving strands (a Clump's centers as dots)."""
+        return self.output.port_type == "Strands"
+
+    def toggle_rects(self):
+        """{"focus": rect, "disable": rect} in item coordinates; no focus on nodes that output no strands."""
+        size = 18.0
+        rects = {"disable": QtCore.QRectF(NODE_W - 10 - size, 8, size, size)}
+        if self.viewable():
+            rects["focus"] = QtCore.QRectF(NODE_W - 14 - 2 * size, 8, size, size)
+        return rects
+
+    def paint_toggles(self, painter, viewed, bypassed):
+        rects = self.toggle_rects()
+        painter.save()
+        painter.setOpacity(1.0)
+        for kind, rect in rects.items():
+            on = viewed if kind == "focus" else bypassed
+            ink = getattr(self, "header_ink", None)  # on a filled header: its readable color
+            idle = QtGui.QColor(ink) if ink is not None else QtGui.QColor(120, 126, 134)
+            if ink is not None:
+                idle.setAlpha(150)
+            active = QtGui.QColor(90, 210, 240) if kind == "focus" else QtGui.QColor(245, 176, 66)
+            color = (ink if ink is not None else active) if on else idle
+            if on:
+                fill = QtGui.QColor(color)
+                fill.setAlpha(45)
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(fill)
+                painter.drawRoundedRect(rect, 4, 4)
+            painter.setPen(QtGui.QPen(color, 1.6))
+            painter.setBrush(QtCore.Qt.NoBrush)
+            c = rect.center()
+            if kind == "focus":  # an eye
+                path = QtGui.QPainterPath(c + QtCore.QPointF(-6.5, 0))
+                path.quadTo(c + QtCore.QPointF(0, -6), c + QtCore.QPointF(6.5, 0))
+                path.quadTo(c + QtCore.QPointF(0, 6), c + QtCore.QPointF(-6.5, 0))
+                painter.drawPath(path)
+                painter.setBrush(color)
+                painter.drawEllipse(c, 2.2, 2.2)
+            else:  # a power symbol
+                arc = QtCore.QRectF(c.x() - 5.5, c.y() - 5, 11, 11)
+                painter.drawArc(arc, 120 * 16, 300 * 16)
+                painter.drawLine(c + QtCore.QPointF(0, -7), c + QtCore.QPointF(0, -1))
+        painter.restore()
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            for kind, rect in self.toggle_rects().items():
+                if rect.adjusted(-2, -2, 2, 2).contains(event.pos()):
+                    event.accept()
+                    editor, name = self.editor, self.name
+                    if kind == "focus":
+                        later(lambda: editor.view_node(None if editor.viewed == name else name))
+                    else:
+                        later(lambda: editor.set_bypass([name], not editor.model.bypassed(name)))
+                    return
+        super(NodeItem, self).mousePressEvent(event)
+
+    def hoverMoveEvent(self, event):
+        tips = {"focus": "Focus: show the groom up to this node in the viewport (V); a Clump's centers show as dots",
+                "disable": "Disable: pass the input straight through (B)"}
+        over = next((k for k, r in self.toggle_rects().items() if r.contains(event.pos())), None)
+        self.setToolTip(tips[over] if over else (self.editor.node_errors.get(self.name)
+                                                 or self.editor.node_warnings.get(self.name)
+                                                 or self.editor.note_of(self.name) or self.op_type))
+
+    def hoverEnterEvent(self, event):
+        self.hovered = True
+        self.update()
+
+    def hoverLeaveEvent(self, event):
+        self.hovered = False
+        self.update()
+
+    def itemChange(self, change, value):
+        if change == QtWidgets.QGraphicsItem.ItemPositionHasChanged:
+            for edge in self.edges:
+                edge.update_path()
+            self.editor.node_moved(self.name, self.pos())
+        return super(NodeItem, self).itemChange(change, value)
+
+    def contextMenuEvent(self, event):
+        # Every action rebuilds the scene (this item included): each runs after the menu's event.
+        editor, name = self.editor, self.name
+        menu = QtWidgets.QMenu()
+        menu.addAction("Set as Output", lambda: later(lambda: editor.set_output(name)))
+        if self.viewable():
+            view = menu.addAction("Focus: View Up to Here  (V)")
+            view.setCheckable(True)
+            view.setChecked(editor.viewed == name)
+            view.toggled.connect(lambda on: later(lambda: editor.view_node(name if on else None)))
+        bypass = menu.addAction("Disable  (B)")
+        bypass.setCheckable(True)
+        bypass.setChecked(editor.model.bypassed(name))
+        bypass.toggled.connect(lambda on: later(lambda: editor.set_bypass([name], on)))
+        # When it runs (Yeti's per-node evaluation): renders and exports skip a viewport-only node,
+        # the viewport a render-only one.
+        evaluation = QtWidgets.QMenu("Evaluate", menu)  # owned by the menu, not by Python
+        menu.addMenu(evaluation)
+        current = editor.model.evaluation(name)
+        for mode, label, tip in EVALUATION_CHOICES:
+            action = evaluation.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(mode == current)
+            action.setToolTip(tip)
+            action.triggered.connect(lambda on=True, m=mode: later(lambda: editor.set_evaluation([name], m)))
+        menu.addAction("Rename...", lambda: later(lambda: editor.rename_node(name)))
+        menu.addAction("Duplicate  (Ctrl+D)", lambda: later(lambda: editor.duplicate([name])))
+        if self.op_type == "Sculpt":
+            # What brushes shape: this node's guides (selecting it picks it too), or the base groom.
+            target = menu.addAction("Brush This Node's Guides")
+            target.setCheckable(True)
+            target.setChecked(editor.sculpt_target() == name)
+            target.setToolTip("Brushes shape the guides this node hands on; each stroke is kept in the node and "
+                              "follows the guides when what feeds it changes (off: the base groom)")
+            target.toggled.connect(lambda on: later(lambda: editor.target_sculpt(name if on else None)))
+            clear = menu.addAction("Clear Sculpt Edits", lambda: later(lambda: editor.clear_sculpt_edits(name)))
+            clear.setToolTip("Drop every stroke kept in this node: its guides as it is fed them (one undo step)")
+        if self.output.port_type in ("Strands", "Guides") and self.op_type != "Output":
+            bake = menu.addAction("Bake to Guides...", lambda: later(lambda: editor.bake_to_guides(name)))
+            bake.setToolTip("This node's strands (or guides) as they are now become guides you can brush "
+                            "(GroomLab > Utilities > Bake Node to Guides)")
+        mappable = [p["name"] for p in editor.model.node_spec(name)["params"] if gm.linkable(p)]
+        if mappable:
+            expose = QtWidgets.QMenu("Expose Param as Input", menu)  # owned by the menu, not by Python
+            menu.addMenu(expose)
+            exposed = editor.model.param_inputs(name)
+            for param in mappable:
+                action = expose.addAction(param)
+                action.setCheckable(True)
+                action.setChecked(param in exposed)
+                action.toggled.connect(lambda on, p=param: later(lambda: editor.set_param_exposed(name, p, on)))
+        menu.addSeparator()
+        if self.op_type == "Compound":
+            menu.addAction("Ungroup Compound  (Ctrl+Shift+G)", lambda: later(lambda: editor.expand([name]))).setToolTip(
+                "Put this compound's nodes back in the graph, to see and edit them (Ctrl+Z groups them again)")
+        menu.addAction("Group Selection into Compound  (Ctrl+G)", lambda: later(editor.collapse_selected)).setToolTip(
+            "Collapse the selected nodes into one Compound node")
+        menu.addAction("Add Backdrop Around Selection", lambda: later(editor.add_backdrop))
+        menu.addAction("Delete", lambda: later(lambda: editor.delete_nodes([name])))
+        qt.exec_(menu, event.screenPos())
+
+
+def suggest_box(value, options, set_value, placeholder=""):
+    """A text field with a dropdown of what exists: pick one or type another name."""
+    box = QtWidgets.QComboBox()
+    box.setEditable(True)
+    box.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+    # As wide as the panel gives it (names are read, not guessed from a few letters).
+    box.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+    box.setMinimumContentsLength(12)
+    box.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+    for option in options:
+        box.addItem(option)
+    box.lineEdit().setPlaceholderText(placeholder)
+    box.setCurrentText(str(value))
+    box.activated.connect(lambda i: set_value(box.itemText(i)))
+    box.lineEdit().editingFinished.connect(lambda: set_value(box.currentText().strip()))
+    return box
+
+
+def names_editor(value, options, set_value, placeholder="", pick_tip="Pick", details=None):
+    """A list of names (space separated) typed or picked: the "+" menu checks names on and off."""
+    w = QtWidgets.QWidget()
+    row = QtWidgets.QHBoxLayout(w)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(4)
+    line = QtWidgets.QLineEdit(str(value))
+    line.setPlaceholderText(placeholder)
+    line.editingFinished.connect(lambda: set_value(" ".join(line.text().replace(",", " ").split())))
+    pick = QtWidgets.QToolButton()
+    pick.setText("+")
+    pick.setToolTip(pick_tip)
+    pick.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+    menu = QtWidgets.QMenu(pick)
+    current = str(value).replace(",", " ").split()
+    for option in options:
+        action = menu.addAction(option)
+        action.setCheckable(True)
+        action.setChecked(option in current)
+        if details and option in details:
+            action.setToolTip(details[option])
+
+        def toggle(on, n=option):
+            names = [x for x in line.text().replace(",", " ").split() if x != n]
+            if on:
+                names.append(n)
+            line.setText(" ".join(names))
+            set_value(" ".join(names))
+        action.toggled.connect(toggle)
+    if not options:
+        menu.addAction("(none yet)").setEnabled(False)
+    pick.setMenu(menu)
+    row.addWidget(line, 1)
+    row.addWidget(pick)
+    w.line, w.menu = line, menu
+    return w
+
+
+class MeshCombo(QtWidgets.QComboBox):
+    """A menu of scene meshes, listed again each time it opens (the scene changes under it):
+    `choices()` gives [(label, mesh shape)]; `current` (a mesh shape, or None: "none") is shown."""
+
+    def __init__(self, choices, current, parent=None):
+        super(MeshCombo, self).__init__(parent)
+        self.choices, self.current = choices, current
+        self.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumContentsLength(8)
+        self.fill()
+
+    def fill(self):
+        self.blockSignals(True)
+        try:
+            self.clear()
+            choices = self.choices()
+            if self.current is None or not any(mesh == self.current for _, mesh in choices):
+                self.addItem("none" if self.current is None else self.current.split("|")[-1], self.current)
+            for label, mesh in choices:
+                self.addItem(label, mesh)
+            index = self.findData(self.current)
+            self.setCurrentIndex(max(index, 0))
+        finally:
+            self.blockSignals(False)
+
+    def showPopup(self):
+        self.fill()
+        super(MeshCombo, self).showPopup()
+
+
+def later(fn):
+    """Run fn once the current event is over. Anything that rebuilds the scene
+    (deleting the node, its ports and links) must not run inside an event of
+    one of those items: Qt still uses the item after the handler returns."""
+    def run(*_):
+        try:
+            fn()
+        except RuntimeError:  # the editor went away meanwhile
+            pass
+    QtCore.QTimer.singleShot(0, run)
+
+
+class EdgeItem(QtWidgets.QGraphicsPathItem):
+    """A link, drawn from the output port it reads (`output`: a name; None: the node's first)."""
+
+    def __init__(self, src_item, dst_item, input_name, output=None):
+        super(EdgeItem, self).__init__()
+        self.src_item, self.dst_item, self.input_name = src_item, dst_item, input_name
+        self.src_port = src_item.outputs.get(output) if output else src_item.output
+        if self.src_port is None:  # an output the node no longer has: drawn from its first
+            self.src_port = src_item.output
+        self.output = self.src_port.name
+        self.color = TYPE_COLORS.get(self.src_port.port_type, QtGui.QColor(200, 200, 200))
+        self.setZValue(-1)
+        self.setFlag(QtWidgets.QGraphicsItem.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
+        self.hovered = False
+        src_item.edges.append(self)
+        dst_item.edges.append(self)
+        self.update_path()
+
+    def update_path(self):
+        self.setPath(bezier(self.src_port.scene_center(), self.dst_item.inputs[self.input_name].scene_center()))
+
+    def shape(self):
+        stroker = QtGui.QPainterPathStroker()
+        stroker.setWidth(12)  # easy to click
+        return stroker.createStroke(self.path())
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        color = SELECTED if self.isSelected() else (self.color.lighter(125) if self.hovered else self.color)
+        width = 3.0 if self.isSelected() or self.hovered else 2.2
+        if self.dst_item.inputs[self.input_name].is_param:
+            pen = QtGui.QPen(color, width, QtCore.Qt.DashLine)
+        else:
+            pen = QtGui.QPen(color, width)
+        pen.setCapStyle(QtCore.Qt.RoundCap)
+        painter.setPen(pen)
+        painter.drawPath(self.path())
+
+    def hoverEnterEvent(self, event):
+        self.hovered = True
+        self.update()
+
+    def hoverLeaveEvent(self, event):
+        self.hovered = False
+        self.update()
+
+
+def bezier(a, b):
+    path = QtGui.QPainterPath(a)
+    dx = max(abs(b.x() - a.x()) * 0.5, 50.0)
+    path.cubicTo(a + QtCore.QPointF(dx, 0), b - QtCore.QPointF(dx, 0), b)
+    return path
+
+
+class NodeSearch(QtWidgets.QFrame):
+    """Type to find a node type (name, category or description); Enter or click adds it."""
+
+    def __init__(self, editor, at):
+        super(NodeSearch, self).__init__(editor, QtCore.Qt.Popup)
+        self.editor, self.at = editor, at
+        self.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        self.field = QtWidgets.QLineEdit()
+        self.field.setPlaceholderText("Add node: type to search")
+        self.list = QtWidgets.QListWidget()
+        self.list.setMinimumSize(theme.px(260), theme.px(240))
+        layout.addWidget(self.field)
+        layout.addWidget(self.list)
+        self.entries = []
+        catalog = editor.catalog
+        for category, types in categories(catalog):
+            for op_type in types:
+                spec = catalog.spec(op_type) if catalog is not None else {}
+                words = " ".join([op_type, category, spec.get("description", "")] +
+                                 [p.get("description", "") for p in spec.get("params", [])])
+                self.entries.append((op_type, category, words.lower()))
+        self.field.textChanged.connect(self.fill)
+        self.field.returnPressed.connect(self.accept_first)
+        self.list.itemActivated.connect(lambda item: self.choose(item.data(QtCore.Qt.UserRole)))
+        self.list.itemClicked.connect(lambda item: self.choose(item.data(QtCore.Qt.UserRole)))
+        self.fill("")
+
+    def fill(self, text):
+        text = text.lower().strip()
+        self.list.clear()
+        scored = []
+        for op_type, category, words in self.entries:
+            name = op_type.lower()
+            if not text:
+                score = 2
+            elif name.startswith(text):
+                score = 0
+            elif text in name:
+                score = 1
+            elif all(part in words for part in text.split()):
+                score = 2
+            else:
+                continue
+            scored.append((score, op_type, category))
+        for _, op_type, category in sorted(scored):
+            item = QtWidgets.QListWidgetItem("%s    %s" % (op_type, category.lower()))
+            item.setData(QtCore.Qt.UserRole, op_type)
+            color = CATEGORY_COLORS.get(category)
+            if color is not None:
+                item.setForeground(color.lighter(120))
+            self.list.addItem(item)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+
+    def keyPressEvent(self, event):
+        if event.key() in (QtCore.Qt.Key_Down, QtCore.Qt.Key_Up):
+            row = self.list.currentRow() + (1 if event.key() == QtCore.Qt.Key_Down else -1)
+            self.list.setCurrentRow(max(0, min(self.list.count() - 1, row)))
+            return
+        super(NodeSearch, self).keyPressEvent(event)
+
+    def accept_first(self):
+        item = self.list.currentItem()
+        if item is not None:
+            self.choose(item.data(QtCore.Qt.UserRole))
+
+    def choose(self, op_type):
+        self.close()
+        self.editor.add_node(op_type, at=self.at)
+
+
+class BackdropItem(QtWidgets.QGraphicsItem):
+    """A labelled frame behind nodes: moving it moves the nodes inside; drag the corner to resize."""
+
+    GRIP = 14
+
+    def __init__(self, editor, data):
+        super(BackdropItem, self).__init__()
+        self.editor, self.data = editor, data
+        self.setZValue(-20)
+        self.setFlags(QtWidgets.QGraphicsItem.ItemIsMovable | QtWidgets.QGraphicsItem.ItemIsSelectable |
+                      QtWidgets.QGraphicsItem.ItemSendsGeometryChanges)
+        self.setPos(data["x"], data["y"])
+        self._carried = []
+        self._resizing = None
+
+    def rect(self):
+        return QtCore.QRectF(0, 0, self.data["w"], self.data["h"])
+
+    def boundingRect(self):
+        return self.rect().adjusted(-2, -2, 2, 2)
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        color = QtGui.QColor(*self.data.get("color", [70, 90, 120]))
+        fill = QtGui.QColor(color)
+        fill.setAlpha(45)
+        painter.setPen(QtGui.QPen(SELECTED if self.isSelected() else color, 1.5))
+        painter.setBrush(fill)
+        painter.drawRoundedRect(self.rect(), 10, 10)
+        header = QtGui.QColor(color)
+        header.setAlpha(120)
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(self.rect(), 10, 10)
+        painter.save()
+        painter.setClipPath(clip)
+        painter.fillRect(QtCore.QRectF(0, 0, self.data["w"], 28), header)
+        painter.restore()
+        font = QtGui.QFont(painter.font())
+        font.setPixelSize(14)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(TEXT)
+        painter.drawText(QtCore.QRectF(12, 0, self.data["w"] - 24, 28), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft,
+                         self.data.get("title", "Backdrop"))
+        painter.setPen(QtGui.QPen(color.lighter(130), 1.5))
+        r = self.rect()
+        for k in (4, 8, 12):
+            painter.drawLine(QtCore.QPointF(r.right() - k, r.bottom() - 2), QtCore.QPointF(r.right() - 2, r.bottom() - k))
+
+    def _in_grip(self, pos):
+        r = self.rect()
+        return pos.x() > r.right() - self.GRIP and pos.y() > r.bottom() - self.GRIP
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton and self._in_grip(event.pos()):
+            self._resizing = (event.scenePos(), self.data["w"], self.data["h"])
+            event.accept()
+            return
+        # Nodes inside move with it.
+        area = self.sceneBoundingRect()
+        self._carried = [(i, i.pos() - self.pos()) for i in self.editor.items.values()
+                         if area.contains(i.sceneBoundingRect().center())]
+        super(BackdropItem, self).mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._resizing:
+            start, w, h = self._resizing
+            d = event.scenePos() - start
+            self.prepareGeometryChange()
+            self.data["w"], self.data["h"] = max(120.0, w + d.x()), max(80.0, h + d.y())
+            self.update()
+            return
+        super(BackdropItem, self).mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._resizing = None
+        self._carried = []
+        super(BackdropItem, self).mouseReleaseEvent(event)
+        self.editor._layout_dirty = True
+        self.editor.commit_layout()
+
+    def itemChange(self, change, value):
+        if change == QtWidgets.QGraphicsItem.ItemPositionHasChanged:
+            self.data["x"], self.data["y"] = self.pos().x(), self.pos().y()
+            for item, offset in self._carried:
+                item.setPos(self.pos() + offset)
+            self.editor._layout_dirty = True
+        return super(BackdropItem, self).itemChange(change, value)
+
+    def mouseDoubleClickEvent(self, event):
+        title, ok = QtWidgets.QInputDialog.getText(None, "Backdrop", "Title:", text=self.data.get("title", ""))
+        if ok:
+            self.data["title"] = title
+            self.editor._layout_dirty = True
+            self.editor.commit_layout()
+            self.update()
+
+    def contextMenuEvent(self, event):
+        menu = QtWidgets.QMenu()
+        menu.addAction("Rename...", lambda: self.mouseDoubleClickEvent(None))
+        colors = QtWidgets.QMenu("Color", menu)
+        menu.addMenu(colors)
+        for label, rgb in (("Blue", [70, 90, 120]), ("Green", [70, 120, 80]), ("Purple", [110, 80, 130]),
+                           ("Amber", [140, 110, 50]), ("Gray", [90, 92, 98])):
+            colors.addAction(label, lambda c=rgb: self._recolor(c))
+        editor, data = self.editor, self.data
+        menu.addAction("Delete Backdrop", lambda: later(lambda: editor.remove_backdrop(data)))
+        qt.exec_(menu, event.screenPos())
+
+    def _recolor(self, rgb):
+        self.data["color"] = rgb
+        self.editor._layout_dirty = True
+        self.editor.commit_layout()
+        self.update()
+
+
+class GraphScene(QtWidgets.QGraphicsScene):
+    """Link dragging (with snapping and highlighted targets), deletion, a dot grid."""
+
+    def __init__(self, editor):
+        super(GraphScene, self).__init__()
+        self.editor = editor
+        self.setBackgroundBrush(CANVAS)
+        self._drag_port = None     # the output (or input) a new link is dragged from
+        self._drag_line = None
+        self._detach = None        # (node, input) whose existing link is being moved
+        self._grid = {}            # (zoom, dot color) -> QBrush: the dot tile at that zoom
+
+    GRID_STEP = 24
+
+    def grid_brush(self, zoom):
+        """A brush tiling one dot per GRID_STEP scene units, drawn at device resolution for
+        `zoom` (so the dots stay crisp); made once per zoom level."""
+        key = (round(zoom, 3), GRID_DOT.rgba())
+        brush = self._grid.get(key)
+        if brush is None:
+            size = max(1, int(round(self.GRID_STEP * zoom)))
+            tile = QtGui.QPixmap(size, size)
+            tile.fill(QtCore.Qt.transparent)
+            painter = QtGui.QPainter(tile)
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(GRID_DOT)
+            painter.drawEllipse(QtCore.QPointF(size / 2.0, size / 2.0), 0.9, 0.9)  # one dot, whole, per tile
+            painter.end()
+            brush = QtGui.QBrush(tile)
+            brush.setTransform(QtGui.QTransform.fromScale(self.GRID_STEP / float(size), self.GRID_STEP / float(size)))
+            if len(self._grid) > 32:
+                self._grid.clear()
+            self._grid[key] = brush
+        return brush
+
+    def drawBackground(self, painter, rect):
+        super(GraphScene, self).drawBackground(painter, rect)
+        zoom = painter.worldTransform().m11()
+        if self.GRID_STEP * zoom < 4:  # zoomed far out: the dots would merge into a haze
+            return
+        painter.save()
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.setBrushOrigin(QtCore.QPointF(0, 0))
+        painter.fillRect(rect, self.grid_brush(zoom))
+        painter.restore()
+
+    def ports(self):
+        return [i for i in self.items() if isinstance(i, PortItem)]
+
+    def port_at(self, pos):
+        for item in self.items(pos):
+            if isinstance(item, PortItem):
+                return item
+        return None
+
+    def compatible(self, start, port):
+        if port.node_item is start.node_item or port.is_output == start.is_output:
+            return False
+        out, inp = (start, port) if start.is_output else (port, start)
+        return gm.types_match(out.port_type, inp.port_type)
+
+    def _begin(self, port, scene_pos):
+        self._drag_port = port
+        pen = QtGui.QPen(TYPE_COLORS.get(port.port_type, QtGui.QColor(230, 230, 230)), 2.2, QtCore.Qt.DashLine)
+        self._drag_line = self.addPath(QtGui.QPainterPath(), pen)
+        self._drag_line.setZValue(10)
+        for p in self.ports():
+            p.highlight = self.compatible(port, p)
+            p.update()
+        self._update_line(scene_pos)
+
+    def _update_line(self, pos):
+        a = self._drag_port.scene_center()
+        target = self._snap(pos)
+        b = target.scene_center() if target is not None else pos
+        self._drag_line.setPath(bezier(a, b) if self._drag_port.is_output else bezier(b, a))
+
+    def _snap(self, pos):
+        """The compatible port under the cursor, else the nearest one within SNAP."""
+        under = self.port_at(pos)
+        if under is not None and under.highlight:
+            return under
+        best, best_d = None, SNAP
+        for p in self.ports():
+            if not p.highlight:
+                continue
+            d = QtCore.QLineF(p.scene_center(), pos).length()
+            if d < best_d:
+                best, best_d = p, d
+        return best
+
+    def _end(self):
+        try:
+            for p in self.ports():
+                p.highlight = False
+                p.update()
+            if self._drag_line is not None:
+                self.removeItem(self._drag_line)
+        except RuntimeError:  # the scene was rebuilt under the drag
+            pass
+        finally:
+            self._drag_port = self._drag_line = None
+
+    def cancel_drag(self):
+        """Drop a link drag in progress (before a rebuild, or when a popup takes the mouse)."""
+        if self._drag_port is not None or self._drag_line is not None:
+            self._end()
+
+    def mousePressEvent(self, event):
+        port = self.port_at(event.scenePos())
+        if port is not None and event.button() == QtCore.Qt.LeftButton:
+            event.accept()  # else the view also starts a rubber-band selection
+            model = self.editor.model
+            source = None if port.is_output else model.source_of(port.node_item.name, port.name)
+            if source is not None and source in self.editor.items:
+                # Dragging a linked input picks the link up, from its source's output it reads.
+                self._detach = (port.node_item.name, port.name)
+                item = self.editor.items[source]
+                self._begin(item.outputs.get(model.output_of(port.node_item.name, port.name), item.output),
+                            event.scenePos())
+            else:
+                self._detach = None
+                self._begin(port, event.scenePos())
+            return
+        super(GraphScene, self).mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_port is not None:
+            self._update_line(event.scenePos())
+            event.accept()
+            return
+        super(GraphScene, self).mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._drag_port is not None:
+            start, end, detach = self._drag_port, self._snap(event.scenePos()), self._detach
+            self._end()
+            self._detach = None
+            event.accept()
+            if end is not None:
+                out, inp = (start, end) if start.is_output else (end, start)
+                self.editor.link(out.node_item.name, inp.node_item.name, inp.name, detach=detach, output=out.name)
+            elif detach:
+                self.editor.unlink(*detach)  # a picked-up link dropped on nothing: removed
+            elif not start.is_output:
+                self.editor.unlink(start.node_item.name, start.name)
+            return
+        super(GraphScene, self).mouseReleaseEvent(event)
+        self.editor.commit_layout()
+
+    def keyPressEvent(self, event):
+        ctrl = bool(event.modifiers() & QtCore.Qt.ControlModifier)
+        key = event.key()
+        selected = [i.name for i in self.selectedItems() if isinstance(i, NodeItem)]
+        if undo_key(event):  # reached when the editor's shortcut did not take the key first
+            self.editor.undo()
+        elif redo_key(event):
+            self.editor.redo()
+        elif key in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
+            self.editor.delete_selected()
+        elif ctrl and key == QtCore.Qt.Key_C:
+            self.editor.copy_selected()
+        elif ctrl and key == QtCore.Qt.Key_V:
+            self.editor.paste()
+        elif ctrl and key == QtCore.Qt.Key_D:
+            self.editor.duplicate(selected)
+        elif ctrl and key == QtCore.Qt.Key_G and event.modifiers() & QtCore.Qt.ShiftModifier:
+            self.editor.expand_selected()
+        elif ctrl and key == QtCore.Qt.Key_G:
+            self.editor.collapse_selected()
+        elif key == QtCore.Qt.Key_V and len(selected) == 1:
+            self.editor.view_node(None if self.editor.viewed == selected[0] else selected[0])
+        elif key == QtCore.Qt.Key_B and selected:
+            self.editor.set_bypass(selected, not all(self.editor.model.bypassed(n) for n in selected))
+        else:
+            super(GraphScene, self).keyPressEvent(event)
+            return
+        event.accept()
+
+    def contextMenuEvent(self, event):
+        if any(isinstance(i, (NodeItem, PortItem, BackdropItem)) for i in self.items(event.scenePos())):
+            super(GraphScene, self).contextMenuEvent(event)  # the item's own menu
+            return
+        event.accept()
+        self.editor.show_search(event.scenePos(), event.screenPos())
+
+
+class GraphView(QtWidgets.QGraphicsView):
+    """Wheel zoom, middle-drag (or Alt+drag) pan anywhere, F frames the selection
+    (or everything), A frames everything."""
+
+    # The canvas: far past any graph, so panning and zooming aren't held to the nodes.
+    CANVAS = 100000.0
+
+    def __init__(self, scene):
+        super(GraphView, self).__init__(scene)
+        scene.setSceneRect(-self.CANVAS, -self.CANVAS, 2 * self.CANVAS, 2 * self.CANVAS)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.setRenderHint(QtGui.QPainter.Antialiasing)
+        self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
+        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)  # a click gives it the keys (Delete, Ctrl+Z...)
+        self._pan = None
+        self.auto_frame = True  # keep the graph framed on resize until the user zooms or pans
+        self.setTransform(QtGui.QTransform.fromScale(theme.scale(), theme.scale()))  # 1:1 at Maya's UI scale
+
+    def wheelEvent(self, event):
+        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        zoom = self.transform().m11() * factor
+        if 0.05 * theme.scale() <= zoom <= 4.0 * theme.scale():
+            self.scale(factor, factor)
+        self.auto_frame = False
+
+    def resizeEvent(self, event):
+        super(GraphView, self).resizeEvent(event)
+        if self.auto_frame:
+            self.frame_readable()
+
+    def frame(self):
+        """Fit the selected nodes in the view, or the whole graph when none are selected."""
+        selected = [i for i in self.scene().selectedItems() if isinstance(i, NodeItem)]
+        if not selected:
+            self.frame_all()
+            return
+        rect = QtCore.QRectF()
+        for item in selected:
+            rect = rect.united(item.sceneBoundingRect())
+        self.frame_rect(rect)
+
+    def frame_all(self):
+        """Fit the graph in the view, never zooming in past 1:1 (at Maya's interface scale)."""
+        self.frame_rect(self.scene().itemsBoundingRect())
+
+    # The least zoom a graph opens at (x Maya's interface scale): node names stay readable.
+    READABLE = 0.5
+
+    def frame_readable(self):
+        """The whole graph when it fits at a readable size; else a readable zoom on its output
+        end, where look nodes go (A fits everything, pan for the rest)."""
+        rect = self.scene().itemsBoundingRect()
+        if rect.isEmpty():
+            return
+        self.frame_rect(rect)
+        least = self.READABLE * theme.scale()
+        if self.transform().m11() >= least:
+            return
+        self.setTransform(QtGui.QTransform.fromScale(least, least))
+        editor = self.scene().editor
+
+        def node_of(op_type):
+            return next((item.sceneBoundingRect() for name, item in editor.items.items()
+                         if editor.model is not None and editor.model.node_type(name) == op_type), None)
+        output = node_of("Output") or rect
+        start = node_of("Interpolate")
+        width = self.viewport().width() / least
+        if start is not None and output.right() - start.left() + 80 <= width:
+            x = (start.left() + output.right()) / 2  # Interpolate to Output: where look nodes go
+        else:
+            x = output.right() + 40 - width / 2  # the output node near the right edge
+        self.centerOn(QtCore.QPointF(x, rect.center().y()))
+
+    def frame_rect(self, rect):
+        rect = rect.adjusted(-40, -40, 40, 40)
+        if rect.isEmpty():
+            return
+        self.fitInView(rect, QtCore.Qt.KeepAspectRatio)
+        if self.transform().m11() > theme.scale():
+            self.setTransform(QtGui.QTransform.fromScale(theme.scale(), theme.scale()))
+            self.centerOn(rect.center())
+
+    def keyPressEvent(self, event):
+        if event.key() == QtCore.Qt.Key_F:
+            self.frame()
+            return
+        if event.key() == QtCore.Qt.Key_A and not event.modifiers():
+            self.frame_all()
+            return
+        if event.key() == QtCore.Qt.Key_Tab:
+            cursor = self.mapFromGlobal(QtGui.QCursor.pos())
+            self.scene().editor.show_search(self.mapToScene(cursor), QtGui.QCursor.pos())
+            return
+        super(GraphView, self).keyPressEvent(event)
+
+    def focusNextPrevChild(self, forward):
+        return False  # Tab opens the add menu instead of moving focus
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.MiddleButton or (
+                event.button() == QtCore.Qt.LeftButton and event.modifiers() & QtCore.Qt.AltModifier):
+            self._pan = qt.event_pos(event)
+            self.setCursor(QtCore.Qt.ClosedHandCursor)
+            return
+        super(GraphView, self).mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._pan is not None:
+            delta = qt.event_pos(event) - self._pan
+            self.auto_frame = False
+            self._pan = qt.event_pos(event)
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            return
+        super(GraphView, self).mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._pan is not None and event.button() in (QtCore.Qt.MiddleButton, QtCore.Qt.LeftButton):
+            self._pan = None
+            self.unsetCursor()
+            return
+        super(GraphView, self).mouseReleaseEvent(event)
+
+
+# ---------------------------------------------------------------------------
+# Parameter panel
+
+
+class ParamPanel(QtWidgets.QScrollArea):
+    """Widgets for the selected node's parameters, generated from its spec."""
+
+    def __init__(self, editor):
+        super(ParamPanel, self).__init__()
+        self.editor = editor
+        self.setWidgetResizable(True)
+        self.setMinimumWidth(theme.px(300))
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)  # the params fit the panel's width
+        self.show_node(None)
+
+    # Folded sections by (operator type, section) for the session: a section folded on one Clump
+    # is folded on every Clump shown after. Unset: Advanced folded, the groups open.
+    folded = {}
+
+    def show_node(self, name):
+        self.node = name
+        self.key_widgets = {}  # param -> its number field(s): keyed params show their state and value per frame
+        self.sections = []  # [(section, its header or None, [(spec, row)])]: update_visibility's
+        self.row_labels = []
+        self.built_units = {}  # param -> the unit its row shows, for a param whose unit depends on another
+        body = QtWidgets.QWidget()
+        form = QtWidgets.QFormLayout(body)
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        form.setRowWrapPolicy(QtWidgets.QFormLayout.DontWrapRows)
+        form.setVerticalSpacing(theme.px(8))
+        form.setContentsMargins(theme.px(10), theme.px(4), theme.px(10), theme.px(10))
+        if name is None:
+            empty = QtWidgets.QLabel("Select a node to edit it.\n\nTab or right-click the canvas to add one; "
+                                     "drag from a port to wire it.")
+            empty.setWordWrap(True)
+            empty.setProperty("role", "about")
+            form.addRow(empty)
+        else:
+            model = self.editor.model
+            op_type = model.node_type(name)
+            form.addRow(self.header(name, op_type))
+            note = self.editor.note_of(name)
+            if note:  # the node does nothing as set (a Clump with no centers): a grey line, not an error
+                line = QtWidgets.QLabel(u"ⓘ " + note)
+                line.setObjectName("nodeNote")
+                line.setWordWrap(True)
+                line.setStyleSheet("color: rgb(150, 154, 160);")
+                form.addRow(line)
+            self.expression = None
+            if op_type == "Expression":  # a code block, its variables and the library, not text fields
+                from groomlab.ui import expression_editor
+                self.expression = expression_editor.ExpressionPanel(
+                    self.editor, name, lambda p, v, n=name: self.set_expression_param(n, p, v))
+                form.addRow(self.expression)
+            scene = self.scene_inputs(op_type)
+            if scene:
+                form.addRow(scene)
+            rows = []  # (spec, label, widget), laid out by section below
+            for spec in model.node_spec(name)["params"]:
+                if op_type == "Compound" and spec["name"] == "definition":
+                    continue  # edited by grouping and expose(), not as text
+                if op_type == "Expression" and spec["name"] in ("expression", "variables"):
+                    continue  # in the expression panel above
+                if (op_type, spec["name"]) in PLUMBING and model.param(name, spec["name"]) == spec["default"]:
+                    continue  # names of the host's inputs: only shown once changed
+                driver = model.driver_of(name, spec["name"])
+                if driver and len(model.output_names(driver)) > 1:  # which output: "mask.r"
+                    driver = "%s.%s" % (driver, model.output_of(name, spec["name"]))
+                if driver and (spec.get("mappable") or spec.get("colorField")):
+                    # Driven by a field node: the param's own value multiplies the field (a 0-1
+                    # mask on a density of 100 gives 0-100), so it stays editable, with the driver named.
+                    widget = QtWidgets.QWidget()
+                    row = QtWidgets.QHBoxLayout(widget)
+                    row.setContentsMargins(0, 0, 0, 0)
+                    row.addWidget(self.editor_for(name, spec), 1)
+                    times = QtWidgets.QLabel('<span style="color:#d67ad6">× <b>%s</b></span>' % driver)
+                    times.setToolTip("Multiplied by the field node %s: this value where the field is 1, 0 where it "
+                                     "is 0" % driver)
+                    row.addWidget(times)
+                elif driver:
+                    # A ramp driven by a Curve node: its shape comes from there.
+                    widget = QtWidgets.QLabel('<span style="color:#d67ad6">← driven by <b>%s</b></span>' % driver)
+                elif op_type == "Scatter" and spec["name"] == "length" and guides_shape(model, name):
+                    # Interpolate gives the strands the guides' shapes and lengths: say so beside it,
+                    # or it reads as a second length control beside the Length node's.
+                    widget = QtWidgets.QWidget()
+                    row = QtWidgets.QHBoxLayout(widget)
+                    row.setContentsMargins(0, 0, 0, 0)
+                    row.addWidget(self.editor_for(name, spec), 1)
+                    unused = QtWidgets.QLabel('<span style="color:#969aa0">guides set it</span>')
+                    unused.setToolTip(SCATTER_LENGTH_TIP)
+                    row.addWidget(unused)
+                else:
+                    widget = self.editor_for(name, spec)
+                label = QtWidgets.QLabel(pretty(spec["name"]) + (" ◆" if spec["name"] in model.param_inputs(name) else ""))
+                tip = "%s: %s" % (spec["name"], spec["description"])
+                if spec.get("channel") in ATTRIBUTE_TIPS:
+                    tip = ATTRIBUTE_TIPS[spec["channel"]] + "\n" + tip
+                if spec.get("colorField"):
+                    tip += "\nRight-click: expose as an input, so a Map node's rgb output colors it per strand."
+                elif gm.linkable(spec):
+                    tip += "\nRight-click: expose as an input, so a field node (Field, FieldNoise, ...) can drive it."
+                if spec.get("kind") in KEYABLE_KINDS:
+                    why = model.keyable(name, spec["name"])
+                    tip += ("\nRight-click > Set Key, or S over it: key it (red: a key on this frame, pink: animated, "
+                            "yellow: driven)" if why is None else "\nNot keyable: " + why)
+                label.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+                label.customContextMenuRequested.connect(
+                    lambda pos, p=spec["name"], l=label: self.param_menu(name, p, l.mapToGlobal(pos)))
+                for w in (label, widget):
+                    w.setProperty("glParam", spec["name"])  # S over it keys this param
+                label.setToolTip(tip)
+                widget.setToolTip(tip)
+                rows.append((spec, label, widget))
+            self.add_sections(form, op_type, rows)
+            if not model.node_spec(name)["params"]:
+                form.addRow(QtWidgets.QLabel("No parameters."))
+            actions = self.node_actions(name)
+            if actions:
+                form.addRow(actions)
+        # The old panel may hold the button or menu whose click got us here:
+        # it is deleted once that event is over, not now.
+        old = self.takeWidget()
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        self.setWidget(body)
+        self.editor.watch_text_edits(body)
+        self.align_labels()
+        self.update_visibility()
+        self.refresh_keys()
+
+    def align_labels(self):
+        """The param labels in one column: each as wide as the widest, styled as the panel styles them."""
+        labels = [l for l in getattr(self, "row_labels", []) if widgets.alive(l)]
+        for label in labels:
+            label.ensurePolished()
+        width = max([l.sizeHint().width() for l in labels] or [0])
+        for label in labels:
+            label.setMinimumWidth(width)
+
+    def add_sections(self, form, op_type, rows):
+        """The param rows by section (param_sections): the main params, each group under a header
+        that folds it, Advanced (folded unless unfolded this session) last.
+
+        The rows are a column of their own (a label right-aligned in one width, its field beside it),
+        not form rows: a hidden row then takes no room at all (a form keeps its spacing)."""
+        if not rows:
+            return
+        box = QtWidgets.QWidget()
+        column = QtWidgets.QVBoxLayout(box)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(form.verticalSpacing())
+        form.addRow(box)
+        self.row_labels = [label for _, label, _ in rows]  # one width once styled (align_labels)
+        specs = [spec for spec, _, _ in rows]
+        by_name = {spec["name"]: (spec, label, widget) for spec, label, widget in rows}
+        for section, members in param_sections(specs):
+            header = None
+            if section:
+                header = QtWidgets.QPushButton()
+                header.setObjectName("paramSection_" + section)
+                header.setCheckable(True)
+                header.setFlat(True)
+                header.setProperty("role", "section")
+                header.setChecked(not self.is_folded(op_type, section))
+                self._title_section(header, section)
+                header.toggled.connect(lambda on, s=section, h=header, t=op_type: self.fold(t, s, not on, h))
+                column.addWidget(header)
+            entries = []
+            for spec in members:
+                _, label, widget = by_name[spec["name"]]
+                row = QtWidgets.QWidget()
+                line = QtWidgets.QHBoxLayout(row)
+                line.setContentsMargins(0, 0, 0, 0)
+                line.setSpacing(theme.px(6))
+                label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+                label.setMinimumHeight(min(widget.sizeHint().height(), theme.px(26)))
+                line.addWidget(label, 0, QtCore.Qt.AlignTop)
+                line.addWidget(widget, 1)
+                column.addWidget(row)
+                entries.append((spec, row))
+            self.sections.append((section, header, entries))
+
+    @staticmethod
+    def _title_section(header, section):
+        header.setText(("▾  " if header.isChecked() else "▸  ") + section.upper().replace("&", "&&"))
+
+    def is_folded(self, op_type, section):
+        return ParamPanel.folded.get((op_type, section), section == ADVANCED)
+
+    def fold(self, op_type, section, folded, header=None):
+        """Fold (or open) a section of every node of this type, for the session."""
+        ParamPanel.folded[(op_type, section)] = folded
+        if header is not None and widgets.alive(header):
+            self._title_section(header, section)
+        self.update_visibility()
+
+    def update_visibility(self):
+        """Show the rows whose showWhen holds (in an open section), and the headers of sections with
+        a row shown: after the panel is built and after each edit (a mode switched), no rebuild."""
+        model, node = self.editor.model, self.node
+        if node is None or model is None or node not in model.nodes or not getattr(self, "sections", None):
+            return
+        op_type = model.node_type(node)
+
+        def value_of(param):
+            try:
+                return model.param(node, param)
+            except gm.GraphError:
+                return None
+
+        specs = {spec["name"]: spec for spec in model.node_spec(node)["params"]}  # what a showWhen names
+        # A param whose unit follows another (Noise's frequency by its space): built anew when it changed.
+        for section, header, entries in self.sections:
+            for spec, row in entries:
+                if spec.get("unitWhen") and self.built_units.get(spec["name"]) != unit_of(spec, value_of):
+                    QtCore.QTimer.singleShot(0, lambda n=node: self.node == n and self.show_node(n))
+                    return
+        for section, header, entries in self.sections:
+            open_ = not section or not self.is_folded(op_type, section)
+            any_shown = False
+            for spec, row in entries:
+                shown = shown_when(spec, value_of, specs.get)
+                any_shown = any_shown or shown
+                if widgets.alive(row):
+                    row.setVisible(shown and open_)
+            if header is not None and widgets.alive(header):
+                header.setVisible(any_shown)
+
+    def header(self, name, op_type):
+        """The node's name, its type in its category's color, and what it does."""
+        box = QtWidgets.QWidget()
+        column = QtWidgets.QVBoxLayout(box)
+        column.setContentsMargins(0, 0, 0, theme.px(6))
+        column.setSpacing(theme.px(4))
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(theme.px(8))
+        title = QtWidgets.QLabel(name)
+        title.setProperty("role", "title")
+        title.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        row.addWidget(title)
+        color = CATEGORY_COLORS.get(category_of(op_type, self.editor.catalog), MUTED)
+        pill = QtWidgets.QLabel(op_type)
+        pill.setStyleSheet("QLabel { background: %s; color: %s; border-radius: %dpx; padding: %dpx %dpx; "
+                           "font-weight: bold; }" % (color.name(), readable_on(color).name(), theme.px(8),
+                                                     theme.px(2), theme.px(8)))
+        row.addWidget(pill)
+        row.addStretch(1)
+        saved, newest = self.editor.model.node_version(name)
+        if saved < newest:  # saved with an older behaviour of its operator: offer the newest
+            upgrade = QtWidgets.QToolButton()
+            upgrade.setObjectName("upgradeNode")
+            upgrade.setText("Upgrade")
+            upgrade.setProperty("role", "chip")
+            upgrade.setToolTip(
+                "This %s keeps the behaviour of version %d, as it was saved; %s nodes are at version %d now.\n"
+                "Upgrade: it evaluates as new %s nodes do (its result may change). One undo step."
+                % (op_type, saved, op_type, newest, op_type))
+            upgrade.clicked.connect(lambda _=False, n=name: self.editor.upgrade_node(n))
+            row.addWidget(upgrade)
+        column.addLayout(row)
+        about = describe(op_type, self.editor.catalog)
+        if about:
+            text = QtWidgets.QLabel(about)
+            text.setWordWrap(True)
+            text.setProperty("role", "about")
+            column.addWidget(text)
+        # Its own height, never squeezed when the params below overflow the panel.
+        box.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        return box
+
+    def set_expression_param(self, node, param, value):
+        """An edit from the expression panel: into the graph, then the node's error (if any) under the code."""
+        self.editor.set_param(node, param, value)
+        panel = getattr(self, "expression", None)
+        if panel is not None and widgets.alive(panel):
+            panel.show_error()
+
+    # -- What a source node reads from the scene ---------------------------------
+
+    def scene_inputs(self, op_type):
+        """For Scalp, ColliderMesh and Guides nodes: the mesh or guides they read in the scene, and
+        a mesh field (mesh_field) or buttons to change them."""
+        import groomlab
+        from maya import cmds
+        groom = self.editor.groom
+        if op_type not in ("Scalp", "Guides", "ColliderMesh") or not groom or not cmds.objExists(groom):
+            return None
+        model, node = self.editor.model, self.node
+        other_scalp = None  # a Scalp node reading another of the groom's scalps: its name
+        if op_type == "Scalp" and model.param(node, "input") != "scalp":
+            other_scalp = model.param(node, "input")
+            if not groomlab.valid_scalp_name(other_scalp):
+                return None  # another of the host's inputs: no Maya connection to show
+        self.mesh_combo = self.mesh_pick = None
+        box = QtWidgets.QFrame()
+        t = theme.current()
+        box.setStyleSheet("QFrame { background: %s; border-radius: %dpx; }"
+                          % (t.color("ui.panel"), int(t.get("ui.radius", 8))))
+        grid = QtWidgets.QGridLayout(box)
+        grid.setContentsMargins(6, 6, 6, 6)
+        s = groomlab.inputs_summary(groom)
+
+        def line(row, label, value, buttons):
+            grid.addWidget(QtWidgets.QLabel(label), row, 0)
+            text = QtWidgets.QLabel("<b>%s</b>" % value)
+            text.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            grid.addWidget(text, row, 1)
+            for i, (caption, slot, tip) in enumerate(buttons):
+                b = QtWidgets.QPushButton(caption)
+                b.setToolTip(tip)
+                b.clicked.connect(lambda _=False, f=slot: f())  # not clicked's `checked` as an argument
+                grid.addWidget(b, row, 2 + i)
+
+        top = 0  # the mesh row's
+        if op_type == "Scalp" and (other_scalp or s.get("scalps")):
+            # Several scalps on the groom: which one the node reads (its `input`).
+            grid.addWidget(QtWidgets.QLabel("Scalp"), 0, 0)
+            grid.addWidget(self.scalp_choice(model.param(node, "input"), [o["name"] for o in s.get("scalps", [])]),
+                           0, 1, 1, 3)
+            top = 1
+        if op_type == "ColliderMesh":
+            name = model.param(node, "name")
+            current = next((c["mesh"] for c in s["colliders"] if c["name"] == name), None)
+            grid.addWidget(QtWidgets.QLabel("Mesh"), 0, 0)
+            grid.addWidget(self.mesh_field("collider", current, name), 0, 1, 1, 3)
+        elif other_scalp:
+            # Another scalp of the groom (extraScalps): the mesh under its name, or none yet.
+            current = next((o["mesh"] for o in s.get("scalps", []) if o["name"] == other_scalp), None)
+            grid.addWidget(QtWidgets.QLabel("Mesh"), top, 0)
+            grid.addWidget(self.mesh_field("extraScalp", current, other_scalp), top, 1, 1, 3)
+        elif op_type == "Scalp":
+            short = lambda n: n.split("|")[-1] if n else "none"
+            grid.addWidget(QtWidgets.QLabel("Mesh"), top, 0)
+            grid.addWidget(self.mesh_field("scalp", s["scalp"]), top, 1, 1, 3)
+            # A rest pose only matters for a scalp that moves (skinned, blend shapes, a cache):
+            # strands are placed on it so the same strands stay put while the scalp deforms.
+            # Grooms on deformed scalps get one on their own; the row shows when it applies.
+            moving = bool(s["scalp"]) and bool(cmds.ls(cmds.listHistory(s["scalp"]) or [],
+                                                        type=("geometryFilter", "AlembicNode", "cacheFile")))
+            if moving or s["rest"]:
+                orig = s["scalp"] and groomlab._original_shape(s["scalp"])
+                value = "auto (the undeformed scalp)" if s["rest"] and s["rest"] == orig else short(s["rest"])
+                line(top + 1, "Rest pose", value, [
+                    ("Set", lambda: self._scene_run(groomlab.set_rest_mesh, groom),
+                     "The scalp before it deforms: strands are placed on it, so the same strands stay put "
+                     "while the scalp moves. Without deformers (an Alembic cache, say): a copy at this frame"),
+                    ("Clear", lambda: self._scene_run(groomlab.clear_rest_mesh, groom),
+                     "No rest pose: strands are placed on the scalp as it is on each frame")])
+        else:
+            text = groomlab.guides_text(s) if s["groups"] else "no guides yet"
+            if s["curves"]:
+                text += " + %d curves" % s["curves"]
+            line(0, "Groom has", text, [("Groups...", self.open_groups, "See the groups in the Groom Tools")])
+        return box
+
+    def scalp_choice(self, current, others):
+        """A Scalp node's menu of the groom's scalps (scalp: its own, then the others by name):
+        choosing one sets the node's input, and the panel shows that scalp's mesh."""
+        combo = QtWidgets.QComboBox()
+        combo.setObjectName("scalpChoice")
+        combo.setToolTip("Which of the groom's scalps this node reads: a Scatter fed it grows hair on that mesh alone")
+        names = ["scalp"] + [n for n in others if n != "scalp"]
+        if current not in names:
+            names.append(current)
+        for n in names:
+            combo.addItem("scalp (the groom's own)" if n == "scalp" else n, n)
+        combo.setCurrentIndex(names.index(current))
+
+        def chosen(index):
+            value = combo.itemData(index)
+            if value != current:
+                self.editor.set_param(self.node, "input", value)
+                later(lambda: self.node and self.show_node(self.node))
+        combo.activated.connect(chosen)
+        return combo
+
+    def scene_soon(self):
+        """The groom's scalp or colliders were rewired: a Scalp or ColliderMesh node's panel is
+        shown again once the change is over (once for many: a collider's mesh and rest mesh)."""
+        if getattr(self, "_scene_pending", False):
+            return
+        self._scene_pending = True
+
+        def refresh():
+            self._scene_pending = False
+            if (widgets.alive(self) and self.node and self.node in self.editor.model.order
+                    and self.editor.model.node_type(self.node) in ("Scalp", "ColliderMesh")):  # (any scalp)
+                self.show_node(self.node)
+        QtCore.QTimer.singleShot(0, refresh)
+
+    def _scene_run(self, fn, *args):
+        try:
+            fn(*args)
+        except (RuntimeError, ValueError) as e:
+            self.editor.report(str(e))
+            return
+        self.show_node(self.node)
+
+    def mesh_field(self, kind, current, name=None):
+        """The scene mesh a Scalp or ColliderMesh node reads (the groom's inMesh, or the collider
+        `name`'s colliderMeshes element): a menu of the scene's meshes (listed again each time it
+        opens), an eyedropper that picks the next mesh selected in the viewport or the Outliner
+        (groomlab.ui.pick, as the Attribute Editor's Pick), and Select. Choosing one rewires the
+        connection through the same calls as the Attribute Editor (pick.set_input)."""
+        from groomlab.ui import pick
+        from maya import cmds
+        groom = self.editor.groom
+        current = (cmds.ls(current, long=True) or [None])[0] if current else None
+        box = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(theme.px(4))
+        combo = MeshCombo(lambda: self._mesh_choices(kind, current, name), current)
+        combo.setObjectName("meshField")
+        combo.setToolTip("The mesh this node reads: choose another scene mesh (the menu lists them as it opens)")
+        combo.activated.connect(lambda index: later(lambda: self.choose_mesh(kind, combo.itemData(index), name)))
+        row.addWidget(combo, 1)
+        dropper = QtWidgets.QToolButton()
+        dropper.setObjectName("meshPick")
+        dropper.setCheckable(True)
+        dropper.setIcon(widgets.glyph("eyedropper"))
+        dropper.setToolTip("Pick the mesh: click it in the viewport or the Outliner (Esc, or this again, cancels)")
+        dropper.setChecked(bool(pick.armed(groom, pick.input_key(kind, name))))
+        dropper.clicked.connect(lambda _=False: self.pick_mesh(kind, name))
+        row.addWidget(dropper)
+        select = QtWidgets.QPushButton("Select")
+        select.setToolTip("Select the mesh in the scene")
+        select.setEnabled(bool(current))
+        select.clicked.connect(lambda _=False: current and cmds.objExists(current) and cmds.select(current))
+        row.addWidget(select)
+        self.mesh_combo, self.mesh_pick = combo, dropper
+        return box
+
+    def _mesh_choices(self, kind, current, name):
+        """[(label, mesh shape)] for a mesh field: every scene mesh the input takes, and the one it has."""
+        from groomlab.ui import pick
+        groom = self.editor.groom
+        out = []
+        for mesh in pick.scene_meshes():
+            if pick._same(mesh, current) or not pick.problem(groom, kind, mesh, name):
+                out.append((pick.label(mesh), mesh))
+        return out
+
+    def choose_mesh(self, kind, mesh, name=None, ask=True):
+        """A mesh chosen in a mesh field: onto the groom (pick.set_input), the panel shown again."""
+        from groomlab.ui import pick
+        if not mesh or not self.editor.groom:
+            return
+        current = self.mesh_combo.current if self.mesh_combo is not None and widgets.alive(self.mesh_combo) else None
+        if pick._same(mesh, current) or not self._node_on_groom():
+            return
+        try:
+            self.editor.report(pick.set_input(self.editor.groom, kind, mesh, name, ask=ask))
+        except (RuntimeError, ValueError) as e:
+            self.editor.report(str(e))
+        self.show_node(self.node)
+
+    def _node_on_groom(self):
+        """The shown node on the groom (a ColliderMesh just added, edits not applied yet: the graph
+        applied first), so the collider calls find it there. False when the graph can't be applied."""
+        import groomlab
+        stored = [n["name"] for n in groomlab.get_graph(self.editor.groom, expand_default=True).get("nodes", [])]
+        return self.node in stored or self.editor.apply()
+
+    def pick_mesh(self, kind, name=None, ask=True):
+        """The mesh field's eyedropper (pick.pick_input): the panel shows the result when it ends."""
+        from groomlab.ui import pick
+
+        def ended(applied):
+            later(lambda: self.node and self.show_node(self.node))
+        if not self._node_on_groom():
+            return "failed"
+        result = pick.pick_input(self.editor.groom, kind, name, on_end=ended, ask=ask)
+        if self.mesh_pick is not None and widgets.alive(self.mesh_pick):
+            self.mesh_pick.setChecked(result == "armed")
+        self.editor.report({"armed": "click %s in the viewport or the Outliner (Esc cancels)" % pick.WHAT[kind],
+                            "cancelled": "pick cancelled"}.get(result, ""))
+        return result
+
+    def pick_position(self, name, param):
+        """A position field's Pick (Tie's center): where the selected vertices, locator or transform
+        are (pick.selected_position, world space as groom data), set as any edit of the field is.
+        Returns the position, or None when nothing selected has one (said in the status line)."""
+        from groomlab.ui import pick
+        try:
+            position, what = pick.selected_position(self.editor.groom)
+        except ValueError as e:
+            self.editor.report(str(e))
+            return None
+        value = [float(c) for c in position]
+        self.editor.set_param(name, param, value)
+        self.editor.report("%s.%s: (%.4g, %.4g, %.4g) from %s" % ((name, param) + tuple(value) + (what,)))
+        later(lambda: self.node == name and self.show_node(name))  # the fields show it
+        return value
+
+    # -- Node actions: what a node needs from the scene, on the node itself -------
+
+    def node_actions(self, name):
+        """Buttons under a node's params: Cards (show, mesh, bake), Simulate (presets), Braid (paths from curves),
+        HairColor (hair shader), Instance (prototype from the selection). None for other nodes."""
+        import groomlab
+        from maya import cmds
+        node_type = self.editor.model.node_type(name)
+        groom = self.editor.groom
+        buttons = []
+
+        def run(fn, done=None):
+            # Changes go into the editor's graph, then onto the groom. After the click is over:
+            # reloading rebuilds this panel, and the button (or menu) that was clicked with it.
+            def act():
+                try:
+                    result = fn()
+                except (RuntimeError, ValueError) as e:
+                    self.editor.report(str(e))
+                    return
+                if not self.editor.apply():
+                    return
+                self.editor.reload()
+                if done:
+                    self.editor.report(done(result) if callable(done) else done)
+
+            def go(_=False):
+                later(act)
+            return go
+
+        if node_type == "Cards":
+            # What this node's cards cost now: cards, triangles, textures (its own share).
+            try:
+                stats = groomlab.card_stats(groom, node=name) if groom else None
+            except RuntimeError:
+                stats = None
+            if stats and stats["cards"]:
+                text = "%d cards \u00b7 %d triangles \u00b7 %d textures" % (stats["cards"], stats["triangles"],
+                                                                         stats["textures"])
+                if stats.get("feathers"):
+                    text += " \u00b7 %d feathers" % stats["feathers"]
+                info = QtWidgets.QLabel(text)
+                info.setObjectName("nodeAction_CardStats")
+                info.setToolTip("This node's cards as they are now (at cardDensity). Change them with the params, "
+                                "or pick a level of detail. All Cards nodes share one atlas and one bake")
+                buttons.append(info)
+                if stats.get("stale"):
+                    stale = QtWidgets.QLabel("\u26a0 Maps out of date: rebake")
+                    stale.setObjectName("nodeAction_CardsStale")
+                    stale.setStyleSheet("color: rgb(235, 170, 60); font-weight: bold;")
+                    stale.setToolTip(self.editor.CARDS_STALE)
+                    buttons.append(stale)
+                buttons.append(None)
+            show = QtWidgets.QCheckBox("Show cards")
+            show.setObjectName("nodeAction_ShowCards")
+            show.setToolTip("Cards view (A/B): the cards instead of the strands, with the baked maps once "
+                            "baked, and the hair cap")
+            show.setChecked(bool(groom) and bool(cmds.getAttr(groom + ".displayCards")))
+            show.toggled.connect(lambda on: groom and groomlab.compare_cards(groom, on))
+            buttons.append(show)
+            textures = QtWidgets.QCheckBox("Show textures")
+            textures.setObjectName("nodeAction_ShowCardTextures")
+            textures.setToolTip("Draw the cards with their baked maps (color, coverage cut-out, AO); off shows "
+                                "the flat card geometry (the groom's displayCardTextures)")
+            textures.setChecked(bool(groom) and bool(cmds.getAttr(groom + ".displayCardTextures")))
+            textures.toggled.connect(lambda on: groom and groomlab.card_display(groom, textures=on))
+            buttons.append(textures)
+            lod = QtWidgets.QPushButton("LOD")
+            lod.setToolTip("Set this node for a budget: triangles, card count, texture variations, atlas size")
+            lod_menu = QtWidgets.QMenu(lod)
+            try:  # a node carding only feathers takes the feather budgets
+                feathers = bool(groom) and groomlab.card_node_kind(groom, name, self.editor.model) == "feathers"
+            except Exception:
+                feathers = False
+            levels = ((("hero", "Hero (~30k triangles, 8 quads a feather, 4K)"),
+                       ("mid", "Mid (~8k triangles, 4 quads a feather, 2K)"),
+                       ("low", "Low (~2k triangles, a quad a feather, 1K)")) if feathers else
+                      (("hero", "Hero (~50k triangles, 4K)"), ("mid", "Mid (~15k triangles, 2K)"),
+                       ("low", "Low (~4k triangles, 1K)")))
+            for key, label in levels:
+                # Into the editor's graph (it is what gets saved), on this node.
+                lod_menu.addAction(label, run(lambda k=key: groomlab.cards_preset(groom, k, node=name,
+                                                                                  model=self.editor.model),
+                                              lambda params, k=key: "%s cards: up to %d cards" % (k, params["maxCards"])))
+            lod.setMenu(lod_menu)
+            buttons.append(lod)
+            buttons.append(None)
+
+            buttons.append(("Bake Maps", "Depth, coverage, tangent, attribute, color and AO maps for the atlas "
+                            "(TGA, Unreal's hair card layout) into the scene's groomlab/cards folder; the cards "
+                            "view shows them",
+                            run(lambda: groomlab.bake_cards(groom),
+                                lambda paths: "baked %d card maps into %s" % (len(paths), os.path.dirname(paths[0]) if paths else ""))))
+            buttons.append(("Bake Scalp", "The groom baked onto its scalp's UVs (hair color and coverage) into the "
+                            "scene's groomlab/cards folder, with a hair cap mesh that shows it under the cards: no "
+                            "bare skin between low LOD cards",
+                            run(lambda: groomlab.bake_scalp(groom),
+                                lambda paths: "baked %d scalp maps and a hair cap" % len(paths))))
+
+            def unreal():
+                folder = cmds.fileDialog2(fileMode=3, dialogStyle=2, caption="Folder for the Unreal cards",
+                                          startingDirectory=groomlab.asset_folder("exports"))
+                return groomlab.export_cards_unreal(groom, folder[0]) if folder else None
+            buttons.append(("Export for Unreal...", "The card mesh (FBX) and its maps, with a manifest of the "
+                            "channels", run(unreal, lambda r: "wrote %s" % r["fbx"] if r else "")))
+
+            def unity():
+                folder = cmds.fileDialog2(fileMode=3, dialogStyle=2, caption="Folder for the Unity cards",
+                                          startingDirectory=groomlab.asset_folder("exports"))
+                return groomlab.export_cards_unity(groom, folder[0]) if folder else None
+            buttons.append(("Export for Unity...", "The card mesh (FBX, meters, Y up) and PNG maps for HDRP/URP "
+                            "(base color with coverage in alpha, mask, AO, tangent), with a manifest of the "
+                            "channels and material settings",
+                            run(unity, lambda r: "wrote %s" % r["fbx"] if r else "")))
+
+            def gltf():
+                path = cmds.fileDialog2(fileFilter="glTF binary (*.glb);;glTF (*.gltf)", dialogStyle=2, fileMode=0,
+                                        caption="Export glTF Cards",
+                                        startingDirectory="%s/%s_cards.glb" % (groomlab.asset_folder("exports"),
+                                                                                groomlab.asset_name(groom)))
+                if not path:
+                    return None
+                return groomlab.export_cards_gltf(groom, path[0], binary=not path[0].lower().endswith(".gltf"))
+            buttons.append(("Export glTF...", "The cards as glTF 2.0 (.glb with the maps inside, or .gltf): "
+                            "PBR material, coverage as alpha mask, AO, meters, Y up, with the hair cap",
+                            run(gltf, lambda r: "wrote %s" % r[0] if r else "")))
+        elif node_type == "Braid":
+            def paths():
+                curves = cmds.ls(selection=True, dag=True, type="nurbsCurve")
+                if not curves:
+                    raise ValueError("select curves drawn from the scalp along the braids")
+                return groomlab.braid_paths_from_curves(
+                    groom, name, [cmds.listRelatives(c, parent=True)[0] for c in curves], model=self.editor.model)
+            buttons.append(("Paths from Selected Curves", "Selected curves, drawn from the scalp along the "
+                            "braids, become this braid's paths", run(paths, lambda g: "braid paths added to %s" % g)))
+        elif node_type == "Map":
+            map_name = self.editor.model.param(name, "name") or "mask"
+            if not any(c["from"] == name for c in self.editor.model.connections):
+                hint = QtWidgets.QLabel("\u26a0 Feeds nothing yet: pick a param under Feed Param")
+                hint.setObjectName("nodeAction_MaskUnconnected")
+                hint.setStyleSheet("color: rgb(235, 170, 60);")
+                hint.setToolTip("A map changes the groom only through the params it feeds: expose a mappable param "
+                                "as an input (Feed Param, or right-click the param) and connect this node to it")
+                buttons.append(hint)
+            kind = groomlab.map_kind(groom, map_name) if groom else ""
+            if groom and not kind:
+                missing = QtWidgets.QLabel("\u26a0 No map named %s yet: Groom Tools > Paint > New..." % map_name)
+                missing.setObjectName("nodeAction_MapMissing")
+                missing.setStyleSheet("color: rgb(235, 170, 60);")
+                buttons.append(missing)
+            elif kind:
+                where = {"guides": "a layer on the guides", "vertices": "a value per scalp vertex",
+                         "texture": "a texture at the scalp's UVs"}.get(kind, kind)
+                stored = next((m["texture"] for m in groomlab.maps(groom) if m["name"] == map_name), "") \
+                    if kind == "texture" else ""
+                # A zero-width space after each slash: a long path wraps at its folders, not mid-name.
+                shown = stored.replace("\\", "/").replace("/", "/\u200b")
+                info = QtWidgets.QLabel("%s: %s" % (map_name, where) + ("\n" + shown if shown else ""))
+                info.setObjectName("nodeAction_MapInfo")
+                info.setWordWrap(True)
+                info.setProperty("role", "about")
+                info.setToolTip("Where the map lives now (Convert to in Groom Tools > Paint changes it; the node "
+                                "follows by name)" + ("\n" + groomlab.map_texture(groom, map_name) if stored else ""))
+                buttons.append(info)
+                if stored and map_name in groomlab.missing_map_files(groom):
+                    lost = QtWidgets.QLabel("\u26a0 The image is missing: %s" % groomlab.map_texture(groom, map_name))
+                    lost.setObjectName("nodeAction_MapImageMissing")
+                    lost.setStyleSheet("color: rgb(235, 170, 60);")
+                    lost.setToolTip("Relink it to the file (or GroomLab > Utilities > Find Missing Files... looks "
+                                    "for it in a folder); until then the map reads nothing")
+                    buttons.append(lost)
+                    buttons.append(("Relink Image...", "Point the map at its image: a PNG is used in place, another "
+                                    "format copied as a PNG into the masks folder",
+                                    lambda _=False, m=map_name: later(lambda: self.relink_map_image(m))))
+                    buttons.append(None)
+            feed = QtWidgets.QPushButton("Feed Param")
+            feed.setObjectName("nodeAction_FeedParam")
+            feed.setToolTip("Feed this map into a node's mappable param (exposed as an input and connected; the "
+                            "param's own value multiplies the map)")
+            feed_menu = QtWidgets.QMenu(feed)
+            feed_menu.submenus = []  # explicit parents, kept: PySide would collect addMenu("title") results
+            model = self.editor.model
+            # A color map feeds from one of the node's outputs (a channel: packed masks); a gray one
+            # from its first.
+            color = kind in ("vertices", "texture") and groomlab.map_channels(groom, map_name) == 4
+            for output in (model.output_names(name) if color else [None]):
+                target = feed_menu
+                if output is not None:
+                    target = QtWidgets.QMenu("From %s" % output, feed_menu)
+                    feed_menu.addMenu(target)
+                    feed_menu.submenus.append(target)
+                for other in model.order:
+                    if other == name or model.node_type(other) in ("Map", "Expression", "FieldNoise", "FieldRemap",
+                                                                     "FieldCombine", "Curve", "Control"):
+                        continue
+                    # rgb (the map's color) feeds color params; the rest feed numbers.
+                    mappable = [p["name"] for p in model.node_spec(other)["params"]
+                                if (p.get("colorField") if output == "rgb" else p.get("mappable"))]
+                    if not mappable:
+                        continue
+                    sub = QtWidgets.QMenu("%s (%s)" % (other, model.node_type(other)), target)
+                    target.addMenu(sub)
+                    feed_menu.submenus.append(sub)
+                    for param in mappable:
+                        sub.addAction(param, run(lambda o=other, q=param, out=output: groomlab.feed_map_node(
+                            groom, name, o, q, model=self.editor.model, output=out),
+                            lambda fed, out=output: "%s%s feeds %s" % (name, "." + out if out else "", fed)))
+            feed.setMenu(feed_menu)
+            buttons.append(feed)
+
+            def paint():
+                from groomlab.ui import palette
+                groomlab.paint_map(groom, map_name)
+                palette.show(tab="paint")
+                palette.select_map(map_name)
+                return map_name
+            buttons.append(("Paint...", "Paint this map in Groom Tools > Paint: the Paint brush on the guides, the "
+                            "scalp's vertices or its texture, whichever kind the map is (white is 1, Ctrl paints "
+                            "black); every param this node feeds follows each stroke",
+                            run(paint, lambda c: "painting %s" % c)))
+        elif node_type == "Compound":
+            buttons.append(("Ungroup Compound", "Put this compound's nodes back in the graph, to see and edit "
+                            "them (Ctrl+Shift+G; Ctrl+Z groups them again)",
+                            lambda _=False: later(lambda: self.editor.expand([name]))))
+        elif node_type == "Sculpt" and groom:
+            from groomlab import sculpts
+            edited = sculpts.edited_guides(groom, name)
+            brushing = sculpts.target(groom) == name
+            buttons.append(QtWidgets.QLabel(
+                "%s. %s" % ("%d guides sculpted" % edited if edited else "No strokes yet",
+                            "Brushes shape this node's guides (shaping brushes)" if brushing else
+                            "Select this node (or its row in Sculpt > Correctives) to brush its guides")))
+            buttons.append(("Clear Edits", "Drop every stroke kept in this node: its guides as it is fed them "
+                            "(one undo step)",
+                            lambda _=False: later(lambda: (self.editor.clear_sculpt_edits(name), self.editor.reload()))))
+        elif node_type == "Simulate":
+            # One click to a preset's settings (the core's, every host's), into the editor's graph.
+            from groomlab import sim
+            preset = QtWidgets.QPushButton("Preset")
+            preset.setObjectName("nodeAction_SimulatePreset")
+            preset.setToolTip("Set this node's motion settings to a preset (bend, twist, damping, drag, root "
+                              "stiffness and its profile, inertia, iterations); gravity, wind, collisions and "
+                              "water stay as they are")
+            preset_menu = QtWidgets.QMenu(preset)
+            preset_menu.setToolTipsVisible(True)
+            for info in sim.simulate_presets():
+                action = preset_menu.addAction(info["title"], run(
+                    lambda k=info["name"]: sim.simulate_preset(groom, k, node=name, model=self.editor.model),
+                    lambda params, t=info["title"]: "%s: %s settings" % (name, t)))
+                action.setToolTip(info["description"])
+            preset.setMenu(preset_menu)
+            buttons.append(preset)
+        elif node_type == "HairColor":
+            buttons.append(("Create Hair Shader", "An aiStandardHair rendering this node's colors (its melanin, or "
+                            "with mode color or a tip color its RGB), assigned to the groom; it follows later "
+                            "changes of the look. Without one, Arnold renders the groom's colors anyway",
+                            run(lambda: groomlab.create_hair_shader(groom), lambda s: "hair shader %s" % s)))
+        elif node_type in ("Instance", "Scales"):
+            def prototype():
+                picked = cmds.ls(selection=True, long=True, type="transform") or cmds.ls(selection=True, type="mesh")
+                if not picked:
+                    raise ValueError("select the mesh to instance")
+                return groomlab.set_instance_prototype(groom, name, picked[0], model=self.editor.model)
+            buttons.append(("Prototype from Selection", "Instance the selected mesh (hide it: only its "
+                            "instances render)", run(prototype, lambda m: "instancing %s" % m)))
+        if not buttons or not groom:
+            return None
+        box = QtWidgets.QWidget()
+        rows = QtWidgets.QVBoxLayout(box)
+        rows.setContentsMargins(0, 6, 0, 0)
+        rows.setSpacing(4)
+        row = None
+        for b in buttons:
+            if b is None:  # a new row
+                row = None
+                continue
+            if isinstance(b, QtWidgets.QLabel):  # text: a row of its own, the panel's full width
+                b.setWordWrap(True)
+                rows.addWidget(b)
+                row = None
+                continue
+            if row is None:
+                row = QtWidgets.QHBoxLayout()
+                rows.addLayout(row)
+            if isinstance(b, QtWidgets.QWidget):
+                row.addWidget(b)
+                continue
+            label, tip, fn = b
+            button = QtWidgets.QPushButton(label)
+            button.setObjectName("nodeAction_" + label.replace(" ", "").replace(".", ""))
+            button.setToolTip(tip)
+            button.clicked.connect(fn)
+            row.addWidget(button)
+        return box
+
+    def relink_map_image(self, map_name, path=None):
+        """Point the groom's map `map_name` at an image (groomlab.set_map_texture): `path`, else picked
+        in a file dialog (only a click gets there; scripts pass the path). Returns the stored path."""
+        import groomlab
+        groom = self.editor.groom
+        if not groom:
+            return None
+        if path is None:
+            from groomlab.ui import tool_tabs
+            expected = groomlab.map_texture(groom, map_name)
+            folder = os.path.dirname(expected) if expected else ""
+            if not folder or not os.path.isdir(folder):
+                folder = groomlab.scene_folder() or groomlab.project_root()
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Relink Image: %s" % map_name, folder,
+                                                            tool_tabs.IMAGE_FILTER)
+            if not path:
+                return None
+        try:
+            stored = groomlab.set_map_texture(groom, map_name, path)
+        except (RuntimeError, ValueError) as e:
+            self.editor.report(str(e).strip())
+            return None
+        self.editor.reload()
+        self.editor.report("%s reads %s" % (map_name, stored))
+        return stored
+
+    def param_menu(self, name, param, global_pos):
+        menu = self.build_param_menu(name, param)
+        if not menu.isEmpty():  # text params have nothing to offer
+            qt.exec_(menu, global_pos)
+
+    def build_param_menu(self, name, param):
+        exposed = param in self.editor.model.param_inputs(name)
+        menu = QtWidgets.QMenu(self)
+        menu.setToolTipsVisible(True)  # why a param cannot be keyed
+        spec = self.editor.model.param_spec(name, param)
+        if spec and spec.get("kind") in KEYABLE_KINDS:
+            self.add_key_actions(menu, name, param)
+        if not gm.linkable(spec):
+            return menu
+        if not menu.isEmpty():
+            menu.addSeparator()
+        action = menu.addAction("Expose as Input")
+        action.setCheckable(True)
+        action.setChecked(exposed)
+        action.toggled.connect(lambda on: self.editor.set_param_exposed(name, param, on))
+        if spec.get("mappable") and self.editor.groom:
+            menu.addSeparator()
+            paint = QtWidgets.QMenu("Paint", menu)  # parented: it outlives this call's references
+            menu.addMenu(paint)
+            paint.setToolTip("A map feeding this param through a Map node (white = its value now, black = 0), "
+                             "painted in Groom Tools > Paint")
+            paint.addAction("On Guides", lambda: self.paint_param(name, param, "guides")).setToolTip(
+                "A layer on the guides: children inherit it, strands blend it, it survives a new scalp")
+            paint.addAction("On Scalp Vertices", lambda: self.paint_param(name, param, "vertices")).setToolTip(
+                "A value per vertex of the scalp mesh, kept with the groom in the scene")
+            paint.addAction("As Texture", lambda: self.paint_param(name, param, "texture")).setToolTip(
+                "An image at the scalp's UVs in the scene's groomlab/masks folder: the finest detail, editable "
+                "elsewhere, exportable")
+            menu.addSeparator()
+            menu.addAction("Drive with Slider", lambda: self.add_control(name, param)).setToolTip(
+                "A Control node: this param becomes a keyable attribute on the groom (channel box), "
+                "e.g. to animate a Blend from dry to wet")
+        return menu
+
+    def add_control(self, node, param):
+        import groomlab
+        if not self.editor.apply():
+            return
+        try:
+            attr = groomlab.add_control(self.editor.groom, node, param)
+        except (RuntimeError, ValueError, gm.GraphError) as e:
+            self.editor.report(str(e))
+            return
+        self.editor.reload()
+        self.editor.report("%s.%s is driven by %s (keyable in the channel box)" % (node, param, attr))
+
+    # -- Keyed params: Set Key on a param, its state in the Channel Box's colors ---------------------
+
+    def add_key_actions(self, menu, node, param):
+        """Set Key, Delete Key, Remove Animation and Select Attribute for a param (in its menus)."""
+        import groomlab
+        model, groom = self.editor.model, self.editor.groom
+        why = model.keyable(node, param) if groom else "no groom"
+        linked = model.control_of(node, param) is not None
+        state = key_state(groom, node, param, model) if linked else None
+        action = menu.addAction("Set Key", lambda: self.set_key(node, param))
+        action.setEnabled(linked or why is None)
+        action.setToolTip("Key this param at the current frame (S over it): it becomes a keyable attribute "
+                          "on the groom, edited in Maya's Graph Editor" if linked or why is None else
+                          "Cannot be keyed: " + why)
+        action = menu.addAction("Delete Key", lambda: self.delete_key(node, param))
+        action.setEnabled(state == "keyed")
+        action = menu.addAction("Remove Animation", lambda: self.remove_animation(node, param))
+        action.setEnabled(linked)
+        action.setToolTip("Delete its keys and keep its value now as the param's own")
+        action = menu.addAction("Select Attribute", lambda: self.select_attribute(node, param))
+        action.setEnabled(linked)
+        action.setToolTip("Select the groom with this param's attribute in the Channel Box (Maya's Graph "
+                          "Editor shows its curve)")
+        if linked:
+            menu.addAction(groomlab.param_control(groom, node, param) or "").setEnabled(False)
+
+    def _key_edit(self, fn, *args):
+        """Run a key edit on the groom (the editor's graph applied first), then show the result."""
+        if not self.editor.groom or not self.editor.apply():
+            return None
+        try:
+            result = fn(self.editor.groom, *args)
+        except (RuntimeError, ValueError, gm.GraphError) as e:
+            self.editor.report(str(e))
+            return None
+        self.editor.sync_now()
+        self.refresh_keys()
+        return result if result is not None else True
+
+    def set_key(self, node, param):
+        """Key the param at the current frame (the first key links it to an attribute of its own)."""
+        import groomlab
+        from maya import cmds
+        why = self.editor.model.keyable(node, param)
+        if why and self.editor.model.control_of(node, param) is None:
+            self.editor.report("%s.%s cannot be keyed: %s" % (node, param, why))
+            return None
+        attr = self._key_edit(groomlab.set_param_key, node, param)
+        if attr:
+            self.editor.report("keyed %s.%s at frame %g (%s)" % (node, param, cmds.currentTime(query=True), attr))
+        return attr
+
+    def delete_key(self, node, param):
+        import groomlab
+        if self._key_edit(groomlab.delete_param_key, node, param):
+            self.editor.report("deleted the key of %s.%s" % (node, param))
+
+    def remove_animation(self, node, param):
+        import groomlab
+        if self._key_edit(groomlab.remove_param_animation, node, param):
+            self.editor.report("%s.%s is a plain value again" % (node, param))
+
+    def select_attribute(self, node, param):
+        import groomlab
+        attr = groomlab.select_param_attribute(self.editor.groom, node, param)
+        self.editor.report("selected %s" % attr if attr else "%s.%s is not keyed" % (node, param))
+
+    def hovered_param(self):
+        """The param whose row is under the mouse (the label or its field), or None. Qt's own record
+        of what the mouse is over (the enter and leave events the widgets got), not the cursor's
+        position: a window covering the panel hides it, as it hides the panel's tooltips."""
+        body = self.widget()
+        if body is None or not self.viewport().underMouse():
+            return None
+        for widget in body.findChildren(QtWidgets.QWidget):
+            param = widget.property("glParam")
+            if param and widget.isVisible() and widget.underMouse():
+                return param
+        return None
+
+    def refresh_keys(self):
+        """Each number field's state (red: a key on this frame, pink: animated, yellow: driven) and, for
+        a keyed param, its value on this frame: after edits and on every time change."""
+        groom, model, node = self.editor.groom, self.editor.model, self.node
+        if node is None or model is None or node not in model.nodes or not getattr(self, "key_widgets", None):
+            return
+        import groomlab
+        for param, field in list(self.key_widgets.items()):
+            if not widgets.alive(field):
+                del self.key_widgets[param]
+                continue
+            if groom and model.control_of(node, param) is not None:
+                try:
+                    show_value(field, groomlab.param_value(groom, node, param, model))
+                except (RuntimeError, ValueError):
+                    pass
+            paint_key_state(field, key_state(groom, node, param, model))
+
+    def paint_param(self, node, param, kind):
+        """A map (guides, vertices or texture) feeding the param through a Map node, painted in
+        Groom Tools > Paint (the map it reads already, when it reads one): Ctrl lowers the param
+        toward 0, strokes paint it back to its value."""
+        import groomlab
+        from groomlab.ui import menu
+        groom = self.editor.groom
+        if not self.editor.apply():  # the editor's graph first
+            return
+        if kind == "texture" and not menu.ensure_scene_saved("texture maps"):
+            return
+        try:
+            name = groomlab.paint_param(groom, node, param, kind=kind)
+            from groomlab.ui import palette
+            palette.show(tab="paint")
+            palette.select_map(name)
+            where = {"guides": "the guides", "vertices": "the scalp's vertices", "texture": "a texture"}[kind]
+            message = "painting %s.%s on %s (map %s): Ctrl lowers it, strokes paint it back" % (node, param, where, name)
+        except (RuntimeError, ValueError, gm.GraphError) as e:
+            self.editor.report(str(e))
+            return
+        self.editor.reload()
+        self.editor.report(message)
+
+    # -- Widgets per kind --------------------------------------------------
+
+    def _value_of(self, name):
+        model = self.editor.model
+
+        def value_of(param):
+            try:
+                return model.param(name, param)
+            except gm.GraphError:
+                return None
+        return value_of
+
+    def editor_for(self, name, spec):
+        value = self.editor.model.param(name, spec["name"])
+        if spec.get("unitWhen"):  # its unit as the node's other params make it (shown, and its sliders')
+            spec = dict(spec, unit=unit_of(spec, self._value_of(name)))
+            self.built_units[spec["name"]] = spec["unit"]
+        if self.editor.groom and self.editor.model.control_of(name, spec["name"]) is not None:
+            import groomlab  # keyed: its value on this frame
+            try:
+                value = groomlab.param_value(self.editor.groom, name, spec["name"], self.editor.model)
+            except (RuntimeError, ValueError):
+                pass
+        if spec["mappable"]:
+            return MappableEditor(self, name, spec, value)
+        return self.plain_editor(name, spec, value)
+
+    def vector_expression_editor(self, spec, value, set_value):
+        """A direction: its three numbers, or (f(x) on) an expression giving a vector per strand,
+        e.g. normalize(N + [0, -1, 0])."""
+        w = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(w)
+        row.setContentsMargins(0, 0, 0, 0)
+        expression = value.get("expression") if isinstance(value, dict) else None
+        vector = [float(c) for c in (value if isinstance(value, (list, tuple)) else spec["default"])]
+        if expression is None:
+            boxes = []
+            for c in vector:
+                b = QtWidgets.QDoubleSpinBox()
+                b.setRange(-1e9, 1e9)
+                b.setDecimals(4)
+                b.setValue(c)
+                row.addWidget(b)
+                boxes.append(b)
+            for b in boxes:
+                b.editingFinished.connect(lambda: set_value([x.value() for x in boxes]))
+            w.boxes = boxes
+        else:
+            field = QtWidgets.QLineEdit(expression)
+            field.setObjectName("vectorExpression")
+            field.setToolTip("A vector per strand: [x, y, z], P, N, tip, normalize(...), rotate(...), vnoise(P)... "
+                             "(the Expression node's language)")
+            field.editingFinished.connect(lambda: set_value({"expression": field.text().strip() or "[0, 0, 0]"}))
+            row.addWidget(field, 1)
+            w.field = field
+        toggle = QtWidgets.QToolButton()
+        toggle.setObjectName("vectorExpressionToggle")
+        toggle.setText("f(x)")
+        toggle.setCheckable(True)
+        toggle.setChecked(expression is not None)
+        toggle.setToolTip("An expression giving a vector per strand instead of one direction for all")
+
+        def switch(on):
+            set_value({"expression": "[%g, %g, %g]" % tuple(vector)} if on else [float(c) for c in spec["default"]])
+            self.show_node(self.node)  # the row as the other kind: the expression's field, or three numbers
+        toggle.toggled.connect(lambda on: later(lambda: switch(on)))
+        row.addWidget(toggle)
+        w.toggle = toggle
+        return w
+
+    def plain_editor(self, name, spec, value, on_change=None, on_preview=None):
+        set_value = on_change or (lambda v, p=spec["name"]: self.editor.set_param(name, p, v))
+        preview = on_preview or (lambda v, p=spec["name"]: self.editor.preview_param(name, p, v))
+        kind = spec["kind"]
+        if kind == "bool":
+            w = QtWidgets.QCheckBox()
+            w.setChecked(bool(value))
+            w.toggled.connect(set_value)
+            if name == self.node:
+                self.key_widgets[spec["name"]] = w
+        elif kind in ("int", "float"):
+            # One slider range per operator param (and display unit), shared by every node of that type.
+            from groomlab import units
+            kind_of_unit = spec.get("unit") or ""
+            f = units.factor(kind_of_unit) if kind == "float" else 1.0
+            key = "%s.%s" % (self.editor.model.node_type(name), spec["name"])
+            if f != 1.0:
+                key += "@" + units.unit(kind_of_unit)[0]
+            default = spec["default"] if isinstance(spec["default"], (int, float)) else value
+            lo, hi = units.soft_range(kind_of_unit) or (None, None)  # density: around real hair's
+            if lo is None and spec.get("softMin") is not None and spec.get("softMax") is not None:  # the spec's
+                lo, hi = spec["softMin"] * f, spec["softMax"] * f
+            hard = [spec[k] * f if spec.get(k) is not None else None for k in ("min", "max")]  # the core clamps there
+            slider = widgets.SoftSlider(value * f, lo, hi, integer=kind == "int", minimum=hard[0], maximum=hard[1],
+                                        decimals=4, key=key, default=default * f)
+            slider.dragged.connect(lambda v: preview(v / f))
+            slider.committed.connect(lambda v: set_value(v / f))
+            slider.unit_factor = f  # what show_value multiplies a keyed value by
+            if name == self.node:
+                self.key_widgets[spec["name"]] = slider
+                slider.menu_hook = lambda menu, p=spec["name"]: self.add_key_actions(menu, name, p)
+            w = slider
+            if units.label(kind_of_unit):  # the unit after the field: cm, %, °, turns, s, px...
+                w = QtWidgets.QWidget()
+                row = QtWidgets.QHBoxLayout(w)
+                row.setContentsMargins(0, 0, 0, 0)
+                row.setSpacing(4)
+                row.addWidget(slider, 1)
+                suffix = QtWidgets.QLabel(units.label(kind_of_unit))
+                suffix.setProperty("role", "about")
+                if kind_of_unit == "fraction":
+                    suffix.setToolTip("A percentage: 100% is 1 (the node stores 0 to 1)")
+                elif kind_of_unit not in units.FIXED:
+                    suffix.setToolTip("Units: View > Units in the graph editor")
+                row.addWidget(suffix)
+                w.slider = slider
+        elif kind == "vec3" and (spec.get("vectorExpression") or isinstance(value, dict)):
+            w = self.vector_expression_editor(spec, value, set_value)
+            if name == self.node and getattr(w, "boxes", None):
+                self.key_widgets[spec["name"]] = w
+        elif kind == "vec3":
+            w = QtWidgets.QWidget()
+            row = QtWidgets.QHBoxLayout(w)
+            row.setContentsMargins(0, 0, 0, 0)
+            boxes = []
+            for c in value:
+                b = QtWidgets.QDoubleSpinBox()
+                b.setRange(-1e9, 1e9)
+                b.setDecimals(4)
+                b.setValue(float(c))
+                row.addWidget(b)
+                boxes.append(b)
+            w.boxes = boxes
+            w.swatch = None
+            if spec.get("unit") == "color":
+                # A color: its swatch as Maya shows it, a click to pick (widgets.ColorSwatch).
+                swatch = widgets.ColorSwatch([float(c) for c in value])
+
+                def picked(rgb, boxes=boxes):
+                    for b, c in zip(boxes, rgb):
+                        b.blockSignals(True)
+                        b.setValue(float(c))
+                        b.blockSignals(False)
+                    set_value([float(c) for c in rgb])
+
+                swatch.picked.connect(picked)
+                row.insertWidget(0, swatch)
+                w.swatch = swatch
+
+            def typed(boxes=boxes, w=w):
+                rgb = [x.value() for x in boxes]
+                if w.swatch is not None:
+                    w.swatch.set_color(rgb)
+                set_value(rgb)
+
+            for b in boxes:
+                b.editingFinished.connect(typed)
+            if spec.get("worldDirection") and spec.get("unit") == "length" and on_change is None:
+                # A world position (Tie's center, Transform's pivot): Pick takes the selection's.
+                picker = QtWidgets.QToolButton()
+                picker.setObjectName("positionPick")
+                picker.setText("Pick")
+                picker.setToolTip("Set it to where the selected vertices, locator or transform are "
+                                  "(select them in the viewport or the Outliner first)")
+                picker.clicked.connect(lambda _=False, p=spec["name"]: self.pick_position(name, p))
+                row.addWidget(picker)
+                w.picker = picker
+            if name == self.node:
+                self.key_widgets[spec["name"]] = w
+        elif kind == "ramp":
+            keys = value if isinstance(value, (list, dict)) else [[0.0, float(value)], [1.0, float(value)]]
+            w = widgets.RampEditor(keys)
+            w.dragged.connect(preview)
+            w.committed.connect(set_value)
+        elif spec.get("choices"):  # a fixed set of values
+            w = QtWidgets.QComboBox()
+            for choice in spec["choices"]:
+                w.addItem(choice)
+            if str(value) not in spec["choices"]:
+                w.addItem(str(value))
+            w.setCurrentText(str(value))
+            w.activated.connect(lambda i, w=w: set_value(w.itemText(i)))
+        elif spec.get("channel") in ("writes", "reads") and on_change is None:
+            w = self.attribute_editor(name, spec, value, set_value)
+        elif spec["name"] in ("group", "exclude") and self.editor.model.node_type(name) == "Guides":
+            w = self.group_editor(spec["name"], value, set_value)
+        elif self.suggestions(name, spec["name"]) is not None:  # free text, with what exists offered
+            options, placeholder = self.suggestions(name, spec["name"])
+            w = suggest_box(value, options, set_value, placeholder)
+        elif spec["name"] == "path" and self.editor.model.node_type(name) in FILE_PATH_FILTERS:
+            w = self.path_field(value, FILE_PATH_FILTERS[self.editor.model.node_type(name)], set_value)
+        else:  # string
+            w = QtWidgets.QLineEdit(str(value))
+            w.editingFinished.connect(lambda w=w: set_value(w.text()))
+        return w
+
+    def attribute_editor(self, node, spec, value, set_value):
+        """A param naming an attribute (a strand channel). Writes: a plain field, and a warning when
+        the name is one a node upstream writes (this node overwrites it). Reads: the attributes
+        reaching the node to pick from, each with the node that wrote it last (any name can be
+        typed), and a note when the one named does not reach it."""
+        editor = self.editor
+        writes = spec.get("channel") == "writes"
+        info = editor.channels().get(node, {})
+        holder = QtWidgets.QWidget()
+        column = QtWidgets.QVBoxLayout(holder)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(theme.px(2))
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(theme.px(6))
+        chip = QtWidgets.QLabel("Writes" if writes else "Reads")
+        chip.setObjectName("attributeUse")
+        color = QtGui.QColor(214, 150, 70) if writes else QtGui.QColor(90, 150, 220)
+        chip.setStyleSheet("QLabel { background: %s; color: %s; border-radius: %dpx; padding: %dpx %dpx; font-weight: bold; }"
+                           % (color.name(), readable_on(color).name(), theme.px(6), theme.px(1), theme.px(6)))
+        chip.setToolTip(ATTRIBUTE_TIPS["writes" if writes else "reads"])
+        row.addWidget(chip)
+
+        def commit(v):
+            set_value(v)
+            later(lambda: self.node == node and self.show_node(node))  # the warning or note as it is now
+
+        if writes:
+            field = QtWidgets.QLineEdit(str(value))
+            field.setObjectName("attributeName")
+            field.setPlaceholderText("none (no attribute)")
+            field.editingFinished.connect(lambda: field.text().strip() != str(value) and commit(field.text().strip()))
+            row.addWidget(field, 1)
+            holder.field = field
+        else:
+            sources = editor.channel_sources(node)
+            box = QtWidgets.QComboBox()
+            box.setObjectName("attributeName")
+            box.setEditable(True)
+            box.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+            box.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            box.setMinimumContentsLength(12)
+            box.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            for source in sources:
+                label = "%s (from %s)" % (source["name"], source["node"]) if source.get("node") else source["name"]
+                box.addItem(label, source["name"])
+            box.lineEdit().setPlaceholderText("none")
+            box.setCurrentIndex(-1)
+            box.setEditText(str(value))
+            names = {box.itemText(i): box.itemData(i) for i in range(box.count())}
+
+            def picked(i):
+                name = box.itemData(i)
+                box.setEditText(name)
+                if name != str(value):
+                    commit(name)
+
+            def typed():
+                text = box.currentText().strip()
+                text = names.get(text, text)
+                if text != str(value):
+                    commit(text)
+            box.activated.connect(picked)
+            box.lineEdit().editingFinished.connect(typed)
+            box.setToolTip("Attributes reaching this node, each with the node that writes it last; type any other name")
+            row.addWidget(box, 1)
+            holder.field = box
+        column.addLayout(row)
+
+        line = None
+        if writes:
+            over = [o for o in info.get("overwrites", []) if o["param"] == spec["name"]]
+            if over:
+                line = QtWidgets.QLabel(u"\u26a0 overwrites " + ", ".join("%s from %s" % (o["name"], o["node"]) for o in over))
+                line.setObjectName("attributeOverwrite")
+                line.setStyleSheet("color: rgb(235, 170, 60);")
+                line.setToolTip("A node upstream already writes this attribute: from here on the strands carry this "
+                                "node's, so nodes after it read this one. Give each node its own name (chained "
+                                "Clumps: lockId, then clumpId) unless replacing it is what you want.")
+        else:
+            read = next((r for r in info.get("reads", []) if r["param"] == spec["name"]), None)
+            if read is not None and not read["reaches"]:
+                why = ("none applies" if read.get("optional")
+                       else "this node ignores it")
+                line = QtWidgets.QLabel(u"\u24d8 no node upstream writes %s: %s" % (read["name"], why))
+                line.setObjectName("attributeMissing")
+                line.setStyleSheet("color: rgb(150, 154, 160);")
+                line.setToolTip("Attributes reaching this node: %s" % (", ".join(c["name"] for c in info.get("incoming", []))
+                                                                        or "none"))
+        if line is not None:
+            line.setWordWrap(True)
+            column.addWidget(line)
+        holder.note = line
+        return holder
+
+    def path_field(self, value, file_filter, set_value):
+        """A file param (Reference's groom file, ImportCurves' Alembic file): its path, typed or
+        browsed for (stored as the scene stores paths: groomlab.portable_path)."""
+        holder = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(holder)
+        row.setContentsMargins(0, 0, 0, 0)
+        line = QtWidgets.QLineEdit(str(value))
+        line.setObjectName("pathField")
+        line.editingFinished.connect(lambda: set_value(line.text()))
+        browse = QtWidgets.QPushButton("...")
+        browse.setFixedWidth(theme.px(28))
+        browse.setToolTip("Browse for the file")
+
+        def pick():
+            import groomlab
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(self.window(), "File", groomlab.resolve_path(line.text())
+                                                            if line.text() else "", file_filter)
+            if path:
+                stored = groomlab.portable_path(path)
+                line.setText(stored)
+                set_value(stored)
+        browse.clicked.connect(lambda _=False: pick())
+        row.addWidget(line)
+        row.addWidget(browse)
+        holder.line = line
+        return holder
+
+    def suggestions(self, node, param):
+        """([names], placeholder) to offer in a text param naming something that exists, else None."""
+        model = self.editor.model
+        op_type = model.node_type(node)
+        import groomlab
+        from maya import cmds
+        groom = self.editor.groom
+        channel = (model.param_spec(node, param) or {}).get("channel")
+        if channel == "reads":  # the attributes reaching this node
+            return [c["name"] for c in self.editor.channel_sources(node)], "none"
+        if channel == "writes":  # a name of its own: nothing to pick
+            return [], "none (no attribute)"
+        if op_type == "Gravity" and param == "directionColorSet":
+            return self.editor.color_sets(), "none (the direction above)"
+        if op_type == "Part" and param == "part":
+            try:
+                return (groomlab.list_parts(groom) if groom else []), "every part"
+            except RuntimeError:
+                return [], "every part"
+        if (op_type == "Map" and param == "name") or (op_type == "HairColor" and param == "map") or \
+                (op_type == "Interpolate" and param == "regionMap"):
+            if op_type in ("HairColor", "Interpolate"):
+                try:
+                    # Color maps first: they paint hair color and regions (a gray map reads as gray).
+                    # Guide layers lie on the guides: regions are painted on the scalp.
+                    entries = groomlab.maps(groom) if groom else []
+                except RuntimeError:
+                    entries = []
+                if op_type == "Interpolate":
+                    entries = [m for m in entries if m.get("kind") != "guides"]
+                names = [m["name"] for m in entries if m.get("channels") == 4] + \
+                        [m["name"] for m in entries if m.get("channels") != 4]
+                # Then the scalp's own color sets (an image file's path can be typed in).
+                names += [s for s in self.editor.color_sets() if s not in names]
+                return names, "none (a color map from Groom Tools > Paint, a color set, or an image file)"
+            try:
+                names = groomlab.list_maps(groom) if groom else []
+            except RuntimeError:
+                names = []
+            return names, "a map (Groom Tools > Paint > New...)"
+        if op_type in ("Instance", "Scales") and param == "prototype":
+            meshes = cmds.ls(type="mesh", noIntermediate=True, long=False) or []
+            return sorted({(cmds.listRelatives(m, parent=True) or [m])[0] for m in meshes})[:200], "a mesh"
+        if op_type == "Control" and param == "name":
+            names = []
+            if groom:
+                names = [a[4:] for a in (cmds.listAttr(groom, userDefined=True) or []) if a.startswith("ctl_")]
+            return names, "the slider's name"
+        return None
+
+    def group_editor(self, param, value, set_value):
+        """The groom's guide groups to pick from, one or several: which to read (group) or leave out (exclude)."""
+        import groomlab
+        groups = groomlab.list_guide_groups(self.editor.groom) if self.editor.groom else []
+        tip = ("Guide groups of this groom: %s.\nSee them (counts, levels, where they come from) under Guide "
+               "groups & edits in the Groom Tools." % (", ".join(g["name"] for g in groups) or "none yet"))
+        details = {g["name"]: "%d guides, level %d" % (g["count"], g["depth"]) for g in groups}
+        placeholder = "every group at the node's level" if param == "group" else "none"
+        w = names_editor(value, [g["name"] for g in groups], set_value, placeholder,
+                         "Pick groups to read" if param == "group" else "Pick groups to leave out", details)
+        panel = QtWidgets.QToolButton()
+        panel.setText("...")
+        panel.setToolTip("Open the guide groups in the Groom Tools")
+        panel.clicked.connect(self.open_groups)
+        w.layout().addWidget(panel)
+        w.setToolTip(tip)
+        return w
+
+    def open_groups(self):
+        from groomlab.ui import palette
+        palette.show(tab="guides")
+
+
+class MappableEditor(QtWidgets.QWidget):
+    """A value, or a texture / color set / attribute / expression / painted map (PG-2)."""
+
+    SOURCES = ["value", "texture", "colorSet", "attribute", "expression", "guide"]
+    LABELS = {"value": "value", "texture": "texture", "colorSet": "color set (scalp paint)",
+              "attribute": "strand attribute", "expression": "expression", "guide": "painted map"}
+
+    def __init__(self, panel, node, spec, value):
+        super(MappableEditor, self).__init__()
+        self.panel, self.node, self.spec = panel, node, spec
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(theme.px(4))
+        self.body = QtWidgets.QWidget()
+        layout.addWidget(self.body, 1)
+        # Where the value comes from: a plain value most of the time, so the choice is a small
+        # menu beside it rather than a dropdown row over every mappable param.
+        self.source = QtWidgets.QToolButton()
+        self.source.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        self.source.setToolTip("Drive this param with a map: painted map (Groom Tools > Paint; works anywhere, "
+                               "including Scatter density), texture, color set, strand attribute (a channel "
+                               "written upstream) or expression")
+        self.source.setProperty("role", "glyph")
+        menu = QtWidgets.QMenu(self.source)
+        group = qt.QActionGroup(menu)
+        self.source_actions = {}
+        for key in self.SOURCES:
+            action = menu.addAction(self.LABELS[key].capitalize())
+            action.setCheckable(True)
+            group.addAction(action)
+            action.triggered.connect(lambda _=False, k=key: self.switch(k))
+            self.source_actions[key] = action
+        self.source.setMenu(menu)
+        layout.addWidget(self.source, 0, QtCore.Qt.AlignTop)
+        self.value = value
+        # The number to come back to when switching off a map: the value now, else the map's
+        # white value (what a map at 1 gave), else the default.
+        if isinstance(value, dict):
+            self.last_plain = value.get("max", self.spec["default"])
+        else:
+            self.last_plain = value
+        current = "value"
+        if isinstance(value, dict):
+            current = gm.map_source(value) or "value"
+        self.build(current)
+
+    def switch(self, source):
+        if source == "value":
+            self.value = self.last_plain
+        else:
+            plain = self.value if not isinstance(self.value, dict) else self.last_plain
+            top = float(plain) if isinstance(plain, (int, float)) and not isinstance(plain, bool) else 1.0
+            self.value = {source: "", "component": "r", "min": 0.0, "max": top or 1.0}
+        self.build(source)
+        # The model takes the change at once, even a map without a name yet: validate() flags
+        # it (the status bar says so, and nothing is applied) until a name is given.
+        self.commit()
+
+    def build(self, source):
+        self.current = source
+        for key, action in self.source_actions.items():
+            action.setChecked(key == source)
+        self.source.setText("Map" if source == "value" else "\u25c9 " + self.LABELS[source].split(" (")[0])
+        old = self.body
+        self.body = QtWidgets.QWidget()
+        self.layout().replaceWidget(old, self.body)
+        old.hide()  # gone once the event loop gets to it; until then it must not cover the row
+        old.deleteLater()
+        self._fill(source)
+        self.panel.editor.watch_text_edits(self.body)  # Ctrl+Z in a new text field: its typing first
+
+    def _fill(self, source):
+        if source == "value":
+            row = QtWidgets.QHBoxLayout(self.body)
+            row.setContentsMargins(0, 0, 0, 0)
+            plain = self.panel.plain_editor(self.node, self.spec, self.value if not isinstance(self.value, dict)
+                                            else self.spec["default"], on_change=self.set_plain,
+                                            on_preview=self.preview_plain)
+            row.addWidget(plain)
+            return
+        form = QtWidgets.QFormLayout(self.body)
+        form.setContentsMargins(0, 0, 0, 0)
+        if source in ("guide", "attribute"):
+            # The groom's painted layers to pick from; any other name can be typed.
+            name = QtWidgets.QComboBox()
+            name.setEditable(True)
+            name.addItems(self.layers(source))
+            name.setCurrentText(self.value.get(source, ""))
+            name.lineEdit().setPlaceholderText("painted map" if source == "guide" else "strand channel or painted map")
+            name.lineEdit().editingFinished.connect(lambda: self.set_field(source, name.currentText()))
+            name.activated.connect(lambda _: self.set_field(source, name.currentText()))
+            form.addRow("map" if source == "guide" else "name", name)
+            self.add_range(form, source)
+            return
+        if source == "colorSet":  # the scalp's color sets to pick from
+            box = suggest_box(self.value.get(source, ""), self.panel.editor.color_sets(),
+                              lambda v: self.set_field(source, v), "color set on the scalp")
+            form.addRow("name", box)
+            component = QtWidgets.QComboBox()
+            component.addItems(["r", "g", "b", "a", "luminance"])
+            component.setCurrentText(self.value.get("component", "r"))
+            component.currentTextChanged.connect(lambda c: self.set_field("component", c))
+            form.addRow("component", component)
+            self.add_range(form, source)
+            return
+        if source == "expression":
+            from groomlab.ui import expression_editor
+            code = expression_editor.CodeEdit(self.value.get(source, ""), lines=3,
+                                              validator=lambda t: __import__("groomlab.expressions").expressions.check(t))
+            code.setToolTip("Type $ for variables, or Ctrl+Space")
+            code.committed.connect(lambda text: self.set_field(source, text))
+            form.addRow(code)
+            self.add_range(form, source)
+            return
+        name = QtWidgets.QLineEdit(self.value.get(source, ""))
+        name.setPlaceholderText({"texture": "image file", "colorSet": "color set on the scalp",
+                                 "attribute": "strand channel", "guide": "painted map on the guides",
+                                 "expression": "e.g. 0.5 + 0.5 * sin(u * 6.28)"}[source])
+        name.editingFinished.connect(lambda: self.set_field(source, name.text()))
+        if source == "texture":
+            holder = QtWidgets.QWidget()
+            row = QtWidgets.QHBoxLayout(holder)
+            row.setContentsMargins(0, 0, 0, 0)
+            browse = QtWidgets.QPushButton("...")
+            browse.setFixedWidth(theme.px(28))
+            browse.clicked.connect(lambda: self.browse(name))
+            row.addWidget(name)
+            row.addWidget(browse)
+            form.addRow("file", holder)
+        else:
+            form.addRow({"expression": "expression", "guide": "map"}.get(source, "name"), name)
+        if source in ("texture", "colorSet"):
+            component = QtWidgets.QComboBox()
+            component.addItems(["r", "g", "b", "a", "luminance"])
+            component.setCurrentText(self.value.get("component", "r"))
+            component.currentTextChanged.connect(lambda c: self.set_field("component", c))
+            form.addRow("component", component)
+        self.add_range(form, source)
+
+    def add_range(self, form, source):
+        """min and max: what the map's 0 (black) and 1 (white) become (in the param's display units)."""
+        from groomlab import units
+        kind = self.spec.get("unit") or ""
+        f = units.factor(kind)
+        suffix = (" " + units.label(kind)) if units.label(kind) else ""
+        for key in ("min", "max"):
+            box = widgets.CompactSpinBox()
+            box.setRange(-1e9, 1e9)
+            box.setDecimals(6)
+            box.setValue(float(self.value.get(key, 0.0 if key == "min" else 1.0)) * f)
+            box.setToolTip("the value where the map is %s" % ("0 (black)" if key == "min" else "1 (white)"))
+            box.editingFinished.connect(lambda k=key, b=box: self.set_field(k, b.value() / f))
+            form.addRow("%s (%s)%s" % (key, "black" if key == "min" else "white", suffix), box)
+
+    def layers(self, source="guide"):
+        """Names to offer: painted maps, and for a strand attribute the channels reaching this node too."""
+        editor = self.panel.editor
+        names = editor.channels_into(self.node) if source == "attribute" else []
+        if editor.groom:
+            try:
+                import groomlab
+                names += [m for m in groomlab.list_maps(editor.groom) if m not in names]
+            except Exception:
+                pass
+        return names
+
+    def browse(self, line_edit):
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self.window(), "Map image", line_edit.text(), "Images (*.png *.jpg *.jpeg *.tga *.bmp *.psd *.hdr *.pgm *.ppm)")
+        if path:
+            line_edit.setText(path)
+            self.set_field("texture", path)
+
+    def set_plain(self, v):
+        self.value = v
+        self.last_plain = v
+        self.commit()
+
+    def preview_plain(self, v):
+        self.panel.editor.preview_param(self.node, self.spec["name"], v)
+
+    def set_field(self, key, v):
+        self.value[key] = v
+        self.commit()
+
+    def commit(self):
+        self.panel.editor.set_param(self.node, self.spec["name"], self.value)
+
+
+# ---------------------------------------------------------------------------
+# Editor
+
+
+class GraphEditor(QtWidgets.QWidget):
+    """The editor widget; `show()` below wraps it in a dockable Maya panel."""
+
+    def __init__(self, groom=None, catalog=None, parent=None):
+        super(GraphEditor, self).__init__(parent)
+        apply_theme()
+        self.setWindowTitle("GroomLab Graph Editor")
+        self.setWindowIcon(widgets.icon("logo"))
+        widgets.fit_to_screen(self, theme.px(1200), theme.px(600))  # within a small screen
+        self.catalog = catalog
+        self.groom = None
+        self.model = None
+        self.items = {}
+        self._linked_inputs = set()   # (node, input) pairs with a link, and
+        self._linked_outputs = set()  # (node, output) feeding something: for the port dots, once per rebuild
+        self.live = True
+        self._preview_base = None  # the stored graph before a slider drag
+        self._key_preview = None   # a keyed param's slider drag: its attributes, their values before, now
+        self.viewed = None         # the node the viewport shows (the Focus toggle)
+        self.node_errors = {}      # node -> error text from the last evaluation
+        self.node_warnings = {}    # node -> a warning (a Cards node whose maps want a rebake)
+        self.node_notes = {}       # node -> a note: it does nothing as set (a Clump with no centers)
+        self.node_times = {}       # node -> ms of the last evaluation
+        self.node_channels = {}    # node -> strand channels in its last result
+
+        self.scene = GraphScene(self)
+        self.scene.selectionChanged.connect(self.selection_changed)
+        self.view = GraphView(self.scene)
+        self.params = ParamPanel(self)
+        self.status = QtWidgets.QLabel()
+
+        toolbar = QtWidgets.QToolBar()
+        self.groom_box = QtWidgets.QComboBox()
+        self.groom_box.setMinimumWidth(theme.px(180))
+        self.groom_box.setToolTip("The groom whose graph this is (selecting a groom shows its graph)")
+        self.groom_box.activated.connect(lambda i: self.set_groom(self.groom_box.itemText(i)))
+        toolbar.addWidget(self.groom_box)
+        toolbar.addSeparator()
+
+        def popup(text, menu, tip):
+            button = QtWidgets.QToolButton()
+            button.setText(text)
+            button.setToolTip(tip)
+            button.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+            button.setMenu(menu)
+            toolbar.addWidget(button)
+            return button
+
+        # Parented and kept: an unowned QMenu is garbage-collected and the button does nothing.
+        self.add_menu = self.build_add_menu()
+        popup("Add Node  ▾", self.add_menu, "Add a node (after the selected one). Also: right-click the canvas, or Tab")
+        self.preset_menu = QtWidgets.QMenu(self)
+        self.preset_menu.aboutToShow.connect(self.fill_preset_menu)
+        self.preset_menu.setToolTipsVisible(True)  # each preset's description
+        popup("Presets  ▾", self.preset_menu,
+              "Start from a look (hair, fur, feathers), a technique to learn from (blending, layers, maps, "
+              "motion...), save this graph as a preset, or copy and paste the whole graph as text to share it")
+        spacer = QtWidgets.QWidget()
+        spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        spacer.setStyleSheet("background: transparent;")
+        toolbar.addWidget(spacer)
+        self.live_box = QtWidgets.QCheckBox("Live")
+        self.live_box.setChecked(True)
+        self.live_box.setToolTip("Every edit applies to the groom at once (one undo step each). Off: edit, then Apply")
+        self.live_box.toggled.connect(self.set_live)
+        toolbar.addWidget(self.live_box)
+        self.apply_action = toolbar.addAction("Apply", self.apply)
+        self.apply_action.setToolTip("Write the graph to the groom")
+        self.apply_action.setVisible(False)  # only while Live is off
+        # Everything else: one menu. Undo and redo are Maya's, with their keys taken while the
+        # focus is in the editor (Qt widgets, the graph view first, would otherwise keep Ctrl+Z
+        # from Maya's hotkeys). QShortcuts rather than action shortcuts: an ambiguous match
+        # (another Ctrl+Z shortcut in the same window) still undoes instead of going nowhere.
+        self.edit_menu = QtWidgets.QMenu(self)
+        self.undo_action = self.edit_menu.addAction("Undo", self.undo)
+        self.redo_action = self.edit_menu.addAction("Redo", self.redo)
+        self.edit_menu.aboutToShow.connect(self.fill_edit_menu)
+        self.fill_edit_menu(names=False)
+        self.edit_menu.addSeparator()
+        self.edit_menu.addAction("Frame\tF", lambda: self.view.frame()).setToolTip(
+            "Fit the selected nodes in the view, or the whole graph (F; A: everything)")
+        self.edit_menu.addAction("Tidy Layout", self.layout_nodes)
+        self.edit_menu.addSeparator()
+        self.edit_menu.addAction("Group into Compound	Ctrl+G", self.collapse_selected).setToolTip(
+            "Collapse the selected nodes into a Compound node")
+        self.edit_menu.addAction("Ungroup Compound	Ctrl+Shift+G", self.expand_selected).setToolTip(
+            "Put the selected Compound nodes' nodes back in the graph, to see and edit them")
+        self.edit_menu.addAction("Delete\tDel", self.delete_selected)
+        self.edit_menu.addSeparator()
+        self.add_graph_text_actions(self.edit_menu)
+        self.edit_menu.addSeparator()
+        self.units_menu = QtWidgets.QMenu("Units", self.edit_menu)
+        self.units_menu.setToolTip("Show lengths, widths and densities in real units")
+        self.units_menu.aboutToShow.connect(self.fill_units_menu)
+        self.edit_menu.addMenu(self.units_menu)
+        self.edit_menu.addMenu(widgets.theme_menu(self.edit_menu))
+        self.gpu_action = self.edit_menu.addAction("Preview Drags on the GPU", self.set_gpu_preview)
+        self.gpu_action.setCheckable(True)
+        self.gpu_action.setToolTip("Dragging a value of Interpolate (radius), Length, Clump, Noise, Curl or Width, "
+                                   "and brushing guides, draws on the graphics card without evaluating (the "
+                                   "release evaluates as ever); off: every drag and dab evaluates")
+        self.edit_menu.aboutToShow.connect(self.sync_gpu_action)
+        self.sync_gpu_action()
+        self.edit_menu.addSeparator()
+        self.edit_menu.addAction("Reload from Groom", self.reload)
+        self.edit_menu.setToolTipsVisible(True)
+        more = popup("", self.edit_menu, "Undo, layout, grouping, copy and paste the whole graph, units, theme")
+        more.setIcon(widgets.glyph("more"))
+        more.glyph = "more"
+        more.setProperty("role", "glyph")
+        self._shortcuts = []
+        for keys, slot in ((UNDO_KEYS, self.undo), (REDO_KEYS, self.redo)):
+            for key in keys:
+                shortcut = qt.QShortcut(key, self)
+                shortcut.setContext(QtCore.Qt.WidgetWithChildrenShortcut)
+                shortcut.activated.connect(slot)
+                shortcut.activatedAmbiguously.connect(slot)
+                self._shortcuts.append(shortcut)
+        # S with the mouse over a param keys it, as over a channel in Maya's Channel Box; elsewhere in
+        # the editor it is Maya's Set Key. Text fields keep S for typing (they take it first).
+        shortcut = qt.QShortcut(QtGui.QKeySequence("S"), self)
+        shortcut.setContext(QtCore.Qt.WidgetWithChildrenShortcut)
+        shortcut.activated.connect(self.key_hovered)
+        shortcut.activatedAmbiguously.connect(self.key_hovered)
+        self._shortcuts.append(shortcut)
+
+        splitter = QtWidgets.QSplitter()
+        splitter.addWidget(self.view)
+        splitter.addWidget(self.params)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(theme.px(10), theme.px(8), theme.px(10), theme.px(8))
+        layout.setSpacing(theme.px(8))
+        layout.addWidget(toolbar)
+        layout.addWidget(splitter, 1)
+        layout.addWidget(self.status)
+        self.status.setProperty("role", "about")
+
+        theme.style(self)
+        theme.listen(self, "restyle")
+        self._graph_job = None     # callback: the groom's graph changed outside the editor
+        self._time_job = None      # scriptJob: the time changed (timings and errors follow)
+        self._sync_pending = False
+        self._selection_job = None  # scriptJob: follow the selected groom
+        self._watch_selection()
+        self.refresh_grooms()
+        if groom:
+            self.set_groom(groom)
+
+    def restyle(self, t):
+        """A new theme: the graph's colors, and the param panel's widgets."""
+        apply_theme(t)
+        for button in self.findChildren(QtWidgets.QToolButton):
+            if getattr(button, "glyph", None):
+                button.setIcon(widgets.glyph(button.glyph))
+        self.scene.setBackgroundBrush(CANVAS)
+        if self.model is not None:
+            self.rebuild()  # links take their colors when made
+        self.scene.update()
+        self.params.show_node(self.params.node)
+
+    # -- Keeping up with the scene ---------------------------------------------
+
+    def _kill_job(self, job):
+        from maya import cmds
+        if job is not None and cmds.scriptJob(exists=job):
+            try:
+                cmds.scriptJob(kill=job, force=True)
+            except RuntimeError:  # the job is running (killed from its own callback): once it is done
+                cmds.evalDeferred(lambda: cmds.scriptJob(exists=job) and cmds.scriptJob(kill=job, force=True))
+
+    def _watch_graph(self):
+        """Reload when the groom's graph changes elsewhere (a preset or example, a script, undo
+        and redo); refresh the timings and errors when its guides or the time change."""
+        from maya import cmds
+        from maya.api import OpenMaya as om
+        self._unwatch_graph()
+        if not self.groom:
+            return
+        try:
+            node = om.MSelectionList().add(self.groom).getDependNode(0)
+        except RuntimeError:
+            return
+
+        def changed(message, plug, other, data):
+            if message & (om.MNodeMessage.kConnectionMade | om.MNodeMessage.kConnectionBroken):
+                # The scalp or a collider rewired (the Attribute Editor, a script): a Scalp or
+                # ColliderMesh node's panel shows the mesh it reads now.
+                root = plug.partialName(useLongNames=True, useFullAttributePath=True).split("[")[0].split(".")[0]
+                if root in ("inMesh", "colliderMeshes", "extraScalps") and widgets.alive(self):
+                    self.params.scene_soon()
+                return
+            if not (message & om.MNodeMessage.kAttributeSet):
+                return
+            attr = plug.partialName(useLongNames=True)
+            if attr not in self.WATCH and not attr.startswith("ctl_"):
+                return
+            if not widgets.alive(self):  # the editor was deleted without closing
+                try:
+                    om.MMessage.removeCallback(job[0])
+                except RuntimeError:
+                    pass
+                return
+            if attr == "graph":
+                self._graph_changed()
+            elif attr.startswith("ctl_"):  # a keyed param's attribute: its field shows the value
+                self._keys_soon()
+            else:  # a brush stroke, a corrective, flow: times and errors change
+                self.status_soon()
+
+        job = [om.MNodeMessage.addAttributeChangedCallback(node, changed)]
+        self._graph_job = job[0]
+        try:
+            self._time_job = cmds.scriptJob(event=["timeChanged", self._time_changed])
+        except RuntimeError:  # no UI events (batch)
+            self._time_job = None
+
+    # The groom's attributes whose change means new timings and errors (graph: a reload too).
+    WATCH = ("graph", "guideData", "correctiveData", "flowData", "partData", "viewNode", "cardMaps")
+
+    def _unwatch_graph(self):
+        from maya.api import OpenMaya as om
+        if self._graph_job is not None:
+            try:
+                om.MMessage.removeCallback(self._graph_job)
+            except RuntimeError:
+                pass
+            self._graph_job = None
+        self._kill_job(getattr(self, "_time_job", None))
+        self._time_job = None
+
+    def _time_changed(self):
+        """A new frame: keyed params show their values and states now, timings and errors once it settles."""
+        if widgets.alive(self):
+            try:
+                if self.isVisible():
+                    self.params.refresh_keys()
+            except RuntimeError:
+                pass
+        self.status_soon()
+
+    def _keys_soon(self):
+        """Refresh the keyed params' fields once the change is done (not inside Maya's callback)."""
+        if not getattr(self, "_keys_pending", False):
+            self._keys_pending = True
+
+            def refresh():
+                self._keys_pending = False
+                if widgets.alive(self) and self._key_preview is None:  # not mid-drag: the slider leads
+                    self.params.refresh_keys()
+            QtCore.QTimer.singleShot(0, refresh)
+
+    def key_hovered(self):
+        """S: key the param under the mouse (Maya's Set Key when there is none)."""
+        param = self.params.hovered_param() if self.params.node else None
+        if param:
+            return self.params.set_key(self.params.node, param)
+        from maya import mel
+        try:
+            mel.eval("SetKey")
+        except RuntimeError:
+            pass
+        return None
+
+    def sync_now(self):
+        """Show the groom's graph now if it changed (a key edit linked or unlinked a param)."""
+        self._sync_pending = False
+        self._sync_from_groom()
+
+    def status_soon(self):
+        """refresh_status once things settle: strokes and scrubbing fire many changes a second."""
+        if not widgets.alive(self):  # the editor was deleted without closing: stop following the time
+            job, self._time_job = self._time_job, None
+            self._kill_job(job)
+            return
+        try:
+            timer = self._status_timer
+        except AttributeError:
+            timer = self._status_timer = QtCore.QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(250)
+            timer.timeout.connect(self._status_now)
+        if not timer.isActive():
+            timer.start()
+
+    def _status_now(self):
+        from maya import cmds
+        try:
+            if not self.isVisible() or not self.groom or not cmds.objExists(self.groom):
+                return
+        except RuntimeError:
+            return
+        if self.previewing():
+            return  # a slider drag: apply() refreshes when it commits
+        if _time_moving():
+            self.status_soon()  # playing or scrubbing: once the frame settles
+            return
+        if self._status_stamp() == getattr(self, "_status_drawn", None):
+            return  # nothing evaluated since the badges were drawn
+        self.refresh_status()
+
+    def _status_stamp(self):
+        """What the status shows depends on: the groom's evaluations (errors, timings, notes) and its
+        bake (cardMaps: stale cards). None when it can't be read."""
+        from maya import cmds
+        try:
+            return (cmds.groomLabGraphStats(self.groom, evaluations=True), cmds.getAttr(self.groom + ".cardMaps"))
+        except (RuntimeError, ValueError, TypeError):
+            return None
+
+    def _graph_changed(self):
+        if not self._sync_pending:  # once, after the change settles
+            self._sync_pending = True
+            QtCore.QTimer.singleShot(0, self._sync_from_groom)
+
+    def _sync_from_groom(self):
+        from maya import cmds
+        self._sync_pending = False
+        try:
+            self.objectName()  # raises once the widget is gone
+            if not self.groom or not cmds.objExists(self.groom) or self.model is None:
+                return
+            text = cmds.getAttr(self.groom + ".graph") or "{}"
+        except RuntimeError:
+            return
+        if self.previewing() or text == self.model.to_json() or text == getattr(self, "_layout_text", None):
+            return  # our own edit, our own layout write (edits not applied yet stay), or a live slider drag
+        self.model = load_model(self.groom, self.catalog)
+        self.rebuild()  # keeps the selection where the names still exist
+        self.refresh_status()
+
+    def _watch_selection(self):
+        from maya import cmds
+        try:
+            self._selection_job = cmds.scriptJob(event=["SelectionChanged", self._selection_changed_in_maya])
+        except RuntimeError:  # no UI events (batch)
+            self._selection_job = None
+
+    def _selection_changed_in_maya(self):
+        """Selecting another groom (or its transform) shows its graph, unless a groom is pinned
+        (groomlab.pin_groom): then the tools, and this editor, stay on it (and move with the pin:
+        a groom made while one is pinned takes the pin)."""
+        import groomlab
+        from maya import cmds
+        try:
+            if not self.isVisible():
+                return
+        except RuntimeError:  # the widget is gone
+            self._kill_job(self._selection_job)
+            return
+        pinned = groomlab.pinned_groom()
+        grooms = [pinned] if pinned else cmds.ls(selection=True, dag=True, type="groomLabShape", long=False) or []
+        if len(grooms) == 1 and not _same_node(grooms[0], self.groom):
+            self.refresh_grooms()
+            self.set_groom(cmds.ls(grooms[0])[0])
+
+    def showEvent(self, event):
+        super(GraphEditor, self).showEvent(event)
+        if self._selection_job is None:  # closed and shown again
+            self._watch_selection()
+            self._watch_graph()
+            self._sync_from_groom()
+
+    def closeEvent(self, event):
+        self.stop_following()
+        super(GraphEditor, self).closeEvent(event)
+
+    def stop_following(self):
+        """Stop following Maya (the groom's callback, the time and selection scriptJobs, the status
+        timer): closing, or Maya quitting."""
+        self._unwatch_graph()
+        self._kill_job(self._selection_job)
+        self._graph_job = self._selection_job = None
+        timer = getattr(self, "_status_timer", None)
+        if timer is not None and widgets.alive(timer):
+            timer.stop()
+
+    @staticmethod
+    def silently(fn):
+        """Run fn with undo off: layout and view changes never make undo steps."""
+        from maya import cmds
+        cmds.undoInfo(stateWithoutFlush=False)
+        try:
+            return fn()
+        finally:
+            cmds.undoInfo(stateWithoutFlush=True)
+
+    # -- Undo and redo -----------------------------------------------------------
+
+    def undo(self, *_):
+        """Maya's undo (Ctrl+Z here): every applied edit is one step of the groom's graph."""
+        return self._step_history(redo=False)
+
+    def redo(self, *_):
+        """Maya's redo (Ctrl+Y, Ctrl+Shift+Z here)."""
+        return self._step_history(redo=True)
+
+    def _step_history(self, redo):
+        from maya import cmds
+        if self.previewing():
+            return False  # a slider drag previews outside undo: releasing it commits the step
+        verb = "redo" if redo else "undo"
+        name = cmds.undoInfo(query=True, redoName=True) if redo else cmds.undoInfo(query=True, undoName=True)
+        if not name:
+            self.report("nothing to " + verb)
+            return False
+        self.scene.cancel_drag()
+        try:
+            if redo:
+                cmds.redo()
+            else:
+                cmds.undo()
+        except RuntimeError as e:
+            self.report(str(e).strip())
+            return False
+        # The graph watcher reloads on the attribute change; this is the same path (once, after
+        # the change settles, and nothing when the graph is what the editor shows), for a step
+        # that touched something else, or an editor watching nothing yet.
+        self._graph_changed()
+        self.status_soon()
+        self._keys_soon()
+        self.report("%s: %s" % (verb, name.strip()))
+        return True
+
+    def fill_edit_menu(self, names=True):
+        """The Edit menu's Undo / Redo, named after the next step (as Maya's Edit menu), with their keys."""
+        for action, verb, keys, flag in ((self.undo_action, "Undo", UNDO_KEYS, "undoName"),
+                                         (self.redo_action, "Redo", REDO_KEYS, "redoName")):
+            step = ""
+            if names:
+                try:
+                    from maya import cmds
+                    step = (cmds.undoInfo(query=True, **{flag: True}) or "").strip()
+                except RuntimeError:
+                    step = ""
+            # The key after a tab is the menu's shortcut column: shown, without a second shortcut registered.
+            action.setText("%s%s\t%s" % (verb, " " + step if step else "",
+                                          keys[0].toString(QtGui.QKeySequence.NativeText)))
+
+    TEXT_EDITS = (QtWidgets.QLineEdit, QtWidgets.QTextEdit, QtWidgets.QPlainTextEdit, QtWidgets.QAbstractSpinBox)
+
+    def watch_text_edits(self, root):
+        """Text fields under `root` get Ctrl+Z for their own typing (eventFilter): a field with
+        nothing left to undo passes the key on to Maya's undo, as the rest of the editor does."""
+        for widget in [root] + root.findChildren(QtWidgets.QWidget):
+            if isinstance(widget, self.TEXT_EDITS) and not isinstance(widget.parent(), QtWidgets.QAbstractSpinBox):
+                widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.KeyPress and (undo_key(event) or redo_key(event)):
+            redo = redo_key(event)
+            if text_history(obj, redo):
+                return False  # the field undoes (redoes) its typing
+            self._step_history(redo)
+            return True
+        return super(GraphEditor, self).eventFilter(obj, event)
+
+    # -- Groom -------------------------------------------------------------
+
+    def refresh_grooms(self):
+        from maya import cmds
+        self.groom_box.clear()
+        self.groom_box.addItems(sorted(cmds.ls(type="groomLabShape") or []))
+        if self.groom:
+            self.groom_box.setCurrentText(self.groom)
+
+    def set_groom(self, groom):
+        self.groom = groom
+        self._groom_uuid = _uuid(groom)
+        self.catalog = self.catalog or gm.OperatorCatalog.from_maya()
+        self.model = load_model(groom, self.catalog)
+        self._watch_graph()
+        self.groom_box.setCurrentText(groom)
+        self.rebuild()
+        self.refresh_status()
+        self.view.auto_frame = True
+        QtCore.QTimer.singleShot(0, self.view.frame_readable)  # once the view has its size
+        self.report("")
+
+    def reload(self):
+        self.refresh_grooms()
+        if self.groom:
+            self.set_groom(self.groom)
+
+    # -- Scene -------------------------------------------------------------
+
+    def rebuild(self):
+        selected = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        self.scene.cancel_drag()
+        self.scene.blockSignals(True)
+        try:
+            self.scene.clear()
+            self.items = {}
+            for backdrop in self.model.backdrops:
+                self.scene.addItem(BackdropItem(self, backdrop))
+            for name in self.model.order:
+                item = NodeItem(self, name)
+                self.scene.addItem(item)
+                self.items[name] = item
+            self._linked_inputs = {(c["to"], c["input"]) for c in self.model.connections}
+            self._linked_outputs = set()
+            for c in self.model.connections:
+                if c["from"] in self.items and c["to"] in self.items:
+                    edge = EdgeItem(self.items[c["from"]], self.items[c["to"]], c["input"], c.get("output"))
+                    self.scene.addItem(edge)
+                    self._linked_outputs.add((c["from"], edge.output))
+            for name in selected:
+                if name in self.items:
+                    self.items[name].setSelected(True)
+        finally:
+            self.scene.blockSignals(False)
+        self.update_attribute_notes()
+        self.selection_changed()
+
+    def is_linked(self, node, port, is_output):
+        """Whether a port has a link (from the sets the last rebuild made: the scene is rebuilt on
+        every link change, so no scan of the connections per repaint)."""
+        if is_output:
+            return (node, port) in self._linked_outputs
+        return (node, port) in self._linked_inputs
+
+    # -- Search, view, bypass, copy and paste, backdrops ------------------------
+
+    def show_search(self, scene_pos, screen_pos):
+        """Type to find a node type; Enter adds it where you clicked (Tab or right-click the canvas)."""
+        if not self.model:
+            return
+        self.scene.cancel_drag()  # the popup takes the mouse: a link drag would never end
+        popup = NodeSearch(self, (scene_pos.x() - NODE_W / 2, scene_pos.y() - HEADER_H / 2))
+        popup.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+        popup.move(screen_pos)
+        popup.show()
+        popup.field.setFocus()
+        self._search = popup  # kept while open
+
+    def view_node(self, name):
+        """Show a node's strands in the viewport instead of the output's (renders still use the output)."""
+        self.viewed = name
+        if self.groom:
+            from maya import cmds
+            self.silently(lambda: cmds.setAttr(self.groom + ".viewNode", name or "", type="string"))
+            self.refresh_status()
+        for item in self.items.values():
+            item.update()
+        self.report("viewing %s (renders use the output)" % name if name else "")
+
+    def set_bypass(self, names, on):
+        for name in names:
+            self.model.set_bypass(name, on)
+        self.rebuild()
+        self.changed()
+
+    def set_evaluation(self, names, mode):
+        """When the nodes run: "always", "viewportOnly" or "renderOnly" (graph.EVALUATION_MODES)."""
+        for name in names:
+            self.model.set_evaluation(name, mode)
+        self.rebuild()
+        self.changed()
+        labels = {m: label for m, label, _ in EVALUATION_CHOICES}
+        self.report("%s: %s" % (", ".join(names), labels.get(mode, mode)) if mode != "always" else "")
+
+    def upgrade_node(self, name):
+        """The param panel's Upgrade: the node takes its operator's newest behaviour (applied as one
+        undo step when Live). False when it had it already."""
+        try:
+            done = self.model.upgrade_node(name)
+        except gm.GraphError as e:
+            self.report(str(e))
+            return False
+        if done:
+            self.rebuild()  # the panel's header drops the badge
+            self.changed()
+        return done
+
+    def copy_selected(self):
+        names = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        if names:
+            QtWidgets.QApplication.clipboard().setText(self.model.copy_nodes(names))
+            self.report("copied %d node%s" % (len(names), "s" if len(names) > 1 else ""))
+
+    def paste(self, offset=(40.0, 40.0)):
+        try:
+            names = self.model.paste_nodes(QtWidgets.QApplication.clipboard().text(), offset)
+        except (ValueError, gm.GraphError) as e:
+            self.report(str(e))
+            return []
+        self.rebuild()
+        self.scene.clearSelection()
+        for name in names:
+            self.items[name].setSelected(True)
+        self.changed()
+        return names
+
+    def duplicate(self, names):
+        if not names:
+            return []
+        QtWidgets.QApplication.clipboard().setText(self.model.copy_nodes(names))
+        return self.paste()
+
+    def add_backdrop(self, title="Backdrop"):
+        """A labelled frame around the selected nodes (or at the view's center); moving it moves them."""
+        selected = [self.items[i.name] for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        if selected:
+            rect = QtCore.QRectF()
+            for item in selected:
+                rect = rect.united(item.sceneBoundingRect())
+            rect = rect.adjusted(-30, -50, 30, 30)
+        else:
+            c = self.view.mapToScene(self.view.viewport().rect().center())
+            rect = QtCore.QRectF(c.x() - 200, c.y() - 120, 400, 240)
+        self.model.backdrops.append({"title": title, "x": rect.x(), "y": rect.y(), "w": rect.width(),
+                                     "h": rect.height(), "color": [70, 90, 120]})
+        self._layout_dirty = True
+        self.commit_layout()
+        self.rebuild()
+
+    def remove_backdrop(self, data):
+        if data in self.model.backdrops:
+            self.model.backdrops.remove(data)
+            self._layout_dirty = True
+            self.commit_layout()
+            self.rebuild()
+
+    CARDS_STALE = ("The baked maps are out of date for this node: its cards changed since Bake Maps (the "
+                   "strands it cards or its params), or the bake never had it, so the maps no longer fit them. "
+                   "Bake Maps again.")
+
+    def refresh_status(self):
+        """Error badges and timing tags from the groom's last evaluation; a warning badge on each
+        Cards node whose baked maps are out of date (only those whose own cards changed; a
+        compound holding one gets it); a grey note on each node that does nothing as set."""
+        import re
+        import groomlab_core
+        self.node_errors, self.node_times, self.node_warnings, self.node_notes = {}, {}, {}, {}
+        if not self.groom:
+            return
+        import groomlab
+        from maya import cmds
+        for error in groomlab.errors(self.groom):
+            match = re.match(r"node '([^']+)': (.*)", error, re.S)
+            if match:
+                self.node_errors[match.group(1)] = match.group(2)
+        try:
+            stats = json.loads(cmds.groomLabGraphStats(self.groom))
+            self.node_times = stats.get("times", {})
+            self.node_channels = stats.get("channels", {})
+            self.viewed = stats.get("view") or None
+            for path, info in (stats.get("cardNodes") or {}).items():
+                top = path.split("/")[0]
+                if info.get("stale") and top in self.model.nodes:
+                    self.node_warnings[top] = self.CARDS_STALE
+            # What nodes say that is not an error (a Jiggle with no scalp motion to react to, a
+            # Clump with no centers): a grey note.
+            for name, note in (stats.get("notes") or {}).items():
+                if name in self.model.nodes:
+                    self.node_notes[name] = note
+        except (RuntimeError, ValueError):
+            pass
+        # An Instance or Scales naming a mesh the scene does not have (the built-in plates always are).
+        for name in self.model.order:
+            if self.model.node_type(name) not in ("Instance", "Scales"):
+                continue
+            missing = groomlab_core.missing_instance_prototypes(self.model.param(name, "prototype") or "",
+                                                                cmds.objExists)
+            if missing:
+                note = "no mesh named %s in the scene: its instances do not draw or render" % ", ".join(missing)
+                self.node_notes[name] = note + ("; " + self.node_notes[name] if name in self.node_notes else "")
+        for name, item in self.items.items():
+            item.setToolTip(self.node_errors.get(name) or self.node_warnings.get(name) or self.note_of(name)
+                            or item.op_type)
+            item.update()
+        self._status_drawn = self._status_stamp()
+
+    def selection_changed(self):
+        nodes = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        # A Sculpt node selected: brushes shape its guides (before its panel shows, which says so).
+        if len(nodes) == 1 and self.model.node_type(nodes[0]) == "Sculpt":
+            self.target_sculpt(nodes[0])
+        self.params.show_node(nodes[0] if len(nodes) == 1 else None)
+
+    def sculpt_target(self):
+        """The Sculpt node brushes shape, or None."""
+        from groomlab import sculpts
+        return sculpts.target(self.groom) if self.groom else None
+
+    def target_sculpt(self, name):
+        """Brushes shape Sculpt node `name`'s guides (None: the base groom). A node the groom's graph
+        does not hold yet (not applied) is said, not picked. No undo step: what brushes shape is a
+        tool setting."""
+        from groomlab import sculpts, shots
+        if not self.groom:
+            return
+        if name and name not in sculpts.sculpt_nodes(self.groom):
+            self.report("apply the graph to brush %s's guides" % name)
+            return
+        if (sculpts.target(self.groom) or None) == (name or None):
+            return
+        self.silently(lambda: sculpts.set_target(self.groom, name) if name else shots.set_target(self.groom, None))
+
+    def clear_sculpt_edits(self, name):
+        """Drop Sculpt node `name`'s strokes (one undo step)."""
+        from groomlab import sculpts
+        if self.groom:
+            sculpts.clear_edits(self.groom, name)
+
+    def node_moved(self, name, pos):
+        if self.model is not None and name in self.model.nodes:
+            self.model.set_position(name, pos.x(), pos.y())
+            self._layout_dirty = True
+
+    def commit_layout(self):
+        if getattr(self, "_layout_dirty", False) and self.groom:
+            self._layout_dirty = False
+            self._layout_text = self.silently(lambda: self.model.save_layout(self.groom))
+
+    def layout_nodes(self):
+        self.model.auto_layout()
+        self.rebuild()
+        self.view.frame_all()
+        if self.groom:
+            self._layout_text = self.silently(lambda: self.model.save_layout(self.groom))
+
+    # -- Edits (each applies when Live) ---------------------------------------
+
+    def build_add_menu(self, at=None):
+        """Node types by category; `at` (a scene point) places the node there instead of wiring it."""
+        menu = QtWidgets.QMenu(self)
+        # Submenus made with an explicit parent and kept: PySide gives addMenu("title")
+        # results to Python, which garbage-collects them (empty categories).
+        menu.submenus = []
+        for category, types in categories(self.catalog):
+            sub = QtWidgets.QMenu(category, menu)
+            menu.addMenu(sub)
+            menu.submenus.append(sub)
+            for op_type in types:
+                sub.addAction(op_type, lambda t=op_type: self.add_node(t, at=at))
+        return menu
+
+    def add_node(self, op_type, at=None):
+        """Add a node; with one node selected (and no `at`), wire the new one after it."""
+        if not self.model:
+            self.report("select a groom first")
+            return None
+        center = self.view.mapToScene(self.view.viewport().rect().center())
+        selected = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        try:
+            name = self.model.add_node(op_type, pos=at or (center.x(), center.y()))
+        except (gm.GraphError, ValueError) as e:
+            self.report(str(e))
+            return None
+        if len(selected) == 1 and at is None:
+            src = selected[0]
+            try:
+                inputs = [p["name"] for p in self.model.node_spec(name)["inputs"]]
+                downstream = [d for d in self.model.downstream_of(src)
+                              if gm.types_match(self.model.output_type(name), self.model.input_spec(d[0], d[1])["type"])]
+                if inputs and downstream:
+                    self.model.insert_between(src, downstream[0][0], name)
+                elif inputs:
+                    self.model.connect(src, name, inputs[0])
+                x, y = self.model.position(src)
+                self.model.set_position(name, x + gm.LAYOUT_DX / 2, y + gm.LAYOUT_DY)
+            except gm.GraphError:
+                pass  # incompatible: leave it unconnected
+        self.rebuild()
+        self.scene.clearSelection()
+        self.items[name].setSelected(True)
+        self.changed()
+        return name
+
+    def guide_maps(self):
+        """The maps painted on the guides: Interpolate (and ToStrands) turn them into attributes."""
+        if not self.groom:
+            return []
+        try:
+            import groomlab
+            return [m["name"] for m in groomlab.maps(self.groom) if m.get("kind") == "guides"]
+        except Exception:
+            return []
+
+    def channels(self):
+        """The attributes per node as the graph is edited (GraphModel.channels), kept until it changes."""
+        if self.model is None:
+            return {}
+        maps = self.guide_maps()
+        key = (json.dumps(self.model.to_dict(), sort_keys=True), tuple(maps))
+        if getattr(self, "_channels_key", None) != key:
+            try:
+                self._channels = self.model.channels(maps)
+            except gm.GraphError:
+                self._channels = {}
+            self._channels_key = key
+        return self._channels
+
+    def update_attribute_notes(self):
+        """A grey note (the node's "i") on each node reading an attribute no node upstream writes."""
+        notes = {}
+        for name, info in self.channels().items():
+            missing = [r for r in info.get("reads", []) if not r["reaches"] and not r.get("optional")]
+            if missing:
+                notes[name] = "; ".join("reads the attribute %s (%s), which no node upstream writes: it is ignored"
+                                        % (r["name"], r["param"]) for r in missing)
+        changed = notes != getattr(self, "attribute_notes", {})
+        self.attribute_notes = notes
+        if changed:
+            for item in self.items.values():
+                item.update()
+
+    def note_of(self, name):
+        """The node's grey note: what its last evaluation said, and an attribute it reads that does not reach it."""
+        parts = [p for p in (self.node_notes.get(name), getattr(self, "attribute_notes", {}).get(name)) if p]
+        return "; ".join(parts)
+
+    def channel_sources(self, node):
+        """[{"name", "node"}] of the attributes reaching `node`, each with the node that wrote it last
+        (the graph as set), then any other the last evaluation found on what feeds it (a Reference's)."""
+        if self.model is None or node not in self.model.nodes:
+            return []
+        found = list(self.channels().get(node, {}).get("incoming", []))
+        names = {c["name"] for c in found}
+        for spec in self.model.node_spec(node)["inputs"]:
+            if spec["type"] not in ("Strands", "Curves"):
+                continue
+            source = self.model.source_of(node, spec["name"])
+            for name in self.node_channels.get(source, []) if source else []:
+                if name not in names and not name.startswith("_"):
+                    found.append({"name": name, "node": source})
+                    names.add(name)
+        return found
+
+    def channels_into(self, node):
+        """The names of the attributes reaching `node` (channel_sources): what its attribute maps
+        and reading params can read."""
+        return sorted(c["name"] for c in self.channel_sources(node))
+
+    def color_sets(self):
+        """The scalp's color sets."""
+        import groomlab
+        from maya import cmds
+        scalp = self.groom and groomlab.scalp_mesh(self.groom)
+        if not scalp:
+            return []
+        return cmds.polyColorSet(scalp, query=True, allColorSets=True) or []
+
+    # Not connect/disconnect: in Maya's dockable window those names reach
+    # QObject.connect/disconnect instead, and links silently failed.
+    def link(self, src, dst, input_name, detach=None, output=None):
+        """Link src's output `output` (a name; None: its first) to dst.input_name; `detach` (node,
+        input) is a link being moved: removed in the same step."""
+        try:
+            if detach and detach != (dst, input_name):
+                self.model.disconnect(*detach)
+            self.model.connect(src, dst, input_name, output=output, by_hand=True)
+        except gm.GraphError as e:
+            self.report(str(e))
+            self.rebuild()
+            return
+        self.rebuild()
+        self.changed()
+
+    def set_param_exposed(self, name, param, exposed):
+        """Give a param an input port (a field node can then drive it), or take it away."""
+        try:
+            if exposed:
+                self.model.expose_param(name, param)
+            else:
+                self.model.unexpose_param(name, param)
+        except gm.GraphError as e:
+            self.report(str(e))
+            return
+        QtCore.QTimer.singleShot(0, self.rebuild)  # not from inside the node's own menu
+        self.changed()
+
+    def unlink(self, dst, input_name):
+        self.model.disconnect(dst, input_name)
+        self.rebuild()
+        self.changed()
+
+    def delete_nodes(self, names):
+        for name in names:
+            self.model.remove_node(name)
+        self.rebuild()
+        self.changed()
+
+    def collapse(self, names):
+        """Selected nodes into one Compound node (PG-6)."""
+        try:
+            name = self.model.collapse(names)
+        except gm.GraphError as e:
+            self.report(str(e))
+            return None
+        self.rebuild()
+        self.items[name].setSelected(True)
+        self.changed()
+        return name
+
+    def collapse_selected(self):
+        names = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        if len(names) < 1:
+            self.report("select the nodes to group")
+            return None
+        return self.collapse(names)
+
+    def expand_selected(self):
+        names = [i.name for i in self.scene.selectedItems()
+                 if isinstance(i, NodeItem) and self.model.node_type(i.name) == "Compound"]
+        if not names:
+            self.report("select the Compound nodes to ungroup")
+            return
+        self.expand(names)
+
+    def expand(self, names):
+        """Ungroup Compound nodes: their nodes go back into the graph (one undo step)."""
+        done = []
+        for name in names:
+            try:
+                self.model.expand(name)  # leaves the graph as it was when it fails
+                done.append(name)
+            except (gm.GraphError, ValueError) as e:
+                self.report("%s: %s" % (name, e))
+        if done:
+            self.rebuild()
+            self.changed()
+
+    def delete_selected(self):
+        nodes = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        edges = [i for i in self.scene.selectedItems() if isinstance(i, EdgeItem)]
+        backdrops = [i.data for i in self.scene.selectedItems() if isinstance(i, BackdropItem)]
+        for e in edges:
+            self.model.disconnect(e.dst_item.name, e.input_name)
+        for name in nodes:
+            self.model.remove_node(name)
+        for data in backdrops:
+            self.model.backdrops.remove(data)
+            self._layout_dirty = True
+        if backdrops:
+            self.commit_layout()
+        if nodes or edges or backdrops:
+            self.rebuild()
+            self.changed()
+
+    def set_output(self, name):
+        self.model.set_output(name)
+        self.rebuild()
+        self.changed()
+
+    def bake_to_guides(self, name, group=None, density=1.0):
+        """A node's strands (or guides) into the groom's guides (groomlab.bake.bake_guides): the root
+        group is asked for when not given. The graph is applied first when the groom lacks the node.
+        Returns the new guide IDs, or None."""
+        import groomlab
+        from groomlab import bake
+        if not self.groom:
+            return None
+        stored = [n["name"] for n in groomlab.get_graph(self.groom, expand_default=True).get("nodes", [])]
+        if name not in stored and not self.apply():
+            return None
+        if group is None:
+            roots = [g["name"] for g in groomlab.list_guide_groups(self.groom) if g["depth"] == 0]
+            choices = ["baked"] + [r for r in roots if r != "baked"]
+            group, ok = QtWidgets.QInputDialog.getItem(self, "Bake to Guides", "%s's strands into root group:" % name,
+                                                       choices, 0, True)
+            if not ok or not group.strip():
+                return None
+            group = group.strip()
+        try:
+            ids = bake.bake_guides(self.groom, name, group=group, density=density)
+        except (RuntimeError, ValueError) as e:
+            self.report(str(e))
+            return None
+        self.report("baked %d guides from %s into %s" % (len(ids), name, group))
+        return ids
+
+    def rename_node(self, name):
+        new, ok = QtWidgets.QInputDialog.getText(self, "Rename node", "Name:", text=name)
+        if ok and new and new != name:
+            try:
+                self.model.rename_node(name, new)
+            except gm.GraphError as e:
+                self.report(str(e))
+                return
+            self.rebuild()
+            self.changed()
+
+    def keyed(self, name, param):
+        """Whether a param is keyed (linked to its attribute on the groom): edits then go there."""
+        return bool(self.groom) and self.model.control_of(name, param) is not None
+
+    def previewing(self):
+        """Whether a slider drag is previewing on the groom (outside undo, until it commits)."""
+        return (self._preview_base is not None or self._key_preview is not None
+                or getattr(self, "_preview_pending", False) or getattr(self, "_gpu_dragging", False))
+
+    def sync_gpu_action(self):
+        """The menu's check follows the preference (another editor, a script may have changed it)."""
+        try:
+            import groomlab
+            on = groomlab.gpu_preview()
+        except (RuntimeError, AttributeError, TypeError):  # the plugin is not loaded
+            on = False
+        self.gpu_action.blockSignals(True)
+        self.gpu_action.setChecked(on)
+        self.gpu_action.blockSignals(False)
+
+    def set_gpu_preview(self, on=None):
+        """Preview Drags on the GPU, for this session and the next (groomlab.gpu_preview)."""
+        import groomlab
+        try:
+            groomlab.gpu_preview(self.gpu_action.isChecked() if on is None else bool(on))
+        except (RuntimeError, AttributeError, TypeError) as e:
+            self.report(str(e))
+        self.sync_gpu_action()
+
+    def _gpu_preview(self, name, param, value):
+        """The GPU look preview (on unless turned off: groomlab.gpu_preview): a drag of a number, a
+        seed or a profile's ramp of a node the GPU runs (Noise, Curl, Width, Clump, Length,
+        Interpolate) draws from the GPU, the graph (and a keyed param's attribute) left alone until
+        the release commits it on the CPU (set_param: a keyed one keys its attribute). A vec3
+        (Curl's weightDirection) goes as a vector. False: preview as ever (the command says
+        whether the GPU takes the groom as it is)."""
+        flags = gpu_drag_flags(value)
+        if (not (self.live and self.groom) or flags is None
+                or self._preview_base is not None or self._key_preview is not None):
+            return False
+        from maya import cmds
+        try:
+            taken = cmds.groomLabGpuPreview(self.groom, node=name, param=param, **flags)
+        except (RuntimeError, TypeError, AttributeError):  # no such command: the switch was off at load
+            return False
+        if taken:
+            if not self.keyed(name, param):  # a keyed param's own value stays (its attribute takes the release)
+                self.model.set_param(name, param, value)
+            self._gpu_dragging = True
+            cmds.refresh(currentView=True, force=False)
+        return bool(taken)
+
+    def preview_param(self, name, param, value):
+        """Show a value on the groom while a slider is dragged, outside undo; set_param commits it.
+        Writes are coalesced (at most one per 40 ms, the latest value): each is a full evaluation.
+        A keyed param previews through its attribute instead of the graph."""
+        if self._gpu_preview(name, param, value):
+            return
+        if self.keyed(name, param):
+            self._preview_keyed(name, param, value)
+            return
+        self.model.set_param(name, param, value)
+        if not (self.live and self.groom) or self.model.validate():
+            return
+        if self._preview_base is None:  # a drag is on from now: syncing from the groom must not undo it
+            from maya import cmds
+            self._preview_base = cmds.getAttr(self.groom + ".graph") or ""
+        if not getattr(self, "_preview_pending", False):
+            self._preview_pending = True
+            QtCore.QTimer.singleShot(40, self._write_preview)
+
+    def _preview_keyed(self, name, param, value):
+        """A keyed param's drag: its attribute takes the value live, outside undo. end_preview puts
+        the attribute back, so releasing commits one undo step (a key with Auto Key on) from it."""
+        import groomlab
+        from maya import cmds
+        if not (self.live and self.groom) or isinstance(value, dict) or not self.same_groom():
+            return
+        if self._key_preview is None:
+            plugs = groomlab.param_plugs(self.groom, name, param)
+            if not plugs:
+                return
+            self._key_preview = {"plugs": plugs, "before": [cmds.getAttr(p) for p in plugs], "values": None}
+        values = list(value) if len(self._key_preview["plugs"]) == 3 else [value]
+        self._key_preview["values"] = [float(v) for v in values]
+        if not getattr(self, "_preview_pending", False):
+            self._preview_pending = True
+            QtCore.QTimer.singleShot(40, self._write_preview)
+
+    def _set_silently(self, plugs, values):
+        """Set attributes outside undo (a drag's preview, or putting it back)."""
+        from maya import cmds
+        cmds.undoInfo(stateWithoutFlush=False)
+        try:
+            for plug, v in zip(plugs, values):
+                cmds.setAttr(plug, v)
+        except RuntimeError:  # the attribute went (undo, another groom)
+            pass
+        finally:
+            cmds.undoInfo(stateWithoutFlush=True)
+
+    def _write_preview(self):
+        self._preview_pending = False
+        if self._key_preview is not None:
+            if self._key_preview["values"] is not None and self.same_groom():
+                from maya import cmds
+                self._set_silently(self._key_preview["plugs"], self._key_preview["values"])
+                cmds.refresh(currentView=True, force=False)
+            return
+        if not (self.live and self.groom) or self.model.validate() or not self.same_groom():
+            return
+        from maya import cmds
+        if self._preview_base is None:
+            self._preview_base = cmds.getAttr(self.groom + ".graph") or ""
+        cmds.undoInfo(stateWithoutFlush=False)
+        try:
+            cmds.setAttr(self.groom + ".graph", self.model.to_json(), type="string")
+        finally:
+            cmds.undoInfo(stateWithoutFlush=True)
+        cmds.refresh(currentView=True, force=False)
+
+    def end_preview(self):
+        """Put back the graph (or a keyed param's attribute) from before a slider drag, silently, so
+        the commit is one undo step from it."""
+        self._preview_pending = False  # a write still waiting is superseded by the commit
+        if getattr(self, "_gpu_dragging", False):
+            self._gpu_dragging = False
+            try:
+                from maya import cmds
+                cmds.groomLabGpuPreview(self.groom, endDrag=True)
+            except (RuntimeError, TypeError, AttributeError):
+                pass
+        keyed, self._key_preview = self._key_preview, None
+        if keyed is not None:
+            self._set_silently(keyed["plugs"], keyed["before"])
+        if self._preview_base is None or not self.groom:
+            self._preview_base = None
+            return
+        from maya import cmds
+        cmds.undoInfo(stateWithoutFlush=False)
+        try:
+            cmds.setAttr(self.groom + ".graph", self._preview_base, type="string")
+        finally:
+            cmds.undoInfo(stateWithoutFlush=True)
+        self._preview_base = None
+
+    def set_param(self, name, param, value):
+        self.end_preview()
+        if self.keyed(name, param):
+            # Its attribute: a key with Auto Key on (and keys there), else the value until the
+            # time changes, as in Maya's Channel Box.
+            import groomlab
+            if not self.same_groom():
+                return
+            if isinstance(value, dict):
+                self.report("%s.%s is keyed: Remove Animation (right-click it) before giving it a map" % (name, param))
+                later(lambda: self.params.show_node(self.params.node))  # the field back to its value
+                return
+            try:
+                groomlab.set_param_value(self.groom, name, param, value)
+            except (RuntimeError, ValueError, TypeError) as e:
+                self.report(str(e))
+            self.params.refresh_keys()
+            return
+        self.model.set_param(name, param, value)
+        reads_guides = isinstance(value, dict) and (value.get("guide") or value.get("attribute"))
+        if reads_guides and self.model.node_type(name) == "Scatter" and self.model.source_of(name, "guides") is None:
+            # Before strands exist, a painted map is read from the guides: feed them in.
+            source = next((n for n in self.model.order if self.model.node_type(n) in ("Guides", "ImportCurves")), None)
+            if source:
+                self.model.connect(source, name, "guides")
+                QtCore.QTimer.singleShot(0, self.rebuild)  # not while the param widget is mid-signal
+        if name == self.params.node:
+            self.params.update_visibility()  # rows shown only in some mode follow it
+        self.changed()
+
+    def set_live(self, live):
+        self.live = live
+        self.apply_action.setVisible(not live)
+        if live:
+            self.apply()
+
+    def changed(self):
+        self.update_attribute_notes()
+        problems = self.model.validate()
+        # A node the output isn't made from (its output unplugged) never stops the graph applying:
+        # its problems are only noted.
+        notes = ["warning: " + w for w in self.model.warnings()] +             ["note: %s (not used by the output)" % p for p in self.model.unused_problems()]
+        self.report("; ".join(problems or notes))
+        if self.live and not problems:
+            self.apply()
+
+    def same_groom(self):
+        """False once the groom is gone or is another node of the same name (File > New or Open):
+        then the editor reloads instead of writing this graph onto it."""
+        if self.groom and _uuid(self.groom) != getattr(self, "_groom_uuid", None):
+            self.report("the groom changed (new scene?): reloaded")
+            later(self.reload)
+            return False
+        return True
+
+    def apply(self):
+        """Write the graph to the groom (undoable)."""
+        if not self.groom or not self.same_groom():
+            return False
+        problems = self.model.validate()
+        if problems:
+            self.report("not applied: " + "; ".join(problems))
+            return False
+        from maya import cmds
+        self.model.save(self.groom)  # one undo step
+        count = cmds.getAttr(self.groom + ".outStrandCount")
+        import groomlab
+        try:  # a hair shader Create Hair Shader made follows the look (a pigment one turning RGB...)
+            if groomlab.sync_hair_shader(self.groom):
+                self.report("hair shader made again for the new look")
+        except (RuntimeError, ValueError) as e:
+            cmds.warning("GroomLab: the hair shader could not follow the look: %s" % e)
+        errors = groomlab.errors(self.groom)
+        self.refresh_status()
+        total = sum(self.node_times.values())
+        warnings = self.model.warnings()
+        self.report("%d strands (preview), %.1f ms" % (count, total) + ("; error: " + "; ".join(errors) if errors else "")
+                    + ("; warning: " + "; ".join(warnings) if warnings else ""))
+        return True
+
+    # -- Presets -----------------------------------------------------------
+
+    def fill_units_menu(self):
+        from groomlab import units
+        self.units_menu.clear()
+        for kind, title in (("length", "Lengths"), ("width", "Widths"), ("density", "Density")):
+            sub = self.units_menu.addMenu(title)
+            group = qt.QActionGroup(sub)
+            current = units.unit(kind)[0]
+            for key, text, _ in units.UNITS[kind]:
+                action = sub.addAction(text)
+                action.setCheckable(True)
+                action.setChecked(key == current)
+                group.addAction(action)
+                action.triggered.connect(lambda _=False, k=kind, u=key: self.set_units(k, u))
+
+    def set_units(self, kind, key):
+        from groomlab import units
+        units.set_unit(kind, key)
+        self.params.show_node(self.params.node)
+
+    def fill_preset_menu(self):
+        """A submenu per category (presets.CATEGORIES first, in order), then the presets with no
+        category (your own), each titled, its description as the tooltip and status tip."""
+        from groomlab import presets
+        self.preset_menu.clear()
+        by_category = {}
+        for info in presets.list_presets(details=True):
+            by_category.setdefault(info["category"], []).append(info)
+        order = [c for c in presets.CATEGORIES if c in by_category]
+        order += sorted(c for c in by_category if c and c not in presets.CATEGORIES)
+        # Submenus made with an explicit parent and kept (see build_add_menu).
+        self.preset_menu.submenus = []
+        for category in order:
+            sub = QtWidgets.QMenu(category, self.preset_menu)
+            sub.setToolTipsVisible(True)
+            self.preset_menu.addMenu(sub)
+            self.preset_menu.submenus.append(sub)
+            for info in sorted(by_category[category], key=lambda i: i["title"].lower()):
+                self._preset_action(sub, info)
+        if by_category.get(""):
+            if order:
+                self.preset_menu.addSeparator()
+            for info in sorted(by_category[""], key=lambda i: i["title"].lower()):
+                self._preset_action(self.preset_menu, info)
+        self.preset_menu.addSeparator()
+        self.preset_menu.addAction("Save as Preset...", self.save_preset)
+        self.preset_menu.addSeparator()
+        self.add_graph_text_actions(self.preset_menu)
+
+    GRAPH_TEXT_TIPS = (
+        "Put this groom's whole graph on the clipboard as text (a preset with the control values), to share "
+        "in a chat or forum or save as a .json preset",
+        "Replace this groom's graph with one copied as text (Copy Graph, or a preset's JSON), sizes fitted to "
+        "this scalp: one undo step. The status bar says what it reads that this groom lacks")
+
+    def add_graph_text_actions(self, menu):
+        """Copy Graph and Paste Graph: the whole look as text, for the clipboard."""
+        menu.addAction("Copy Graph", self.copy_graph).setToolTip(self.GRAPH_TEXT_TIPS[0])
+        menu.addAction("Paste Graph", self.paste_graph).setToolTip(self.GRAPH_TEXT_TIPS[1])
+
+    def copy_graph(self):
+        """The groom's whole graph on the clipboard as text (groomlab.copy_graph_text). Returns it."""
+        import groomlab
+        if not self.groom:
+            self.report("select a groom first")
+            return None
+        if not self.live and not self.apply():  # edits not applied yet: what is copied is what is shown
+            return None
+        try:
+            text = groomlab.copy_graph_text(self.groom)
+        except (RuntimeError, ValueError) as e:
+            self.report("cannot copy the graph: %s" % e)
+            return None
+        QtWidgets.QApplication.clipboard().setText(text)
+        self.report("copied %s's graph as text (%d nodes): paste it with Presets > Paste Graph on any groom, or "
+                    "save it as a .json preset" % (self.groom.split("|")[-1], len(self.model.order)))
+        return text
+
+    def paste_graph(self, text=None):
+        """Replace the groom's graph with the clipboard's text (or `text`): groomlab.paste_graph_text.
+        What did not travel shows in the status bar; text that is no graph is refused there."""
+        import groomlab
+        if not self.groom or not self.same_groom():
+            self.report("cannot paste a graph: select a groom first")
+            return None
+        if text is None:
+            text = QtWidgets.QApplication.clipboard().text()
+        try:
+            result = groomlab.paste_graph_text(self.groom, text)
+        except ValueError as e:
+            self.report(str(e))
+            return None
+        self.set_groom(self.groom)  # the pasted graph, framed
+        self.report(result["message"] + "  (Ctrl+Z undoes it)")
+        return result
+
+    def _preset_action(self, menu, info):
+        """A preset's submenu: Apply (the graph replaced) beside Insert after selected node (its
+        look added as one Compound); the description on the submenu's title."""
+        sub = QtWidgets.QMenu(info["title"], menu)
+        sub.setToolTipsVisible(True)
+        menu.addMenu(sub)
+        action = sub.menuAction()
+        tip = info["description"] or info["name"]
+        action.setToolTip(tip)
+        action.setStatusTip(tip)
+        action.setData(info["name"])
+        apply = sub.addAction("Apply", lambda n=info["name"]: self.load_preset(n))
+        apply.setToolTip("Replace this groom's graph with the preset, sizes fitted to this scalp, the maps it reads "
+                         "made: one undo step")
+        insert = sub.addAction("Insert after selected node", lambda n=info["name"]: self.insert_preset(n))
+        insert.setToolTip("Keep this graph and add the preset's look to it as one Compound after the selected node "
+                          "(before the Output when none is selected), fitted to this scalp: one undo step")
+        return action
+
+    def insert_preset(self, name):
+        """The preset's look (every node between its sources and its Output) as one Compound named
+        after the preset, after the selected node or before the Output (the core's
+        insert_preset_json), fitted to this scalp, the maps it reads made: one undo step."""
+        import groomlab
+        import groomlab_core
+        from groomlab import presets
+        selected = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
+        after = selected[0] if len(selected) == 1 else ""
+        try:
+            size = presets.scalp_size(self.groom) if self.groom else None
+            text, made = groomlab_core.insert_preset_json(self.model.to_json(), json.dumps(presets.read_preset(name)),
+                                                          size, after, groomlab_core.preset_node_name(name))
+            model = gm.GraphModel(self.catalog, json.loads(text))
+        except (gm.GraphError, ValueError, IOError, OSError, RuntimeError) as e:
+            self.report("preset %s: %s" % (name, e))
+            return None
+        model.groom_size = self.model.groom_size
+        with groomlab.undo_chunk("insert preset"):  # the maps it reads and the graph: one step
+            if self.groom:
+                try:
+                    presets.prepare(self.groom, name)
+                except (RuntimeError, ValueError) as e:
+                    self.report("preset %s: %s" % (name, e))
+                    return None
+            self.model = model
+            self.model.ensure_layout()
+            self.rebuild()
+            if made in self.items:
+                self.scene.clearSelection()
+                self.items[made].setSelected(True)
+            self.changed()
+        self.report("inserted %s as %s after %s" % (name, made, after or "the last node"))
+        return made
+
+    def load_preset(self, name):
+        from groomlab import presets
+        try:
+            model = gm.GraphModel(self.catalog, presets.preset_for(self.groom, name))
+            backdrops = presets.backdrops(name)
+            controls = presets.controls(name, self.groom)
+            if self.groom:
+                presets.prepare(self.groom, name)  # the maps it reads, made when missing
+        except (gm.GraphError, ValueError, IOError, OSError, RuntimeError) as e:
+            self.report("preset %s: %s" % (name, e))
+            return
+        self.model = model
+        self.model.backdrops = backdrops
+        self.model.ensure_layout()
+        self.rebuild()
+        self.view.frame_all()
+        if not (controls and self.groom and self.live):
+            self.changed()
+            return
+        import groomlab
+        with groomlab.undo_chunk("apply preset"):  # the graph and the control values it records: one step
+            self.changed()
+            presets.set_controls(self.groom, controls)
+
+    def save_preset(self):
+        import os
+        from groomlab import presets
+        name, ok = QtWidgets.QInputDialog.getText(self, "Save preset", "Preset name:")
+        if not (ok and name):
+            return
+        overwrite = False
+        if os.path.exists(os.path.join(presets.user_dir(), name + ".json")):
+            answer = QtWidgets.QMessageBox.question(
+                self, "Save preset", "A preset named %s exists. Replace it?" % name,
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
+            if answer != QtWidgets.QMessageBox.Yes:
+                self.report("preset %s kept" % name)
+                return
+            overwrite = True
+        self.apply()
+        try:
+            presets.save_preset(self.groom, name, overwrite=overwrite)
+            self.report("saved preset %s" % name)
+        except (ValueError, IOError, OSError) as e:
+            self.report(str(e))
+
+    def report(self, text):
+        self.status.setText(text)
+        trouble = any(w in text for w in ("error", "not applied", "cannot", "missing", "no output", "invalid"))
+        role = "status" if trouble else "about"
+        if self.status.property("role") != role:
+            self.status.setProperty("role", role)
+            widgets.repolish(self.status)
+
+
+# ---------------------------------------------------------------------------
+# Maya entry point
+
+_window = None
+
+
+def gpu_drag_flags(value):
+    """The groomLabGpuPreview flags a dragged param's value goes to the GPU look preview as:
+    {"value": x} for a number (a seed too), {"vector": (x, y, z)} for three numbers (a vec3 param:
+    Curl's weightDirection), {"ramp": json} for a profile's keys; None for anything else (a bool,
+    text, a map: the CPU previews it)."""
+    def number(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    if number(value):
+        return {"value": float(value)}
+    if isinstance(value, (list, tuple)) and len(value) == 3 and all(number(c) for c in value):
+        return {"vector": tuple(float(c) for c in value)}
+    if isinstance(value, list) or (isinstance(value, dict) and "keys" in value):
+        return {"ramp": json.dumps(value)}
+    return None
+
+
+def _uuid(node):
+    from maya import cmds
+    try:
+        found = cmds.ls(node, uuid=True)
+    except (RuntimeError, ValueError):
+        return None
+    return found[0] if found else None
+
+
+def _same_node(a, b):
+    """Whether two names (short or long) are the same node: False when either is missing."""
+    ua = _uuid(a) if a else None
+    return ua is not None and ua == (_uuid(b) if b else None)
+
+
+def show(groom=None):
+    """Open (or raise) the dockable graph editor for `groom`, else the pinned or selected groom."""
+    global _window
+    from maya import cmds
+    from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
+
+    if groom is None:  # the groom the tools work on (pinned, else selected), else the scene's first
+        import groomlab
+        groom = groomlab.active_groom() or (cmds.ls(type="groomLabShape") or [None])[0]
+
+    class DockableGraphEditor(MayaQWidgetDockableMixin, GraphEditor):
+        pass
+
+    if _window is not None and not widgets.alive(_window):  # its dock was deleted (workspace change, reload)
+        _window = None
+    docked = False
+    if _window is None:
+        widgets.free_dock("groomLabGraphEditor")
+        _window = DockableGraphEditor(groom=groom)  # first positional arg is the Qt parent
+        _window.setObjectName("groomLabGraphEditor")
+        widgets.at_exit(_close_at_exit)
+        # On a small screen (or Maya's UI at 125-150%) a floating editor this big would hide the
+        # viewport whose changes it is for: it opens docked under the viewport instead (drag its
+        # tab out to float it).
+        docked = open_docked((_window.width(), _window.height()), widgets.available_geometry(_window))
+    elif groom:
+        _window.set_groom(groom)
+    if docked:
+        _window.show(dockable=True, floating=False, area="bottom")
+    else:
+        _window.show(dockable=True)
+    return _window
+
+
+def open_docked(size, available):
+    """Whether the Graph Editor opens docked (under the viewport) rather than floating: when a
+    floating one of `size` would crowd the screen `available` ((x, y, w, h))."""
+    return widgets.crowds_screen(size, available)
+
+
+def _close_at_exit():
+    """Maya quits: the editor stops following Maya and its widgets go while Qt and Python are whole
+    (see widgets.at_exit). Its dock stays as Maya saves it."""
+    global _window
+    window, _window = _window, None
+    if window is not None and widgets.alive(window):
+        window.stop_following()
+        scene = getattr(window, "scene", None)  # the editor's, not the view's: it goes on its own
+        widgets.dispose(window)
+        widgets.dispose(scene)

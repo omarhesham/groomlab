@@ -1,0 +1,91 @@
+---
+title: Installation
+description: Installing, updating and uninstalling the GroomLab Maya plug-in, and where crash logs are written.
+---
+
+GroomLab for Maya ships as one zip with a drag-and-drop installer:
+[download it](https://downloads.getgroomlab.com/maya/GroomLab-Maya-Windows-latest.zip). It is free
+for any use, commercial included, with every feature and export enabled and no license key. You
+can [support development on Ko-fi](https://ko-fi.com/getgroomlab).
+
+## Install
+
+<Steps>
+<Step>
+
+### Unzip
+
+Unzip the package to a permanent location, for example `Documents\GroomLab`. Keep the `GroomLab`
+folder, `GroomLab.mod`, `install.mel` and `install_groomlab.py` together.
+
+</Step>
+<Step>
+
+### Drag install.mel onto Maya
+
+Start Maya (2022 to 2027) and drag `install.mel` onto the viewport. The installer registers a Maya
+module (`GroomLab.mod` in `<Documents>\maya\modules`), loads the build for the running Maya
+version, and reports when that build is a beta.
+
+- If Maya asks about **Untrusted Plugin Loading**, choose **Allow** (tick *Apply to all plugins
+  in this location* to not be asked again).
+- A **GroomLab** menu appears in the main menu bar. The plug-in loads automatically from then on.
+
+</Step>
+<Step>
+
+### Restart Maya once
+
+Arnold reads its plug-in paths at startup, so MtoA only finds GroomLab's translator and procedural
+after a restart.
+
+</Step>
+</Steps>
+
+<Callout type="info" title="Missing DLL?">
+  If Maya fails to load the plugin with a missing-DLL error, install the latest *Microsoft Visual
+  C++ Redistributable for Visual Studio 2015-2022 (x64)*.
+</Callout>
+
+## Update
+
+Choose **GroomLab > Check for Updates...**. The window shows the installed version, the newest
+version and its release notes. **Update Now** downloads the new version, verifies it against the
+release's checksum (a mismatching download is rejected) and unpacks it next to the current folder,
+for example `Documents\GroomLab\GroomLab-1.1.0` beside `GroomLab-1.0.0`. **Restart Maya** to
+finish. Files of the running version are not modified while Maya has them open; the old folder is
+removed after the new version has started once.
+
+At most once a day, at Maya startup, GroomLab checks for a new version in the background. If one
+exists, the Groom Tools show a one-line note ("GroomLab 1.1.0 is available"). The check never opens
+a dialog and does nothing when offline. It only downloads the release information; no user or
+machine data is sent.
+
+- **Disable the startup check:** untick *Check for updates when Maya starts* in the Check for
+  Updates window.
+- **Studios:** set the environment variable `GROOMLAB_NO_UPDATES=1` to disable updates entirely
+  (no startup check, no Update Now) and deploy new versions yourselves.
+- **Roll back:** if the new version fails to load, close Maya, delete `GroomLab.mod` in
+  `<Documents>\maya\modules` and rename `GroomLab.mod.bak` to `GroomLab.mod`. The previous
+  folder is kept until the new version has started once.
+- **Manual update:** download the new package, unzip it and drag its `install.mel` onto Maya.
+
+## Uninstall
+
+Delete `<Documents>\maya\modules\GroomLab.mod` (and the GroomLab folder), or run this in Maya's
+Python tab:
+
+```python
+import os
+from maya import cmds
+os.remove(os.path.join(cmds.internalVar(userAppDir=True), "modules", "GroomLab.mod"))
+```
+
+## Crash logs
+
+When Maya crashes, GroomLab writes `%TEMP%\GroomLabCrash_<date>_<time>.log`. Include it in bug
+reports, with the steps that led to the crash.
+
+## Next
+
+Continue with the [Quick start](/docs/quick-start).

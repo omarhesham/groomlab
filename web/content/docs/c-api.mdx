@@ -1,0 +1,604 @@
+---
+title: C and C++ API
+description: The GroomLab C API and C++ wrapper - SDK layout, a minimal example, error handling, ownership, threading, units, attributes and the full function reference.
+---
+
+The SDK has one library and two headers:
+
+- `groomlab/groomlab_c.h`: the **C API**. Plain C99, opaque handles, error codes. This is the
+  stable interface: see [What is stable](/docs/developers#what-is-stable).
+- `groomlab/groomlab.hpp`: a header-only **C++17 wrapper** over it. RAII handles, views into
+  results, exceptions. It builds with any compiler, because only C crosses the library boundary.
+
+## The SDK
+
+```text
+GroomLabSDK/
+  bin/       groomlab.dll
+  lib/       groomlab.lib            (the import library)
+  include/   groomlab/groomlab_c.h, groomlab/groomlab.hpp
+  cmake/     GroomLabSDKConfig.cmake (find_package)
+  samples/   groom_to_obj.cpp, groom_counts.c, CMakeLists.txt, LICENSE.txt
+```
+
+With CMake, point `CMAKE_PREFIX_PATH` at the `GroomLabSDK` folder and link `GroomLab::groomlab`:
+
+```cmake
+find_package(GroomLabSDK 1.0 CONFIG REQUIRED)
+target_link_libraries(my_bridge PRIVATE GroomLab::groomlab)
+```
+
+Without CMake: add `include/` to the include path, link `lib/groomlab.lib`, and put
+`groomlab.dll` where Windows finds it (see [DLLs](#dlls)).
+
+Build the samples to check your setup:
+
+```bash
+cmake -S GroomLabSDK/samples -B build
+cmake --build build --config Release
+build/Release/groom_to_obj --groom hair.groom --frame 1 hair.obj
+```
+
+## Evaluate a groom in 20 lines
+
+```cpp
+#include <cstdio>
+#include "groomlab/groomlab.hpp"
+
+int main() {
+    namespace gl = groomlab::api;
+    try {
+        gl::Session session = gl::Session::fromFile("hair.groom");
+        session.setFrame(12);                         // seconds = frame / the groom's frame rate
+        session.setFloat("noise", "amplitude", 0.1);  // any node's param, by node name
+        gl::Strands strands = session.evaluate();
+
+        gl::View<float> p = strands.positions();      // x y z per point
+        gl::View<std::uint64_t> first = strands.offsets();
+        for (std::size_t s = 0; s < strands.strandCount(); ++s) {
+            const std::uint64_t root = first[s];       // the strand's points: first[s] to first[s + 1] - 1
+            std::printf("strand %zu: root %g %g %g\n", s, p[3 * root], p[3 * root + 1], p[3 * root + 2]);
+        }
+    } catch (const gl::Error& e) {
+        std::fprintf(stderr, "%s\n", e.what());       // e.code(): the gl_result
+        return 1;
+    }
+}
+```
+
+## The same in C
+
+```c
+#include <stdio.h>
+#include "groomlab/groomlab_c.h"
+
+int main(void) {
+    gl_session* session = NULL;
+    gl_strands* strands = NULL;
+    if (gl_session_create(&session) != GL_OK || gl_session_load_file(session, "hair.groom") != GL_OK ||
+        gl_session_set_frame(session, 12) != GL_OK ||
+        gl_session_set_param_float(session, "noise", "amplitude", 0.1) != GL_OK ||
+        gl_session_evaluate(session, NULL, &strands) != GL_OK) {
+        fprintf(stderr, "%s\n", gl_last_error());  /* before any other gl_ call */
+        gl_session_destroy(session);
+        return 1;
+    }
+    const float* p = gl_strands_positions(strands);
+    const uint64_t* first = gl_strands_offsets(strands);
+    for (size_t s = 0; s < gl_strands_strand_count(strands); ++s) {
+        const uint64_t root = first[s];
+        printf("strand %zu: root %g %g %g\n", s, p[3 * root], p[3 * root + 1], p[3 * root + 2]);
+    }
+    gl_strands_release(strands);
+    gl_session_destroy(session);
+    return 0;
+}
+```
+
+## Rules
+
+### Sessions and results
+
+A **session** (`gl_session`, C++ `Session`) holds one groom and caches its evaluation. Set its
+inputs (a file, a scalp, a time, params), then evaluate. Only the nodes affected by changes since
+the last evaluation run again.
+
+A **result** (`gl_strands`, C++ `Strands`) is one evaluation's strands. It does not depend on the
+session: it stays valid and unchanged after more evaluations, edits, or the session's
+destruction, until you release it.
+
+### Errors
+
+- Every function that can fail returns a `gl_result`: `GL_OK` (0) or an error code.
+- `gl_last_error()` gives the message of the last failing call **on this thread**. It is valid
+  until your next `gl_` call, and `""` after a call that succeeded.
+- On failure every out-parameter is set to `NULL` or 0.
+- A failing call leaves the session as it was. A bad file, graph or param keeps the previous one.
+- The C++ wrapper throws `groomlab::api::Error`: `code()` is the `gl_result`, `message()` the text.
+
+| Code | When |
+| --- | --- |
+| `GL_ERROR_INVALID_ARGUMENT` | A null handle or pointer, a size that does not add up. |
+| `GL_ERROR_NOT_FOUND` | No such node, param, attribute or operator type. |
+| `GL_ERROR_TYPE_MISMATCH` | A param read or written as another kind than it is. |
+| `GL_ERROR_IO` | A file that cannot be read or written. |
+| `GL_ERROR_PARSE` | Text that is not a groom file, or not JSON of the expected form. |
+| `GL_ERROR_GRAPH` | A graph that does not load (an unknown operator, a bad connection, a newer node). |
+| `GL_ERROR_EVALUATION` | An evaluation that gave no strands. |
+| `GL_ERROR_STATE` | A call the session cannot take now (scalp points with no scalp). |
+| `GL_ERROR_OUT_OF_MEMORY` | Out of memory. |
+| `GL_ERROR_INTERNAL` | Anything else: a bug, reported with its message. |
+
+An evaluation can also half-succeed: a node fails, the rest still runs. Then it returns `GL_OK`
+and `gl_session_eval_errors_json` lists what went wrong (a JSON array of strings, `[]` when
+nothing did). Show those lines to the artist.
+
+### Ownership and lifetime
+
+- **Your buffers stay yours.** The library copies what it keeps before the call returns.
+- **Text and bytes the library hands out** through `char**` out-parameters are yours to release
+  with `gl_free()`. Never `free()`. Text is UTF-8 and NUL-terminated. The C++ wrapper copies them
+  into `std::string` and frees them for you.
+- **Results** live until `gl_strands_release()` (C++: the `Strands` object's destructor). Pointers
+  their accessors return, and C++ `View`s, are valid until then.
+- `NULL` is fine for `gl_session_destroy`, `gl_strands_release` and `gl_free`.
+- Paths are UTF-8.
+
+### Threads
+
+Use a session from one thread at a time; it evaluates in parallel inside, on the library's own
+threads (one per core, started at the first evaluation and kept until the process ends). Separate
+sessions can run on separate threads. A result is read-only and can be read from any thread.
+
+### Units and axes
+
+Points are in the groom's scene units (the file's `"units"`, cm by default) and its up axis
+(`"upAxis"`, Y by default). A Z-up host turns the groom with `gl_session_set_up_axis(session, "Z")`
+(C++: `session.setUpAxis("Z")`): the core turns the scalp, rest pose, guides, colliders and every
+param that is a world direction (a spec's `"worldDirection"`), as Maya's import and the app do.
+Y-up `(x, y, z)` is Z-up `(x, -z, y)`. The library never rescales: a host in another unit scales
+points on the way in and out. [Writing a host bridge](/docs/host-bridge#units-and-up-axis)
+walks through Maya, Blender and Unreal.
+
+### Time
+
+`gl_session_set_frame` and `gl_frame_to_seconds` turn frames into seconds by the rule every host
+keeps: frame / fps, with an NTSC rate (23.976, 29.97, 59.94) exact. A frame is then the same time
+here as in Maya, the CLI and the Arnold procedural, to the bit.
+
+### Attributes in two scopes
+
+A name can be there once per scope: a Bands node writes `colorR`, `colorG` and `colorB` per
+strand and per point. `gl_strands_attribute` gives the per strand one; `gl_strands_attribute_info`
+says each listed attribute's scope, and `gl_strands_attribute_scoped` reads a name in the scope you
+ask for (C++: `attributes()`, `attribute(name, scope)`).
+
+### The scalp fingerprint
+
+A loaded groom remembers the scalp it was made on. While the scalp you set has other triangles or
+another point order, `gl_session_eval_errors_json` lists "the scalp's vertex order or triangles
+differ from the groom's: strands are rooted again by position". See
+[the format](/docs/groom-format#the-scalp-fingerprint).
+
+### DLLs
+
+`groomlab.dll` is the only DLL you ship. Besides Windows' own it needs the Visual C++ 2015-2022
+runtime (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), which DCC hosts already
+load. Windows looks for `groomlab.dll` **beside the program** (the host's `.exe`), on `PATH`, or
+in a folder you add. It does not look beside your plugin.
+
+- A standalone tool: copy `groomlab.dll` beside it (the samples' CMake does this).
+- A plugin inside a host: link with `/DELAYLOAD:groomlab.dll` (and `delayimp.lib`) and load it yourself before the
+  first `gl_` call, with `LoadLibraryExW(path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH)` on the full
+  path of the SDK's `groomlab.dll`.
+
+<Callout type="info" title="No TBB">
+  The library runs its parallel loops on threads of its own, not on TBB. A host that loaded a
+  `tbb.dll` of its own (Houdini, Blender and Maya each ship one) keeps it, and GroomLab never
+  meets it. Once loaded, the library stays in the process until it ends, as its threads do:
+  `FreeLibrary` leaves it loaded.
+</Callout>
+
+## Function reference
+
+Generated from the comments in `groomlab_c.h`, which are the source of truth. The C++ wrapper
+mirrors these one to one: `gl_session_set_param_float(s, node, param, v)` is
+`session.setFloat(node, param, v)`, `gl_strands_positions(r)` is `strands.positions()`, and so on.
+
+{/* BEGIN reference: generated by tools/dev/capi_reference.py from groomlab_c.h; do not edit */}
+
+### Results
+
+```c
+typedef int32_t gl_result;
+enum {
+    GL_OK = 0,
+    GL_ERROR_INVALID_ARGUMENT = 1, /* a null handle or pointer, a size that does not add up */
+    GL_ERROR_NOT_FOUND = 2,        /* no such node, param, attribute or operator type */
+    GL_ERROR_TYPE_MISMATCH = 3,    /* a param read or written as another kind than it is */
+    GL_ERROR_IO = 4,               /* a file that cannot be read or written */
+    GL_ERROR_PARSE = 5,            /* text that is not a groom file / JSON of the expected form */
+    GL_ERROR_GRAPH = 6,            /* a graph that does not load (unknown operator, bad connection) */
+    GL_ERROR_EVALUATION = 7,       /* an evaluation that gave no strands (gl_session_eval_errors_json) */
+    GL_ERROR_STATE = 8,            /* a call the session cannot take now (scalp points with no scalp) */
+    GL_ERROR_OUT_OF_MEMORY = 9,
+    GL_ERROR_INTERNAL = 10,        /* anything else: a bug, reported with its message */
+    GL_ERROR_LICENSE = 11          /* reserved: no longer returned (API 1.4: GroomLab is free, nothing is gated) */
+};
+```
+
+```c
+uint32_t gl_api_version(void);
+```
+
+(major &lt;&lt; 16) | minor of the library.
+
+```c
+const char* gl_version_string(void);
+```
+
+The GroomLab release the library was built from, e.g. "0.1.0" (static storage).
+
+```c
+const char* gl_last_error(void);
+```
+
+The message of the last failing call on this thread; "" after a call that succeeded. Valid until the next gl_\* call on this thread. Never NULL.
+
+```c
+const char* gl_result_name(gl_result result);
+```
+
+A `gl_result`'s name, e.g. "`GL_ERROR_NOT_FOUND`" (static storage).
+
+```c
+void gl_free(void* buffer);
+```
+
+Releases a buffer the library handed out (char\*\* out-parameters). NULL is fine.
+
+```c
+double gl_frame_to_seconds(double frame, double fps);
+```
+
+Frame `frame` (fractional for subframes) at `fps` frames per second, in seconds, by the rule every host keeps: frame / fps, a rate within a hair of an NTSC one (n \* 1000 / 1001: 23.976, 29.97, 59.94) taken as that rate exactly; a rate of 0 or less as 24. Since API 1.2.
+
+### Operators
+
+```c
+gl_result gl_operator_types_json(char** out_json);
+```
+
+Every registered operator type name, as a JSON array of strings.
+
+```c
+gl_result gl_operator_specs_json(char** out_json);
+```
+
+Every operator's spec (inputs, outputs, params with kind, default, limits, groups...) as a JSON array, the form the core's editors read.
+
+```c
+gl_result gl_operator_spec_json(const char* type, char** out_json);
+```
+
+One operator's spec (an object of the array above). `GL_ERROR_NOT_FOUND` for an unknown type.
+
+```c
+gl_result gl_default_graph_json(char** out_json);
+```
+
+The graph a new session evaluates (hair out of the box), as JSON.
+
+### Sessions
+
+```c
+typedef struct gl_session gl_session;
+typedef struct gl_strands gl_strands;
+```
+
+```c
+gl_result gl_session_create(gl_session** out_session);
+```
+
+A session with the default graph and no inputs (no scalp: evaluations give no strands).
+
+```c
+void gl_session_destroy(gl_session* session);
+```
+
+NULL is fine. Strands it gave stay valid.
+
+```c
+gl_result gl_session_load_file(gl_session* session, const char* path);
+```
+
+Replaces the session's groom with a .groom file's (graph, guides, scalp, parts, flow, correctives, controls, maps, frame rate); relative paths in it (texture maps) resolve against the file's folder, then its search paths. Animated caches the file names (scalp and guide Alembic caches, simulation bakes) are not opened: the host feeds the moving scalp itself (`gl_session_update_scalp_points`). `GL_ERROR_IO`, `GL_ERROR_PARSE`, `GL_ERROR_GRAPH`.
+
+```c
+gl_result gl_session_load_memory(gl_session* session, const void* data, size_t size, const char* base_dir);
+```
+
+The same from a .groom file's text in memory (`size` bytes, no NUL needed). `base_dir` (may be NULL) stands for the file's folder.
+
+```c
+gl_result gl_session_save_file(gl_session* session, const char* path);
+```
+
+Writes the session's groom as a .groom file (atomically: written beside, then moved over): the graph, guides, parts, flow, correctives, controls and the scalp as last set (after `gl_session_update_scalp_points`: those points), with what the loaded file carried besides.
+
+```c
+gl_result gl_session_save_memory(gl_session* session, char** out_data, size_t* out_size);
+```
+
+The same into memory: `*out_data` (NUL-terminated, release with `gl_free`), `*out_size` bytes without the NUL. `out_size` may be NULL.
+
+```c
+gl_result gl_session_license(gl_session* session, char** out_license);
+```
+
+Deprecated since API 1.4, kept for bridges built against 1.3: GroomLab is free for any use, so a groom carries no license tag. `*out_license` is always "" (release with `gl_free`); a .groom file's old "license" field is ignored on load and not written. Since API 1.3.
+
+```c
+gl_result gl_session_check_export(gl_session* session);
+```
+
+Deprecated since API 1.4, kept for bridges built against 1.3: every groom may be exported, so this is always `GL_OK` for a session (`GL_ERROR_INVALID_ARGUMENT` for NULL). Since API 1.3.
+
+```c
+gl_result gl_session_set_scalp(gl_session* session, const float* points, size_t point_count, const int32_t* face_counts, size_t face_count, const int32_t* face_indices, size_t index_count, const float* uvs);
+```
+
+The scalp, in world space at the evaluation time: `point_count` points (3 floats each), `face_count` polygons of `face_counts[i]` corners (3 or more) whose point indices follow one another in `face_indices` (`index_count` = the sum of face_counts). `uvs` (may be NULL): 2 floats per polygon corner, in face_indices' order (a face-varying UV set). Polygons are triangulated as fans from their first corner (corners 0, i, i + 1); Catmull-Clark (the graph's Scalp node subdivision) refines the polygons, not the triangles. Replaces the scalp and its rest pose. A loaded groom keeps the fingerprint of the scalp it was made on (its file's scalp "topology": its point count and triangles); while the scalp set has another (another vertex order, point count or triangulation: a quad split across its other diagonal too), every evaluation lists "the scalp's vertex order or triangles differ from the groom's: strands are rooted again by position" in `gl_session_eval_errors_json` (the strands come all the same). To match a groom exactly, feed the file's own triangles (3-corner faces in its "triangles" order).
+
+```c
+gl_result gl_session_update_scalp_points(gl_session* session, const float* points, size_t point_count, const float* rest_points);
+```
+
+The scalp's points at another time (a deforming scalp, every frame), on the topology and UVs set before: `point_count` must be the scalp's. `rest_points` (may be NULL; point_count points): the rest pose (an undeformed scalp: strands keep their count and roots while it deforms; also what follow-the-scalp groom files evaluate on); NULL keeps the rest pose as it was. `GL_ERROR_STATE` without a scalp, `GL_ERROR_INVALID_ARGUMENT` for another point count.
+
+```c
+gl_result gl_session_scalp_size(gl_session* session, size_t* out_point_count, size_t* out_triangle_count);
+```
+
+The scalp as given (0, 0 without one). Either pointer may be NULL.
+
+```c
+gl_result gl_session_get_up_axis(gl_session* session, char** out_axis);
+```
+
+The groom's up axis, "Y" or "Z" (a loaded file's "upAxis"; Y for a new session). Release with `gl_free`. Since API 1.2.
+
+```c
+gl_result gl_session_set_up_axis(gl_session* session, const char* axis);
+```
+
+Turns the groom into another up axis, "Y" or "Z" (`GL_ERROR_INVALID_ARGUMENT` for another): the scalp and its rest pose, the guides, the colliders, and the graph's params that are world directions (a spec's "worldDirection": Gravity's, Wind's, Bend's, Simulate's directions, Mirror's axis) a quarter turn about X (Z-up (x, y, z) is Y-up (x, z, -y)), as Maya's import and the app turn a file. Call it after loading a file, before feeding scalp points of the host's own axis; saved files keep it. Nothing when the groom is in that axis already. Since API 1.2.
+
+```c
+gl_result gl_session_set_time(gl_session* session, double seconds);
+gl_result gl_session_get_time(gl_session* session, double* out_seconds);
+```
+
+The evaluation time in seconds (0 by default).
+
+```c
+gl_result gl_session_set_frame(gl_session* session, double frame);
+```
+
+The time as a frame at the session's frame rate: seconds = `gl_frame_to_seconds`(frame, fps).
+
+```c
+gl_result gl_session_set_frames_per_second(gl_session* session, double fps);
+gl_result gl_session_get_frames_per_second(gl_session* session, double* out_fps);
+```
+
+Frames per second (24 by default; a groom file's own when loaded). Must be above 0.
+
+```c
+gl_result gl_session_set_control(gl_session* session, const char* name, float value);
+```
+
+A Control node's value by name (a host's live attribute driving the graph).
+
+```c
+gl_result gl_session_set_search_paths(gl_session* session, const char* const* directories, size_t count);
+```
+
+Where relative file paths in the graph (texture maps) resolve, after a loaded file's own folder: `count` UTF-8 directories (environment variables allowed); 0 clears them. Saved with the file.
+
+### Evaluation
+
+```c
+typedef struct gl_eval_options {
+    uint32_t struct_size; /* sizeof(gl_eval_options) as the caller knows it: gl_eval_options_init */
+    float density;        /* the preview density, 0-1 (1: every strand) */
+    double point_budget;  /* points the result may hold (strands thinned to fit); 0: no limit */
+    const char* view_node; /* a Strands node to show instead of the graph's output; NULL or "": the output */
+} gl_eval_options;
+```
+
+```c
+void gl_eval_options_init(gl_eval_options* options);
+```
+
+Fills `options` with the defaults (density 1, no budget, the output) and its struct_size.
+
+```c
+gl_result gl_session_evaluate(gl_session* session, const gl_eval_options* options, gl_strands** out_strands);
+```
+
+Evaluates the groom at the session's time. `options` may be NULL (the defaults). On `GL_OK` `*out_strands` holds the result (release with `gl_strands_release`); it may hold no strands (no scalp, a graph that makes none). A graph that fails gives `GL_ERROR_EVALUATION` with the reasons in `gl_last_error()` (and `gl_session_eval_errors_json`). Only what changed since the last evaluation runs again (the graph's cache).
+
+```c
+gl_result gl_session_eval_errors_json(gl_session* session, char** out_json);
+```
+
+What the last evaluation said went wrong (a node that failed, input that did not parse), one string per line, as a JSON array; [] when nothing did. A partial result is `GL_OK` with lines here.
+
+### Results
+
+```c
+void gl_strands_release(gl_strands* strands);
+```
+
+Releases a result; NULL is fine.
+
+```c
+size_t gl_strands_strand_count(const gl_strands* strands);
+size_t gl_strands_point_count(const gl_strands* strands);
+```
+
+Counts (0 for NULL).
+
+```c
+const float* gl_strands_positions(const gl_strands* strands);
+```
+
+Point positions: 3 floats (x, y, z) per point, strand after strand. NULL when there are none.
+
+```c
+const float* gl_strands_widths(const gl_strands* strands);
+```
+
+Width (a diameter, scene units) per point.
+
+```c
+const uint64_t* gl_strands_ids(const gl_strands* strands);
+```
+
+Each strand's stable ID (the same strand keeps it from frame to frame and at other densities).
+
+```c
+const int32_t* gl_strands_point_counts(const gl_strands* strands);
+```
+
+Points per strand (strand_count values).
+
+```c
+const uint64_t* gl_strands_offsets(const gl_strands* strands);
+```
+
+Each strand's first point (strand_count + 1 values: the last is point_count).
+
+```c
+enum { GL_SCOPE_STRAND = 0, GL_SCOPE_POINT = 1 };
+```
+
+Named attributes, float data. Scope: one value tuple per strand or per point. A name may be there twice, once per scope (the color nodes' colorR/G/B with bands: per strand and per point).
+
+```c
+size_t gl_strands_attribute_count(const gl_strands* strands);
+const char* gl_strands_attribute_name(const gl_strands* strands, size_t index);
+```
+
+The attributes this result has: every float channel the graph wrote (per strand or per point: melanin, melaninRedness, colorR/G/B, roughness, clumpId, groupId, iridescence...), and these the core derives:
+
+- "width" per point, 1 component (as `gl_strands_widths`)
+- "rootUV" per strand, 2 components: the scalp's UV at the root (with scalp UVs)
+- "color" per strand, 3 components: linear RGB (HairColor's RGB, else from melanin)
+- "pointColor" per point, 3 components: linear RGB, when the color varies along strands
+
+A channel of the same name and scope as a derived attribute wins. Names are in a fixed order (per strand ones first); the returned name is valid while the result lives. NULL for an index out of range.
+
+```c
+gl_result gl_strands_attribute(const gl_strands* strands, const char* name, const float** out_data, int32_t* out_scope, int32_t* out_components);
+```
+
+An attribute's data (`*out_data`: components values per strand or point, valid while the result lives; NULL when it has no elements), its scope and component count. Any out-pointer but out_data may be NULL. A name there in both scopes gives the per strand one (`gl_strands_attribute_scoped` picks). `GL_ERROR_NOT_FOUND` for a name it does not have.
+
+```c
+gl_result gl_strands_attribute_info(const gl_strands* strands, size_t index, int32_t* out_scope, int32_t* out_components);
+```
+
+The attribute at `index` (as `gl_strands_attribute_name` lists them): its scope and component count (either may be NULL). `GL_ERROR_NOT_FOUND` for an index out of range. Since API 1.2.
+
+```c
+gl_result gl_strands_attribute_scoped(const gl_strands* strands, const char* name, int32_t scope, const float** out_data, int32_t* out_components);
+```
+
+An attribute by name and scope (`GL_SCOPE_STRAND` or `GL_SCOPE_POINT`): its data and component count, as `gl_strands_attribute` gives them (`out_components` may be NULL). `GL_ERROR_NOT_FOUND` when it has no attribute of that name in that scope. Since API 1.2.
+
+### Graph
+
+Nodes are named by their name in the graph (top level). Params hold JSON values: a float or int param a number, a bool true/false, a vec3 an array of 3 numbers, a string a string, a ramp an array of [position, value] pairs; a mappable number may hold a map instead (an object). A param a node does not set reads as its operator's default. Setting a param re-evaluates only the nodes it affects.
+
+```c
+gl_result gl_session_get_graph_json(gl_session* session, char** out_json);
+```
+
+The graph as JSON (the default graph's text for a session that has none of its own).
+
+```c
+gl_result gl_session_set_graph_json(gl_session* session, const char* graph_json);
+```
+
+Replaces the graph. `GL_ERROR_GRAPH` for one that does not load (the session keeps its graph).
+
+```c
+gl_result gl_session_node_count(gl_session* session, size_t* out_count);
+```
+
+How many nodes the graph has (top level).
+
+```c
+gl_result gl_session_node_name(gl_session* session, size_t index, char** out_name);
+```
+
+The node at `index` (in the graph's order). `GL_ERROR_NOT_FOUND` past the end.
+
+```c
+gl_result gl_session_node_type(gl_session* session, const char* node, char** out_type);
+```
+
+A node's operator type, e.g. "Scatter".
+
+```c
+gl_result gl_session_node_spec_json(gl_session* session, const char* node, char** out_json);
+```
+
+A node's ports and params as the editors see them (`gl_operator_spec_json`'s form, a Compound's own inputs and exposed params included).
+
+```c
+gl_result gl_session_upgrade_node(gl_session* session, const char* node, int32_t* out_upgraded);
+```
+
+Raises a node to its operator's newest behaviour version, as the editors' Upgrade does: a node saved with an older one ("outdated" in `gl_session_node_spec_json`, its "nodeVersion" below the spec's "version") then evaluates as new nodes do, and params the newer version added take their defaults. The look may change. `*out_upgraded` (may be NULL): 1 when the node was raised, 0 when it had the newest version already (nothing changes). `GL_ERROR_NOT_FOUND` for no such node. Since API 1.1.
+
+```c
+gl_result gl_session_get_param_json(gl_session* session, const char* node, const char* param, char** out_json);
+gl_result gl_session_set_param_json(gl_session* session, const char* node, const char* param, const char* value_json);
+```
+
+Any param as JSON text.
+
+```c
+gl_result gl_session_get_param_float(gl_session* session, const char* node, const char* param, double* out_value);
+gl_result gl_session_set_param_float(gl_session* session, const char* node, const char* param, double value);
+gl_result gl_session_get_param_int(gl_session* session, const char* node, const char* param, int64_t* out_value);
+gl_result gl_session_set_param_int(gl_session* session, const char* node, const char* param, int64_t value);
+```
+
+Typed access. `GL_ERROR_TYPE_MISMATCH` when the param holds (or takes) another kind: a float param takes any number, an int param an integer; a float read of an int param converts.
+
+```c
+gl_result gl_session_get_param_bool(gl_session* session, const char* node, const char* param, int32_t* out_value);
+gl_result gl_session_set_param_bool(gl_session* session, const char* node, const char* param, int32_t value);
+```
+
+Bools are int32_t: 0 false, anything else true.
+
+```c
+gl_result gl_session_get_param_vec3(gl_session* session, const char* node, const char* param, double* out_value);
+gl_result gl_session_set_param_vec3(gl_session* session, const char* node, const char* param, const double* value);
+```
+
+`value` / `out_value`: 3 doubles.
+
+```c
+gl_result gl_session_get_param_string(gl_session* session, const char* node, const char* param, char** out_value);
+gl_result gl_session_set_param_string(gl_session* session, const char* node, const char* param, const char* value);
+```
+
+UTF-8 text; `*out_value` is released with `gl_free`.
+
+{/* END reference */}

@@ -1,0 +1,11 @@
+{
+  "name": "Top of the head",
+  "description": "More toward the top of the head, where the scalp faces up",
+  "expression": "# the root's normal: 1 facing straight up, -1 facing down\nsmoothstep($ny, $from, $to)",
+  "variables": {
+    "from": -0.2,
+    "to": 0.8
+  },
+  "min": 0.0,
+  "max": 1.0
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Cells",
+  "description": "Round cells over the scalp, 1 in the middle of each and 0 where they meet (voronoi: scales, spots)",
+  "expression": "# voronoi type 4, F2 - F1: how far from the edge between the two nearest cell points\n$edge = voronoi(P * $scale, 4, $jitter);\nsmoothstep($edge, 0, $width)",
+  "variables": {
+    "scale": 4,
+    "jitter": 1,
+    "width": 0.3
+  },
+  "min": 0.0,
+  "max": 1.0
+}

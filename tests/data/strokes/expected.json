@@ -1,0 +1,251 @@
+[
+ {
+  "after": {
+   "guideData": "ae852916b94eafea467d83dee03d17ae"
+  },
+  "kwargs": {
+   "radius": 0.4,
+   "strength": 0.8
+  },
+  "mode": "comb",
+  "points": [
+   [
+    -0.3,
+    0.95,
+    0.4
+   ],
+   [
+    0.0,
+    1.0,
+    0.45
+   ],
+   [
+    0.3,
+    0.95,
+    0.4
+   ]
+  ]
+ },
+ {
+  "after": {
+   "guideData": "39dd1c84bdd4b302ed56ecf7636c647e"
+  },
+  "kwargs": {
+   "radius": 0.5,
+   "strength": 0.6,
+   "symmetry": "x"
+  },
+  "mode": "smooth",
+  "points": [
+   [
+    0.2,
+    0.9,
+    0.3
+   ],
+   [
+    0.4,
+    0.8,
+    0.4
+   ]
+  ]
+ },
+ {
+  "after": {
+   "guideData": "8967a4eac746aa8a54d812530aeacab7"
+  },
+  "kwargs": {
+   "level": -1,
+   "radius": 0.6,
+   "strength": 0.5
+  },
+  "mode": "lift",
+  "points": [
+   [
+    0.3,
+    0.9,
+    0.2
+   ]
+  ]
+ },
+ {
+  "after": {
+   "guideData": "6c1a59602afed2ac202e32b00b4e1c97"
+  },
+  "kwargs": {
+   "group": "children",
+   "radius": 0.5,
+   "strength": 0.4
+  },
+  "mode": "twist",
+  "points": [
+   [
+    0.3,
+    0.9,
+    0.2
+   ],
+   [
+    0.5,
+    0.7,
+    0.3
+   ]
+  ]
+ },
+ {
+  "after": {
+   "guideData": "b62d82700f7c016449501d5d085bcac6"
+  },
+  "kwargs": {
+   "radius": 0.5,
+   "value": 0.7
+  },
+  "mode": "clump",
+  "points": [
+   [
+    0.4,
+    0.85,
+    0.2
+   ]
+  ]
+ },
+ {
+  "after": {
+   "guideData": "b7108d92e8e6a06cfae8382749688999"
+  },
+  "kwargs": {
+   "length": 0.6,
+   "symmetry": "x"
+  },
+  "mode": "place",
+  "points": [
+   [
+    0.2,
+    0.2,
+    0.95
+   ],
+   [
+    -0.5,
+    0.5,
+    0.7
+   ]
+  ]
+ },
+ {
+  "after": {
+   "guideData": "5c20534ac27acc77bb3a9f8d3b422dde"
+  },
+  "kwargs": {
+   "segments": 8
+  },
+  "mode": "draw",
+  "points": [
+   [
+    0.0,
+    0.7,
+    0.72
+   ],
+   [
+    0.0,
+    0.9,
+    1.0
+   ],
+   [
+    0.0,
+    1.1,
+    1.2
+   ]
+  ]
+ },
+ {
+  "after": {
+   "partData": "e376eb5c27cc148e928a109c7294a6df"
+  },
+  "kwargs": {
+   "part_name": "crown",
+   "symmetry": "x"
+  },
+  "mode": "part",
+  "points": [
+   [
+    -0.3,
+    0.95,
+    0.3
+   ],
+   [
+    0.0,
+    0.97,
+    0.25
+   ],
+   [
+    0.3,
+    0.95,
+    0.3
+   ]
+  ]
+ },
+ {
+  "after": {
+   "flowData": "1b215e276aa2d7d986c7bfe2e747a8fc"
+  },
+  "kwargs": {
+   "radius": 0.3
+  },
+  "mode": "flow",
+  "points": [
+   [
+    -0.4,
+    0.9,
+    0.2
+   ],
+   [
+    -0.1,
+    0.95,
+    0.3
+   ],
+   [
+    0.2,
+    0.9,
+    0.35
+   ]
+  ]
+ },
+ {
+  "after": {
+   "flowData": "049ca99f5f6b795fa00e25ecfb7e05c8",
+   "guideData": "cc715f510b6fa4e2be0af4a88f92a215",
+   "partData": "dab06d3b4aadd6441cd9dceb44993abd"
+  },
+  "kwargs": {
+   "radius": 0.3,
+   "targets": "guides,parts,flow"
+  },
+  "mode": "comb",
+  "points": [
+   [
+    -0.3,
+    0.95,
+    0.3
+   ],
+   [
+    0.3,
+    0.95,
+    0.3
+   ]
+  ]
+ },
+ {
+  "after": {
+   "guideData": "53631d3d8be5365ebddc6446c419f67c"
+  },
+  "kwargs": {
+   "radius": 0.3
+  },
+  "mode": "erase",
+  "points": [
+   [
+    0.0,
+    0.6,
+    0.8
+   ]
+  ]
+ }
+]

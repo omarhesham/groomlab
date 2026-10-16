@@ -1,0 +1,35 @@
+#version 440
+// SPDX-License-Identifier: Apache-2.0
+#extension GL_GOOGLE_include_directive : require
+
+// One light's transmittance volume (the visibility path's shadows, in place of the deep opacity
+// maps): for each voxel, the number of hairs between its center and the light, marched toward
+// the light through the density (hair_density.comp, trilinear) a voxel at a time from half a
+// voxel on, until the grid ends or nothing could get through anyway. It depends on the hair and
+// the light alone, not on the camera: made again when they change. hair_shade.comp then reads a
+// light's count at a point in one trilinear look-up.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "hair_voxel.glsl"
+
+layout(binding = 6) uniform sampler3D densityTexture;
+layout(r32f, binding = 5) uniform writeonly image3D volumeImage;
+
+void main() {
+    ivec3 v = ivec3(gl_GlobalInvocationID);
+    ivec3 dims = ivec3(gridDims.xyz);
+    if (any(greaterThanEqual(v, dims))) return;
+    vec3 size = vec3(dims);
+    vec3 at = vec3(v) + 0.5 + gridToward.xyz * 0.5;  // in voxels
+    vec3 dir = normalize(gridToward.xyz);
+    float count = 0.0;
+    int steps = int(ceil(length(size))) + 1;
+    for (int k = 0; k < steps; ++k) {
+        if (any(lessThan(at, vec3(0.0))) || any(greaterThan(at, size))) break;
+        count += textureLod(densityTexture, at / size, 0.0).r;
+        if (count > 64.0) break;
+        at += dir;
+    }
+    imageStore(volumeImage, v, vec4(count * gridParams.w));
+}

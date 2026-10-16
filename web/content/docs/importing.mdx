@@ -1,0 +1,296 @@
+---
+title: Importing XGen and Yeti grooms
+description: Turning Maya XGen descriptions (Interactive Groom Splines and XGen Core) and Yeti graphs into GroomLab grooms, what maps to what, and the limits.
+---
+
+GroomLab imports XGen and Yeti grooms inside Maya. [Yeti](#yeti) is read from the scene data,
+without Yeti's plugin or license. XGen comes in two kinds:
+
+- **Interactive Groom Splines** (an `xgmSplineDescription` with its modifier stack).
+- **XGen Core** descriptions (an XGen collection's descriptions, with guides, a generator,
+  a Spline primitive and FX modules).
+
+Each description becomes one GroomLab groom on the same scalp. The import reads the description,
+builds a graph in the usual order and copies the maps it uses into the scene's masks folder.
+Then it reports what it took over exactly, what it approximated and what it left out.
+
+## Importing
+
+1. Open the scene with the XGen descriptions. Maya's XGen plugin must be loaded (GroomLab loads it
+   when it is installed).
+2. Save the scene first, so the copied maps go beside it (`groomlab/<scene>/masks/`). In an untitled
+   scene they go under the project's `groomlab/untitled` folder.
+3. **GroomLab > Import > From XGen...** lists the scene's descriptions with their kind and scalp.
+   Check the ones to import.
+4. If XGen's texture paths use variables your machine doesn't set (`${TEXTURE_ROOT}/hair/density.png`),
+   add a line `TEXTURE_ROOT=D:/library/textures` to **Roots**. A line with only a folder adds a
+   folder to look for files in.
+5. Click **Import**. The report shows in the window and in the Script Editor. The new grooms are
+   selected.
+
+If a file is missing, the import goes on without it. The report lists the file, every place it
+looked, and any variable that nothing set. Add that variable to Roots and import again.
+
+From Python:
+
+```python
+import groomlab
+groomlab.xgen_descriptions()        # [{"name", "flavor": "igs" | "core", "node", "palette", "scalp"}]
+report = groomlab.import_xgen()     # all descriptions; or descriptions=["hair"], roots={"TEXTURE_ROOT": "D:/lib"}
+print(report)                       # mapped / approximated / skipped / files / missing, per description
+groom = report.grooms[0]["groom"]
+```
+
+`import_xgen` also takes `search_dirs` (more folders to look in), `max_guides` (the most guides an
+Interactive Groom gives), `map_resolution` (Ptex maps baked at the scalp's UVs, default 1024) and
+`match_count` (on by default).
+
+## How each kind is read
+
+**Interactive Groom Splines.** Every spline in an Interactive Groom is a strand, and there are no
+guides. The importer asks XGen for its splines with the Clump, Noise, Cut and Linear Wire modifiers
+muted for a moment. It keeps an evenly spread subset of those splines as GroomLab guides, about one
+per 25 splines, between 32 and 2000. The brushed shape, the Sculpt layers and the Scale, Guide,
+Displacement and Collision modifiers are therefore baked into the guides. The look modifiers become
+GroomLab nodes. Scatter's density is set from the number of splines XGen made. The width comes from
+the splines' own widths.
+
+**XGen Core.** The description's guides become GroomLab guides. The generator's density and mask
+become Scatter's density and its map. The Spline primitive's length, width and taper become the
+Transform and Width nodes. The FX modules become nodes, in the order XGen applies them.
+
+## What maps to what
+
+| XGen | GroomLab | Notes |
+| --- | --- | --- |
+| Interactive Groom splines | Guides (a spread subset) | Sculpt layers, brushes, Scale, Guide, Displacement and Collision modifiers baked in |
+| Core guides | Guides | Their control points as points |
+| Spline count (Interactive Groom) | Scatter density | Set so the groom grows XGen's number of strands, with its density map applied |
+| Generator density (Core) | Scatter density | Strands per unit area, as in XGen |
+| Generator mask, base Density Mask | Scatter density map | A map, an expression or a Ptex map |
+| Core: no guide nearby | Scatter guideRadius | Hair grows within 2 guide spacings of a guide root; XGen grows it on faces its guides reach |
+| Primitive length (Core, Guides method) | Transform scale (strand space) | XGen's length multiplies the guides' length; a map or an expression drives the scale |
+| Primitive width, taper, taperStart, widthRamp | Width width and profile | The profile combines the taper and the ramp |
+| Splines' widths (Interactive Groom) | Width width and profile | The median root width and the mean profile along the strands |
+| Clumping module / Clump modifier: clump | Clump strength | Core: the same value. Interactive Groom: clump x 0.32 (calibrated) |
+| clumpScale ramp | Clump profile | 1 - clumpScale: XGen scales the clump's radius, GroomLab sets the pull |
+| Clumping's clump map points | Clump centers | At the guides when XGen's clump points are the guides; else that many clumps picked among the strands |
+| Clump modifier pointDensity | Clump count | pointDensity x pointDensityMask x the scalp's area |
+| flatness, copy | Clump flatness, copyAmount | |
+| clumpVolumize, clumpVariance | Clump volumize 0.3, strengthRandom | Approximated |
+| Noise magnitude, frequency, magnitudeScale | Noise amplitude, frequency, profile | Amplitude = magnitude x 0.05 x the guides' median length; frequency x 4 per strand length (calibrated) |
+| Noise correlation | Noise space | 0.5 or more: world (coherent); below: strand |
+| Coil count, radius, countScale, radiusScale | Curl (helix) frequency, radius, frequencyProfile, profile | count turns per strand, set per unit length at the strands' median length |
+| Cut (Core amount, Interactive Groom absolute) | Length keep | `max(0, 1 - amount / $length)` per strand |
+| Cut (Interactive Groom relative) | Length keep | 1 - percentage / 100 |
+| A module or modifier's mask | The node's affect | A constant, a map or an expression |
+| Expressions | Expression maps | Passed through; `map('${DESC}/paintmaps/<name>/')` reads the GroomLab map `<name>` |
+| Ptex paint maps | Texture maps | Baked at the scalp's UVs into a PNG; a vertex map on a scalp without UVs |
+| File textures on Interactive Groom attributes | Texture maps | Copied as PNG (TIFF, EXR and other formats Maya reads are converted) |
+| Other texture nodes on attributes | Texture maps | Baked at the scalp's UVs (convertSolidTx) |
+| aiStandardHair on the description | HairColor (melanin) | melanin, melaninRedness, melaninRandomize, baseColor as the dye |
+
+Left out, and listed in the report: Linear Wire, Wind, Animated Wires, Control Wires, forces,
+collision and mesh cut modules; the clump's own cut, noise, curl and offset; clump control maps;
+the Spline primitive's offsets, depth and bend; cull and point-file settings; other shaders.
+
+## Files and paths
+
+The importer finds each file once. It expands XGen's tokens (`${DESC}`, `${PROJECT}`, `${FXMODULE}`,
+`${PALETTE}`, `${DESCRIPTION}`), then the Roots you gave, then environment variables (`${NAME}`,
+`$NAME`, `%NAME%`, `~`). A relative path is looked for beside the scene, in the project, and in the
+collection's and description's folders. A file that isn't where its path says is also looked for
+by name in those folders.
+
+Every file found is copied into the masks folder as a PNG and the map reads the copy. Ptex maps
+are baked there. Nothing keeps the XGen paths: the groom doesn't depend on the XGen files, which
+can move or be deleted afterwards.
+
+A Ptex map is read without the Ptex library. Faces follow the mesh's polygons: one face per quad,
+one sub-face per corner of other polygons, as XGen writes them. The map is baked at the scalp's
+first UV tile, 1024 x 1024 by default.
+
+## How close it gets
+
+The import was checked on two synthetic scenes (a head of quads with XGen's own API), comparing
+XGen's exported strands with GroomLab's:
+
+| | Interactive Groom (XGen / GroomLab) | Core (XGen / GroomLab) |
+| --- | --- | --- |
+| Strands | 6155 / 6186 | 1326 / 1449 |
+| Median length | 3.00 / 2.57 | 2.41 / 2.56 |
+| Straightness (root-to-tip over length) | 0.99 / 0.97 | 0.83 / 0.79 |
+| Tip gathering (tip over root nearest-neighbour distance) | 0.96 / 1.02 | 0.32 / 0.65 |
+
+Counts match within 10 percent, and Core lengths and shapes closely. Two differences remain. The
+Interactive Groom's median length differs because XGen's absolute Cut shortened only 41 percent of
+the splines in that scene, and GroomLab cuts every strand. In the Core scene, GroomLab's Curl and
+Noise after the Clump spread the clumped tips more than XGen's (each node alone matches: tip
+gathering 0.21 / 0.24 with the Clump only).
+
+## Limitations
+
+- **Calibrated, not identical.** Noise, Coil and the Interactive Groom's Clump work differently
+  in XGen and GroomLab. Their factors were measured on matching grooms, from XGen's splines exported
+  in mayapy (as a batch render computes them). Expect to retouch noise and clump strengths.
+- **Interactive Groom guides are a sample.** Detail finer than the guide spacing is smoothed. Raise
+  `max_guides` for fine grooming.
+- **Random values differ.** `rand()` and the noise functions give GroomLab's numbers, not XGen's.
+  XGen's `$u` and `$v` are positions across a face; GroomLab's are the scalp's UVs (the report
+  notes it).
+- **One scalp.** A description bound to several meshes grows on the first one.
+- **Groomable Splines (Core)** descriptions have no guides: convert them to Interactive Groom in
+  XGen, then import that.
+- **Animation.** The import reads the current frame. Wind, animated wires and caches aren't taken
+  over: use GroomLab's Wind, Jiggle and Simulate nodes.
+- **Ptex** files on triangle meshes (Ptex's triangle layout) aren't read. UV tiles past the first
+  aren't baked.
+
+## Yeti
+
+GroomLab reads Yeti grooms from the scene data, without Yeti's plugin or license. Maya keeps the
+data of nodes from a plugin it doesn't have, so a scene saved with Yeti opens without it and the
+import still finds the graphs and grooms.
+
+Each Yeti graph (a `pgYetiMaya` node) becomes one GroomLab groom on the mesh it scatters on. A
+graph that merges several fibre chains (each from its own Scatter) becomes one groom per chain,
+named `<node>_1`, `<node>_2` and so on. The groom's strands (a `pgYetiGroom` node) become the
+guides, and each attribute painted on them becomes a guide layer of the same name, which the
+graph's expressions and attribute params read.
+
+### Importing
+
+1. Open the scene. Yeti doesn't need to be installed. Save the scene first, so the copied textures
+   go beside it (`groomlab/<scene>/masks/`).
+2. **GroomLab > Import > From Yeti...** lists the scene's Yeti graphs with their mesh and grooms.
+   Check the ones to import.
+3. Yeti finds textures through the node's image search path, which often names a variable
+   (`${PROJECT_ROOT}/textures`). If your machine doesn't set it, add a line
+   `PROJECT_ROOT=D:/project` to **Roots**. A line with only a folder adds a folder to look in.
+4. Click **Import**. The report shows in the window and in the Script Editor.
+
+From Python:
+
+```python
+import groomlab
+groomlab.yeti_nodes()                # [{"name", "node", "scalp", "grooms"}]
+report = groomlab.import_yeti()      # all graphs; or nodes=["hairYeti"], roots="PROJECT_ROOT=D:/project"
+print(report)
+```
+
+`import_yeti` also takes `search_dirs`, `max_guides` (the most guides a groom gives; by default
+every groom strand is a guide) and `map_resolution`.
+
+**Scene files.** The import writes the scene's Yeti nodes to a temporary Maya ASCII file and reads
+that. In a scene opened from a `.ma` file this works with or without Yeti. A `.mb` file saved with
+Yeti and opened without it can't be read: Maya keeps that data in binary and won't write it as
+text. Save the scene as `.ma` on a machine with Yeti, then import it.
+
+### How the graph is read
+
+The import starts at the graph's root (its shader node) and follows each node's first input back
+to the Scatter that makes the fibres. The nodes on that path become GroomLab nodes in the same
+order. Grow and Comb become Interpolate on the guides. A Clumping node's second input (its clump
+curves) becomes a branch of its own: a Scatter, an Interpolate on the guides and the clump curves'
+own nodes, feeding the Clump's `centers` input as curves. When the clump curves are the groom's
+strands (a Convert of the groom), the guides are the centers.
+
+Texture, Expression, Curve and Attribute nodes are read where a param uses them. An expression
+that multiplies maps, attributes and constants becomes a map on the param, with its constant as
+the param's value. A curve along the fibre (`$strandu`) becomes part of the node's profile. Any
+other expression is translated to a GroomLab expression: `$strandu` becomes `$t`, Yeti's root
+UV `$s` and `$t` become `$u` and `$v`, an Expression node's `$f0`-`$f3` and `$v0`-`$v3` become
+the values or maps they read, and a painted attribute becomes `map("<attribute>")`.
+
+### What maps to what
+
+| Yeti | GroomLab | Notes |
+| --- | --- | --- |
+| Import (mesh) | Scalp | The mesh the fibres' Scatter reads |
+| Import (groom) | Guides | Each groom strand is a guide; a corrective groom of it takes its place |
+| Groom attributes | Guide layers | Per strand values, blended into the strands from their guides |
+| Scatter `density` x `densityMultiplier` | Scatter `density` and its map | Strands per unit area, as in Yeti; `seed` |
+| Scatter `groomAttribute` | Scatter density map | When the groom has that attribute |
+| Grow | Interpolate | Strands take the guides' shapes and lengths |
+| Grow `lengthMin`, `lengthMax`, `lengthMultiplier` | Transform `scale`, `scaleRandom` | Scale (min + max) / 2 x multiplier; random share (max - min) / (max + min) |
+| Grow `segmentCount` | Resample `segments` | Between 8 and 48 |
+| Comb | Interpolate | `weight` below 1 is reported: GroomLab's strands follow the guides fully |
+| Guide (with guide curves) | Guides, Interpolate | The curves' CVs; `maxNumberOfGuideInfluences` as `neighbors` |
+| Clumping `weight` | Clump `strength` | A constant, a guide layer or an expression |
+| Clumping `attractionBase`, `attractionTip`, `attractionBias` | Clump `profile` | base + (tip - base) x t^(2^(-2 x bias)), times the weight's curve along the fibre |
+| Clumping clump curves from a Scatter | Clump `centers` (`inputCurves`) | A Scatter, an Interpolate and the curves' own Grow and Scraggle |
+| Clumping clump curves from the groom (Convert) | Clump `centers` (`inputCurves`) | The guides |
+| Clumping `weightRandom`, `clumpWeightRandom` | Clump `strengthRandom` | The larger of the two |
+| Clumping `flyAway` | Clump `affect` | That share of the strands left out, at random |
+| Clumping `twist` | Twist `turns`, `profile` | Turns per strand, per unit length at the strands' median length; the clump's profile |
+| Scraggle | Noise | Amplitude = scraggle x multiplier x 0.05 x the guides' median length; frequency x 4 per strand length |
+| Scraggle `rootScraggle`, `tipScraggle` | Noise `profile` | Linear from root to tip |
+| Scraggle `percent` | Noise `fraction` | |
+| Scraggle `scraggleRandom` | Noise `amplitude` map | 1 - scraggleRandom x a random number per strand |
+| Width `baseWidth`, `tipWidth`, `baseParameter`, `tipParameter` | Width `width`, `profile` | Times the `widthMultiplier` curve along the fibre |
+| Width `widthMultiplier` | Width `width` map | A map, a guide layer or an expression |
+| Width `widthRandom` | Width `randomness` | |
+| Displace | Displace (along the normal) | The displacement and its multiplier |
+| Length | Transform `scale` | |
+| Cut | Length `keep` | 1 - the amount |
+| Direction | Interpolate | The guides set the direction |
+| Shader `diffuseColor` | HairColor (`color` mode) | aiStandardHair on the node: melanin, as for XGen |
+| Texture | Texture map | Copied into the masks folder; `channels` 1-4 read red, green, blue, alpha (0: luminance) |
+| Merge | One groom per input chain | |
+| Switch, Blend | The input it selects | A Blend takes the input it weighs most |
+
+Left out, and listed in the report: Collide, Instance, Transform and other nodes that make no
+hair shape; nodes not on the way to the output; Clumping's `clumpSize`, `twistRandom` and
+`lengthHandling`; Scatter's base and tip density (scattering along curves) and face sets;
+Scraggle's `space` and `distribution`; Comb's `spread`; the shader's other options.
+
+### Textures
+
+Each texture is found once, in this order: the texture's own path, then each folder of the image
+search path (`.isp`), with variables expanded from Roots and the environment. The scene's folder,
+the project and its `sourceimages` folder are searched by file name. A texture read through two
+channels (a mask in red, a density in green) is copied once and both params read their channel.
+
+Every file found is copied into the masks folder as a PNG; TIFF, EXR and other formats Maya reads
+are converted. The groom doesn't refer to Yeti's texture folders afterwards. A texture that isn't
+found is listed with every place the import looked and any variable nothing set, and reads as
+white (1): the param keeps its multiplier.
+
+### Yeti's data
+
+For reference, this is the data the import reads:
+
+- A `pgYetiMaya` node's `.pds` attribute (data type `pgYetiMayaData`) is one base64 string. It
+  decodes to XML: `<yeti-graph version="2">` with `<items>` of `<node id name type>` elements
+  (also inside `<group>` elements, which only lay the graph out). A node lists its `<inputs>`
+  (each the output ID of the node feeding it, or `-`), its `<outputs>` and its `<param name
+  value>` elements. A param with an `attachment` is driven by that output (a texture, an
+  expression or a curve), and its own value is unused. A curve node keeps its keys in `<config>`
+  as position, value and interpolation triples. `<globals>` names the root node.
+- `.isp` is the image search path: folders separated by `;`.
+- A `pgYetiGroom` node's `.pds` (data type `pgYetiMayaStrandData`) is plain text:
+  `PGYS10 <groom name> <attribute count>`, then each attribute as `<name> <type> <flag>
+  <count>` and its values (type 0 integer, 1 float, 2 three floats). `P` holds every strand
+  point, `numVertices` the points per strand, `s` and `t` each strand's root UV, `N` its root
+  normal. A painted attribute has one value per strand. `.cgt` names the groom a corrective
+  groom corrects.
+
+### How close it gets
+
+Yeti can't run without its license, so the import wasn't compared with Yeti's own fibres. It is
+tested on a synthetic scene written in Yeti's format: the mapping, the guides and guide layers, the
+textures, and strand counts and lengths against the groom strands and the graph's settings.
+
+- **Not calibrated.** Scraggle uses XGen Noise's measured factors, and the attraction bias is an
+  approximation. Expect to retouch scraggle amounts and clump profiles.
+- **Strand counts** follow Yeti's density x the mesh's area x the density map. The report states
+  both numbers.
+- **Clumps.** GroomLab's clumps follow the clump curves Yeti scatters. Clumping's `clumpSize` isn't
+  taken over.
+- **Random values differ.** Seeds are kept, but the placement and noise are GroomLab's own.
+- **One mesh.** A graph scattering on several meshes grows on the first one.
+- **Animation.** The import reads the current frame. Yeti's caches and simulation nodes aren't
+  taken over.
+- **Less common nodes.** Displace, Length, Cut, Guide, Switch and Blend are read by the parameter
+  names the import looks for (`displacement`, `length`, `amount`, `maxNumberOfGuideInfluences`,
+  `index`, `blend`). A node whose amount isn't found is reported and left out.

@@ -1,0 +1,12 @@
+{
+  "name": "Band along each strand",
+  "description": "1 in a band partway along every strand, 0 elsewhere (per point)",
+  "expression": "# smoothstep(x, a, b): 0 below a, 1 above b\n$in = smoothstep($t, $from - $soft, $from);\n$out = 1 - smoothstep($t, $to, $to + $soft);\n$in * $out",
+  "variables": {
+    "from": 0.4,
+    "to": 0.6,
+    "soft": 0.05
+  },
+  "min": 0.0,
+  "max": 1.0
+}

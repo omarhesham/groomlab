@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// Tool Settings for the GroomLab brush (groomLabBrushCtx). Maya calls this
+// when the tool's settings window is first shown; the context class name
+// "groomLabBrush" selects this proc and groomLabBrushValues. The brush's
+// settings live in one place, the Groom Tools, so this only points there.
+
+global proc groomLabBrushProperties()
+{
+    setUITemplate -pushTemplate DefaultTemplate;
+    string $parent = `toolPropertyWindow -q -location`;
+    setParent $parent;
+
+    columnLayout -adjustableColumn true -rowSpacing 8 groomLabBrush;
+        text -align "left" -label "GroomLab brush settings (radius, strength, guides, symmetry) are in the Groom Tools.";
+        text -align "left" -label "Middle-drag in the view: radius. Shift+middle-drag: strength.";
+        button -label "Open Groom Tools" -command "python(\"import groomlab.ui.palette as p; p.show()\")"
+            groomLabBrushOpenTools;
+    setParent ..;
+
+    setUITemplate -popTemplate;
+}

@@ -1,0 +1,51 @@
+---
+title: Introduction
+description: What GroomLab is, where its tools live in Maya, and the supported Maya versions.
+---
+
+GroomLab is a hair, fur and feather system for Maya. It combines **hierarchical guides** that you
+shape by hand (primary guides, and child guides generated inside their parents' tubes) with a
+**procedural node graph** that generates the render strands from them (scatter, interpolate,
+clump, noise, curl and so on).
+
+<Callout type="info" title="Early access">
+  GroomLab is in early access and under active development. Grooming, rendering and export work
+  today; nodes, tools and defaults will continue to change. [What's new](/docs/whats-new) lists
+  changes per release. Send feedback and bug reports to
+  [support@getgroomlab.com](mailto:support@getgroomlab.com).
+</Callout>
+
+<Example name="hero.png" alt="A wolf groomed in GroomLab" caption="Groomed in GroomLab, in the Maya viewport" />
+
+## Where things are in Maya
+
+| Window | Contents |
+| --- | --- |
+| **Attribute Editor** (groom shape) | Inputs (scalp, rest mesh, guides, colliders), keyable controls, display and render settings. |
+| **Groom Tools** | Guide brushes, guide groups, painted maps, sculpt layers (correctives) and reference photos. |
+| **Graph Editor** | The node graph that generates the strands. |
+
+Every UI action has a Python equivalent in the `groomlab` package ([Python API](/docs/python-api)).
+
+The standalone [GroomLab app](/docs/app) (grooming, look-dev and export without Maya) and
+[GroomLab for Blender](/docs/blender) are in beta on Windows. Both open grooms made in Maya
+without conversion.
+
+## Requirements
+
+- **Maya 2022** on Windows (64-bit) is tested. **Maya 2023 to 2027** are in beta: the download
+  includes a build for each, compiled against that Maya version but not yet tested in it. The Maya
+  2024 build has no Arnold translator yet.
+- **MtoA** (the Arnold plug-in that ships with Maya) to render in Arnold.
+- If Maya reports a missing DLL, install the latest *Microsoft Visual C++ Redistributable for
+  Visual Studio 2015-2022 (x64)*.
+
+## Next steps
+
+<Cards>
+  <Card title="Installation" href="/docs/installation" description="Unzip, drag install.mel onto Maya, restart once." />
+  <Card title="Quick start" href="/docs/quick-start" description="Create a groom, place guides and add a look." />
+  <Card title="Node graph" href="/docs/node-graph" description="The nodes that generate the strands, and their parameters." />
+  <Card title="Game export" href="/docs/game-export" description="Cards and strands for Unreal, Unity and glTF." />
+  <Card title="What's new" href="/docs/whats-new" description="Changes per release, newest first." />
+</Cards>

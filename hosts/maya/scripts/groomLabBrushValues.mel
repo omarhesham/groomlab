@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// Tool Settings values for the GroomLab brush: the settings themselves are in
+// the Groom Tools (see groomLabBrushProperties).
+
+global proc groomLabBrushValues(string $ctx)
+{
+    toolPropertySetCommon $ctx "paintTexture.png" "";
+    toolPropertySelect groomLabBrush;
+}

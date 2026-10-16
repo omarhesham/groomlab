@@ -1,0 +1,363 @@
+---
+title: Expressions
+description: GroomLab's expression language (SeExpr, as in Maya XGen), its variables and functions, and what differs from XGen.
+---
+
+Any mappable parameter (Map > **Expression**) and the **Expression** node take an expression,
+evaluated per strand, or per point along it. The **direction** of a Bend, Gravity or Displace
+takes one too (the **f(x)** button beside it) and gives a vector per strand.
+
+The language is SeExpr, the one Maya XGen uses: the same operators, statements and built-in
+functions, with XGen's variable names accepted. Most XGen expressions paste in unchanged. The
+exceptions are listed under [Coming from XGen](#coming-from-xgen).
+
+```
+$n = fbm($P * 3, 4);                  # a local, read below
+$crown = smoothstep($ny, -0.2, 0.8);  # SeExpr's order: smoothstep(x, a, b)
+mix($n, 1, $crown)                    # the last line is the value
+```
+
+A number expression on a mappable parameter is mapped from 0-1 onto the parameter's **min** and
+**max**. Expressions give the same values on every machine and every thread count.
+
+## Writing an expression
+
+- **Names** take a `$` or not: `$length` and `length` are the same variable.
+- **Comments** start with `#` or `//` and run to the end of the line.
+- **Locals**: `$name = expression;` makes a local for the lines below it. The last line, without
+  an assignment, is the value. A local may hide a built-in variable (`$P = $P * 10;`).
+- **The node's own variables** (numbers and vectors, shown as sliders on the Expression node) read
+  as `$amount`, `$center` or `$center.x`. Make one keyable and it animates.
+- **Per point**: an expression that reads `t`, `pt`, `px`, `py`, `pz`, `pointIndex` or a point
+  channel is evaluated at every point of every strand, on the parameters marked *per point*.
+  Elsewhere it reads the root's values.
+- **Time**: an expression that reads `frame` or `time` is evaluated again on every frame. One that
+  doesn't is cached.
+
+## Syntax
+
+Operators, from the loosest binding to the tightest:
+
+| Operator | Meaning |
+| --- | --- |
+| `x -> f(a, b)` | Apply: `f(x, a, b)`. Everything to the left is the first argument, so `$a + $b -> clamp(0, 1)` is `clamp($a + $b, 0, 1)`. Chains run left to right. |
+| `c ? a : b` | `a` where `c` is not 0, else `b`. Either side may be a vector. |
+| `\|\|` | 1 when either side is not 0. |
+| `&&` | 1 when both sides are not 0. |
+| `==  !=` | Equal, not equal: 1 or 0. |
+| `<  <=  >  >=` | Comparisons: 1 or 0. |
+| `+  -` | Add, subtract. |
+| `*  /  %` | Multiply, divide, remainder (`%` is C's `fmod`: the sign of the left side). Division by 0 gives 0. |
+| `-x  !x  ~x` | Negate, not (1 for 0, else 0), invert (`1 - x`). |
+| `^` | Power, right to left: `2 ^ 3 ^ 2` is `2 ^ 9`. `-2 ^ 2` is -4. |
+| `v[i]`, `v.x` | A vector's component. `i` is any number expression: 0, 1 or 2 (anything else reads 0). `.x .y .z` and `.r .g .b` also work. |
+| `[x, y, z]` | A vector. |
+
+**Statements**, before the final value:
+
+```
+$a = 1;                     # assignment
+$a += 2;                    # also -=  *=  /=  %=  ^=
+if ($x > 0) {
+    $side = 1;
+} else if ($x < -0.5) {
+    $side = -2;
+} else {
+    $side = -1;
+}
+```
+
+Inside braces go assignments and further `if` statements. A local set in an `if` keeps its value
+from before the `if` where its branch doesn't run. A local set in one branch only, and nowhere
+before, is an error when it is read after the `if`.
+
+**Vectors**: `+ - * / % ^` and the number functions work component by component. A number beside
+a vector applies to every component, and a number passed where a function takes a vector
+becomes `[x, x, x]`. A vector where a number is needed is an error (write `.x`, `length(v)` or
+`dot(a, b)`), as is comparing vectors.
+
+**Strings** appear only as map names: `map("crown")`, `map('crown')`.
+
+## Variables
+
+| Name | XGen name | What |
+| --- | --- | --- |
+| `P` (`x`, `y`, `z`) | `$P`, `$Pg`, `$Pw`, `$Pgw` | The root's position, in world space. |
+| `N` (`nx`, `ny`, `nz`) | `$N`, `$Ng` | The scalp's normal at the root. |
+| `Pref` (`prefx`, `prefy`, `prefz`) | `$Pref`, `$Prefg`, `$Prefw`, `$Prefgw` | The root on the scalp's rest pose; `P` when the scalp has none. |
+| `u`, `v` | `$u`, `$v` | The root's UV on the scalp's UV set (0 without UVs). See the note below. |
+| `id` | `$id` | The strand's ID, its low 24 bits: a whole number that stays with the strand as others are added or removed. |
+| `faceId` | `$faceId` | The scalp triangle the root sits on (-1 for a strand not on the scalp). |
+| `rand` | | A stable random number per strand, 0 to 1. |
+| `index` | | The strand's place in the set, 0 to 1. It shifts when strands are added before it, and in a thinned preview. |
+| `length` | `$cLength` | The strand's length along its points, as it is where the expression is read. |
+| `longest` | | The longest strand's length. |
+| `reach`, `straightness` | | Root to tip in a straight line; `reach / length` (1: straight). |
+| `lift` | | How far the strand points off the scalp: 1 straight out, 0 along it, below 0 into it. |
+| `tip` (`tipx`, `tipy`, `tipz`) | | The tip's position. |
+| `t`, `pt` | | Along the strand, 0 at the root to 1 at the tip: by length, by point count. Per point. |
+| `pointP` (`px`, `py`, `pz`), `pointIndex` | | The point's position and index. Per point. |
+| `frame` (`F`), `time` | `$frame` | The evaluated frame, and the time in seconds. |
+| `pi` | | 3.14159... |
+| any other name | | The strand channel of that name (`clumpId`, `melanin`, a Group's name), or the point channel of that name. A missing channel reads 0. |
+
+The shape variables (`length`, `reach`, `tip`...) read 0 where strands don't exist yet, as in
+Scatter's density.
+
+## Functions
+
+The number functions below work on vectors component by component. A noise function's point `p`
+is a vector; a number `x` there is the point `[x, 0, 0]`.
+
+**Math**
+
+| Function | What |
+| --- | --- |
+| `sin cos tan asin acos atan`, `atan2(y, x)` | Trigonometry, in radians. |
+| `sind cosd tand asind acosd atand`, `atan2d(y, x)` | The same in degrees. |
+| `sinh cosh tanh asinh acosh atanh` | Hyperbolic functions. |
+| `abs sqrt cbrt exp log log10 floor ceil round trunc fract sign` | `log` and `log10` of 0 or less give 0. |
+| `pow(a, b)`, `hypot(x, y)`, `min(a, b)`, `max(a, b)` | |
+| `fmod(a, b)` | Remainder with the sign of `a` (as `a % b`). |
+| `mod(a, b)` | Remainder with the sign of `b`, always 0 to `b` for positive `b` (GroomLab's). |
+| `radians(d)` / `rad`, `degrees(r)` / `deg` | Angle units. |
+| `invert(x)` | `1 - x`. |
+
+**Ranges and blends**
+
+| Function | What |
+| --- | --- |
+| `clamp(x, lo, hi)` | `x` kept within `lo` to `hi`. |
+| `mix(a, b, t)` / `lerp` | `a` to `b` as `t` goes 0 to 1. |
+| `fit(x, a1, b1, a2, b2)` | `x` from `a1..b1` onto `a2..b2`, not clamped. |
+| `compress(x, lo, hi)`, `expand(x, lo, hi)` | 0-1 onto `lo..hi`; `lo..hi` onto 0-1. |
+| `boxstep(x, a)` | 0 below `a`, 1 from `a` on. `step(edge, x)` is the same with its arguments swapped (GroomLab's). |
+| `linearstep(x, a, b)` | 0 below `a`, 1 above `b`, a straight line between. With `a > b` it falls instead. |
+| `smoothstep(x, a, b)` | The same with a smooth (cubic) transition. |
+| `gaussstep(x, a, b)` | The same with a bell-curve transition. |
+| `remap(x, source, range, falloff, interp)` | 1 within `range` of `source`, falling to 0 over `falloff` beyond it; `interp` 0 linear, 1 smooth, 2 gaussian. |
+| `gamma(x, g)` | `x ^ (1 / g)`. |
+| `bias(x, b)` | Pushes 0-1 values up (`b` above 0.5) or down; 0.5 leaves them. |
+| `gain(x, g)` | Pushes 0-1 values toward 0 and 1 (`g` above 0.5) or toward 0.5 (GroomLab's). |
+| `contrast(x, c)` | More contrast around 0.5 (`c` above 0.5) or less; 0.5 leaves `x`. |
+
+**Random and noise**
+
+| Function | What |
+| --- | --- |
+| `rand()`, `rand(min, max)`, `rand(min, max, seed)` | A random number per strand: 0 to 1, or `min` to `max`. Different seeds give unrelated values. The same strand gets the same value on every evaluation. |
+| `rand(seed)` | A random 0-1 number per strand and seed (GroomLab's). |
+| `hash(a, b, ...)` | A random 0-1 value of the arguments alone. |
+| `noise(p)`, `noise(x, y)`, `noise(x, y, z)`, `noise(x, y, z, w)` | Smooth (Perlin) noise, 0 to 1. |
+| `snoise(p)`, `vnoise(p)`, `cnoise(p)` | Noise -1 to 1; a vector of three, -1 to 1; a vector, 0 to 1. |
+| `snoise4(p, t)`, `vnoise4(p, t)`, `cnoise4(p, t)` | The same in four dimensions: animate with `t`. |
+| `pnoise(p, period)` | Noise -1 to 1 that repeats every `period` units along each axis (whole numbers, at least 1; a vector gives each axis its own). |
+| `fbm(p, octaves, lacunarity, gain)` | Fractal noise: octaves of noise, each `lacunarity` times the frequency and `gain` times the amplitude of the one before (defaults 6, 2, 0.5). `0.5 + 0.5 * sum`, so it centres on 0.5 and can leave 0-1 a little. |
+| `vfbm(...)`, `cfbm(...)` | Fractal vector noise around 0; around 0.5. |
+| `turbulence(...)`, `vturbulence(...)`, `cturbulence(...)` | fbm of the noise's absolute value: creased, billowy. `turbulence` is 0.5 and up. |
+| `fbm4(p, t, ...)`, `vfbm4(p, t, ...)`, `cfbm4(p, t, ...)` | fbm in four dimensions. |
+| `cellnoise(p)`, `ccellnoise(p)` | One random 0-1 value (or vector) per unit cell. |
+
+**Cells**
+
+| Function | What |
+| --- | --- |
+| `voronoi(p, type, jitter, fbmScale, fbmOctaves, fbmLacunarity, fbmGain)` | Cells around one random point per unit cell, moved from its centre by up to `jitter / 2` (default 0.5). `type` 1: a random value per cell (the default); 2: distance to the nearest point; 3: to the second nearest; 4: their difference, 0 at the cell edges; 5: soft cell edges, 0-1. `fbmScale` above 0 warps `p` with fractal noise first. |
+| `cvoronoi(...)` | The same with a random color per cell: type 1 the color, others the color times the value. |
+| `pvoronoi(p, jitter, fbmScale, ...)` | The nearest cell point itself. |
+
+**Vectors**
+
+| Function | What |
+| --- | --- |
+| `dot(a, b)`, `cross(a, b)`, `length(v)` | |
+| `normalize(v)` / `norm` | `v` at length 1 (0 stays 0). |
+| `distance(a, b)` / `dist` | |
+| `angle(a, b)` | The angle between two vectors, in radians. |
+| `ortho(a, b)` | The unit vector at right angles to both. |
+| `rotate(v, axis, angle)` | `v` turned around `axis` (through the origin) by `angle` radians. |
+| `up(v, upvec)` | `v` turned so that +Y points along `upvec`. |
+
+**Colors**
+
+| Function | What |
+| --- | --- |
+| `rgbtohsl(c)`, `hsltorgb(c)` | RGB to hue (0-1), saturation, lightness, and back. |
+| `hsi(c, h, s, i, mask)` | Hue shifted by `h` degrees, saturation times `s`, intensity times `i`; `mask` (default 1) scales the change. |
+| `midhsi(c, h, s, i, mask, falloff, interp)` | `hsi` applied by how far `mask` is from 0.5: forward toward 1, inverted toward 0. |
+| `saturate(c, amount)` | Saturation times `amount` (0: grey). |
+
+**Curves and picking**
+
+| Function | What |
+| --- | --- |
+| `curve(t, p0, v0, i0, p1, v1, i1, ...)` | A curve through keys of position, value and interpolation, the interpolation of the span after each key: 0 none (the key's value), 1 linear, 2 smooth, 3 spline, 4 monotone spline (no overshoot). Before the first key the first value, after the last the last. This is what an XGen ramp writes. |
+| `ccurve(t, p0, c0, i0, ...)` | The same with colors. |
+| `linearcurve(t, p0, v0, p1, v1, ...)` | Straight segments through keys of position and value (GroomLab's). |
+| `spline(t, y1, y2, ..., yn)` | A Catmull-Rom spline through `y2..y(n-1)`, spaced evenly over `t` 0 to 1; `y1` and `yn` only shape the ends. At least four values. |
+| `pick(index, lo, hi, weights...)` | A whole number from `lo` to `hi`, from a hash of `index`; optional weights, one per number, favour some. |
+| `choose(t, a, b, ...)` / `swatch` | The argument `t` (0 to 1) falls on; vectors too. |
+| `wchoose(t, a, wa, b, wb, ...)` | The same with a weight per choice. |
+| `cycle(index, lo, hi)` | `lo + index`, wrapped into `lo` to `hi`. |
+
+Curve keys are fixed when the expression compiles: numbers, or the node's own variables (which
+can be keyed). The value `t` and spline's values can be anything.
+
+**Maps**
+
+| Function | What |
+| --- | --- |
+| `map("name")` | The groom's map of that name at the strand's root, its luminance: the same map a Map node reads (a guide layer, a vertex map or a texture). |
+| `map("name", "g")` | One channel: `"r"`, `"g"`, `"b"`, `"a"` or `"luminance"` (or 0-4). |
+| `cmap("name")` / `vmap` | The map's color, as a vector. |
+
+## Coming from XGen
+
+Paste the expression into the parameter's Expression field. Names, operators, `->`, statements,
+comments and the built-in functions read as they do in XGen.
+
+**Paint maps.** XGen's `map('${DESC}/paintmaps/length/')` points at a Ptex folder. GroomLab reads
+the last part of such a path as a map name, so that line reads the groom's own map named
+`length`. Paint a map with that name (Groom Tools > Paint) and the expression works as it is.
+Without one, the expression reports the missing map by name. `vmap(...)` reads the map's color.
+
+**Slider comments.** XGen turns `$min = 0.4; #0.1,1.0` into a slider. Here the comment is only a
+comment and the line is an ordinary local. For a slider, give the Expression node its own
+variable and read it as `$min`.
+
+**What differs:**
+
+- **Random values.** `rand`, `hash`, the noises, `cellnoise`, `voronoi` and `pick` have SeExpr's
+  ranges and behaviour, but come from GroomLab's own hash and noise. The pattern is a different
+  one from XGen's, so a groom that depends on a particular random layout won't match.
+- **rand** without a seed is random per strand and repeatable (it hashes the strand's ID). It is
+  not a new number on each evaluation.
+- **$u, $v** are the scalp's UV coordinates. On a polygon mesh, XGen's are the root's position
+  within its Ptex face, so expressions that build patterns from them look different.
+- **$cLength** is the strand's length at the point in the graph where the expression is read,
+  before later nodes change it.
+- **Curve keys** must be constants (numbers or the node's own variables). XGen's ramps write
+  constants, so this only matters for hand-written curves with computed keys.
+- **Vectors in a number's place** are an error here (SeExpr takes the first component). Write
+  `$v[0]` or `$v.x`. Comparing two vectors is also an error.
+- **Not supported**: `printf`, `sprintf` and `getVar`, and the variables `$Nref`, `$dPdu`,
+  `$dPdv` (and their variants), `$cWidth`, `$cDepth`, `$aCount`, `$descId`, `$patchId`,
+  `$objectId`, `$Cs` and `$As`. Each is an error that names it. None is read as 0.
+- **A number as a noise point** is `[x, 0, 0]`, a line through the noise, where other vector
+  functions spread a number to `[x, x, x]`.
+
+**GroomLab's own additions**, kept for expressions written before it followed SeExpr:
+
+- `smoothstep(e0, e1, x)` and `linearstep(e0, e1, x)` with the edges first (GLSL's order) still
+  read that way when both edges are constants and `x` is not. In every other case the order is
+  SeExpr's `(x, a, b)`. A pasted XGen expression always passes `x` first, so the rule never
+  changes one.
+- `curve(t, p0, v0, p1, v1, ...)` with pairs (a smooth curve, as the ramps draw) still reads
+  that way when the arguments can't be SeExpr's triples.
+- `mod`, `step`, `lerp`, `gain`, `linearcurve`, `rand(seed)`, `.x .y .z` components, and the
+  variables listed above without an XGen name.
+
+## Examples
+
+Each of these is checked by GroomLab's tests. The parameter is a suggestion; any mappable
+parameter takes any of them.
+
+**Longer hair on the crown** (Length > keep, min 0.3, max 1):
+
+```
+# 1 where the scalp faces up, less toward the back of the head (+Z is the face)
+$crown = smoothstep($ny, -0.2, 0.8);
+$nape = smoothstep(-$nz, 0.3, 0.9);
+clamp($crown - 0.5 * $nape, 0, 1)
+```
+
+**Length by UV region** (Length > keep): full length inside a band of U, short outside it.
+
+```
+# the band runs from U 0.3 to 0.7, with edges 0.05 wide
+$inside = smoothstep($u, 0.25, 0.3) * (1 - smoothstep($u, 0.7, 0.75));
+mix(0.2, 1, $inside)
+```
+
+**Random clump strength** (Clump > strength):
+
+```
+# most strands clump tightly; one in five stays loose
+$loose = $rand < 0.2;
+$loose ? rand(0.2, 0.5, 11) : rand(0.85, 1, 12)
+```
+
+**Frizz on the tips only** (Noise > amplitude, per point, max 0.3):
+
+```
+# nothing on the first 60% of each strand, full at the tip, on a third of the strands
+$tips = smoothstep($t, 0.6, 1);
+$frizzy = $rand < 0.33;
+$frizzy * $tips
+```
+
+**A noise mask** (any parameter, or a Group's value):
+
+```
+# soft-edged patches; the scale sets their size, the 0.45-0.55 band their edge
+$scale = 3;
+$n = fbm($P * $scale, 4);
+smoothstep($n, 0.45, 0.55)
+```
+
+**Melanin variation** (HairColor > melanin):
+
+```
+# a base of 0.55, each clump a little darker or lighter, each strand a little more,
+# and 3% grey strands
+$clump = (hash($clumpId) - 0.5) * 0.15;
+$strand = rand(-0.05, 0.05);
+$grey = $rand < 0.03;
+$grey ? 0.05 : clamp(0.55 + $clump + $strand, 0, 1)
+```
+
+**Gravity leaning out from the head** (Gravity > direction, a vector):
+
+```
+# down, tipped out along the scalp's normal, more on the sides than the top
+$lean = 0.2 + 0.4 * (1 - abs($ny));
+normalize([0, -1, 0] + $N * $lean)
+```
+
+**A centre part** (Bend > direction): `if`/`else` picks the side.
+
+```
+if ($x < 0) {
+    $side = -1;
+} else {
+    $side = 1;
+}
+normalize([$side, -0.3, 0])
+```
+
+**An XGen ramp over the root's height** (Length > keep), with `->`:
+
+```
+# the root's height from 1.2 to 1.8 onto 0-1, then a monotone curve through four keys
+$h = $P[1] -> fit(1.2, 1.8, 0, 1) -> clamp(0, 1);
+curve($h, 0, 0.3, 4, 0.5, 1, 4, 1, 0.6, 4)
+```
+
+**A painted map from XGen** (any parameter; the groom has a map named `length`):
+
+```
+$a = map('${DESC}/paintmaps/length/');  #3dpaint, 200
+$a
+```
+
+## In the viewport
+
+The GPU preview evaluates number expressions built from numbers, the number variables, channels,
+`+ - * / ^`, comparisons, `&&`, `||`, `!`, `~`, `?:`, `if`/`else`, and these functions: `sin cos
+tan asin acos atan atan2 abs sqrt floor ceil fract exp log sign pow min max mod step clamp mix
+lerp smoothstep linearstep round trunc radians degrees gamma bias gain fit`. Any other expression
+(vectors, `%`, noise, curves, maps, the other functions) is evaluated on the CPU for that node,
+with the same result.
+
+The **Expression** editor completes names and functions as you type and lists examples to start
+from (Maya: the Expression node's panel).

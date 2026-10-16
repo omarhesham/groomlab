@@ -1,0 +1,283 @@
+---
+title: Motion & simulation
+description: Procedural motion with the Wind and Jiggle nodes, guide simulation with the Simulate node, follow-the-scalp evaluation, nHair in Maya, guide caches from other packages, and shot correctives.
+---
+
+<Example name="motion-strip.png" alt="A wolf's fur in a looping wind over several frames" caption="Wind looping over 48 frames" optional />
+
+There are three ways to animate a groom, from cheapest to most expensive:
+
+- **Wind** and **Jiggle** nodes: procedural motion computed per frame, with nothing to cache.
+- The **Simulate** node: dynamics on the guides, identical in every host.
+- An external simulation (nHair, Houdini) imported as a guide cache.
+
+On an animated character, also turn on [Follow Scalp](#follow-the-scalp): the groom is evaluated
+once on the rest pose and carried by the skin, which makes playback, caches and motion blur much
+cheaper.
+
+## Procedural motion
+
+Two nodes (Add Node > Motion) animate the groom without simulation or caching. Each frame is
+computed from the time and the scalp's last few frames, so frames can be evaluated in any order,
+rendered independently on a farm, and always give the same result.
+
+| Node | Effect | Main parameters |
+| --- | --- | --- |
+| **Wind** | Bends strands in a gusting wind field that travels over time. | `direction`, `strength`, `gust`, `frequency`, `speed`, `turbulence` |
+| **Jiggle** | Strands lag behind the head's motion, overshoot when it stops, and settle. | `strength`, `frequency`, `damping`, `history` |
+
+- Play the timeline to see them.
+- Both keep roots and segment lengths, and work on strands or guides.
+- Bypassing (**B**) or deleting either restores the groom exactly.
+- Their parameters can be keyed like any other (right-click > **Set Key**, or **S** over a field),
+  for example a wind that picks up or changes direction (`direction` is keyed as X, Y, Z). See
+  [Animating parameters](/docs/node-graph#animating-parameters).
+
+```python
+groomlab.add_wind(groom, direction=(1, 0, 0), strength=0.3)
+groomlab.add_jiggle(groom, strength=1.0)
+```
+
+### Looping animation
+
+Turn on **loop** and set **loopStart** and **loopEnd** (in frames) on either node to make a
+cycle (a game idle, a looping clip):
+
+- **Wind** repeats over the range: the groom at `loopEnd` equals the groom at `loopStart`, with
+  no discontinuity across the seam. Gusts still travel with the wind, spaced `speed` times the
+  loop length apart.
+- **Jiggle** reads the frames before `loopStart` from the end of the range: animate the head as a
+  cycle over the same frames and the jiggle loops with it.
+- Render `loopStart` to `loopEnd` - 1 and play them in a loop.
+
+```python
+groomlab.add_wind(groom, strength=0.3, loop=True, loop_start=1, loop_end=49)
+```
+
+## Simulate the guides
+
+The **Simulate** node (Add Node > Motion) is GroomLab's hair solver. Place it between the guides
+and Interpolate: the guides respond to gravity and head motion, air drag and wind, and collide
+with the scalp and a collision mesh; the strands interpolated from them follow. It runs in Maya,
+the standalone app, groom files and on the farm, with the same results.
+
+- **Playback:** playing or scrubbing past the simulated frames steps the simulation forward from
+  the last one; scrubbing back reads the cached frames. Changing a setting, or editing the guides,
+  restarts the simulation from the start frame.
+- **Simulate, bake, render:** **Simulate Range** fills the frames of the playback range; **Bake
+  Simulation** writes them to an Alembic guide cache (one per Simulate node, next to the scene or
+  the groom file) that renders, exports and the farm read instead of simulating. A bake made with
+  different settings from the node's current ones is ignored (with a message) and the node
+  simulates.
+- **Bypass** (**B**) restores the groomed guides; before the start frame the guides are as
+  groomed.
+
+| Parameter | Effect |
+| --- | --- |
+| `stretchStiffness` | How strongly segments keep their length (1: no stretch). |
+| `bend`, `twist` | How strongly the guides keep their groomed bends and twist (0: a rope). |
+| `rootStiffness`, `rootStiffnessProfile` | How firmly each part of a guide is held to its groomed shape (`rootStiffness`, mappable, can be painted per guide), multiplied by the root-to-tip profile: stiff roots, free tips. |
+| `damping`, `drag` | How quickly motion dies out; air drag (also the coupling to the wind). |
+| `mass` | Hair mass: drag and other hair move heavier hair less (gravity accelerates all hair equally). |
+| `strength` | Fraction of the simulated motion applied, 0-1: paint 0 where guides should stay as groomed. |
+| `gravity`, `gravityDirection` | 980 (cm/s²), straight down. |
+| `groomedUnderGravity` | The groomed shape is how the hair rests under gravity at the start frame: still hair keeps its shape, and only motion (or the head tilting or turning over) moves it. Off by default. |
+| `windSpeed`, `windDirection`, `windGust`, `windFrequency` | A gusting wind the hair is dragged toward (the same gusts as the Wind node). |
+| `inertia` | How much of the head's motion the hair feels (lower: less floppy; 0 moves rigidly with the head). |
+| `collideScalp`, `collisionOffset`, `friction` | Collision with the scalp and the `collider` input's mesh; `friction` is the scalp's (a ColliderMesh node's `friction` sets its own mesh's). |
+| `repulsion`, `repulsionRadius` | Pushes guides apart where they bunch up (off by default). |
+| `volume`, `volumeCellSize` | Volume preservation (off by default): hair packed denser than one cell is pushed apart, so long hair keeps its body. |
+| `substeps`, `iterations` | Accuracy: steps per frame, constraint iterations per step. |
+| `startFrame` | The frame at which the simulation starts at rest; start a few frames before the shot so the hair can settle. |
+| `cacheMode` | `live` simulates during playback; `cached` only in Simulate Range (other frames as groomed). |
+| `water`, `waterLevel` | Water (off by default): below the surface, either the plane at `waterLevel` (world Y) or the mesh on the `water` input. |
+| `buoyancy`, `waterDrag` | Under water: upward force as a fraction of gravity (above 1 the hair floats up); drag much stronger than in air. |
+| `currentSpeed`, `currentDirection` | A slowly varying current that the hair drifts with under water. |
+| `dryTime`, `wetWeight`, `rain` | Wetness: seconds to dry after leaving the water; how much heavier and limper wet hair is; rain that wets the hair without applying forces. |
+
+### Presets
+
+The Simulate node's **Preset** button (under its parameters in Maya's Graph Editor; **Presets**
+beside its name in the standalone app's parameter panel) sets the motion settings in one click:
+
+- **Default**: the node's defaults. Hair swings freely and is held only near the root.
+- **Fur**: springy fur that holds its groom (next section).
+
+Both set the same parameters (`groomedUnderGravity`, `bend`, `twist`, `damping`, `drag`,
+`rootStiffness`, `rootStiffnessProfile`, `inertia`, `iterations`), so switching between them
+leaves nothing behind. Gravity, wind, collisions, water and painted maps are not changed. In
+Python: `sim.simulate_preset(groom, "fur")`, or `sim.add_simulate(groom, preset="fur")`.
+
+### Springy fur that holds its groom
+
+Short fur should keep its groomed look when the animal stands still, react when it moves, and
+spring back after a few quick swings. The **Fur** preset does this. These are the settings that
+matter, with the preset's values:
+
+| Setting | Fur | What it does |
+| --- | --- | --- |
+| `groomedUnderGravity` | on | Gravity does not pull the groom out of shape. The groomed shape is taken as how the fur rests under gravity, so only motion moves it. |
+| `bend` | 0.8 | How stiff each guide is along its length. This setting has the largest effect: 0.9 is nearly rigid, 0.7 is clearly loose. |
+| `rootStiffnessProfile` (with `rootStiffness` 1) | root 1, middle 0.7, tips 0.35 | How firmly each part of the guide is pulled back to its groomed shape. Holding the whole length, not only the root, keeps the look and makes the fur spring back. |
+| `inertia` | 0.8 | How much of the body's motion the fur feels. |
+| `damping` | 0.25 | Slows the swinging. Its effect is small next to `bend` and the profile. |
+
+On a wolf (30 fps, a 90 degree turn in 8 frames, a run, a hard stop), the typical guide's tip
+moved less than 0.1% of its length while the wolf stood still (86% with the node's defaults, which
+let the fur hang). During the motion the tips moved about half the guide's length. After the stop they swung two or three
+times and came to rest within a third of a second.
+
+If the result is not what you want:
+
+- **Too stiff** (barely moves): lower `bend` to 0.7 to 0.75, or lower the profile's middle and
+  tips (0.5 and 0.25), or raise `inertia` to 1.
+- **Too floppy** (moves far, loses its shape in motion): raise `bend` to 0.85, or raise the
+  profile's middle and tips, or lower `inertia` to 0.6.
+- **Too wobbly** (keeps swinging): raise `bend` or the profile's middle and tips; `damping` up to
+  0.5 shortens the swinging a little.
+- **Too dead** (stops without any spring): lower `bend` to 0.75, or lower the profile's tips.
+- **Sags when the head tilts or turns over**: `groomedUnderGravity` keeps the shape for the pose
+  at the start frame; gravity's change as the head tilts still acts. Raise the profile's tips to
+  hold it, or turn `groomedUnderGravity` off to let gravity act on the groom fully.
+
+Notes:
+
+- The guides must follow the body. On an animated character, give the groom a rest mesh
+  (Attribute Editor > Inputs, or `groomlab.set_rest_mesh(groom)`). A groom whose guides were
+  saved on an earlier version of the scalp mesh (re-meshed or subdivided since) needs it to bind
+  them to the current mesh.
+- The Simulate node collides with the scalp and its `collider` input only. To keep fur off the
+  ground or out of another body part, connect that mesh to the `collider` input through a
+  ColliderMesh node. A Collide node later in the graph acts on the strands, not on the
+  simulation.
+
+### Painted simulation parameters
+
+`stretchStiffness`, `bend`, `twist`, `damping`, `drag`, `rootStiffness`, `mass` and `strength`
+are mappable, per guide and along each guide (like Yeti's per-guide simulation attributes).
+Paint a guide map with the **Paint** brush (Groom Tools > Paint, on the guides) and assign it to
+the param (`{"guide": "simMask"}`), or use a texture, a color set, an expression, or a field node
+connected to the exposed param. The maps are read on the guides fed to the node, every frame.
+
+- **`strength`**: 0 holds the hair to its groomed shape (it still moves rigidly with its root and
+  the head), 1 fully simulates it, values in between apply that fraction of the simulated motion.
+  Painted along a guide (a per-point layer, or an expression of `t`), the held part stays and the
+  rest hangs from it: stiff fringe roots, free ends.
+- **`mass`**: heavier hair is moved less by wind, air drag and neighboring hair, and keeps
+  swinging longer; along a guide, heavier points move less. Gravity acts on all hair equally.
+- **`bend`, `stretchStiffness`, `rootStiffness`**: stiffer strands in one area, limper ones in
+  another, a firmer hold at the crown.
+
+With every one of these at a constant value (no maps; `mass`, `strength` and `rootStiffness` at
+1), the simulation is identical to an unpainted one.
+
+### Volume and friction
+
+Long hair under gravity collapses onto itself, because each guide falls to the same place as its
+neighbors. `volume` (similar to Yeti's density gradient) pushes apart hair packed tighter than
+about one `volumeCellSize` and leaves hair that is already spread out alone. Start with `volume`
+0.3 and a cell size about the spacing you want between guides (1 cm on a head); larger cells give
+a fuller, smoother shape.
+
+Each collision surface has its own friction: `friction` is the scalp's (and the default), and a
+**ColliderMesh** node's `friction` its mesh's (-1 uses the Simulate node's). For example, hair
+catches on a wool collar and slides off a leather jacket. In Maya, `groomlab.add_collider(groom,
+mesh, friction=0.8)` sets it, and the Attribute Editor's Colliders rows show and edit it.
+
+### Water and wet hair
+
+With `water` on, hair below the surface floats (`buoyancy`), is slowed (`waterDrag`) and drifts
+with the current; the forces fade in over a thin band at the surface, so hair crossing it does not
+jump. The simulation writes a per-point **wetness** attribute, 0 dry to 1 soaked: it rises
+within a quarter of a second under water (or in `rain`) and decays over `dryTime`. Other nodes
+can read it like any attribute: map a Clump's `strength` to `{"attribute": "wetness"}` so wet hair
+gathers into locks, and HairColor's `tipStrength` (with a dark `tipColor` and a flat
+`tipProfile`) to darken it. Bakes include the wetness, so renders use it too.
+
+In Maya: **GroomLab > Simulation > Add Simulate Node**, **Simulate Range**, **Bake Simulation**,
+**Clear Simulation**. In the standalone app the timeline shows **Simulate**, **Bake** and
+**Clear** when the graph has a Simulate node, and a strip under the scrubber shows the frames
+simulated (emerald) and baked (blue); a saved groom references its bakes.
+
+```python
+from groomlab import sim
+
+node = sim.add_simulate(groom, bend=0.6, startFrame=-10)
+sim.simulate(groom, end=120)           # Simulate Range
+sim.bake_simulation(groom)             # the bake that renders and exports read
+sim.invalidate_simulation(groom)       # simulate again from the start frame
+```
+
+## Follow the scalp
+
+On an animated head, the groom is normally re-evaluated on every frame on the deformed scalp.
+With **Follow Scalp** on (Attribute Editor > Inputs, `followScalp`), it is evaluated once on the
+rest mesh, and each strand is then transformed to the deformed scalp by its root: a rigid
+rotation and translation taken from the root's triangle (its edge and normal), without
+stretching. Every strand keeps its rest shape, and only this transform is computed per frame, so
+playback, exports and motion blur keys are much cheaper (all keys share the rest evaluation).
+
+- **Requires a rest mesh** (below). Without one, or on a frame where the scalp is at rest, the
+  result is identical to Follow Scalp off.
+- **World-space guide data:** guide curves, simulated guides and guide caches are positions on
+  the current frame; each is transformed back to rest through its root, so the strands they shape
+  end up where the guides are.
+- **Evaluated at rest:** colliders (Collide), ImportCurves' curves, Wind's direction and gusts,
+  and Noise and other world-space effects are evaluated on the rest groom and then carried, so
+  they rotate with the head instead of staying fixed in the world. Collision against a moving body,
+  or wind blowing one way in world space, will differ; turn Follow Scalp off for those grooms.
+- **Jiggle** responds to head motion as it does without Follow Scalp (the scalp history is
+  transformed into rest space).
+- **No stretch:** a scalp that stretches moves the roots apart, but the strands keep their rest
+  size.
+- Exports, Arnold (both render modes) and groom files honor it; the flag is stored in the
+  `.groom` file.
+
+```python
+groomlab.set_follow_scalp(groom, True)
+```
+
+## nHair in Maya
+
+nHair remains available alongside the Simulate node: **GroomLab > Simulation > Simulate Guides
+(nHair)** creates nHair curves for the primary guides, with follicles on the scalp. Children
+follow their simulated parents, so the whole groom moves.
+
+- **Presets:** `fur`, `short`, `long`, `bouncy` and `wet`.
+- **Bake Simulation to Cache** writes the posed guides to Alembic and removes the live
+  simulation, for fast, scrubbable playback.
+- **Remove Simulation** returns to the groom as authored. The authored guides are never modified.
+
+```python
+from groomlab import sim
+
+made = sim.create_sim_curves(groom, "primary", preset="long", collide=True, preroll=20)
+sim.bake_sim(groom, "shot010.guides.abc", made)
+```
+
+## Houdini and other packages
+
+1. **Export Guides for Simulation...** writes the guides to Alembic. Each curve carries its guide
+   ID as a per-curve `strandId` attribute; keep that attribute through the simulation.
+2. Simulate in the other package.
+3. **Load Guide Cache...** loads the result, matching curves to guides by `strandId`. The cache
+   is interpolated between samples, so motion-blur subframes are smooth.
+
+```python
+sim.export_guides(groom, "guides.abc", "primary", start=1, end=100)
+sim.set_guide_cache(groom, "sim.abc")
+```
+
+<Callout title="Motion blur">
+  Give a groom on a deforming scalp a rest mesh, so the strands match between motion samples
+  (and turn on Follow Scalp for the cheapest keys). The rest mesh is not affected by the
+  character's transform or rig: it stores the mesh's own points as they were when it was set.
+  Instances on the strands are motion blurred with them; turn on the Instance node's `pinToRest`
+  so simulated guides that stretch don't slide them along the strands.
+</Callout>
+
+## Shot fixes
+
+**Correctives** (Groom Tools > Sculpt) are sculpt layers applied on top of the groom. **Fix
+Frame** creates one that blends in and out around the current frame, with keyable weights;
+renders include them.

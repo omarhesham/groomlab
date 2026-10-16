@@ -1,0 +1,307 @@
+---
+title: Rendering
+description: Rendering in Arnold, the viewport hair shading, the hair shader, the strand attributes each renderer and cache format receives, instances and scales, render LOD and overrides, and farm rendering from groom files.
+---
+
+<Example name="hairstyle.png" alt="A wolf's head fur in the Maya viewport" caption="GroomLab's hair shading in the Maya viewport; Arnold renders the same strands" />
+
+## Render in Arnold
+
+1. Render as usual. A groom without a shader of its own renders with a hair shader made from its
+   colors, as the viewport shows them.
+2. To tune the shader in Hypershade, click **Create Hair Shader** on the HairColor node (or run
+   `groomlab.create_hair_shader(groom)`).
+
+MtoA loads GroomLab's translator automatically. The translator evaluates the graph at full density
+(regardless of `previewDensity`) and exports native Arnold `curves` (linear basis, one curve per
+strand, `radius` = half the strand width), with deformation motion blur when motion blur is on.
+The curves carry the strand attributes as Arnold user data ([Strand attributes](#strand-attributes)).
+
+## Viewport shading
+
+Maya's viewport (DirectX 11 and OpenGL) shades the strands with GroomLab's own hair shading
+(`displayHairShading` **GroomLab**, the default): a three-lobe hair model similar to Arnold's
+`aiStandardHair`, using the strands' color and HairColor's `specular` and `roughness`, lit by
+the viewport lights. The standalone app uses the same shading. `displayHairShading` **Maya**
+switches back to Maya's own hair shading.
+
+- **Self-shadowing:** the hair shadows itself, with forward scattering through the volume
+  (`displaySelfShadowing`); light-colored hair also gets multiple scattering, so blond hair stays
+  bright when backlit.
+- **Variation:** each strand's shading varies slightly from its neighbors (`displayStrandVariation`).
+- **Cards** are shaded like the strands they replace.
+- **Width as coverage:** a strand thinner than a pixel is drawn with partial coverage
+  (`displayWidthCoverage`), so tapered tips fade and dense hair seen from a distance looks as dense
+  as in the render. `displayCoverageDensity` compensates a reduced preview density so it reads as
+  dense as the full groom.
+- **Clump level of detail:** at a distance, each clump draws only as many strands as cover its
+  pixels (`displayClumpLod`). A large groom covering a few hundred pixels draws several times
+  faster.
+- All of this works with Maya's multisample anti-aliasing on or off.
+
+Renders and exports always use every strand, at full density.
+
+## Hair shader
+
+**Create Hair Shader** on the HairColor node (or `groomlab.create_hair_shader(groom)`) creates an
+`aiStandardHair` that reads the per-strand color written by HairColor, and assigns it. To use your
+own shading group, run `groomlab.assign_shading_group(groom, sg)`.
+
+- **Color:** the shader's base color reads the RGB user data `hair_color` (per strand, or per
+  point with a tip color, Bands or FeatherColor), with `melanin` at 0. That RGB is the whole hair
+  color: in HairColor's `melanin` mode it is the color whose absorption is the melanin's (so it
+  renders as `aiStandardHair`'s melanin would), dyed by the dye, with every strand's randomness in
+  it. The viewport turns the same RGB into the fiber's absorption with Chiang et al. 2016's mapping.
+  Arnold absorbs a base color about 1.18 times more than that mapping, so the shader passes the RGB
+  through an `aiColorCorrect` with gamma 1.084 first; the render then matches the viewport, and a
+  melanin's color renders within about 5% of `aiStandardHair`'s own melanin. A groom without a color node
+  renders by its `melanin` and `melaninRedness` attributes, if any. The shader follows later
+  changes of the look (the Graph Editor and the Attribute Editor's Hair Color section make it
+  again when the look needs another network); a shader of your own is never changed.
+- **Specular and roughness:** HairColor's **Highlight** group sets `specular` (strength, default
+  0.3), `roughness` (default 0.5) and `tilt` (cuticle tilt in degrees, default 3), each mappable
+  and with a per-strand random spread. The viewport and Create Hair Shader both use them.
+- **Opacity:** a **RenderData** node sets `opacity` times `opacityProfile` (root to tip), with
+  `opacityRandom` per strand. When any point is below 1, the curves are exported with
+  `opaque` off so Arnold evaluates the shader's opacity.
+- **Iridescence** (FeatherColor): Create Hair Shader adds a small network that mixes in the
+  iridescent color by the angle between the camera and each strand's root normal, close to the
+  viewport result.
+- **Your own shader:** read any strand attribute with an `aiUserDataFloat` (or `aiUserDataColor`
+  for `hair_color` and `root_normal`) whose **Attribute** is the attribute name. See
+  [Strand attributes](#strand-attributes).
+
+The same RGB reaches Unreal, USD, Alembic, RenderMan and the cards.
+
+### Color values
+
+Every color param (HairColor's `color`, `dye` and `tipColor`, Bands' and FeatherColor's colors)
+holds linear values in the rendering space, as Maya's color attributes and Arnold's colors do. The
+values reach Arnold and the exports unchanged. The swatches in the Graph Editor and the Attribute
+Editor show a color as Maya shows it: through the view transform when color management is on, as
+it is when it is off. The standalone app treats the values as linear sRGB and shows them with the
+sRGB transfer curve.
+
+### Base color and appearance
+
+A hair color has two forms. The **base color** is what a hair shader takes: `aiStandardHair`'s base
+color, RenderMan's `rman_color`, the viewport's and the app's hair shading, Blender's Cycles hair.
+It is dark for natural hair: medium brown (melanin 0.35) is about (0.04, 0.015, 0.003), because the
+shader darkens it further as light passes through many strands. The **appearance** is what the
+hair looks like: the matte color it matches under even white light, measured with Arnold (a lock
+of hair a few strands deep, the highlight included). Medium brown looks about (0.28, 0.15, 0.05),
+sRGB (145, 108, 66); white stays white. Renderers that run a hair shader get the base color; what
+stores or draws a plain color gets the appearance:
+
+| Gets the base color | Gets the appearance |
+| --- | --- |
+| Arnold `hair_color` (translator, procedural, Create Hair Shader) | USD `primvars:displayColor` |
+| RenderMan `hair_color`, `rman_color` | Alembic `Cd` |
+| Maya viewport with GroomLab's hair shading | Unreal `groom_color` |
+| The app's lookdev | The cards' Color maps (Unreal, Unity, glTF) and card tints |
+| Blender's Cycles material | Maya's hair tube shading (`displayHairShading` Maya), the app's plain modes |
+
+The graph's `colorR`, `colorG`, `colorB` attributes hold the base color. Maya's hair shading
+draws baked cards by turning their appearance back into a base color. Scales take HairColor's RGB
+as their surface color, as it is.
+
+## Strand attributes
+
+Every strand attribute in GroomLab is a named float array, either **per strand** (one value per
+curve: uniform) or **per point** (one value per vertex: varying/vertex). Integers such as
+`clumpId` are stored as floats, and colors as three float attributes (`colorR`, `colorG`,
+`colorB`). Nodes write attributes into the graph ([Attributes](/docs/node-graph#attributes)), and
+the renderers and exporters pass them on **under the same name**, without a prefix. The only
+renaming is in USD (see below).
+
+### Built-in data
+
+Besides the attributes the graph writes, every output carries the strands' geometry, an ID, the
+root UV and a color:
+
+| Data | Arnold curves | RenderMan curves | Alembic `.abc` | USD `.usda` |
+| --- | --- | --- | --- | --- |
+| Points | `points`, one key per motion key | `vertex point P` | `P` | `points` |
+| Width | `radius` (per point, half the width) | `vertex float width` (diameter) | `width` (vertex scope, diameter) | `widths` (`vertex`, diameter) |
+| Strand ID | `strand_id`, `uniform UINT` (low 32 bits) | `strand_id`, `uniform int` (low 32 bits); `hair_index`, `uniform float` | `strandId`, uint64, uniform scope | `primvars:strandId`, `int64[]`, `uniform` |
+| Root UV (with scalp UVs) | the curves' own `uvs`, one per curve | `st` and `scalp_st`, `uniform float[2]` | the curves' `uvs`, uniform scope | `primvars:st`, `texCoord2f[]`, `uniform` |
+| Color (linear RGB) | `hair_color` (the base color), `uniform RGB`, or `varying RGB` when the color varies along the strand | `hair_color` (the base color), `uniform color` or `vertex color` | `Cd` (the appearance), C3f, uniform scope (per strand only) | `primvars:displayColor` (the appearance), `color3f[]`, `uniform` (per strand only) |
+
+- The **strand ID** is a stable 64-bit integer per strand: the same strand keeps it on every frame
+  and at any density, which is what motion blur and caches match strands by. Arnold and RenderMan
+  receive its low 32 bits.
+- The **root UV** is the scalp's UV at the strand's root, constant along the strand. It is only
+  written when the scalp has UVs. In Alembic, the `vertexUVs` flag of
+  `groomLabExportAlembic` writes it once per point instead of once per curve.
+- The **color** is HairColor's RGB (after any Bands or FeatherColor), or the color of its melanin
+  when there is no RGB, as a base color for renderers and as the appearance for Alembic and USD
+  ([Base color and appearance](#base-color-and-appearance)). It is written whenever the graph has
+  a color node.
+- No parametric coordinate along the strand is written. For a root-to-tip value in a shader, use
+  the renderer's own curve parameterization.
+
+### Attributes written by nodes
+
+| Attribute | Per | Written by | Meaning |
+| --- | --- | --- | --- |
+| `melanin` | strand | HairColor | Each strand's melanin after its randomness and greys, 0 (white, blond) to 1 (black), as data (renders by `hair_color`); 0 in `color` mode |
+| `melaninRedness` | strand | HairColor | 0 (brown) to 1 (red), as data |
+| `colorR`, `colorG`, `colorB` | strand | HairColor, Bands, FeatherColor | The strand's linear RGB (also in the built-in color) |
+| `colorR`, `colorG`, `colorB` | point | A HairColor tip color, Bands, FeatherColor | The RGB along the strand |
+| `specular`, `roughness`, `tilt` | strand | HairColor, only when set away from their defaults (0.3, 0.5, 3) | Highlight strength, highlight spread, cuticle tilt in degrees |
+| `opacity` | point | RenderData | 0-1, root to tip |
+| `wetness` | point | Wet, Simulate with water or rain | 0 dry to 1 soaked |
+| `iridescence` | point | FeatherColor | Amount of iridescent color |
+| `clumpId` | strand | Clump (the name is its `clumpChannel`), Wet, Propagate | The strand's clump index, -1 for none |
+| `region` | strand | Interpolate with a `regionMap` (name: `regionChannel`) | Region index, -1 for none |
+| `guideInfluence` | strand | Interpolate with `limitDistance` above 0 (name: `influenceChannel`) | Guide influence, 0-1 |
+| Guide attribute names | strand, or point for layers painted along guides | Interpolate | Attributes and painted layers on the guides, interpolated to the strands |
+| Group name | strand | Group | Mask, 1 inside, 0 outside |
+| Attribute node `name` | strand | Attribute | Any value: a constant, a map, an expression |
+| `braidId`, `braidFlat` | strand | Braid | Braid index and flattening |
+| `flyaway` | strand | Flyaway | Which strands are flyaways |
+| `blend` | strand | Blend (name: `mixChannel`) | The mix applied to each strand |
+| `tail` | point | Tie (name: `tailChannel`) | 0 before the tie, 1 after |
+| `featherId`, `shaftU`, `side`, `barbIndex`, `isShaft`, `isDown`, `vaneU`, `vaneTipU`, `vaneTipV`, `vaneNormalX/Y/Z`, `groupId` | strand | Propagate | Feather structure ([Fur & feathers](/docs/fur-and-feathers#feathers)) |
+
+Attributes whose names start with `_` are internal and removed at the Output node.
+
+### What each output carries
+
+| | Per-strand attributes | Per-point attributes |
+| --- | --- | --- |
+| **Arnold** (translator and `groomlab_procedural`) | Every one, as user data `uniform FLOAT` | Only `opacity`, `iridescence` and `wetness` (`varying FLOAT`) and the per-point color (in `hair_color`) |
+| **RenderMan** (`groomlab_renderman`) | Every one, as `uniform float` primvars | Only `opacity`, `iridescence` and `wetness` (`vertex float`) and the per-point color (in `hair_color`) |
+| **Alembic** | Every one, as a float arbGeomParam, uniform scope | None (USD carries them) |
+| **USD** | Every one, as `primvars:<name>`, `float[]`, `uniform` | Every one, as `primvars:<name>`, `float[]`, `vertex` |
+| **Blender** hair object | A fixed set used by the hair material ([Blender](/docs/blender#rendering)) | The point color, `iridescence`, `opacity` |
+
+- **Arnold** also writes `root_normal` (`uniform RGB`) with FeatherColor's iridescence. A
+  strand attribute whose name is a built-in `curves` parameter (`id`, `mode`, `radius`, `uvs`,
+  `opaque`...) is skipped.
+- **RenderMan** also writes derived primvars for the hair network shipped with the procedural:
+  `rman_melanin`, `rman_redness`, `rman_dye`, `rman_color`, `rman_rgbShare`,
+  `rman_specularGainR`, `rman_coneAngleR`, `rman_coneAngleTT`, `rman_coneAngleTRT` and
+  `rman_specularOffset` ([RenderMan](/docs/other-renderers#renderman)). Strand attributes that
+  share a name with a primvar the procedural writes (`P`, `width`, `id`, `st`, `opacity`...) are
+  skipped.
+- **USD** makes names valid identifiers: characters other than letters, digits and `_` become `_`,
+  and a leading digit gets a `_` prefix. When a name is taken (by another attribute or by `st`,
+  `strandId`, `displayColor`, `displayOpacity`, `widths` or `points`), a `_2`, `_3`... suffix is
+  added. HairColor's per-point RGB, which shares its names with the per-strand RGB, is therefore
+  `primvars:colorR_2`, `colorG_2`, `colorB_2`.
+- **Alembic and USD:** the first exported frame determines which attributes the file has; a later
+  frame without one of them writes zeros.
+- The `.groom` file stores no strands, and so no attributes: the procedurals and `groomlab-cli`
+  evaluate the graph and produce them.
+
+### Reading attributes in a shader
+
+| Renderer | Per-strand float | Color | Notes |
+| --- | --- | --- | --- |
+| Arnold | `aiUserDataFloat`, **Attribute** = name | `aiUserDataColor`, **Attribute** `hair_color` | `strand_id` is `UINT` user data. |
+| RenderMan | `PxrPrimvar`, **Variable Name** = name, **Type** float | `PxrPrimvar` of type color, `hair_color` | `groom.rib` beside the procedural shows the full network. |
+| Alembic in another renderer | The renderer's user-data node, attribute = name | `Cd` | Per-curve arbGeomParams; check that the renderer passes uniform-scope attributes to hair shaders. |
+| USD | The renderer's primvar reader, primvar = name | `displayColor` | Per-point attributes as `vertex` primvars. |
+| Blender | **Attribute** node, type Geometry | `groomlab_color`, `groomlab_point_color` | See [Blender](/docs/blender#rendering). |
+
+**Custom attributes.** To send your own per-strand value to a shader, add an **Attribute** node
+before the Output: set `name` (for example `tint`) and drive `value` with a painted map, a texture
+or an expression such as `rand(0.2, 0.8)`. It arrives as `tint` in every output above
+(`uniform FLOAT` user data in Arnold, a `uniform float` primvar in RenderMan, a uniform-scope
+arbGeomParam in Alembic, `primvars:tint` in USD). A **Group** node's mask reaches the renderers
+the same way, under the group's name. The Attribute node writes per-strand values only; per-point
+custom attributes are not available.
+
+## Instances
+
+The Instance node's meshes (snow, beads, leaves) render through an Arnold `instancer` next to the
+curves. With deformation blur on, they move with the hair.
+
+- **`scaleByWidth`** (on by default) scales each instance by the strand width at its position.
+- **`pinToRest`** keeps each instance at its rest distance from the root, so strands that stretch
+  in a simulation don't slide it toward the tip.
+- **`sizeMode`** `fitStrand` sizes each instance to its strand: `fitScale` times the strand's rest
+  length along the prototype's +Y, `aspect` times that across. Model the prototype 1 unit long
+  along +Y, with its base at the origin.
+- Instances bent along their strands (`deform` `alongStrand`) render as one combined mesh instead.
+
+## Scales
+
+Scales (the [Scales node](/docs/fur-and-feathers#scales)) render as one mesh conformed to the skin;
+the strands that place them are hidden. The scale mesh carries user data for any surface shader:
+`scaleColor` (`varying RGB`: the strand's color, base to tip), `scaleRootColor` (`uniform RGB`),
+`scaleId` (`uniform FLOAT`, random 0-1), `scaleUV` (`uniform VECTOR2`, the scalp UV at the root)
+and `scaleVariant` (`uniform INT`).
+
+For your own look, connect an **aiUserDataColor** reading `scaleColor` to an
+**aiStandardSurface**'s base color, and name its shading group in the node's `material`. Without
+one, the built-in plates get a surface shader that reads `scaleColor`. With deformation blur on,
+the scales deform with the body.
+
+To use scales elsewhere:
+
+- **Alembic and USD:** the scales are written next to the strands as one animated mesh, with the
+  same attributes per vertex (`scaleColor`) and per face (the others).
+- **Unreal, exact:** **GroomLab > Export > Scales Mesh (FBX)...** writes a static mesh; skin
+  `groomlab.scale_mesh(groom)` to the body in Maya for a skeletal mesh.
+- **Unreal, instanced:** **GroomLab > Export > Scales Instancer (USD)...** writes a USD
+  PointInstancer of the plates, which Unreal's USD Importer brings in as instanced static meshes.
+  Instancers do not bend the plates over the body.
+- **Baked maps:** **GroomLab > Export > Bake Scale Maps** bakes the scales into the body's UVs as a
+  normal map (OpenGL +Y; flip green in Unreal), a 16-bit height map and a color map, one tile per
+  UDIM: for distant or tiny scales without geometry.
+
+## Level of detail
+
+For crowds and wide shots, the groom's **Level of Detail** attributes (Attribute Editor >
+Rendering) thin and cull strands at render time relative to the render camera:
+
+| Attribute | Effect |
+| --- | --- |
+| `lodDistance` | Reduces the strand count with distance, from `lodNear` to `lodFar` (down to `lodMinDensity`), widening the remaining strands to keep coverage (`lodWidthCompensation`). |
+| `cameraCull` | Drops strands entirely outside the camera frustum (plus `cullMargin`). |
+| `backfaceCull` | Drops strands whose root faces away from the camera by more than `backfaceAngle` degrees past perpendicular. Off by default; leave margin for long hair hanging into view, silhouettes and shadows. |
+
+The same strands are kept from frame to frame and across motion keys.
+
+## Render overrides
+
+**Rendering > Render Overrides** on the groom change the render only; the viewport is unchanged.
+Arnold uses them in both render modes, and exports use them when asked (`render_overrides=True`).
+
+| Attribute | Effect |
+| --- | --- |
+| `renderDensity` | Fraction of the strands rendered, 0-1, thinned the same way as the viewport preview, so the look is kept. |
+| `renderWidthScale` | Multiplies every strand's width. |
+| `renderLengthScale` | Scales each strand about its root, shape included: 0.5 renders it at half size. |
+
+## Farm renders from a groom file
+
+**GroomLab > Export > Render from Groom File...** exports a `.groom` file with its scalp cache and
+switches the groom's `renderMode` to `groomFile`. Exported `.ass` files then contain a
+`groomlab_procedural` node that evaluates the groom at render time without Maya, producing the
+same curves and user data as the translator.
+
+```python
+groomlab.render_from_groom_file(groom, "C:/shots/010/hair.groom", start=1, end=48)
+```
+
+The render nodes need `GroomLab/procedurals` on `ARNOLD_PLUGIN_PATH`, which the Maya module sets
+up. `groomlab.render_curves(groom)` switches back to exporting curves. There is no license
+limit on render nodes.
+
+## Caches for other packages
+
+- **Alembic** and **USD**: **GroomLab > Export > Alembic...** or **USD...** write linear curves
+  with widths, strand IDs, root UVs and the strand attributes ([above](#strand-attributes)). To
+  render them in RenderMan, Redshift or V-Ray, see [Other renderers](/docs/other-renderers).
+- **Headless:** `groomlab-cli eval hair.groom -o hair.usda -f 1-48` evaluates a groom file without
+  Maya (`--scales instancer` writes the scales as a PointInstancer; `groomlab-cli bake-scales
+  hair.groom -o maps/hair_` bakes their skin maps).
+
+## Turntables
+
+**GroomLab > Review > Render Turntable...** renders a turntable of the groom in Arnold in the
+background, into the scene's `groomlab/<scene name>/renders` folder (and an `.mp4` if ffmpeg is
+available).

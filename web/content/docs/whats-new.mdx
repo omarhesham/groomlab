@@ -1,0 +1,387 @@
+---
+title: What's new
+description: Notable improvements in GroomLab, newest first.
+---
+
+GroomLab is in early access, and it changes quickly. This page lists the improvements that change
+how you work, newest first. It will keep growing as the system is fleshed out. Something missing,
+or something you would like to see? Write to
+[support@getgroomlab.com](mailto:support@getgroomlab.com).
+
+**Check for Updates** in the GroomLab menu (the app: **Help > Check for Updates**) gets the latest
+version. While GroomLab is in early access, a node's params can still change between updates (a
+param renamed, or two merged into one); the entries below say when one does and what to set. Once
+it leaves early access, saved grooms will keep their look across updates.
+
+## 0.11.0 (October 16, 2026)
+
+- **GroomLab is open source.** Apache-2.0, on GitHub at
+  [thekesslereffect/groomlab](https://github.com/thekesslereffect/groomlab) (the Blender add-on is
+  GPL-3.0-or-later). Still free for any use; donations on Ko-fi keep it going.
+- **Import XGen grooms.** **GroomLab > Import > From XGen...** converts XGen Interactive Grooming
+  and XGen Core descriptions into GroomLab grooms: guides, density, length, width, clump, noise,
+  coil and cut, expressions, and Ptex or file textures (copied into the groom's masks folder). An
+  import report lists what was mapped, approximated or skipped. See [Importing](/docs/importing).
+- **Import Yeti grooms, without Yeti.** **GroomLab > Import > From Yeti...** reads Yeti's graphs and
+  groom strands straight from the scene: scatter, grow, guides, clumping, scraggle, width, displace,
+  cut and textures. A Roots field resolves texture paths that use environment variables.
+- **Guides from reference photos (experimental).** **GroomLab > Guides > Guides from Reference...**
+  opens a two-view window, the photo beside the mesh: pair a few landmarks to line the photo up
+  (the camera solves live), draw flow arrows on the photo, touch up the hair mask, then
+  **Generate** grows guides that follow the photo, with symmetry. **Measured Look** (Maya) reads
+  clumps, curls, flyaways, frizz, tips and thin areas from the photo and offers to set them. Works
+  best on long hair and longer fur. See [Reference photos](/docs/reference-photos).
+- **The same strands on every machine.** GroomLab's math now gives bit-identical results on
+  Windows and Linux, so a groom renders the same on any farm node.
+- **Linux builds from source.** The core, the C API, the command line, the Python module and the
+  Blender helper build and pass their tests on Linux (see the repository's docs/DEVELOPING.md).
+
+Grooms saved before: strands differ in the last digits (the new portable math); re-bake caches if
+you compare them bit for bit. In Python, `apply_suggested_look` is now `apply_measured_look`.
+
+## 0.10.0 (October 14, 2026)
+
+- **HairColor, simpler and fixed.** Hue Random and Saturation Random now vary every strand, in
+  both modes, in the viewport, the app, Arnold and RenderMan. **Clump Share** gives each clump its
+  own color (with a Clump before the HairColor; the node says so when there is none). HairColor
+  follows RenderMan's PxrHairColor: Base (mode, melanin, redness, dye or color, map, greys),
+  Random, Tip and Highlight. Every renderer uses the one RGB HairColor writes; in mode melanin it
+  is the color whose absorption is the melanin's, so Arnold renders it as its melanin. Color
+  params show a swatch in the Graph Editor (click it to pick); the Attribute Editor's Hair Color
+  section shows every everyday param and the resulting color. See
+  [Color patterns](/docs/color-patterns#haircolor).
+
+  Grooms saved before: `rednessRandom`, `colorSource`, `dyeAmount` and `mapMode` are gone and
+  ignored (a map now replaces the color in mode color and dyes the pigment in mode melanin);
+  `valueRandom` works in mode color only (in mode melanin, raise `melaninRandom`). A mode melanin
+  groom renders in Arnold by its RGB instead of the melanin user data, about as before. Exports
+  that store a plain color (USD displayColor, Alembic Cd, Unreal's groom_color, the cards' Color
+  maps) and Maya's hair tube shading now get the hair's appearance, measured from Arnold renders:
+  natural colors come out somewhat darker and more saturated than before (medium brown sRGB about
+  145, 108, 66), and picked colors lighter than the value picked, as the hair renders. See
+  [Base color and appearance](/docs/rendering#base-color-and-appearance).
+- **Color maps drive colors.** The Map node has an **rgb** output: link it to a color param
+  (HairColor's color, dye or tip color, Bands and FeatherColor colors) and a painted or imported
+  color map colors the hair. See [Painting maps](/docs/painting-maps).
+- **Import an image as a map.** **Import...** in the Paint tab makes a texture map from an image
+  in one step, named after the file, color or gray as the image is (`groomlab.import_map`).
+- **One way to paint a setting.** The Width and Density brushes are gone. In the Paint tab,
+  **+ New Map > For** a setting (Density, Width, Length, Clump strength, Curl, Noise amplitude,
+  Flyaways, or any other) makes the map, links it and starts the Paint brush, in one undo step;
+  a setting that already reads a map picks it. The painting brushes live in the Paint tab only.
+  Ctrl on a gray map paints toward 0 (on a density map: removes hair); the Graph Editor's Paint
+  starts at 1 like the rest.
+- **Lighter defaults.** The viewport shows every strand by default (Preview Density 1), Scatter
+  makes 80 strands per unit area (was 200) and the presets' densities are lower (hair 80, fur 25),
+  so a new groom previews in full and stays responsive. Raise density for final renders.
+- **Arnold IPR safety.** GroomLab now stops Arnold's render before it edits the hair during IPR
+  (a newer MtoA could update it mid-render and crash Maya), never hands Arnold a negative width or
+  a broken strand, and warns once when IPR runs on a groom of 500,000 strands or more. The crash
+  log names the module that faulted and the GroomLab, Maya, MtoA and Arnold versions.
+- **GPU fix.** Very dense grooms (past about 4 million strands) could get a few points wrong from
+  the GPU preview's clearance pass; fixed.
+
+Grooms saved before (besides HairColor above): scripts using the `width` or `density` brushes get
+an error naming the new way; maps they made keep working. Scatter nodes with no density set now
+make 80 strands per unit area instead of 200.
+
+## 0.9.0 (October 13, 2026)
+
+- **Pick a hair color.** HairColor has a **Mode**: Melanin (natural, as before) or **Color (RGB)**,
+  which renders the picked color with no pigment on top, in the viewport, the app, Arnold,
+  RenderMan and Blender. A tip color now applies as soon as you pick one, takes the strand's
+  randomness, and **Tip Offset Random** varies where each strand's tip color starts. The groom's
+  Attribute Editor has a new **Hair Color** section, and the app's Look card a Natural / Picked
+  color switch. New presets: **white_wool** and the **two_tone_tips** add-on. See
+  [Color patterns](/docs/color-patterns).
+- **Arnold renders the groom's own colors.** A groom with no shader renders its look (it used to
+  fall back to a fixed brown), and a shader made with Create Hair Shader is rebuilt when the look
+  changes. Your own shaders are left alone.
+- **RGB colors match Arnold in the viewport.** Picked colors, FeatherColor, Bands and color maps
+  used to draw too dark and too saturated; the viewport and the app now turn the color into the
+  fiber's absorption as aiStandardHair does.
+- **Springy fur in Simulate.** A **Preset** menu on the Simulate node (Default, **Fur**), and
+  **groomedUnderGravity**, which treats the groomed shape as already resting under gravity: fur
+  holds its groom and still moves with the body. Stiff guides now hold their shape and come to
+  rest, hair resting on the scalp or a collider keeps its length, and guides saved on an older
+  version of the scalp follow a moving body when the groom has a rest mesh. See
+  [Motion and simulation](/docs/motion-and-simulation).
+- **Brushes.** A red line marks the symmetry plane on the scalp while a brush with symmetry is
+  on, Symmetry is the first brush setting, and **Alt+Shift+X** toggles it. Ctrl with the Density or
+  Width brush now always paints toward 0 (it painted toward the inverse of Value). Erase removes
+  guides, parts and flow arrows; Density with Ctrl removes hair, which the tool now says.
+- **Small screens.** The Graph Editor opens docked under the viewport when a floating window would
+  crowd the screen (1080p at 125-150%, or 1366x768), the Transfer and Updates windows open within
+  the screen, and the app's panels scroll when short.
+- **Scatter.** A note on the node and a Script Editor warning past 2 million strands; `length`
+  says when guides set it instead.
+
+Grooms saved before: HairColor's map setting `mode` (replace or multiply) is now `mapMode`; a groom
+that set it shows an error until it is changed. RGB-colored looks are lighter in the viewport (as in
+Arnold). Grooms without a shader render their own colors in Arnold. Simulations come out
+differently; bake again.
+
+## 0.8.0 (October 13, 2026)
+
+- **SeExpr expressions.** The expression language now follows SeExpr as XGen uses it: the `->`
+  operator, `if`/`else` blocks, `&&`, `||`, `!`, `%`, compound assignments, vector indexing, and
+  nearly all of SeExpr's built-in functions. XGen's variable names (`$id`, `$faceId`, `$Pref`,
+  `$cLength` and others) and `map('${DESC}/paintmaps/name/')` work, so most XGen expressions paste
+  over unchanged. What differs is listed in [Expressions](/docs/expressions#coming-from-xgen).
+- **Simulate comes to rest.** Hair on a still head now settles instead of moving slightly forever,
+  and hair resting on the scalp or a collider no longer bounces. Fast colliders are swept through
+  the substeps, so more substeps now stop them passing through the hair.
+- **Docs.** Rewritten for clarity, with new reference sections: the strand attributes each renderer
+  and export receives ([Rendering](/docs/rendering#strand-attributes)), Interpolate's guide
+  influence settings ([Node graph](/docs/node-graph#interpolate-and-guide-influence)) and guide groups
+  ([Guides and brushes](/docs/guides-and-brushes#guide-groups)).
+
+Grooms saved before: expressions using `noise`, `fbm`, `turbulence`, `voronoi`, `remap`, `spline`
+or `cycle` now give SeExpr's values (`noise` returns 0 to 1; the old -1 to 1 noise is `snoise`).
+Simulations and their bakes come out slightly different; bake again.
+
+## 0.7.0 (October 13, 2026)
+
+- **GroomLab is free, for everyone.** Every feature and every export (Unreal, Unity, glTF,
+  Alembic, USD, cards), for any use, commercial included: no license key, no watermark. If it
+  helps you, **Support GroomLab** (in the GroomLab menu, the app's Help menu and Blender) opens
+  [Ko-fi](https://ko-fi.com/getgroomlab).
+- **Native RenderMan.** A RenderMan 27 procedural grows the groom from its file at render time in
+  prman, with GroomLab's color and highlight calibrated to PxrHairColor and PxrMarschnerHair, and an
+  example scene. In RenderMan for Maya (Maya 2024 to 2026), **GroomLab > Export > RenderMan
+  Procedural** sets it up (experimental: tested through prman, not yet in Maya). See
+  [Other renderers](/docs/other-renderers#renderman).
+- **The highlight on HairColor.** Specular and roughness (and their randomness) moved from
+  RenderData to HairColor's new **Highlight** section, with a cuticle **tilt** that moves the
+  highlight along the hair, in the viewport, the app, Arnold and RenderMan.
+- **Other renderers.** A new docs page on rendering GroomLab hair in Redshift, V-Ray and others
+  through Alembic and USD, with each renderer's hair shader settings.
+
+Grooms saved before: RenderData's `specular` and `roughness` are now HairColor's (set them there;
+the shipped presets have moved). Scenes saved with a license tag may log one harmless warning about
+an unknown `license` attribute when they open.
+
+## 0.6.0 (October 13, 2026)
+
+- **Sculpt generated guides.** Grow dense, even guides from a few hand guides (Scatter +
+  Interpolate, then **ToGuides**), add a **Sculpt** node after them, select it and brush: comb,
+  curl, lift, smooth. Change anything upstream (comb the sparse guides, change the density) and the
+  dense guides regenerate with your sculpting kept on top: each edit is stored as bends along the
+  guide, so a hook stays a hook on the new shape. In Maya and the app. See
+  [Node graph](/docs/node-graph#other-main-nodes).
+- **Ponytails in one node.** The new **Tie** node pulls hair along the scalp into a tie and out as a
+  tail: set its `center` (**Pick** a vertex or locator) and `radius`, pick which hair with Affect,
+  and style the tail after it (it marks the tail, so a Curl can curl just that). Two Ties make
+  pigtails; a second one down the tail makes a bubble ponytail.
+- **ToGuides colors its guides.** Generated guides draw in their ToGuides node's `color` when you
+  brush them, so they stand apart from your hand guides.
+- **Bake Node to Guides takes the output.** Bake the groom's final result into guides, as the other
+  Utilities already offered.
+- **Nearly every node on the GPU.** Dragging a parameter or brushing guides now stays on the GPU
+  through Bend, Direction, Transform, Displace, Twist, Smooth, RestoreLength, BlendNeighbors,
+  Tangle, Flow, Jiggle, MeshCut, Tie and the Sculpt node too, and through any node restricted by an
+  **Affect** mask (a Curl on a Tie's tail, a Noise on a Group). Before, any of these handed the
+  preview back to the CPU from that node on.
+- **Fixed in the app:** after some edits the lookdev view could draw self-shadowing from stale data
+  (shadows too light) and, now and then, crash.
+
+## 0.5.1 (October 12, 2026)
+
+- **Fixed: Graph Editor edits not reaching the viewport.** A node off to the side (its output
+  unplugged, or a copy with a free input) made the Graph Editor stop applying every later edit, so
+  the viewport kept showing the old graph: an unplugged, bypassed Clump still showed its clumps.
+  Only a node the output is made from can hold the graph back now; the others' problems show as a
+  note in the editor's status line.
+
+## 0.5.0 (October 12, 2026)
+
+- **Move a groom onto another character.** Transfer Groom to Scalp is now a window with two
+  views, the groom's scalp and the new mesh side by side. Click matching points on both (ears,
+  temples, crown, nape) and **Markers: warp** maps the groom feature to feature onto a head of
+  other proportions, somewhere else, turned or scaled. Guides turn and scale with the head around
+  them; parts, flow and painted maps follow. Also **Markers: align** (the same head moved or
+  scaled), **UV** (meshes sharing their UV layout) and the old closest point and fit bounds. See
+  [Utilities](/docs/utilities#transfer-to-a-new-scalp).
+- **Marker pairs like Wrap.** Pair N is the Nth point on each side, placed in any order;
+  Ctrl+click deletes a pair, drag slides a point, Symmetry X mirrors as you click, and the pairs
+  are saved with the groom for the next transfer. The app has the same window.
+- **One undo.** A transfer is one Ctrl+Z in Maya, color sets and maps included, and the window
+  follows it back.
+
+## 0.4.0 (October 12, 2026)
+
+- **Hair that doesn't pass through itself.** The new **SelfCollide** node pushes hair apart wherever
+  it is packed tighter than real hair can be, so layers rest on one another and volume builds up
+  behind the ears and at the crown. Hair with room to spare stays put. Lower `packing` for more
+  volume. See [Node graph](/docs/node-graph#other-main-nodes).
+- **Static.** The new **Static** node charges the hair: the outer layer puffs out, tips lift away
+  from the head and clumped locks fray into single strands, like dry winter hair.
+- **Parts found for you.** Set a Part node's `partsFrom` to `auto` and it finds the parts where you
+  combed the hair apart, no drawing needed. `splitAngle` sets how sharp a split must be.
+- **Attributes made clear.** Params that name an attribute now say whether they **Write** or
+  **Read** it. Reading ones list only the attributes that actually reach the node, with the node
+  each comes from; a node that would overwrite an earlier node's attribute warns you, and one that
+  reads a name nothing writes gets the grey **i** badge. See
+  [Node graph](/docs/node-graph#attributes).
+- **All on the GPU.** Dragging the new nodes' params, and brushing guides before them, run on the
+  GPU in Maya and the app.
+
+## 0.3.0 (October 11, 2026)
+
+- **Wet hair in one node.** The new **Wet** node clumps hair the way water does: small clumps near
+  the root merge into bigger ones toward the tip, every small clump inside one big clump. One
+  slider, `wetness`, sets how far it goes (animate it to dry the hair); `clumpSize` and `levels`
+  set the clumps' sizes. It replaces stacking Clump nodes by hand, and the **wet** add-on preset
+  now uses it. See [Node graph](/docs/node-graph#other-main-nodes).
+- **Wet hair looks wet.** Hair shades darker, more saturated and glossier where it is wet, in the
+  viewport, the app and Arnold, with nothing to set: from the Wet node, a Simulate with rain or
+  water, or an Attribute named `wetness` (to wet hair by a map without clumping it).
+- **Curls that hang under their weight.** Curl's new `weight` lets curls stretch where hair
+  hangs below them: loose near the root, tight at the tip, narrowing as they stretch, like real
+  ringlets. Hair lying flat or pointing up keeps its curls; `weightDirection` says which way is
+  down. 0 by default, so existing grooms look the same.
+- **Both brush and drag on the GPU.** Dragging `wetness` or `weight`, and brushing guides under a
+  Wet node or a weighted Curl, run on the GPU in Maya and the app.
+- **Fewer nodes.** **Comb** is now part of **Bend**: with `along` `direction`, Bend lays the
+  direction onto the scalp and never bends past it, so `angle` 180 combs every strand that way.
+  **Straighten** is now part of **Smooth**, whose new `scale` (the size of the bends it removes,
+  a share of the strand's length) replaces `iterations`: small values take out kinks, 1
+  straightens. Smooth now looks the same at any point count. The Comb, Smooth and Straighten
+  *brushes* are unchanged.
+- **Light hair matches Arnold.** Blonde tips were about a quarter brighter in the viewport and the
+  app than in Arnold; they now match.
+- **Several scalps, fixed.** Each scalp now subdivides at its own level, hair on a moving extra
+  scalp jiggles with it, and scripted brush strokes reach every scalp.
+- **Blend takes curls.** Blend no longer stops with "a and b must be the same strands" when a Curl
+  on one side added points to tight curls (`blend_two_looks` on small scalps).
+
+Grooms saved before: Comb and Straighten nodes no longer load. Rebuild a Comb as a Bend with
+`along` `direction` (`angle` 180 for a full comb) and a Straighten as a Smooth with `scale` 1.
+Smooth's `iterations` is gone: set `scale` (the default, 0.09, looks like the old default).
+
+## 0.2.2 (October 11, 2026)
+
+- **Brushing creatures on the GPU.** Grooms whose clumps take their centers from a second
+  Interpolate, and Interpolate keeping clear of an animated scalp, now brush on the GPU too: on a
+  wolf groom a dab went from about 220 ms to about 35 ms, in Maya and the app.
+- **Softer collisions.** Collide's `softness` and `smoothing` make hair curve onto a floor or
+  another collider and slide along it instead of folding flat against it. Both are 0 by default,
+  so existing grooms look the same. See [Node graph](/docs/node-graph#other-main-nodes).
+- **No freeze on OpenGL.** The first GPU stroke after an update used to stall for up to a minute
+  while the graphics driver compiled GroomLab's GPU code. It now compiles in the background when
+  a groom first draws (brushing stays on the CPU until it's ready) and is cached, so later
+  sessions start at once.
+- **A smoother app.** Orbiting and parameter drags hold 60 fps, a CPU brush stroke no longer slows
+  the window (strokes and commits run off the UI thread), and the first frame shows in a quarter
+  of a second instead of four. Click a tool's name as well as its icon.
+- **Placing guides freezes nothing.** Solo new guides is now an option on Place and Draw, off by
+  default; **Shift+click** with a brush still solos a guide.
+
+## 0.2.1 (October 11, 2026)
+
+- **No more hang on the first groom.** Creating the first groom of a Maya session no longer
+  freezes Maya for several seconds: the hair shader compiles in a quarter second, once.
+- **New brushes.** **Direction** turns guides toward the way you stroke. **Noise** adds jitter
+  that builds up with each stroke (Ctrl smooths it out). **Width** and **Density** paint how thick
+  the hair is and where it grows; the first stroke makes and wires the map. Works in Maya, the app
+  and Blender. See [Guides & brushes](/docs/guides-and-brushes#brushes).
+- **Brush curves.** **Root to tip** sets how much of the brush reaches each part of a guide: style
+  the ends and leave the roots alone. **Falloff curve** draws the brush's edge.
+- **Symmetry on the scalp itself.** Symmetry can mirror across the scalp's own left and right
+  (**Topology**), not only world X: right for a head that is turned or not quite symmetric.
+- **Solo guides.** **Shift+click** a guide with a brush to solo it (the rest freeze, so you shape
+  only it); **Shift+click** off a guide, or **Unfreeze All** beside
+  Freeze, to free them all. The Select tool works the same way, and symmetry keeps the mirror
+  guides live too.
+- **Several scalps on one groom.** Ears, a head and a body, or eyebrow patches, in one groom:
+  **Pick** on the **Scalps** row of the Attribute Editor's Inputs. See
+  [Node graph](/docs/node-graph#several-scalps).
+- **Library looks.** The **Reference** node brings in another groom file's strands or guides.
+  See [Node graph](/docs/node-graph#reference-node).
+- **Render overrides.** `renderDensity`, `renderWidthScale` and `renderLengthScale` change the
+  render without touching the viewport. See [Rendering](/docs/rendering#render-overrides).
+- **Viewport fixes.** Cards are shaded like the strands they stand for, light hair stays bright
+  with the light behind the camera, and hair shading works with anti-aliasing off.
+
+## October 10, 2026
+
+- **Clump centers from a dropdown.** Clump's `centersFrom` says where its centers come from:
+  `pick` (it picks its own among the strands), `inputPoints` or `inputCurves` (whatever you feed
+  its `centers` input). Connecting `centers` switches it to `inputPoints`. A low-density Scatter
+  wired straight into `centers` makes procedural clump centers. See
+  [Node graph](/docs/node-graph#clump). *Grooms saved before:* it replaces
+  `shapeFrom`; set `centersFrom` to `inputCurves` where `shapeFrom` was `centers`, `inputPoints`
+  where it was `strands`.
+- **No hidden params.** A param never hides because an input is connected; what a panel shows
+  follows its dropdowns only.
+- **Uneven ends with Length.** `fraction` picks a share of the strands, and each loses a random
+  share of its length between `trimMin` and `trimMax`. *Grooms saved before:* it replaces
+  `randomness`; set `trimMax` to the old `randomness` for a close look.
+- **Looping Wind and Jiggle.** Turn on `loop` and set `loopStart` and `loopEnd` for a seamless
+  cycle: game idles and looping clips. See
+  [Motion & simulation](/docs/motion-and-simulation#looping-animation).
+- **Curl spacing.** `frequencyProfile` tightens or loosens the curls along the strand, and
+  `spacingRandom` varies their spacing smoothly, so curls bunch and open as real ones do.
+- **Pick with an eyedropper.** The Attribute Editor's **Pick** buttons (scalp, rest mesh,
+  colliders) wait for you to click the mesh in the viewport or the Outliner. Scalp and
+  ColliderMesh nodes in the Graph Editor have a **Mesh** field with the same eyedropper.
+- **Faster brushing.** The next stroke starts while the last one is still being committed. Wind,
+  Switch and Blend now preview on the GPU while you brush, and keeping strands clear of the scalp
+  is 13 to 15% faster.
+- **Clumps small to large.** The `cinematic_hair` and `everyday_sim` presets now chain the fine
+  Clump before the big one, so each lock reads as clumps of clumps. Do the same in your own
+  grooms.
+
+## October 9, 2026
+
+- **GroomLab's own hair shading in the viewport.** Strands in Maya's viewport are lit with
+  Marschner's three highlights from their pigment and RenderData's specular and roughness,
+  calibrated against Arnold's `aiStandardHair`. The hair shadows itself, light scatters through it,
+  and each strand shades a little apart from its neighbours. The standalone app draws the same
+  look. See [Rendering](/docs/rendering#viewport-shading).
+- **Clump level of detail.** Seen from afar, each clump draws only as many strands as cover its
+  pixels: big grooms draw several times faster, and closer to the render. Renders and exports
+  always take every strand.
+- **Curl rebuilt.** One curve at any resolution, with no kink at the root: 40 or 256 segments make
+  the same curl. Where a strand has too few points for a turn, Curl adds them.
+- **The GPU previews most of the graph.** Dragging a slider or brushing guides draws on the GPU
+  through Interpolate, Length, Clump, Noise, Curl, Width, Part, Gravity, Flyaway and Collide;
+  letting go commits on the CPU, so renders and exports are unchanged.
+- **No stall on release.** Commits run off the UI thread, and the GPU preview stays on screen
+  until they land.
+- **Painted maps without seams.** Brushing and smoothing cross UV seams, and a dab stays on the
+  surface it lands on (never the back of an ear). See [Painting maps](/docs/painting-maps).
+- **Lighter at a million strands.** Interpolate's memory at a million strands went from 208 MB to
+  37 MB, and Follow Scalp playback is carried by the GPU.
+
+## October 8, 2026
+
+- **Maya 2023 to 2027, in beta.** The same download holds a build for each Maya from 2022 to 2027.
+  Maya 2022 is tested; the newer builds are in beta. See [Installation](/docs/installation).
+- **The GroomLab app, in beta.** Groom, look-dev and export without Maya, on Windows. See
+  [GroomLab app](/docs/app). [GroomLab for Blender](/docs/blender) is in beta too.
+- **Strand width as coverage.** Thin strands and tapered tips read in the viewport as they render,
+  and a thinned preview reads as dense as the full groom.
+- **The preview is the render, thinned.** Preview density changes only how many strands show; each
+  one is the render's strand, clumps and curls alike.
+- **Smooth randomness.** Dragging Scatter's or Clump's `randomness` moves each root or clump
+  smoothly from its even spot to its random one instead of jumping, and past 1 (up to 2) for more
+  clumps and gaps. Tangle's partners change smoothly too.
+
+## October 7, 2026
+
+- **One naming scheme.** A node's random spread is `randomness`, a param's own spread is
+  `<param>Random`, and every node says `strength`, `along` and `direction`, `profile` and
+  `clumpChannel` the same way.
+- **Fewer, clearer nodes.** Bend stands strands up at the root, Clump does all the clumping, and
+  Map is the one map node. HairColor, Bands and FeatherColor split the color work; RenderData holds the
+  highlight (`specular`, `roughness`) and the opacity (`opacityProfile`). Instance and Scales are
+  separate nodes, and Length only trims (Transform's `scale` lengthens). See
+  [Node graph](/docs/node-graph#node-categories).
+- **Strands stay out of the scalp.** Interpolate's **Keep clearance** keeps every strand at least
+  as high above the scalp as its guides.
+- **Regions.** Paint areas in a color each and name the map in Interpolate's `regionMap`: strands
+  blend only their own region's guides. See [Regions](/docs/node-graph#regions).
+- **Right at any scale.** Every length param fits the scalp's size, Maya's sizes are in
+  centimeters whatever the UI's unit, and a new groom's default graph is fitted to its scalp.
+- **Straighten.** A node that pulls strands toward a straight line from the root, lengths kept.

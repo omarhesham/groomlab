@@ -1,0 +1,9 @@
+{"compact":1,"strands":99992,"guides":100,"bytes":3571908,"gpuBytes":20798336,"maxErr":4.929e-04}
+{"compact":1,"strands":500016,"guides":100,"bytes":17862424,"gpuBytes":104003328,"maxErr":5.614e-04}
+{"compact":1,"strands":999999,"guides":100,"bytes":35722142,"gpuBytes":207999792,"maxErr":5.614e-04}
+{"compact":1,"strands":99992,"guides":1000,"bytes":3624676,"gpuBytes":20798336,"maxErr":3.465e-04}
+{"compact":1,"strands":500016,"guides":1000,"bytes":18130164,"gpuBytes":104003328,"maxErr":3.840e-04}
+{"compact":1,"strands":999999,"guides":1000,"bytes":36255406,"gpuBytes":207999792,"maxErr":4.293e-04}
+{"compact":1,"strands":99992,"guides":5000,"bytes":3630060,"gpuBytes":20798336,"maxErr":2.425e-04}
+{"compact":1,"strands":500016,"guides":5000,"bytes":18140716,"gpuBytes":104003328,"maxErr":2.452e-04}
+{"compact":1,"strands":999999,"guides":5000,"bytes":36278110,"gpuBytes":207999792,"maxErr":2.710e-04}

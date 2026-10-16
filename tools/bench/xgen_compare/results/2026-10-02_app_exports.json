@@ -1,0 +1,73 @@
+{
+  "counts": {
+    "100000": {
+      "groomlab": {
+        "alembic_export_s": 1.6913384999788832,
+        "alembic_mb": 617.163358,
+        "clump_tweak_ms": 25.08819999638945,
+        "creation_cold_s": 0.15989119998994283,
+        "eval_fps": 21.262448783970502,
+        "frame_eval_ms": 44.78450000169687,
+        "noise_tweak_ms": 18.137299979571253,
+        "play_fps": 6.570638703922805,
+        "play_frame_ms": 148.76160002313554,
+        "points": 1600928,
+        "strands": 100058,
+        "usd_export_s": 5.296349999989616,
+        "usd_mb": 1969.40344
+      },
+      "groomlab_follow": {
+        "alembic_export_s": 0.6068992000073195,
+        "alembic_mb": 469.877062,
+        "creation_cold_s": 0.16479229999822564,
+        "eval_fps": 120.50320167947986,
+        "frame_eval_ms": 8.215800015022978,
+        "play_fps": 8.7210285873266,
+        "play_frame_ms": 113.20100000011735,
+        "points": 1600928,
+        "strands": 100058,
+        "usd_export_s": 3.9237326000002213,
+        "usd_mb": 1969.364287
+      }
+    },
+    "500000": {
+      "groomlab": {
+        "alembic_export_s": 7.452438899985282,
+        "alembic_mb": 3084.301678,
+        "clump_tweak_ms": 111.94840000825934,
+        "creation_cold_s": 0.2951996000192594,
+        "eval_fps": 5.652267584196026,
+        "frame_eval_ms": 175.50820001633838,
+        "noise_tweak_ms": 82.91309999185614,
+        "play_fps": 1.4930043650325162,
+        "play_frame_ms": 664.5134999998845,
+        "points": 8000768,
+        "strands": 500048,
+        "usd_export_s": 25.1592625999765,
+        "usd_mb": 9841.613204
+      },
+      "groomlab_follow": {
+        "alembic_export_s": 3.621694200002821,
+        "alembic_mb": 2348.230102,
+        "creation_cold_s": 0.3289550000044983,
+        "eval_fps": 35.61267279042608,
+        "frame_eval_ms": 27.436700009275228,
+        "play_fps": 1.8132003412391011,
+        "play_frame_ms": 534.419000003254,
+        "points": 8000768,
+        "strands": 500048,
+        "usd_export_s": 19.746445599972503,
+        "usd_mb": 9841.529659
+      }
+    }
+  },
+  "draw_api": "D3D11",
+  "scene": {
+    "area_cm2": 878.3888549804688,
+    "fps": 24.0,
+    "frames": 100,
+    "guides": 808,
+    "play_frames": 50,
+    "triangles": 17440
+  }
+}

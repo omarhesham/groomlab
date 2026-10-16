@@ -1,0 +1,1404 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "groomlab/portable_math.h"
+#include "groomlab/simulation.h"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstring>
+#include <stdexcept>
+#include <unordered_map>
+
+#include "groomlab/distance_field.h"
+#include "groomlab/field.h"
+#include "groomlab/follow_scalp.h"
+#include "groomlab/frame_time.h"
+#include "groomlab/frames.h"
+#include "groomlab/graph_io.h"
+#include "groomlab/noise.h"
+#include "groomlab/parallel.h"
+#include "groomlab/random.h"
+#include "operators/internal.h"
+
+namespace groomlab {
+
+namespace {
+
+// ---- Quaternions (w + xi + yj + zk) ----------------------------------------------------------
+
+struct Quat {
+    float w = 1.0f, x = 0.0f, y = 0.0f, z = 0.0f;
+    Vec3f vec() const { return {x, y, z}; }
+};
+
+Quat operator*(const Quat& a, const Quat& b) {
+    return {a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z, a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+            a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w};
+}
+Quat conj(const Quat& q) { return {q.w, -q.x, -q.y, -q.z}; }
+float dot4(const Quat& a, const Quat& b) { return a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z; }
+Quat normalized(const Quat& q) {
+    const float n2 = dot4(q, q);
+    if (!(n2 > 0.0f)) return Quat{};
+    const float k = 1.0f / std::sqrt(n2);
+    return {q.w * k, q.x * k, q.y * k, q.z * k};
+}
+// The third axis of unit q's frame (q e3 q*): a segment's direction.
+Vec3f thirdAxis(const Quat& q) {
+    return {2.0f * (q.x * q.z + q.w * q.y), 2.0f * (q.y * q.z - q.w * q.x), 1.0f - 2.0f * (q.x * q.x + q.y * q.y)};
+}
+Quat pure(const Vec3f& v) { return {0.0f, v.x, v.y, v.z}; }
+// v turned by unit q (q v q*).
+Vec3f rotate(const Quat& q, const Vec3f& v) {
+    const Vec3f u = q.vec();
+    const Vec3f t = u.cross(v) * 2.0f;
+    return v + t * q.w + u.cross(t);
+}
+// The rotation whose matrix has these columns (orthonormal, right-handed).
+Quat fromAxes(const Vec3f& c0, const Vec3f& c1, const Vec3f& c2) {
+    const float m00 = c0.x, m01 = c1.x, m02 = c2.x;
+    const float m10 = c0.y, m11 = c1.y, m12 = c2.y;
+    const float m20 = c0.z, m21 = c1.z, m22 = c2.z;
+    const float trace = m00 + m11 + m22;
+    Quat q;
+    if (trace > 0.0f) {
+        const float s = std::sqrt(trace + 1.0f) * 2.0f;
+        q = {0.25f * s, (m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s};
+    } else if (m00 > m11 && m00 > m22) {
+        const float s = std::sqrt(std::max(1e-12f, 1.0f + m00 - m11 - m22)) * 2.0f;
+        q = {(m21 - m12) / s, 0.25f * s, (m01 + m10) / s, (m02 + m20) / s};
+    } else if (m11 > m22) {
+        const float s = std::sqrt(std::max(1e-12f, 1.0f + m11 - m00 - m22)) * 2.0f;
+        q = {(m02 - m20) / s, (m01 + m10) / s, 0.25f * s, (m12 + m21) / s};
+    } else {
+        const float s = std::sqrt(std::max(1e-12f, 1.0f + m22 - m00 - m11)) * 2.0f;
+        q = {(m10 - m01) / s, (m02 + m20) / s, (m12 + m21) / s, 0.25f * s};
+    }
+    return normalized(q);
+}
+// For a unit quaternion's vector part of length s (the sine of half its angle) and real part
+// c >= 0: half its angle over s, so that times the vector part is the half-angle rotation vector
+// (a series for small turns: no atan2 for the many nearly at rest).
+float halfAngleOver(float s, float c) {
+    if (s < 0.05f * c) {
+        const float t = s / c, t2 = t * t;  // atan(t) / s = (t - t^3/3 + t^5/5) / s
+        return (1.0f - t2 * (1.0f / 3.0f) + t2 * t2 * 0.2f) / c;
+    }
+    return pm::atan2(s, c) / s;
+}
+// The unit quaternion turning by the half-angle rotation vector r (twice its length, about it).
+Quat turnOfHalfAngle(const Vec3f& r) {
+    const float h2 = r.dot(r);
+    if (h2 < 0.0025f) {  // half the angle below 0.05: the series, to float precision
+        const float k = 1.0f - h2 * (1.0f / 6.0f) + h2 * h2 * (1.0f / 120.0f);
+        return {1.0f - 0.5f * h2 + h2 * h2 * (1.0f / 24.0f), r.x * k, r.y * k, r.z * k};
+    }
+    const float half = std::sqrt(h2);
+    const float k = pm::sin(half) / half;
+    return {pm::cos(half), r.x * k, r.y * k, r.z * k};
+}
+// Normalized linear blend on the shorter arc (small turns: substeps, the inertia's share).
+Quat nlerp(const Quat& a, Quat b, float t) {
+    if (dot4(a, b) < 0.0f) b = {-b.w, -b.x, -b.y, -b.z};
+    return normalized({a.w + (b.w - a.w) * t, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t});
+}
+// Spherical blend on the shorter arc (a head turning far in one frame).
+Quat slerp(const Quat& a, Quat b, float t) {
+    float d = dot4(a, b);
+    if (d < 0.0f) {
+        b = {-b.w, -b.x, -b.y, -b.z};
+        d = -d;
+    }
+    if (d > 0.9995f) return nlerp(a, b, t);
+    const float theta = pm::acos(std::min(1.0f, d));
+    const float s = pm::sin(theta);
+    const float s0 = pm::sin((1.0f - t) * theta) / s, s1 = pm::sin(t * theta) / s;
+    return normalized({a.w * s0 + b.w * s1, a.x * s0 + b.x * s1, a.y * s0 + b.y * s1, a.z * s0 + b.z * s1});
+}
+
+// A root's frame: world = origin + rot(local).
+struct RootPose {
+    Vec3f origin;
+    Quat rot;
+    Vec3f toWorld(const Vec3f& local) const { return origin + rotate(rot, local); }
+    Vec3f toLocal(const Vec3f& world) const { return rotate(conj(rot), world - origin); }
+};
+RootPose blend(const RootPose& a, const RootPose& b, float t) {
+    if (t <= 0.0f) return a;
+    if (t >= 1.0f) return b;
+    return {a.origin + (b.origin - a.origin) * t, slerp(a.rot, b.rot, t)};
+}
+
+// The bend-twist constraint's compliance per unit inverse mass at the reference substep (1/96 s):
+// stiffness 1 is rigid (0), toward 0 ever softer; 0 is no constraint at all (not called).
+float complianceOf(float stiffness) {
+    const float k = std::clamp(stiffness, 1e-4f, 1.0f);
+    const float r = 1.0f / k - 1.0f;
+    return 2.0f * r * r;
+}
+constexpr float kReferenceStep = 1.0f / 96.0f;
+// The frame rootStiffnessProfile's share is taken over (a 24 fps frame): the same pull per second at any
+// frame rate and substeps.
+constexpr float kReferenceFrame = 1.0f / 24.0f;
+// A share `a` (0-1) of something taken per `reference` seconds, as the share a step of `h` seconds
+// takes: the same in a second whatever the step (1 stays 1, 0 stays 0).
+float shareOver(float a, float h, float reference) {
+    if (a >= 1.0f) return 1.0f;
+    if (!(a > 0.0f)) return 0.0f;
+    return 1.0f - pm::pow(1.0f - a, h / reference);
+}
+// The most one repulsion pass moves a point, as a share of the radius: a point crowded by many
+// others is not thrown out past them.
+constexpr float kMostRepulsion = 0.5f;
+// Follow the leader's velocity correction (Mueller et al. 2012's s_damping): 1 takes back all
+// the motion the length projection added.
+constexpr float kLeaderDamping = 0.9f;
+// Hair volume's density grid: the world's nodes (whole cells from the origin) in bricks of
+// kBrick^3, made where a point adds to one.
+class VolumeGrid {
+    struct Key {
+        std::int64_t x = 0, y = 0, z = 0;
+        bool operator==(const Key& o) const { return x == o.x && y == o.y && z == o.z; }
+    };
+    struct KeyHash {
+        std::size_t operator()(const Key& k) const {
+            return static_cast<std::size_t>(
+                hashCombine(hashCombine(hash64(static_cast<std::uint64_t>(k.x)), static_cast<std::uint64_t>(k.y)),
+                            static_cast<std::uint64_t>(k.z)));
+        }
+    };
+    static constexpr std::int64_t kBrick = 8;
+    static constexpr std::size_t kNodes = static_cast<std::size_t>(kBrick * kBrick * kBrick);
+    static constexpr std::size_t kNone = ~std::size_t{0};
+    static std::int64_t brickOf(std::int64_t c) { return c >= 0 ? c / kBrick : -((-c + kBrick - 1) / kBrick); }
+    static Key keyOf(std::int64_t x, std::int64_t y, std::int64_t z) { return {brickOf(x), brickOf(y), brickOf(z)}; }
+    static std::size_t local(const Key& key, std::int64_t x, std::int64_t y, std::int64_t z) {
+        return static_cast<std::size_t>(((z - key.z * kBrick) * kBrick + (y - key.y * kBrick)) * kBrick + (x - key.x * kBrick));
+    }
+
+public:
+    void clear() {
+        index_.clear();
+        values_.clear();
+        last_ = kNone;
+    }
+    // w added to node (x, y, z).
+    void add(std::int64_t x, std::int64_t y, std::int64_t z, float w) {
+        const Key key = keyOf(x, y, z);
+        if (last_ == kNone || !(key == lastKey_)) {
+            const auto it = index_.emplace(key, static_cast<std::uint32_t>(values_.size() / kNodes)).first;
+            if (it->second * kNodes == values_.size()) values_.resize(values_.size() + kNodes, 0.0f);
+            last_ = it->second;
+            lastKey_ = key;
+        }
+        values_[last_ * kNodes + local(key, x, y, z)] += w;
+    }
+    // Reads nodes, each reader keeping the brick it read last (one per thread: the grid is read
+    // only while readers live).
+    class Reader {
+    public:
+        explicit Reader(const VolumeGrid& grid) : grid_(grid) {}
+        float at(std::int64_t x, std::int64_t y, std::int64_t z) {
+            const Key key = keyOf(x, y, z);
+            if (!found_ || !(key == key_)) {
+                const auto it = grid_.index_.find(key);
+                brick_ = it == grid_.index_.end() ? nullptr : grid_.values_.data() + static_cast<std::size_t>(it->second) * kNodes;
+                key_ = key;
+                found_ = true;
+            }
+            return brick_ ? brick_[local(key, x, y, z)] : 0.0f;
+        }
+
+    private:
+        const VolumeGrid& grid_;
+        Key key_;
+        const float* brick_ = nullptr;
+        bool found_ = false;
+    };
+
+private:
+    std::unordered_map<Key, std::uint32_t, KeyHash> index_;
+    std::vector<float> values_;
+    std::size_t last_ = kNone;
+    Key lastKey_;
+};
+// How fast a point under water soaks up (seconds to 1/e), and the current's gustiness (as Wind's gust).
+constexpr float kSoakTime = 0.25f;
+constexpr float kCurrentGust = 0.3f;
+
+// A flow's velocity at `at` (already scaled by the gusts' frequency and moved with the flow): its
+// speed varied by the gusts travelling with it and its direction swayed (Wind's gust field).
+Vec3f flowVelocity(const Vec3f& at, const Vec3f& dir, float speed, float gust, std::uint64_t gustSeed,
+                   std::uint64_t swaySeed) {
+    const float g0 = gust > 0.0f ? fractalNoise(at, gustSeed, 2) : 0.0f;
+    Vec3f d = dir;
+    if (gust > 0.0f) {
+        const Vec3f swayed = dir + vectorNoise(at + Vec3f{17.3f, -4.1f, 9.7f}, swaySeed, 1) * (0.35f * gust);
+        if (swayed.length() > 1e-6f) d = swayed.normalized();
+    }
+    return d * (speed * std::max(0.0f, 1.0f + gust * 1.5f * g0));
+}
+
+}  // namespace
+
+// ---- Settings ---------------------------------------------------------------------------------
+
+SimSettings SimSettings::fromParams(const ParamSet& p) {
+    SimSettings s;
+    auto f = [&](const char* name, float fallback) { return static_cast<float>(p.getDouble(name, fallback)); };
+    s.stiffness = f("stretchStiffness", s.stiffness);
+    s.bend = f("bend", s.bend);
+    s.twist = f("twist", s.twist);
+    s.damping = f("damping", s.damping);
+    s.drag = f("drag", s.drag);
+    s.gravity = f("gravity", s.gravity);
+    s.gravityDirection = p.getVec3("gravityDirection", s.gravityDirection);
+    s.groomedUnderGravity = p.getBool("groomedUnderGravity", s.groomedUnderGravity);
+    s.windSpeed = f("windSpeed", s.windSpeed);
+    s.windDirection = p.getVec3("windDirection", s.windDirection);
+    s.windGust = f("windGust", s.windGust);
+    s.windFrequency = f("windFrequency", s.windFrequency);
+    s.rootStiffnessProfile = p.getRamp("rootStiffnessProfile", s.rootStiffnessProfile);
+    s.inertia = f("inertia", s.inertia);
+    s.collideScalp = p.getBool("collideScalp", s.collideScalp);
+    s.collisionOffset = f("collisionOffset", s.collisionOffset);
+    s.friction = f("friction", s.friction);
+    s.repulsion = f("repulsion", s.repulsion);
+    s.repulsionRadius = f("repulsionRadius", s.repulsionRadius);
+    s.substeps = static_cast<int>(p.getInt("substeps", s.substeps));
+    s.iterations = static_cast<int>(p.getInt("iterations", s.iterations));
+    s.startFrame = static_cast<int>(p.getInt("startFrame", s.startFrame));
+    s.seed = static_cast<std::uint64_t>(p.getInt("seed", 0));
+    s.live = p.getString("cacheMode", "live") != "cached";
+    s.water = p.getBool("water", s.water);
+    s.waterLevel = f("waterLevel", s.waterLevel);
+    s.buoyancy = f("buoyancy", s.buoyancy);
+    s.waterDrag = f("waterDrag", s.waterDrag);
+    s.currentSpeed = f("currentSpeed", s.currentSpeed);
+    s.currentDirection = p.getVec3("currentDirection", s.currentDirection);
+    s.dryTime = f("dryTime", s.dryTime);
+    s.wetWeight = f("wetWeight", s.wetWeight);
+    s.rain = f("rain", s.rain);
+    s.rootStiffness = f("rootStiffness", s.rootStiffness);
+    s.mass = f("mass", s.mass);
+    s.strength = f("strength", s.strength);
+    s.volume = f("volume", s.volume);
+    s.volumeCellSize = f("volumeCellSize", s.volumeCellSize);
+    // The maps set on the mappable params (their numbers above are then the specs' defaults).
+    std::uint64_t maps = 0;
+    for (const std::string& name : simulationMapParams()) {
+        if (!p.has(name)) continue;
+        const MapRef* map = std::get_if<MapRef>(&p.get(name));
+        if (!map) continue;
+        std::uint64_t h = hashString(hashCombine(hash64(0x3A95), static_cast<std::uint64_t>(map->source)), name);
+        h = hashFloat(hashFloat(hashString(hashCombine(h, static_cast<std::uint64_t>(map->component)), map->name), map->min),
+                      map->max);
+        for (const auto& [constant, value] : map->constants) h = hashFloat(hashString(h, constant), value);
+        maps = hashCombine(maps == 0 ? hash64(0x3A96) : maps, h);
+    }
+    s.mapsKey = maps;
+    return s;
+}
+
+std::uint64_t SimSettings::hash() const {
+    std::uint64_t h = hash64(0x51A7);
+    for (const float v : {stiffness, bend, twist, damping, drag, gravity, gravityDirection.x, gravityDirection.y,
+                          gravityDirection.z, windSpeed, windDirection.x, windDirection.y, windDirection.z, windGust,
+                          windFrequency, inertia, collisionOffset, friction, repulsion, repulsionRadius}) {
+        h = hashFloat(h, v);
+    }
+    h = hashCombine(h, rootStiffnessProfile.straight ? 1 : 0);
+    for (const auto& [t, v] : rootStiffnessProfile.keys) h = hashFloat(hashFloat(h, t), v);
+    h = hashCombine(h, collideScalp ? 1 : 0);
+    h = hashCombine(hashCombine(hashCombine(h, static_cast<std::uint64_t>(substeps)), static_cast<std::uint64_t>(iterations)),
+                    static_cast<std::uint64_t>(static_cast<std::int64_t>(startFrame)));
+    h = hashCombine(h, seed);
+    // Per point settings and volume, only when set (else the hash made before them).
+    if (perPointSettings() || volume > 0.0f || mapsKey != 0) {
+        h = hashCombine(h, 0x9E7A);
+        for (const float v : {rootStiffness, mass, strength, volume, volume > 0.0f ? volumeCellSize : 0.0f}) {
+            h = hashFloat(h, v);
+        }
+        h = hashCombine(h, mapsKey);
+    }
+    // Only when on (else the hash made before it).
+    if (groomedUnderGravity) h = hashCombine(h, 0x6A7E);
+    // Dry: the hash made before water (the stamps of bakes made then still match).
+    if (!wetting()) return h;
+    h = hashCombine(h, water ? 0x3A7E : 0x3A7F);
+    for (const float v : {waterLevel, buoyancy, waterDrag, currentSpeed, currentDirection.x, currentDirection.y,
+                          currentDirection.z, dryTime, wetWeight, rain}) {
+        h = hashFloat(h, v);
+    }
+    return h;
+}
+
+std::string simulationExternal(const std::string& node) { return "sim:" + node; }
+
+std::string formatSimulationStamp(std::uint64_t stamp) {
+    static const char* kDigits = "0123456789abcdef";
+    std::string text(16, '0');
+    for (int k = 15; k >= 0; --k, stamp >>= 4) text[static_cast<std::size_t>(k)] = kDigits[stamp & 0xF];
+    return text;
+}
+
+std::uint64_t parseSimulationStamp(const std::string& text) {
+    if (text.empty() || text.size() > 16) return 0;
+    std::uint64_t stamp = 0;
+    for (const char c : text) {
+        int digit = -1;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+        if (digit < 0) return 0;
+        stamp = (stamp << 4) | static_cast<std::uint64_t>(digit);
+    }
+    return stamp;
+}
+
+// ---- Maps -------------------------------------------------------------------------------------
+
+const std::vector<std::string>& simulationMapParams() {
+    static const std::vector<std::string> kNames{"stretchStiffness", "bend", "twist", "damping",
+                                                 "drag", "rootStiffness", "mass", "strength"};
+    return kNames;
+}
+
+std::uint64_t SimMaps::hash() const {
+    std::uint64_t h = hash64(0x3A97);
+    for (const std::vector<float>* values : {&stiffness, &bend, &twist, &damping, &drag, &rootStiffness, &mass, &strength}) {
+        h = hashCombine(h, values->size());
+        // FNV-1a over the values' bits, two at a time (a hashCombine per value costs more than the maps).
+        std::uint64_t f = 1469598103934665603ull;
+        const std::size_t n = values->size();
+        for (std::size_t i = 0; i + 1 < n; i += 2) {
+            std::uint64_t word = 0;
+            std::memcpy(&word, values->data() + i, sizeof word);
+            f = (f ^ word) * 1099511628211ull;
+        }
+        if (n % 2 == 1) f = hashFloat(f, values->back());
+        h = hashCombine(h, f);
+    }
+    return h;
+}
+
+SimMapsPtr simulationMaps(const ParamSet& params, const GuideSet& guides, const MeshPtr& scalp) {
+    const std::vector<std::string>& names = simulationMapParams();
+    auto mapped = [&](const std::string& name) {
+        return params.field(name) != nullptr || (params.has(name) && std::get_if<MapRef>(&params.get(name)) != nullptr);
+    };
+    if (std::none_of(names.begin(), names.end(), mapped) || guides.empty()) return nullptr;
+    const StrandsPtr strands = guidesAsStrands(guides);
+    auto maps = std::make_shared<SimMaps>();
+    std::vector<float>* out[] = {&maps->stiffness, &maps->bend, &maps->twist, &maps->damping,
+                                 &maps->drag, &maps->rootStiffness, &maps->mass, &maps->strength};
+    for (std::size_t k = 0; k < names.size(); ++k) {
+        if (!mapped(names[k])) continue;
+        // On the guides as strands: their layers are its channels (no guide set to blend from).
+        const ScalarField field(params, names[k], scalp.get());
+        field.validate(*strands);
+        const bool perPoint = field.perPoint();
+        std::vector<float>& values = *out[k];
+        values.resize(strands->pointCount());
+        parallelFor(0, strands->strandCount(), [&](std::size_t g) {
+            const std::size_t b = strands->strandBegin(g), n = strands->strandPointCount(g);
+            const float atRoot = perPoint ? 0.0f : field.at(*strands, g);
+            for (std::size_t j = 0; j < n; ++j) values[b + j] = perPoint ? field.atPoint(*strands, g, j) : atRoot;
+        }, 64);
+    }
+    return maps;
+}
+
+// ---- The solver -------------------------------------------------------------------------------
+
+// Per point arrays hold every guide's points one after another (guide g: begin[g] to begin[g+1]).
+// A segment's data sits at its tip point's index (segment s of guide g: begin[g] + s + 1), so the
+// root's slot holds none.
+struct GuideSolver::Impl {
+    // One frame's inputs, per guide and point.
+    struct Targets {
+        std::vector<RootPose> roots;  // each guide's root frame
+        std::vector<Vec3f> local;     // each point of the groomed shape in its root's frame
+        std::vector<float> lengths;   // each segment's length
+        std::vector<Quat> rest;       // each segment's rest Darboux quaternion against the one before (the root's frame)
+        std::vector<float> invMassQ;  // each segment's orientation's inverse mass
+    };
+
+    SimSettings settings;
+    double fps = 24.0;
+    int frame = 0;
+    bool started = false;
+    std::vector<std::uint64_t> ids;
+    std::vector<StrandRoot> roots;
+    std::vector<std::size_t> begin;  // guides + 1
+    std::vector<std::uint32_t> guideOf;  // per point
+    std::vector<int> edges;          // each root's face edge its frame's x runs along (-1: not on the scalp)
+    std::vector<float> attract;      // per point: the pull toward the groomed shape per iteration
+    std::vector<float> rootRamp;     // per point: rootStiffnessProfile there (before its scale and clamp)
+    std::vector<Vec3f> x, v;
+    // Per point settings (maps, or mass, strength or rootStiffness off their defaults), made
+    // for each solve from its inputs; unused (empty) otherwise, the solver then as it was.
+    struct PointSettings {
+        std::vector<float> stretch;          // the length kept per step (shareOver)
+        std::vector<float> bend;             // 0-1
+        std::vector<float> bendCompliance;   // per step (negative: none)
+        std::vector<float> twistCompliance;  // per step (negative: none)
+        std::vector<float> damp;             // the motion kept per step
+        std::vector<float> drag;             // the motion against the air kept per step (heavier: more)
+        std::vector<float> attract;          // the pull toward the groomed shape per iteration
+        std::vector<float> invMass;          // 1 / mass; 0: held to the input shape (strength 0)
+        std::vector<float> perMass;          // 1 / mass (held or not)
+        std::vector<float> weight;           // strength, 0-1
+        bool blends = false;                 // some weight between 0 and 1: the frames blend
+    };
+    PointSettings ps;
+    bool custom = false;
+    std::vector<Vec3f> frameTarget;  // each point's input shape at the last frame's end (blending)
+    std::vector<Vec3f> shown;        // the points as the frames show them, while blending (else empty)
+    std::vector<Quat> q;
+    std::vector<float> wet;  // per point, 0-1, while the settings wet the hair (else empty)
+    Targets prev, next;
+    std::vector<float> length;  // each guide's length as groomed at the start
+    std::vector<Vec3f> restGravity;  // groomedUnderGravity: each guide's gravity in its root's frame at the start
+    float longest = 0.0f;
+    // The scalp's rest pose (collisions through its field) and each root's frame on it.
+    MeshPtr restScalp;
+    std::uint64_t restKey = 0;
+    std::vector<RootPose> restRoots;
+    std::vector<char> restRooted;
+    // The colliders of the last inputs (a moving one is swept from there over the next substeps).
+    std::vector<MeshPtr> lastColliders;
+
+    std::size_t guideCount() const { return ids.size(); }
+
+    // A guide's root frame on `scalp`, or from its own first segment when it has no root there.
+    RootPose rootPose(std::size_t g, const Guide& guide, const ScalpMesh* scalp) const {
+        if (scalp && edges[g] >= 0 && scalp->contains(guide.root)) {
+            const RootFrame f = rootFrameOn(*scalp, guide.root, edges[g]);
+            if (f.valid) return {f.origin, fromAxes(f.x, f.y, f.z)};
+        }
+        if (guide.points.empty()) return {Vec3f{}, Quat{}};  // nothing to stand on: at the origin
+        const Vec3f p0 = guide.points.front();
+        Vec3f up = guide.points.size() > 1 ? (guide.points[1] - p0).normalized() : Vec3f{0.0f, 1.0f, 0.0f};
+        if (up.length() < 0.5f) up = {0.0f, 1.0f, 0.0f};
+        const Vec3f across = anyPerpendicular(up);
+        return {p0, fromAxes(across, up, across.cross(up))};
+    }
+
+    // The inputs as targets: root frames, the groomed shapes in them, lengths, rest Darboux.
+    void targetsOf(const SimInputs& in, Targets& t) const {
+        const std::size_t count = guideCount(), points = x.size();
+        t.roots.resize(count);
+        t.local.resize(points);
+        t.lengths.assign(points, 0.0f);
+        t.rest.assign(points, Quat{});
+        t.invMassQ.assign(points, 0.0f);
+        const ScalpMesh* scalp = in.scalp.get();
+        const auto& guides = in.guides->guides();
+        parallelFor(0, count, [&](std::size_t g) {
+            const Guide& guide = guides[g];
+            const RootPose root = rootPose(g, guide, scalp);
+            t.roots[g] = root;
+            const std::size_t b = begin[g], n = begin[g + 1] - b;
+            for (std::size_t j = 0; j < n; ++j) t.local[b + j] = root.toLocal(guide.points[j]);
+            if (n < 2) return;
+            // Segment frames transported down the groomed shape from the root's x axis.
+            const Vec3f rootX = rotate(root.rot, {1.0f, 0.0f, 0.0f});
+            Quat before = root.rot;
+            Vec3f d1, d3Before;
+            for (std::size_t s = 0; s + 1 < n; ++s) {
+                const Vec3f seg = guide.points[s + 1] - guide.points[s];
+                const float len = seg.length();
+                Vec3f d3 = len > 1e-12f ? seg / len : (s > 0 ? d3Before : rotate(root.rot, {0.0f, 1.0f, 0.0f}));
+                if (s == 0) {
+                    d1 = rootX - d3 * rootX.dot(d3);
+                    if (d1.length() < 1e-4f) d1 = anyPerpendicular(d3);
+                } else {
+                    d1 = rotateBetween(d1, d3Before, d3);
+                    d1 = d1 - d3 * d1.dot(d3);
+                    if (d1.length() < 1e-6f) d1 = anyPerpendicular(d3);
+                }
+                d1 = d1.normalized();
+                const Quat frame = fromAxes(d1, d3.cross(d1), d3);
+                const std::size_t i = b + s + 1;
+                t.lengths[i] = len;
+                t.rest[i] = conj(before) * frame;
+                const float l = std::max(len, 1e-4f);
+                t.invMassQ[i] = 1.0f / (4.0f * l * l);
+                before = frame;
+                d3Before = d3;
+            }
+        });
+    }
+
+    // The segment frames of the targets in world space (start: the rods' first orientations).
+    void framesFromTargets(const Targets& t) {
+        for (std::size_t g = 0; g < guideCount(); ++g) {
+            const std::size_t b = begin[g], n = begin[g + 1] - b;
+            Quat before = t.roots[g].rot;
+            for (std::size_t s = 0; s + 1 < n; ++s) {
+                const std::size_t i = b + s + 1;
+                before = normalized(before * t.rest[i]);
+                q[i] = before;
+            }
+        }
+    }
+
+    // The pose collisions with the scalp are asked in: its rest pose, else the scalp as it was at
+    // the start (a deforming scalp without one: a cache), whose distance field is made once; each
+    // point is taken there by its root's motion.
+    void rootRestFrames(const MeshPtr& scalp) {
+        restScalp.reset();
+        restKey = 0;
+        if (!scalp || scalp->triangleCount() == 0) return;
+        restKey = scalp->hasRest() ? scalp->restPoseHash() : 0;
+        restScalp = scalp->hasRest() ? std::make_shared<const ScalpMesh>(scalp->restPose()) : scalp;
+        restRoots.assign(guideCount(), RootPose{});
+        restRooted.assign(guideCount(), 0);
+        for (std::size_t g = 0; g < guideCount(); ++g) {
+            if (edges[g] < 0 || !restScalp->contains(roots[g])) continue;
+            const RootFrame f = rootFrameOn(*restScalp, roots[g], edges[g]);
+            if (!f.valid) continue;
+            restRoots[g] = {f.origin, fromAxes(f.x, f.y, f.z)};
+            restRooted[g] = 1;
+        }
+    }
+
+    void solve(const SimInputs& in, int frames, const std::function<void(int)>& frameDone);
+};
+
+GuideSolver::GuideSolver() : impl_(std::make_unique<Impl>()) {}
+GuideSolver::~GuideSolver() = default;
+
+bool GuideSolver::started() const { return impl_->started; }
+int GuideSolver::frame() const { return impl_->frame; }
+const std::vector<Vec3f>& GuideSolver::points() const { return impl_->shown.empty() ? impl_->x : impl_->shown; }
+const std::vector<float>& GuideSolver::wetness() const { return impl_->wet; }
+
+bool GuideSolver::sameLayout(const GuideSet& guides) const {
+    const Impl& m = *impl_;
+    if (!m.started || guides.size() != m.guideCount()) return false;
+    for (std::size_t g = 0; g < m.guideCount(); ++g) {
+        const Guide& guide = guides.guides()[g];
+        if (guide.id != m.ids[g] || guide.points.size() != m.begin[g + 1] - m.begin[g]) return false;
+    }
+    return true;
+}
+
+void GuideSolver::start(const SimSettings& settings, double framesPerSecond, int frame, const SimInputs& inputs) {
+    Impl& m = *impl_;
+    m = Impl{};
+    m.settings = settings;
+    m.fps = framesPerSecond > 0.0 ? framesPerSecond : 24.0;
+    m.frame = frame;
+    m.started = true;
+    static const GuideSet kNone;
+    const GuideSet& guides = inputs.guides ? *inputs.guides : kNone;
+    const std::size_t count = guides.size();
+    m.ids.resize(count);
+    m.roots.resize(count);
+    m.begin.assign(count + 1, 0);
+    m.edges.assign(count, -1);
+    m.length.assign(count, 0.0f);
+    for (std::size_t g = 0; g < count; ++g) {
+        const Guide& guide = guides.guides()[g];
+        m.ids[g] = guide.id;
+        m.roots[g] = guide.root;
+        m.begin[g + 1] = m.begin[g] + guide.points.size();
+        if (inputs.scalp && inputs.scalp->contains(guide.root)) m.edges[g] = longestEdge(*inputs.scalp, guide.root);
+    }
+    const std::size_t points = m.begin[count];
+    m.guideOf.resize(points);
+    m.attract.assign(points, 0.0f);
+    m.rootRamp.assign(points, 0.0f);
+    m.x.resize(points);
+    m.v.assign(points, Vec3f{});
+    m.q.assign(points, Quat{});
+    if (settings.wetting()) m.wet.assign(points, 0.0f);  // dry at the start
+    // The pull toward the groomed shape: `rootStiffnessProfile` along the length is the share a 24 fps
+    // frame takes (kReferenceFrame), spread over the substeps and iterations a frame at this rate has.
+    const float slice = static_cast<float>(1.0 / (m.fps * settings.substeps * settings.iterations));
+    for (std::size_t g = 0; g < count; ++g) {
+        const Guide& guide = guides.guides()[g];
+        const std::size_t b = m.begin[g], n = m.begin[g + 1] - b;
+        float length = 0.0f;
+        for (std::size_t j = 0; j < n; ++j) {
+            m.guideOf[b + j] = static_cast<std::uint32_t>(g);
+            m.x[b + j] = guide.points[j];
+            if (j > 0) length += (guide.points[j] - guide.points[j - 1]).length();
+            const float t = n > 1 ? static_cast<float>(j) / static_cast<float>(n - 1) : 0.0f;
+            m.rootRamp[b + j] = settings.rootStiffnessProfile(t);
+            const float a = std::clamp(m.rootRamp[b + j], 0.0f, 1.0f);
+            m.attract[b + j] = shareOver(a, slice, kReferenceFrame);
+        }
+        m.length[g] = length;
+        m.longest = std::max(m.longest, length);
+    }
+    if (count > 0) {
+        m.targetsOf(inputs, m.prev);
+        m.framesFromTargets(m.prev);
+        if (settings.groomedUnderGravity) {
+            const Vec3f gravity =
+                settings.gravityDirection.length() > 1e-8f ? settings.gravityDirection.normalized() * settings.gravity : Vec3f{};
+            m.restGravity.resize(count);
+            for (std::size_t g = 0; g < count; ++g) m.restGravity[g] = rotate(conj(m.prev.roots[g].rot), gravity);
+        }
+    }
+    m.rootRestFrames(inputs.scalp);
+    m.lastColliders = inputs.colliders;
+}
+
+void GuideSolver::step(const SimInputs& inputs, int frames, const std::function<void(int)>& frameDone) {
+    Impl& m = *impl_;
+    if (!m.started) throw std::invalid_argument("GuideSolver::step: not started");
+    if (!inputs.guides ? m.guideCount() != 0 : !sameLayout(*inputs.guides)) {
+        throw std::invalid_argument("GuideSolver::step: other guides than the ones simulated");
+    }
+    m.solve(inputs, std::max(1, frames), frameDone);
+}
+
+void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::function<void(int)>& frameDone) {
+    const std::size_t count = guideCount();
+    if (count == 0) {
+        for (int k = 1; k <= frames; ++k) {
+            ++frame;
+            if (frameDone) frameDone(k);
+        }
+        return;
+    }
+    targetsOf(in, next);
+    if (in.scalp && in.scalp->hasRest() && in.scalp->restPoseHash() != restKey) rootRestFrames(in.scalp);
+
+    const SimSettings& s = settings;
+    const int substeps = s.substeps * frames;
+    const float h = static_cast<float>(1.0 / (fps * s.substeps));
+    const Vec3f gravity = s.gravityDirection.length() > 1e-8f ? s.gravityDirection.normalized() * s.gravity : Vec3f{};
+    const float dragFactor = pm::exp(-10.0f * s.drag * h);
+    const float dampFactor = pm::exp(-20.0f * s.damping * h);
+    const float carry = 1.0f - s.inertia;
+    const float scale = (kReferenceStep / h) * (kReferenceStep / h);
+    const float bendCompliance = s.bend > 0.0f ? complianceOf(s.bend) * scale : -1.0f;
+    // Length keeping, friction and repulsion: shares per reference substep (as bend's compliance
+    // is), so the look holds at any frame rate and substeps.
+    const float stretchShare = shareOver(s.stiffness, h, kReferenceStep);
+    const float frictionShare = shareOver(s.friction, h, kReferenceStep);
+    const float repulsionShare = shareOver(s.repulsion, h, kReferenceStep);
+    const float twistCompliance = s.twist > 0.0f ? complianceOf(s.twist) * scale : -1.0f;
+    // The wind: Wind's gust field (a noise travelling with the air), read at each root.
+    const Vec3f windDir = s.windDirection.length() > 1e-6f ? s.windDirection.normalized() : Vec3f{1.0f, 0.0f, 0.0f};
+    const bool windy = s.windSpeed != 0.0f;
+    const std::uint64_t gustSeed = hashCombine(s.seed, 0x6057), swaySeed = hashCombine(s.seed, 0x5A7);
+    // Water and wetness, only while the settings wet the hair (dry, the solver runs as it did).
+    const bool wetting = !wet.empty();
+    const ScalpMesh* waterMesh = s.water && in.water && in.water->triangleCount() > 0 ? in.water.get() : nullptr;
+    const float waterDragFactor = pm::exp(-60.0f * s.waterDrag * h);
+    const Vec3f lift = gravity * -s.buoyancy;
+    const float soak = 1.0f - pm::exp(-h / kSoakTime);
+    const float rainSoak = 1.0f - pm::exp(-3.0f * s.rain * h);
+    const float drying = 1.0f - pm::exp(-h / s.dryTime);
+    const Vec3f currentDir = s.currentDirection.length() > 1e-6f ? s.currentDirection.normalized() : Vec3f{1.0f, 0.0f, 0.0f};
+    const std::uint64_t currentGustSeed = hashCombine(s.seed, 0xC0E7), currentSwaySeed = hashCombine(s.seed, 0xC5A7);
+
+    // Per point settings (simulation.h): the maps read on these inputs, or mass, strength or
+    // rootStiffness off their defaults. Without any, none of this runs: the solver as it was.
+    const SimMaps* maps = in.maps && !in.maps->empty() ? in.maps.get() : nullptr;
+    custom = maps != nullptr || s.perPointSettings();
+    ps = PointSettings{};
+    if (custom) {
+        const std::size_t points = x.size();
+        auto mapOf = [&](const std::vector<float>& values) {
+            return maps && values.size() == points ? values.data() : nullptr;
+        };
+        const float* mStiffness = maps ? mapOf(maps->stiffness) : nullptr;
+        const float* mBend = maps ? mapOf(maps->bend) : nullptr;
+        const float* mTwist = maps ? mapOf(maps->twist) : nullptr;
+        const float* mDamping = maps ? mapOf(maps->damping) : nullptr;
+        const float* mDrag = maps ? mapOf(maps->drag) : nullptr;
+        const float* mRoot = maps ? mapOf(maps->rootStiffness) : nullptr;
+        const float* mMass = maps ? mapOf(maps->mass) : nullptr;
+        const float* mStrength = maps ? mapOf(maps->strength) : nullptr;
+        for (std::vector<float>* values : {&ps.stretch, &ps.bend, &ps.bendCompliance, &ps.twistCompliance, &ps.damp, &ps.drag,
+                                           &ps.attract, &ps.invMass, &ps.perMass, &ps.weight}) {
+            values->resize(points);
+        }
+        // The pull toward the groomed shape per iteration (as start() spreads it), scaled.
+        const float slice = static_cast<float>(1.0 / (fps * s.substeps * s.iterations));
+        parallelFor(0, points, [&](std::size_t i) {
+            const float stiffness = mStiffness ? std::clamp(mStiffness[i], 0.0f, 1.0f) : s.stiffness;
+            const float bend = mBend ? std::clamp(mBend[i], 0.0f, 1.0f) : s.bend;
+            const float twist = mTwist ? std::clamp(mTwist[i], 0.0f, 1.0f) : s.twist;
+            const float damping = mDamping ? std::max(0.0f, mDamping[i]) : s.damping;
+            const float drag = mDrag ? std::max(0.0f, mDrag[i]) : s.drag;
+            const float rootScale = std::max(0.0f, mRoot ? mRoot[i] : s.rootStiffness);
+            const float mass = std::max(1e-3f, mMass ? mMass[i] : s.mass);
+            const float weight = std::clamp(mStrength ? mStrength[i] : s.strength, 0.0f, 1.0f);
+            ps.stretch[i] = shareOver(stiffness, h, kReferenceStep);
+            ps.bend[i] = bend;
+            ps.bendCompliance[i] = bend > 0.0f ? complianceOf(bend) * scale : -1.0f;
+            ps.twistCompliance[i] = twist > 0.0f ? complianceOf(twist) * scale : -1.0f;
+            ps.damp[i] = pm::exp(-20.0f * damping * h);
+            ps.drag[i] = pm::exp(-10.0f * drag * h / mass);
+            ps.attract[i] = rootScale == 1.0f ? attract[i]
+                                              : shareOver(std::clamp(rootRamp[i] * rootScale, 0.0f, 1.0f), slice, kReferenceFrame);
+            ps.weight[i] = weight;
+            ps.perMass[i] = 1.0f / mass;
+            ps.invMass[i] = weight > 0.0f ? ps.perMass[i] : 0.0f;
+        }, 4096);
+        ps.blends = std::any_of(ps.weight.begin(), ps.weight.end(), [](float w) { return w > 0.0f && w < 1.0f; });
+    }
+    if (ps.blends) {
+        frameTarget.resize(x.size());
+        shown.resize(x.size());
+    } else {
+        frameTarget.clear();
+        shown.clear();
+    }
+    // A point held to its input shape (strength 0): kinematic, nothing moves it.
+    auto held = [&](std::size_t i) { return custom && ps.invMass[i] == 0.0f; };
+
+    // Collisions: the scalp through its rest pose's field (or the start frame's), each point taken
+    // there by its root's motion; a guide without a root on it against the scalp as it is; the
+    // colliders as they are. A scalp or collider as it is asks its field, or when it is deformed
+    // away from its rest pose its rest pose's (CollisionSurface: made once for every frame). A
+    // guide's points are pushed out from as deep as half its length (searched for that far); the
+    // fields are made for the longest guide's (their reach that search rounded up to a power of
+    // two: the same fields while guides elsewhere change, unless the longest crosses one).
+    const float offset = s.collisionOffset;
+    const float fieldDepth = std::max(offset * 2.0f, 0.5f * longest);
+    const float fieldSearch = std::max(offset, fieldDepth) * 1.001f + 1e-6f;
+    CollisionSurface scalpRest, scalpNow;
+    if (s.collideScalp && in.scalp && in.scalp->triangleCount() > 0) {
+        if (restScalp) scalpRest = CollisionSurface::of(restScalp, offset, fieldDepth, fieldSearch);
+        scalpNow = CollisionSurface::of(in.scalp, offset, fieldDepth, fieldSearch);
+    }
+    std::vector<CollisionSurface> colliders;
+    std::vector<float> colliderFriction;  // each one's friction share per step (its own, else `friction`)
+    // A collider that moved since the last inputs (the same mesh, other points) is met by each
+    // substep where it is then, on the way from there (its points blended): one sweeping through
+    // the hair pushes it along the way instead of appearing past it at the first substep. Those
+    // substeps ask the collider's field (its rest pose's, else its own as it is now) through
+    // RestPoseCollision, as a deformed collider does.
+    struct Sweep {
+        std::size_t surface;  // in `colliders`
+        MeshPtr from, to;     // `to`: the mesh as it is now, with a rest pose (its own, else these points)
+    };
+    std::vector<Sweep> sweeps;
+    for (std::size_t k = 0; k < in.colliders.size(); ++k) {
+        MeshPtr now = in.colliders[k];
+        const MeshPtr before = k < lastColliders.size() ? lastColliders[k] : nullptr;
+        const bool sweeping = now && before && before != now && before->pointCount() == now->pointCount() &&
+                              before->samePointsLayout(*now) && before->points() != now->points();
+        if (sweeping && !now->hasRest()) {
+            // Its own points as its rest pose: the substeps on the way and the last one ask one
+            // field, this frame's.
+            auto rested = std::make_shared<ScalpMesh>(*now);
+            rested->setRestPoints(now->points());
+            now = std::move(rested);
+        }
+        if (CollisionSurface c = CollisionSurface::of(now, offset, fieldDepth, fieldSearch)) {
+            if (sweeping) sweeps.push_back({colliders.size(), before, now});
+            colliders.push_back(std::move(c));
+            const float own = k < in.colliderFriction.size() ? in.colliderFriction[k] : -1.0f;
+            colliderFriction.push_back(own >= 0.0f ? shareOver(std::min(own, 1.0f), h, kReferenceStep) : frictionShare);
+        }
+    }
+    const std::vector<CollisionSurface> collidersNow = sweeps.empty() ? std::vector<CollisionSurface>{} : colliders;
+    // The moving colliders where they are at fraction a of the way (1: as they are).
+    auto sweepTo = [&](float a) {
+        for (const Sweep& sw : sweeps) {
+            if (a >= 1.0f) {
+                colliders[sw.surface] = collidersNow[sw.surface];
+                continue;
+            }
+            const std::vector<Vec3f>& p0 = sw.from->points();
+            const std::vector<Vec3f>& p1 = sw.to->points();
+            std::vector<Vec3f> points(p1.size());
+            parallelFor(0, points.size(), [&](std::size_t v) { points[v] = p0[v] + (p1[v] - p0[v]) * a; }, 8192);
+            const MeshPtr mesh = std::make_shared<const ScalpMesh>(sw.to->withPoints(std::move(points)));
+            CollisionSurface c = CollisionSurface::of(mesh, offset, fieldDepth, fieldSearch);
+            if (c) colliders[sw.surface] = std::move(c);
+        }
+    };
+
+    // One substep of guide g, from fraction a0 to a1 of the way between the last inputs and these.
+    auto substep = [&](std::size_t g, float a0, float a1, double seconds, bool frameEnd) {
+        const std::size_t b = begin[g], n = begin[g + 1] - b;
+        const float pushDepth = std::max(offset * 2.0f, 0.5f * length[g]);  // (collisions)
+        const float pushSearch = std::max(offset, pushDepth) * 1.001f + 1e-6f;
+        const float band = std::max(1e-4f, 0.05f * length[g]);  // the surface's band the water fades in over
+        const RootPose r0 = blend(prev.roots[g], next.roots[g], a0);
+        const RootPose r1 = blend(prev.roots[g], next.roots[g], a1);
+        auto target = [&](std::size_t j, const RootPose& r, float a) {
+            const Vec3f l = prev.local[b + j] + (next.local[b + j] - prev.local[b + j]) * a;
+            return r.toWorld(l);
+        };
+        if (n < 2) {
+            if (n == 1) x[b] = target(0, r1, a1);
+            if (n == 1 && frameEnd && ps.blends) frameTarget[b] = x[b];
+            return;
+        }
+        // The share of the root's motion the hair is carried by rigidly (inertia below 1).
+        if (carry > 0.0f) {
+            const Quat turn = normalized(r1.rot * conj(r0.rot));
+            for (std::size_t j = 1; j < n; ++j) {
+                const std::size_t i = b + j;
+                const Vec3f carried = r1.origin + rotate(turn, x[i] - r0.origin);
+                x[i] = x[i] + (carried - x[i]) * carry;
+                v[i] = v[i] + (rotate(turn, v[i]) - v[i]) * carry;
+                q[i] = nlerp(q[i], turn * q[i], carry);
+            }
+        }
+        thread_local std::vector<Vec3f> p, tgt, corr, lambda;
+        p.resize(n);
+        tgt.resize(n);
+        corr.assign(n + 1, Vec3f{});
+        lambda.assign(n, Vec3f{});
+        for (std::size_t j = 0; j < n; ++j) tgt[j] = target(j, r1, a1);  // the groomed shape on the root now
+        const Vec3f rootVelocity = (tgt[0] - x[b]) / h;
+        // Gravity as this guide feels it: with groomedUnderGravity only its change in the root's
+        // frame since the start (the groomed shape already holds the rest).
+        const Vec3f pull = restGravity.empty() ? gravity : gravity - rotate(r1.rot, restGravity[g]);
+        p[0] = tgt[0];
+        // The air at this guide: the wind's speed varied by the gusts travelling with it.
+        Vec3f air{};
+        if (windy) {
+            const Vec3f at = x[b] * s.windFrequency - windDir * static_cast<float>(s.windFrequency * s.windSpeed * seconds);
+            air = flowVelocity(at, windDir, s.windSpeed, s.windGust, gustSeed, swaySeed);
+        }
+        // Under water: each point's share (0 above the surface's band, 1 below it), from the plane or
+        // the water mesh (the height along its closest point's normal); then its wetness: soaking
+        // up under water and in the rain, drying out of the water.
+        thread_local std::vector<float> under;
+        Vec3f flow{};
+        if (wetting) {
+            under.assign(n, 0.0f);
+            for (std::size_t j = 0; j < n; ++j) {
+                const std::size_t i = b + j;
+                if (s.water) {
+                    float depth = s.waterLevel - x[i].y;
+                    if (waterMesh) {
+                        const SurfacePoint sp = waterMesh->closestPoint(x[i]);
+                        depth = sp.root.face >= 0 ? (sp.position - x[i]).dot(sp.normal) : -band;
+                    }
+                    under[j] = smoothstep(-0.5f * band, 0.5f * band, depth);
+                }
+                float& w = wet[i];
+                w += (1.0f - w) * std::min(1.0f, under[j] * soak + rainSoak);
+                w -= w * drying * (1.0f - under[j]);
+            }
+            if (s.water && s.currentSpeed != 0.0f) {
+                const Vec3f at = x[b] * s.windFrequency - currentDir * static_cast<float>(s.windFrequency * s.currentSpeed * seconds);
+                flow = flowVelocity(at, currentDir, s.currentSpeed, kCurrentGust, currentGustSeed, currentSwaySeed);
+            }
+        }
+        for (std::size_t j = 1; j < n; ++j) {
+            const std::size_t i = b + j;
+            if (held(i)) {
+                p[j] = tgt[j];
+                continue;
+            }
+            const float dragHere = custom ? ps.drag[i] : dragFactor;
+            const float dampHere = custom ? ps.damp[i] : dampFactor;
+            Vec3f vel;
+            if (wetting) {
+                // Gravity (heavier while wet above the water), buoyancy, and the water's drag toward its
+                // flow taking over from the air's as the point goes under.
+                const float u = under[j];
+                vel = restGravity.empty() ? v[i] + gravity * (h * (1.0f + s.wetWeight * wet[i] * (1.0f - u))) + lift * (h * u)
+                                          : v[i] + pull * h + gravity * (h * s.wetWeight * wet[i] * (1.0f - u)) + lift * (h * u);
+                const Vec3f inAir = air + (vel - air) * dragHere;
+                const Vec3f inWater = flow + (vel - flow) * waterDragFactor;
+                vel = inAir + (inWater - inAir) * u;
+            } else {
+                vel = v[i] + pull * h;
+                vel = air + (vel - air) * dragHere;
+            }
+            vel = rootVelocity + (vel - rootVelocity) * dampHere;
+            p[j] = x[i] + vel * h;
+            // The segment's orientation starts where the last substep left it: it keeps no spin of
+            // its own (see the top of this file).
+        }
+        for (int it = 0; it < s.iterations; ++it) {
+            // Stretch and shear: each segment's orientation along its two points (Kugelstadt and
+            // Schoemer's constraint, the points and the orientation moved by their inverse masses).
+            for (std::size_t j = 1; j < n; ++j) {
+                const std::size_t i = b + j;
+                const float l = next.lengths[i];
+                if (!(l > 1e-8f)) continue;
+                // Per point masses: the segment's orientation weighs as its tip point. Above bend
+                // 0.5 the segment hangs more and more from the point before instead of pulling it
+                // back (that point's share falls to none at bend 1: a rigid chain from the root, as
+                // follow the leader holds the point before), so a stiff guide's bend reaches its
+                // points within the iterations: two-sided, a 1 cm guide at bend 1 sagged by its
+                // whole length and an 11 cm one by 1.4 cm (now 0.07 cm both). Bend 0.5 and below
+                // as before.
+                const float bendHere = custom ? ps.bend[i] : s.bend;
+                const float w0 = j == 1 ? 0.0f : (custom ? ps.invMass[i - 1] : 1.0f) * std::min(1.0f, 2.0f * (1.0f - bendHere));
+                const float w1 = custom ? ps.invMass[i] : 1.0f;
+                const float wq = custom ? next.invMassQ[i] * ps.perMass[i] : next.invMassQ[i];
+                const Vec3f d3 = thirdAxis(q[i]);
+                const Vec3f gamma = (p[j] - p[j - 1]) / l - d3;
+                const float denom = w0 + w1 + 4.0f * wq * l * l;
+                p[j - 1] += gamma * (w0 * l / denom);
+                p[j] -= gamma * (w1 * l / denom);
+                const Quat dq = pure(gamma) * Quat{q[i].z, -q[i].y, q[i].x, -q[i].w};  // gamma q e3*
+                const float k = 2.0f * wq * l * l / denom;
+                q[i] = normalized({q[i].w + dq.w * k, q[i].x + dq.x * k, q[i].y + dq.y * k, q[i].z + dq.z * k});
+            }
+            // Bend and twist: the turn between neighbouring segments (the first against the root's
+            // frame) toward the groomed shape's, XPBD with the compliances of `bend` and `twist`.
+            // Swept from the root with the parent's orientation held, as follow the leader holds
+            // the point before: the stiffness reaches the tip in one pass rather than creeping
+            // along the chain over many iterations (a long guide would sag however stiff).
+            if (custom || bendCompliance >= 0.0f || twistCompliance >= 0.0f) {
+                for (std::size_t j = 1; j < n; ++j) {
+                    const std::size_t i = b + j;
+                    if (!(next.lengths[i] > 1e-8f)) continue;
+                    const Quat& qa = j == 1 ? r1.rot : q[i - 1];
+                    Quat& qb = q[i];
+                    const float w = next.invMassQ[i];
+                    if (!(w > 0.0f)) continue;
+                    // The error: the turn from where the groomed shape puts the segment (the parent's
+                    // frame times the rest turn) to where it is, in the segment's own frame (x and y
+                    // bend, z twist), on the shorter arc, as a rotation vector of half its angle (the
+                    // quaternion's vector part for small turns: the compliances' scale). Exact for any
+                    // turn: the linearized quaternion difference this replaces under-corrected large
+                    // ones, so XPBD's multipliers drifted from the corrections made and a stiff guide
+                    // pushed far from its shape (a standing guide under gravity) whipped about.
+                    Quat e = conj(qa * next.rest[i]) * qb;
+                    if (e.w < 0.0f) e = {-e.w, -e.x, -e.y, -e.z};
+                    const Vec3f u = e.vec();
+                    const float sinHalf = u.length();
+                    const Vec3f c = u * halfAngleOver(sinHalf, e.w);
+                    Vec3f& lam = lambda[j];
+                    Vec3f d;
+                    auto solveAxis = [&](float cc, float compliance, float& l) {
+                        if (compliance < 0.0f) return 0.0f;
+                        const float alpha = compliance * w;
+                        const float dl = (-cc - alpha * l) / (w + alpha);
+                        l += dl;
+                        return -dl;
+                    };
+                    // Wet hair bends more easily (up to half its bend stiffness gone, by wetWeight).
+                    const float bendHere = custom ? ps.bend[i] : s.bend;
+                    const float bendComplianceHere = custom ? ps.bendCompliance[i] : bendCompliance;
+                    const float bc = wetting && bendComplianceHere >= 0.0f && wet[i] > 0.0f
+                                         ? complianceOf(bendHere * (1.0f - 0.5f * s.wetWeight * wet[i])) * scale
+                                         : bendComplianceHere;
+                    d.x = solveAxis(c.x, bc, lam.x);
+                    d.y = solveAxis(c.y, bc, lam.y);
+                    d.z = solveAxis(c.z, custom ? ps.twistCompliance[i] : twistCompliance, lam.z);
+                    // Only the child turns, by exactly the half-angle vector -w d in its own frame.
+                    qb = normalized(qb * turnOfHalfAngle(d * -w));
+                }
+            }
+            // The pull toward the groomed shape (root stiffness), along the length.
+            for (std::size_t j = 1; j < n; ++j) {
+                const float a = custom ? ps.attract[b + j] : attract[b + j];
+                if (a > 0.0f) p[j] += (tgt[j] - p[j]) * a;
+            }
+        }
+        // Lengths kept: each point at its segment's length from the one before (follow the leader).
+        for (std::size_t j = 1; j < n; ++j) {
+            const std::size_t i = b + j;
+            if (held(i)) continue;  // corr[j] stays 0
+            const Vec3f d = p[j] - p[j - 1];
+            const float len = d.length();
+            const float l = next.lengths[i];
+            const Vec3f to = len > 1e-12f ? p[j - 1] + d * (l / len) : p[j - 1] + rotate(q[i], {0.0f, 0.0f, l});
+            corr[j] = (to - p[j]) * (custom ? ps.stretch[i] : stretchShare);
+            p[j] += corr[j];
+        }
+        // Out of the scalp and the colliders, with friction against the surface.
+        if (scalpNow.mesh || !colliders.empty()) {
+            const bool viaRest = scalpRest.mesh && restRooted.size() == count && restRooted[g];
+            const RootPose rest = viaRest ? restRoots[g] : RootPose{};
+            // Each deformed mesh's walk along the guide (CollisionSurface): the scalp's from the root.
+            RestPoseCollision::Cursor scalpCursor = !viaRest && scalpNow ? scalpNow.cursor(roots[g], p[0]) : RestPoseCollision::Cursor{};
+            thread_local std::vector<RestPoseCollision::Cursor> colliderCursors;
+            colliderCursors.assign(colliders.size(), RestPoseCollision::Cursor{});
+            RestPoseCollision::Cursor unused;
+            std::size_t firstPushed = n;
+            // The walks' cursors before the first point pushed (the pass after the pushes picks
+            // them up there: the points before are as they were).
+            RestPoseCollision::Cursor scalpCursorThere;
+            thread_local std::vector<RestPoseCollision::Cursor> colliderCursorsThere;
+            for (std::size_t j = 1; j < n; ++j) {
+                const std::size_t i = b + j;
+                if (held(i)) continue;
+                if (firstPushed == n) {
+                    scalpCursorThere = scalpCursor;
+                    colliderCursorsThere = colliderCursors;
+                }
+                const Vec3f before = p[j];
+                // The friction of the surfaces that pushed it (the largest; each its own or `friction`).
+                float share = -1.0f;
+                if (viaRest) {
+                    Vec3f at = rest.toWorld(r1.toLocal(p[j]));
+                    if (scalpRest.pushOut(at, offset, pushDepth, pushSearch, unused)) {
+                        p[j] = r1.toWorld(rest.toLocal(at));
+                        share = frictionShare;
+                    }
+                } else if (scalpNow.mesh) {
+                    if (scalpNow.pushOut(p[j], offset, pushDepth, pushSearch, scalpCursor)) share = frictionShare;
+                }
+                for (std::size_t c = 0; c < colliders.size(); ++c) {
+                    if (colliders[c].pushOut(p[j], offset, pushDepth, pushSearch, colliderCursors[c])) share = std::max(share, colliderFriction[c]);
+                }
+                if (p[j] == before) continue;
+                const Vec3f normal = (p[j] - before).normalized();
+                const Vec3f moved = p[j] - x[i];
+                const Vec3f sliding = moved - normal * moved.dot(normal);
+                p[j] -= sliding * (share >= 0.0f ? share : frictionShare);
+                firstPushed = std::min(firstPushed, j);
+            }
+            if (firstPushed < n) {
+                // The pushes stretched the segments about the points pushed (2.4% on hair resting
+                // on the scalp, 8-20% in fast moves): the lengths kept again from the first point
+                // pushed on, the corrections added to the leader's, then the surfaces once more
+                // (without friction: the slide was taken once) for any point that went back in.
+                for (std::size_t j = firstPushed; j < n; ++j) {
+                    const std::size_t i = b + j;
+                    if (held(i)) continue;
+                    const Vec3f d = p[j] - p[j - 1];
+                    const float len = d.length();
+                    if (!(len > 1e-12f)) continue;
+                    const Vec3f more = (p[j - 1] + d * (next.lengths[i] / len) - p[j]) * (custom ? ps.stretch[i] : stretchShare);
+                    p[j] += more;
+                    corr[j] += more;
+                }
+                scalpCursor = scalpCursorThere;
+                colliderCursors = colliderCursorsThere;
+                for (std::size_t j = firstPushed; j < n; ++j) {
+                    const std::size_t i = b + j;
+                    if (held(i)) continue;
+                    if (viaRest) {
+                        Vec3f at = rest.toWorld(r1.toLocal(p[j]));
+                        if (scalpRest.pushOut(at, offset, pushDepth, pushSearch, unused)) p[j] = r1.toWorld(rest.toLocal(at));
+                    } else if (scalpNow.mesh) {
+                        scalpNow.pushOut(p[j], offset, pushDepth, pushSearch, scalpCursor);
+                    }
+                    for (std::size_t c = 0; c < colliders.size(); ++c) colliders[c].pushOut(p[j], offset, pushDepth, pushSearch, colliderCursors[c]);
+                }
+            }
+        }
+        // Velocities, with the leader's correction taken back (the points pushed out of a surface
+        // too: without it a point resting on a surface bounces off it).
+        for (std::size_t j = 1; j < n; ++j) {
+            const std::size_t i = b + j;
+            v[i] = held(i) ? (p[j] - x[i]) / h : (p[j] - x[i]) / h - corr[j + 1] * (kLeaderDamping / h);
+        }
+        for (std::size_t j = 0; j < n; ++j) x[b + j] = p[j];
+        // The input shape the frame's blend leans toward (strength between 0 and 1).
+        if (frameEnd && ps.blends) {
+            for (std::size_t j = 0; j < n; ++j) frameTarget[b + j] = tgt[j];
+        }
+    };
+
+    // Guide-guide repulsion: points of other guides closer than the radius pushed apart, every
+    // push read from the points before the pass (in a fixed order: the same sums on any thread).
+    std::vector<Vec3f> push;
+    auto repel = [&] {
+        const float radius = s.repulsionRadius;
+        if (!(repulsionShare > 0.0f) || !(radius > 0.0f)) return;
+        const float most = kMostRepulsion * radius;
+        const float inv = 1.0f / radius;
+        auto cellOf = [&](const Vec3f& p, int* c) {
+            c[0] = static_cast<int>(std::floor(p.x * inv));
+            c[1] = static_cast<int>(std::floor(p.y * inv));
+            c[2] = static_cast<int>(std::floor(p.z * inv));
+        };
+        auto key = [](int cx, int cy, int cz) {
+            return hashCombine(hashCombine(hash64(static_cast<std::uint64_t>(static_cast<std::int64_t>(cx))),
+                                           static_cast<std::uint64_t>(static_cast<std::int64_t>(cy))),
+                               static_cast<std::uint64_t>(static_cast<std::int64_t>(cz)));
+        };
+        std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> grid;
+        grid.reserve(x.size());
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            if (i == begin[guideOf[i]]) continue;  // roots stay
+            int c[3];
+            cellOf(x[i], c);
+            grid[key(c[0], c[1], c[2])].push_back(static_cast<std::uint32_t>(i));
+        }
+        push.assign(x.size(), Vec3f{});
+        parallelFor(0, x.size(), [&](std::size_t i) {
+            if (i == begin[guideOf[i]]) return;
+            int c[3];
+            cellOf(x[i], c);
+            Vec3f sum{};
+            for (int dx = -1; dx <= 1; ++dx) {
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dz = -1; dz <= 1; ++dz) {
+                        const auto it = grid.find(key(c[0] + dx, c[1] + dy, c[2] + dz));
+                        if (it == grid.end()) continue;
+                        for (const std::uint32_t o : it->second) {
+                            if (guideOf[o] == guideOf[i]) continue;
+                            const Vec3f d = x[i] - x[o];
+                            const float dist = d.length();
+                            if (!(dist < radius) || !(dist > 1e-9f)) continue;
+                            sum += d * ((radius - dist) * 0.5f * repulsionShare / dist);
+                        }
+                    }
+                }
+            }
+            if (custom) sum = sum * ps.invMass[i];  // heavier: pushed less; held: not at all
+            const float pushed = sum.length();  // capped after the mass: light hair is never thrown
+            push[i] = pushed > most ? sum * (most / pushed) : sum;
+        }, 1024);
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            x[i] += push[i];
+            v[i] += push[i] / h;
+        }
+    };
+
+    // Hair volume (Yeti's density gradient): the points counted into the world's grid of
+    // volumeCellSize cells (trilinear weights, summed in point order on one thread: the same sums
+    // on every run), each point then pushed down the density the others make where it is (its own
+    // weights taken back out), relative to that density: hair packed tighter than a cell spreads
+    // out, hair already apart is left alone. The grid's nodes are held in bricks, only where the
+    // points are (a point flung far out costs a brick, not a grid spanning the space between).
+    const float volumeShare = shareOver(s.volume, h, kReferenceStep);
+    VolumeGrid volumeGrid;
+    std::vector<Vec3f> volumePush;
+    auto volumize = [&] {
+        const float cell = s.volumeCellSize;
+        if (!(volumeShare > 0.0f) || !(cell > 0.0f) || x.empty()) return;
+        const float inv = 1.0f / cell;
+        for (const Vec3f& p : x) {
+            if (!(std::fabs(p.x * inv) < 1e15f && std::fabs(p.y * inv) < 1e15f && std::fabs(p.z * inv) < 1e15f)) return;
+        }
+        // A point's cell (its lowest corner node, in cells from the origin) and where in it the
+        // point is, 0-1 on each axis.
+        auto locate = [&](const Vec3f& p, std::int64_t* c, float* t) {
+            const float f[3] = {p.x * inv, p.y * inv, p.z * inv};
+            for (int a = 0; a < 3; ++a) {
+                const float fl = std::floor(f[a]);
+                c[a] = static_cast<std::int64_t>(fl);
+                t[a] = std::clamp(f[a] - fl, 0.0f, 1.0f);
+            }
+        };
+        volumeGrid.clear();
+        for (const Vec3f& p : x) {
+            std::int64_t c[3];
+            float t[3];
+            locate(p, c, t);
+            for (int k = 0; k < 8; ++k) {
+                const int a = k & 1, bb = (k >> 1) & 1, cc = (k >> 2) & 1;
+                volumeGrid.add(c[0] + a, c[1] + bb, c[2] + cc,
+                               (a ? t[0] : 1.0f - t[0]) * (bb ? t[1] : 1.0f - t[1]) * (cc ? t[2] : 1.0f - t[2]));
+            }
+        }
+        const float most = kMostRepulsion * cell;
+        const float amount = -0.5f * volumeShare * cell;  // times the density's relative change per cell
+        volumePush.assign(x.size(), Vec3f{});
+        parallelFor(0, x.size(), [&](std::size_t i) {
+            if (i == begin[guideOf[i]] || held(i)) return;  // roots and held points stay
+            std::int64_t c[3];
+            float t[3];
+            locate(x[i], c, t);
+            VolumeGrid::Reader reader(volumeGrid);
+            float rho = 0.0f;
+            Vec3f grad{};  // per cell
+            for (int k = 0; k < 8; ++k) {
+                const int a = k & 1, bb = (k >> 1) & 1, cc = (k >> 2) & 1;
+                const float wx = a ? t[0] : 1.0f - t[0], wy = bb ? t[1] : 1.0f - t[1], wz = cc ? t[2] : 1.0f - t[2];
+                // The others' count at the node: its own weight there taken out.
+                const float d = reader.at(c[0] + a, c[1] + bb, c[2] + cc) - wx * wy * wz;
+                rho += d * wx * wy * wz;
+                grad.x += d * (a ? 1.0f : -1.0f) * wy * wz;
+                grad.y += d * wx * (bb ? 1.0f : -1.0f) * wz;
+                grad.z += d * wx * wy * (cc ? 1.0f : -1.0f);
+            }
+            Vec3f push = grad * (amount / (std::max(0.0f, rho) + 1.0f));
+            if (custom) push = push * ps.invMass[i];  // heavier: pushed less
+            const float pushed = push.length();  // capped after the mass: light hair is never thrown
+            if (pushed > most) push = push * (most / pushed);
+            volumePush[i] = push;
+        }, 1024);
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            x[i] += volumePush[i];
+            v[i] += volumePush[i] / h;
+        }
+    };
+
+    const int base = frame;
+    for (int k = 1; k <= substeps; ++k) {
+        const float a0 = static_cast<float>(k - 1) / static_cast<float>(substeps);
+        const float a1 = static_cast<float>(k) / static_cast<float>(substeps);
+        const double seconds = frameToSeconds(base + static_cast<double>(k) / s.substeps, fps);
+        const bool frameEnd = k % s.substeps == 0;
+        if (!sweeps.empty()) sweepTo(k == substeps ? 1.0f : a1);
+        parallelFor(0, count, [&](std::size_t g) { substep(g, a0, a1, seconds, frameEnd); }, 16);
+        repel();
+        volumize();
+        if (frameEnd && ps.blends) {
+            // As shown: each point that share of its simulated offset from the input shape.
+            parallelFor(0, x.size(), [&](std::size_t i) {
+                const float w = ps.weight[i];
+                shown[i] = w >= 1.0f ? x[i] : frameTarget[i] + (x[i] - frameTarget[i]) * w;
+            }, 4096);
+        }
+        if (k % s.substeps == 0) {
+            ++frame;
+            if (frameDone) frameDone(k / s.substeps);
+        }
+    }
+    prev = std::move(next);
+    next = Targets{};
+    lastColliders = in.colliders;
+    roots.clear();
+    for (const Guide& guide : in.guides->guides()) roots.push_back(guide.root);
+}
+
+GuidesPtr GuideSolver::guides() const {
+    const Impl& m = *impl_;
+    auto out = std::make_shared<GuideSet>();
+    const std::vector<Vec3f>& points = m.shown.empty() ? m.x : m.shown;
+    for (std::size_t g = 0; g < m.guideCount(); ++g) {
+        const auto b = static_cast<std::ptrdiff_t>(m.begin[g]), e = static_cast<std::ptrdiff_t>(m.begin[g + 1]);
+        Guide& guide = out->add(m.ids[g], std::vector<Vec3f>(points.begin() + b, points.begin() + e));
+        guide.root = m.roots[g];
+        if (!m.wet.empty()) guide.pointAttributes[kWetnessChannel].assign(m.wet.begin() + b, m.wet.begin() + e);
+    }
+    return out;
+}
+
+// ---- The cache --------------------------------------------------------------------------------
+
+SimCache::SimCache() = default;
+SimCache::~SimCache() = default;
+
+void SimCache::configure(const SimSettings& settings, double framesPerSecond) {
+    const std::uint64_t hash = settings.hash();
+    const double fps = framesPerSecond > 0.0 ? framesPerSecond : 24.0;
+    if (hash != settingsHash_ || fps != fps_) clear();
+    settings_ = settings;
+    settingsHash_ = hash;
+    fps_ = fps;
+}
+
+int SimCache::lastFrame() const { return frames_.empty() ? settings_.startFrame - 1 : frames_.rbegin()->first; }
+
+GuidesPtr SimCache::frame(int frame) const {
+    const auto it = frames_.find(frame);
+    return it == frames_.end() ? nullptr : it->second.guides;
+}
+
+std::uint64_t SimCache::frameHash(int frame) const {
+    const auto it = frames_.find(frame);
+    return it == frames_.end() ? 0 : it->second.hash;
+}
+
+std::uint64_t SimCache::inputHash(int frame) const {
+    const auto it = frames_.find(frame);
+    return it == frames_.end() ? 0 : it->second.input;
+}
+
+std::vector<std::pair<int, int>> SimCache::ranges() const {
+    std::vector<std::pair<int, int>> out;
+    for (const auto& [f, frame] : frames_) {
+        if (!out.empty() && out.back().second + 1 == f) {
+            out.back().second = f;
+        } else {
+            out.emplace_back(f, f);
+        }
+    }
+    return out;
+}
+
+void SimCache::keep(std::uint64_t inputHash) {
+    Frame kept;
+    kept.guides = solver_.guides();
+    // Each frame made is new (its key in the graph): a serial, not a pass over every point.
+    static std::atomic<std::uint64_t> made{0};
+    kept.hash = hashCombine(hash64(0xF7A3E), made.fetch_add(1) + 1);
+    kept.input = inputHash;
+    frames_[solver_.frame()] = std::move(kept);
+}
+
+void SimCache::start(const SimInputs& inputs, std::uint64_t inputHash) {
+    const auto started = std::chrono::steady_clock::now();
+    frames_.clear();
+    solver_.start(settings_, fps_, settings_.startFrame, inputs);
+    keep(inputHash);
+    lastStepMs_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+}
+
+bool SimCache::step(const SimInputs& inputs, std::uint64_t inputHash, int frames) {
+    if (!solver_.started() || !inputs.guides || !solver_.sameLayout(*inputs.guides)) {
+        clear();
+        return false;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    frames = std::max(1, frames);
+    // Frames between the last and these inputs were stepped toward a blend of the two: what they
+    // were stepped toward is not known (0: never checked against a host's inputs).
+    solver_.step(inputs, frames, [&](int k) { keep(k == frames ? inputHash : 0); });
+    lastStepMs_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count() / frames;
+    return true;
+}
+
+void SimCache::clear() {
+    frames_.clear();
+    lastStepMs_ = 0.0;
+}
+
+std::size_t SimCache::bytes() const {
+    std::size_t out = 0;
+    for (const auto& [f, frame] : frames_) {
+        if (!frame.guides) continue;
+        for (const Guide& g : frame.guides->guides()) {
+            out += g.points.size() * sizeof(Vec3f) + sizeof(Guide);
+            for (const auto& [name, values] : g.pointAttributes) out += values.size() * sizeof(float);
+        }
+    }
+    return out;
+}
+
+// ---- Presets ----------------------------------------------------------------------------------
+
+const std::vector<SimPreset>& simulatePresets() {
+    static const std::vector<SimPreset> kPresets{
+        {"default", "Default", "The Simulate node's defaults: hair that swings freely, held only near the root"},
+        {"fur", "Fur",
+         "Springy fur that holds its groom: gravity barely changes it, the head's motion shakes it and it springs back "
+         "to its groomed shape in a few quick swings"},
+    };
+    return kPresets;
+}
+
+std::string simulatePresetParamsJson(const std::string& name) {
+    // Every preset sets the same params (see simulation.h).
+    ParamSet params;
+    auto set = [&](bool underGravity, double bend, double twist, double damping, double drag, double rootStiffness,
+                   Ramp profile, double inertia, std::int64_t iterations) {
+        params.set("groomedUnderGravity", underGravity);
+        params.set("bend", bend);
+        params.set("twist", twist);
+        params.set("damping", damping);
+        params.set("drag", drag);
+        params.set("rootStiffness", rootStiffness);
+        params.set("rootStiffnessProfile", std::move(profile));
+        params.set("inertia", inertia);
+        params.set("iterations", iterations);
+    };
+    if (name == "default") {
+        // The Simulate node's defaults (its spec's: a test holds them together).
+        set(false, 0.5, 0.5, 0.1, 0.05, 1.0, Ramp{{0.0f, 1.0f}, {0.2f, 0.0f}}, 1.0, 6);
+    } else if (name == "fur") {
+        // Tuned on a wolf (centimetres, 30 fps: a fast turn, a run, a hard stop; docs:
+        // motion-and-simulation, "Springy fur that holds its groom"). groomedUnderGravity keeps
+        // the groom as it is while still (the typical tip moved under 0.1% of its length a second in,
+        // 86% at the node's defaults); bend 0.8 and the hold all along the length (root 1, middle
+        // 0.7, tips 0.35) spring it back as a whole; inertia 0.8 takes the edge off the body's
+        // motion and damping 0.25 stops it after two or three swings (a third of a second).
+        set(true, 0.8, 0.7, 0.25, 0.05, 1.0, Ramp{{0.0f, 1.0f}, {0.5f, 0.7f}, {1.0f, 0.35f}}, 0.8, 6);
+    } else {
+        throw std::invalid_argument("no Simulate preset '" + name + "' (default, fur)");
+    }
+    return paramsJson(params);
+}
+
+}  // namespace groomlab

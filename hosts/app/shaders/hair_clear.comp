@@ -1,0 +1,23 @@
+#version 440
+// SPDX-License-Identifier: Apache-2.0
+
+// A storage buffer filled, four words at a time (the visibility path's per-pixel buffer before
+// each frame: no hair, no coverage; the voxel grid before each voxelization: zeros). The first
+// word of each four takes `values.x`, the other three `values.y`.
+
+layout(local_size_x = 256) in;
+
+layout(std140, binding = 1) uniform Fill {
+    uvec4 fill;    // x: the quadruples to fill; y: threads a row of the dispatch; z, w: unused
+    uvec4 values;  // x: the first word's; y: the others'
+};
+
+layout(std430, binding = 4) buffer Data {
+    uvec4 data[];
+};
+
+void main() {
+    uint i = gl_GlobalInvocationID.y * fill.y + gl_GlobalInvocationID.x;
+    if (i >= fill.x) return;
+    data[i] = uvec4(values.x, values.y, values.y, values.y);
+}

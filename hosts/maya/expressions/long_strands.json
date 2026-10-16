@@ -1,0 +1,8 @@
+{
+  "name": "Long strands",
+  "description": "0 for the shortest strands, 1 for the longest: clump or thin the long ones harder",
+  "expression": "# 0 for the shortest strand, 1 for the longest\n$length / $longest",
+  "variables": {},
+  "min": 0.0,
+  "max": 1.0
+}

@@ -1,0 +1,15 @@
+{
+  "name": "Near a point",
+  "description": "1 near a point on the head (a fringe, a cowlick, a bald spot), fading out by the radius",
+  "expression": "$d = distance($P, $center);\n1 - smoothstep($d, $radius * 0.5, $radius)",
+  "variables": {
+    "center": [
+      0,
+      1,
+      0
+    ],
+    "radius": 0.5
+  },
+  "min": 0.0,
+  "max": 1.0
+}

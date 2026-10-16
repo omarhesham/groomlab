@@ -1,0 +1,86 @@
+{
+  "name": "Studio",
+  "description": "Low-key greys with one quiet accent: nothing competes with the hair.",
+  "palette": {
+    "red": "#C0605C",
+    "yellow": "#C9A85C",
+    "blue": "#5B8DB8",
+    "emerald": "#5FA38A",
+    "white": "#D6D8DB",
+    "purple": "#8D7BB0"
+  },
+  "ui": {
+    "background": "#232426",
+    "panel": "#2B2C2F",
+    "raised": "#36383C",
+    "hover": "#404347",
+    "border": "#1F2022",
+    "text": "#D6D8DB",
+    "textDim": "#8A8E94",
+    "accent": "#4F86B0",
+    "accentText": "#FFFFFF",
+    "warning": "yellow",
+    "keyed": "#CD4C4C",
+    "animated": "#E3A3A8",
+    "driven": "#E4D46C",
+    "radius": 4,
+    "fontSize": 11,
+    "sliders": ["accent"]
+  },
+  "graph": {
+    "canvas": "#212224",
+    "grid": "#2E3033",
+    "node": "#2D2F32",
+    "nodeBorder": "#1A1B1D",
+    "text": "#D6D8DB",
+    "textDim": "#8A8E94",
+    "selected": "#E0B455",
+    "cornerRadius": 6,
+    "headerStyle": "tinted",
+    "shadow": true,
+    "categories": {
+      "Sources": "emerald",
+      "Grow": "#6AA7A0",
+      "Shape": "blue",
+      "Color": "#B07A95",
+      "Look": "purple",
+      "Fields & Curves": "#B07AB0",
+      "Utility": "#7E858D",
+      "Output": "yellow",
+      "Compound": "emerald",
+      "Games": "#5AA9C9",
+      "Convert": "#C98A5A",
+      "Motion": "#6FA3C8",
+      "Feathers": "#C9A55A"
+    },
+    "ports": {
+      "Strands": "yellow",
+      "Guides": "blue",
+      "Mesh": "emerald",
+      "Field": "#B07AB0",
+      "Curve": "#D8C66A",
+      "Curves": "#B8BCC4"
+    }
+  },
+  "icons": {
+    "create": "#7FA89A",
+    "shape": "#7E9CB8",
+    "trim": "#B08784",
+    "paint": "#B8A474",
+    "app": "accent",
+    "ink": "#C9CCD0"
+  },
+  "viewport": {
+    "guideLevels": ["#4F86B0", "#6FA58C", "#B89C62", "#A86E6A", "#9DA2A8"],
+    "pointSize": 4,
+    "selected": "white",
+    "softSelected": "#E0A050",
+    "frozen": "#6F9EC9",
+    "parts": "red",
+    "flow": "yellow",
+    "flowField": "#7F8C99",
+    "tubes": "#7E858D",
+    "instances": "#A9C6DB",
+    "clumpCenters": "#D96BEB"
+  }
+}

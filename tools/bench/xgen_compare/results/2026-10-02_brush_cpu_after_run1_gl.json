@@ -1,0 +1,8329 @@
+{
+ "tag": "final1_OpenGL",
+ "started": "2026-10-02T02:00:52",
+ "machine": {
+  "cpu": {
+   "Name": "AMD Ryzen Threadripper PRO 5945WX 12-Cores     ",
+   "NumberOfCores": 12,
+   "NumberOfLogicalProcessors": 24,
+   "MaxClockSpeed": 4101
+  },
+  "ram_gb": 127.9,
+  "gpu": {
+   "Name": "NVIDIA GeForce RTX 3090",
+   "DriverVersion": "32.0.16.1692"
+  },
+  "os": "Windows-10-10.0.26100",
+  "power_plan": "Power Scheme GUID: cca203d3-44a6-4ecf-81f3-2a331abf3246  (Lenovo Default)"
+ },
+ "maya": "C:\\Program Files\\Autodesk\\Maya2022",
+ "plugin": "<repo>/build/wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+ "groomlab_commit": "c8f4687",
+ "counts": [
+  100000,
+  500000
+ ],
+ "runs": 2,
+ "draw_api": "OpenGL",
+ "jobs": [
+  {
+   "kind": "gui",
+   "system": "groomlab",
+   "count": 100000,
+   "phase": "static",
+   "run": 0,
+   "load_before": {
+    "cpu_percent": 10,
+    "free_ram_gb": 94.2,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 30.259621199999998,
+   "result": {
+    "args": {
+     "system": "groomlab",
+     "count": 100000,
+     "phase": "static",
+     "out": "<tmp>/bcpu/work\\gui_groomlab_static_100000_r0\\result.json",
+     "work": "<tmp>/bcpu/work\\gui_groomlab_static_100000_r0",
+     "plugin": "<repo>/build/wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>/build/wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 7,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.13707899999999995,
+    "creation": {
+     "to_first_frame_s": 0.37813379999999697,
+     "commands_s": 0.09200249999999954,
+     "redraw_s": 0.0031196000000015545,
+     "count": 99994,
+     "ws_delta_mb": 358.08203125,
+     "private_delta_mb": 421.796875,
+     "ws_after_mb": 2408.54296875,
+     "gpu_device_delta_mb": 96.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 1599904,
+     "strands": 99994,
+     "lastEvaluationNodeMs": {
+      "centers": 4.7692,
+      "clump": 5.4135,
+      "curl": 7.1013,
+      "guides": 0.5107,
+      "interpolate": 13.8693,
+      "noise": 8.9764,
+      "output": 0.0004,
+      "resample": 0.2338,
+      "scalp": 0.0052,
+      "scatter": 6.5469,
+      "width": 2.2817
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>/bcpu/work\\gui_groomlab_static_100000_r0\\look.png",
+    "tweak": {
+     "clump_s": [
+      0.04205560000000119,
+      0.036998099999998146,
+      0.033933999999998576,
+      0.03351820000000316,
+      0.03273809999999955,
+      0.030643600000001214,
+      0.03196009999999916
+     ],
+     "noise_s": [
+      0.02585900000000052,
+      0.02771680000000032,
+      0.03011979999999781,
+      0.027781299999997344,
+      0.02507010000000065,
+      0.025290699999999333,
+      0.026307299999999145
+     ],
+     "clump_draw": [
+      {
+       "computeMs": 24.472,
+       "draw": {
+        "updateMs": 10.753,
+        "buildMs": 1.073,
+        "uploadMs": 9.537,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 2.732,
+          "writeMs": 5.896,
+          "commitMs": 0.653,
+          "bindMs": 0.05,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.683,
+       "draw": {
+        "updateMs": 8.07,
+        "buildMs": 1.014,
+        "uploadMs": 6.917,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 6.398,
+          "commitMs": 0.308,
+          "bindMs": 0.045,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.787,
+       "draw": {
+        "updateMs": 8.558,
+        "buildMs": 1.042,
+        "uploadMs": 7.378,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 6.736,
+          "commitMs": 0.367,
+          "bindMs": 0.054,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.393,
+       "draw": {
+        "updateMs": 8.179,
+        "buildMs": 1.03,
+        "uploadMs": 7.01,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.089,
+          "writeMs": 6.448,
+          "commitMs": 0.315,
+          "bindMs": 0.066,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.62,
+       "draw": {
+        "updateMs": 7.6,
+        "buildMs": 1.212,
+        "uploadMs": 6.235,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.1,
+          "writeMs": 5.638,
+          "commitMs": 0.334,
+          "bindMs": 0.07,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.45,
+       "draw": {
+        "updateMs": 7.421,
+        "buildMs": 1.085,
+        "uploadMs": 6.202,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.107,
+          "writeMs": 5.651,
+          "commitMs": 0.314,
+          "bindMs": 0.039,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.598,
+       "draw": {
+        "updateMs": 7.476,
+        "buildMs": 1.045,
+        "uploadMs": 6.294,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.094,
+          "writeMs": 5.796,
+          "commitMs": 0.276,
+          "bindMs": 0.042,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "noise_draw": [
+      {
+       "computeMs": 15.653,
+       "draw": {
+        "updateMs": 7.513,
+        "buildMs": 0.479,
+        "uploadMs": 6.903,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.741,
+          "writeMs": 5.714,
+          "commitMs": 0.289,
+          "bindMs": 0.062,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.085,
+       "draw": {
+        "updateMs": 7.617,
+        "buildMs": 0.487,
+        "uploadMs": 6.999,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 6.457,
+          "commitMs": 0.321,
+          "bindMs": 0.044,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 17.279,
+       "draw": {
+        "updateMs": 7.918,
+        "buildMs": 0.491,
+        "uploadMs": 7.253,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 6.653,
+          "commitMs": 0.346,
+          "bindMs": 0.071,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.413,
+       "draw": {
+        "updateMs": 6.711,
+        "buildMs": 0.491,
+        "uploadMs": 6.082,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.083,
+          "writeMs": 5.564,
+          "commitMs": 0.321,
+          "bindMs": 0.039,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.861,
+       "draw": {
+        "updateMs": 6.842,
+        "buildMs": 0.487,
+        "uploadMs": 6.226,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.103,
+          "writeMs": 5.717,
+          "commitMs": 0.284,
+          "bindMs": 0.042,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.203,
+       "draw": {
+        "updateMs": 6.798,
+        "buildMs": 0.501,
+        "uploadMs": 6.127,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.094,
+          "writeMs": 5.611,
+          "commitMs": 0.31,
+          "bindMs": 0.039,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.945,
+       "draw": {
+        "updateMs": 7.439,
+        "buildMs": 0.493,
+        "uploadMs": 6.819,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 6.28,
+          "commitMs": 0.287,
+          "bindMs": 0.073,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "clump_median_s": 0.03351820000000316,
+     "noise_median_s": 0.026307299999999145
+    },
+    "orbit": {
+     "frames": 60,
+     "seconds": 0.0782353000000029,
+     "fps": 766.9172355701043
+    },
+    "brush": {
+     "how": "groomLabBrushCtx -debugStroke (press, 9 drags, release; comb on ~508 guides)",
+     "stroke_s": [
+      0.06368740000000273,
+      0.0530974999999998,
+      0.05871060000000128,
+      0.05590839999999986,
+      0.05151090000000025
+     ],
+     "median_s": 0.05590839999999986,
+     "changed": true,
+     "stroke_document_ready": true,
+     "first_press_s": 0.0589195,
+     "first_release_s": 0.0539549,
+     "first_steps_draw": [
+      {
+       "computeMs": 0.845,
+       "changedStrands": -1,
+       "draw": {
+        "updateMs": 2.659,
+        "buildMs": 0.171,
+        "uploadMs": 2.405,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.594,
+          "writeMs": 1.414,
+          "commitMs": 0.075,
+          "bindMs": 0.241,
+          "megabytes": 10.872,
+          "partialStrands": 0
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 3.7491,
+         "clump": 2.3568,
+         "curl": 2.1774,
+         "guides": 0.4735,
+         "interpolate": 5.7649,
+         "noise": 2.9542,
+         "output": 0.0003,
+         "resample": 0.0713,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7873
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.504,
+       "changedStrands": 18522,
+       "draw": {
+        "updateMs": 2.214,
+        "buildMs": 0.828,
+        "uploadMs": 1.27,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.65,
+          "commitMs": 0.495,
+          "bindMs": 0.095,
+          "megabytes": 3.696,
+          "partialStrands": 18522
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1987,
+         "clump": 0.9986,
+         "curl": 2.2141,
+         "guides": 0.6405,
+         "interpolate": 4.2212,
+         "noise": 1.2717,
+         "output": 0.0011,
+         "resample": 0.1054,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7356
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.584,
+       "changedStrands": 18563,
+       "draw": {
+        "updateMs": 1.162,
+        "buildMs": 0.269,
+        "uploadMs": 0.718,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.139,
+          "commitMs": 0.512,
+          "bindMs": 0.052,
+          "megabytes": 3.683,
+          "partialStrands": 18563
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2444,
+         "clump": 1.0799,
+         "curl": 1.1578,
+         "guides": 0.3944,
+         "interpolate": 4.4375,
+         "noise": 1.3554,
+         "output": 0.001,
+         "resample": 0.1012,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.6749
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.544,
+       "changedStrands": 19213,
+       "draw": {
+        "updateMs": 1.843,
+        "buildMs": 0.262,
+        "uploadMs": 1.466,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.822,
+          "commitMs": 0.541,
+          "bindMs": 0.081,
+          "megabytes": 3.83,
+          "partialStrands": 19213
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2233,
+         "clump": 1.1914,
+         "curl": 1.2099,
+         "guides": 0.4676,
+         "interpolate": 3.9214,
+         "noise": 1.43,
+         "output": 0.0009,
+         "resample": 0.1052,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7634
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.427,
+       "changedStrands": 19797,
+       "draw": {
+        "updateMs": 1.027,
+        "buildMs": 0.267,
+        "uploadMs": 0.634,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.167,
+          "commitMs": 0.39,
+          "bindMs": 0.058,
+          "megabytes": 3.935,
+          "partialStrands": 19797
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.212,
+         "clump": 1.3035,
+         "curl": 1.3006,
+         "guides": 0.4684,
+         "interpolate": 4.37,
+         "noise": 1.7442,
+         "output": 0.0009,
+         "resample": 0.0706,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7267
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.197,
+       "changedStrands": 18667,
+       "draw": {
+        "updateMs": 0.887,
+        "buildMs": 0.261,
+        "uploadMs": 0.515,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.188,
+          "commitMs": 0.238,
+          "bindMs": 0.069,
+          "megabytes": 3.723,
+          "partialStrands": 18667
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1759,
+         "clump": 1.1083,
+         "curl": 1.5193,
+         "guides": 0.3533,
+         "interpolate": 3.6301,
+         "noise": 1.3194,
+         "output": 0.0007,
+         "resample": 0.0741,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.8177
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.92,
+       "changedStrands": 18935,
+       "draw": {
+        "updateMs": 1.132,
+        "buildMs": 0.322,
+        "uploadMs": 0.647,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.264,
+          "commitMs": 0.297,
+          "bindMs": 0.066,
+          "megabytes": 3.746,
+          "partialStrands": 18935
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2618,
+         "clump": 1.1968,
+         "curl": 1.3206,
+         "guides": 0.6727,
+         "interpolate": 3.919,
+         "noise": 1.3517,
+         "output": 0.0018,
+         "resample": 0.1235,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7283
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 9.608,
+       "changedStrands": 19173,
+       "draw": {
+        "updateMs": 1.004,
+        "buildMs": 0.265,
+        "uploadMs": 0.622,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.216,
+          "commitMs": 0.334,
+          "bindMs": 0.057,
+          "megabytes": 3.787,
+          "partialStrands": 19173
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2039,
+         "clump": 0.9958,
+         "curl": 1.2062,
+         "guides": 0.4192,
+         "interpolate": 3.517,
+         "noise": 1.2274,
+         "output": 0.0007,
+         "resample": 0.0891,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7709
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 9.841,
+       "changedStrands": 19048,
+       "draw": {
+        "updateMs": 0.915,
+        "buildMs": 0.267,
+        "uploadMs": 0.541,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.15,
+          "commitMs": 0.302,
+          "bindMs": 0.07,
+          "megabytes": 3.824,
+          "partialStrands": 19048
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1986,
+         "clump": 1.1229,
+         "curl": 1.2381,
+         "guides": 0.4134,
+         "interpolate": 3.7633,
+         "noise": 1.2681,
+         "output": 0.0007,
+         "resample": 0.0875,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.6414
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.599,
+       "changedStrands": 65225,
+       "draw": {
+        "updateMs": 15.203,
+        "buildMs": 0.498,
+        "uploadMs": 14.571,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 8.305,
+          "commitMs": 6.093,
+          "bindMs": 0.134,
+          "megabytes": 51.651,
+          "partialStrands": 65225
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 1599904,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 99994,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2668,
+         "clump": 2.5802,
+         "curl": 3.7364,
+         "guides": 0.4045,
+         "interpolate": 7.6656,
+         "noise": 4.3558,
+         "output": 0.001,
+         "resample": 0.265,
+         "width": 1.2885
+        },
+        "view": ""
+       }
+      }
+     ],
+     "steps_draw": [
+      {
+       "computeMs": 0.772,
+       "changedStrands": 22254,
+       "draw": {
+        "updateMs": 1.093,
+        "buildMs": 0.173,
+        "uploadMs": 0.836,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.205,
+          "commitMs": 0.501,
+          "bindMs": 0.059,
+          "megabytes": 4.455,
+          "partialStrands": 22254
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1989,
+         "clump": 0.9725,
+         "curl": 1.3728,
+         "guides": 0.4734,
+         "interpolate": 3.1228,
+         "noise": 1.5084,
+         "output": 0.0008,
+         "resample": 0.0697,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.9413
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 9.933,
+       "changedStrands": 17624,
+       "draw": {
+        "updateMs": 0.865,
+        "buildMs": 0.265,
+        "uploadMs": 0.467,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.192,
+          "commitMs": 0.208,
+          "bindMs": 0.054,
+          "megabytes": 3.509,
+          "partialStrands": 17624
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2415,
+         "clump": 1.0359,
+         "curl": 1.1794,
+         "guides": 0.4037,
+         "interpolate": 3.6882,
+         "noise": 1.3733,
+         "output": 0.0007,
+         "resample": 0.0765,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7147
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.211,
+       "changedStrands": 18382,
+       "draw": {
+        "updateMs": 0.985,
+        "buildMs": 0.267,
+        "uploadMs": 0.592,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.23,
+          "commitMs": 0.282,
+          "bindMs": 0.059,
+          "megabytes": 3.672,
+          "partialStrands": 18382
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2032,
+         "clump": 0.9218,
+         "curl": 1.2914,
+         "guides": 0.4533,
+         "interpolate": 3.5917,
+         "noise": 1.6678,
+         "output": 0.0009,
+         "resample": 0.0782,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.8301
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.876,
+       "changedStrands": 19126,
+       "draw": {
+        "updateMs": 0.878,
+        "buildMs": 0.271,
+        "uploadMs": 0.465,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.16,
+          "commitMs": 0.228,
+          "bindMs": 0.059,
+          "megabytes": 3.785,
+          "partialStrands": 19126
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2014,
+         "clump": 0.9068,
+         "curl": 1.4357,
+         "guides": 0.7784,
+         "interpolate": 3.6988,
+         "noise": 1.337,
+         "output": 0.0009,
+         "resample": 0.0845,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 1.1219
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.665,
+       "changedStrands": 18855,
+       "draw": {
+        "updateMs": 0.992,
+        "buildMs": 0.275,
+        "uploadMs": 0.578,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.206,
+          "commitMs": 0.287,
+          "bindMs": 0.063,
+          "megabytes": 3.755,
+          "partialStrands": 18855
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2003,
+         "clump": 0.8849,
+         "curl": 1.3431,
+         "guides": 0.5885,
+         "interpolate": 3.994,
+         "noise": 1.272,
+         "output": 0.0008,
+         "resample": 0.0856,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 1.0261
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.026,
+       "changedStrands": 19370,
+       "draw": {
+        "updateMs": 1.081,
+        "buildMs": 0.262,
+        "uploadMs": 0.709,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.344,
+          "commitMs": 0.288,
+          "bindMs": 0.058,
+          "megabytes": 3.836,
+          "partialStrands": 19370
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2026,
+         "clump": 0.8928,
+         "curl": 1.2643,
+         "guides": 0.6534,
+         "interpolate": 3.7182,
+         "noise": 1.3167,
+         "output": 0.0009,
+         "resample": 0.0795,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.702
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.092,
+       "changedStrands": 20457,
+       "draw": {
+        "updateMs": 1.012,
+        "buildMs": 0.28,
+        "uploadMs": 0.624,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.196,
+          "commitMs": 0.308,
+          "bindMs": 0.093,
+          "megabytes": 4.1,
+          "partialStrands": 20457
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2076,
+         "clump": 0.8931,
+         "curl": 1.2683,
+         "guides": 0.4366,
+         "interpolate": 3.6838,
+         "noise": 1.3606,
+         "output": 0.0007,
+         "resample": 0.0793,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.8296
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.373,
+       "changedStrands": 20763,
+       "draw": {
+        "updateMs": 1.001,
+        "buildMs": 0.27,
+        "uploadMs": 0.573,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.218,
+          "commitMs": 0.274,
+          "bindMs": 0.061,
+          "megabytes": 4.151,
+          "partialStrands": 20763
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2004,
+         "clump": 0.9752,
+         "curl": 1.3812,
+         "guides": 0.6376,
+         "interpolate": 3.7289,
+         "noise": 1.4155,
+         "output": 0.0007,
+         "resample": 0.0841,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7274
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.47,
+       "changedStrands": 20680,
+       "draw": {
+        "updateMs": 0.953,
+        "buildMs": 0.269,
+        "uploadMs": 0.549,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.18,
+          "commitMs": 0.277,
+          "bindMs": 0.073,
+          "megabytes": 4.104,
+          "partialStrands": 20680
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2012,
+         "clump": 0.9244,
+         "curl": 1.2793,
+         "guides": 0.3571,
+         "interpolate": 4.4214,
+         "noise": 1.3615,
+         "output": 0.0007,
+         "resample": 0.0836,
+         "scalp": 0.0019,
+         "scatter": 2.6845,
+         "width": 0.7138
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 27.898,
+       "changedStrands": 65703,
+       "draw": {
+        "updateMs": 8.831,
+        "buildMs": 0.493,
+        "uploadMs": 8.184,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 3.901,
+          "commitMs": 4.102,
+          "bindMs": 0.142,
+          "megabytes": 51.822,
+          "partialStrands": 65703
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 1599904,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 99994,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2089,
+         "clump": 2.0206,
+         "curl": 3.5214,
+         "guides": 0.3968,
+         "interpolate": 7.144,
+         "noise": 4.6039,
+         "output": 0.0008,
+         "resample": 0.2133,
+         "width": 1.1157
+        },
+        "view": ""
+       }
+      }
+     ],
+     "dab_s": [
+      0.013986499999999999,
+      0.0133148,
+      0.013938599999999999,
+      0.0132121,
+      0.0135132,
+      0.0143796,
+      0.0150884,
+      0.0139008,
+      0.0134474,
+      0.0132403,
+      0.0137444,
+      0.0142377,
+      0.0139913,
+      0.0143777,
+      0.013481,
+      0.013933999999999998,
+      0.01413,
+      0.014509000000000001,
+      0.0167229,
+      0.01443,
+      0.0140932,
+      0.0155445,
+      0.015697,
+      0.0148253,
+      0.0135212,
+      0.0143572,
+      0.0143302,
+      0.0141053,
+      0.013530200000000001,
+      0.0138045,
+      0.01549,
+      0.0143349,
+      0.0136654,
+      0.0146166,
+      0.0148579,
+      0.0149955,
+      0.0142023,
+      0.0141151,
+      0.0143842,
+      0.0141431
+     ],
+     "dab_median_s": 0.014136550000000001,
+     "press_s": [
+      0.0052640000000000004,
+      0.0053736,
+      0.0065141999999999995,
+      0.005515399999999999,
+      0.0054913
+     ],
+     "press_median_s": 0.0054913,
+     "release_s": [
+      0.0492581,
+      0.045359000000000003,
+      0.0495006,
+      0.045026699999999996,
+      0.044522
+     ],
+     "release_median_s": 0.045359000000000003
+    }
+   },
+   "load_after": {
+    "cpu_percent": 7,
+    "free_ram_gb": 94.2,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab",
+   "count": 500000,
+   "phase": "static",
+   "run": 0,
+   "load_before": {
+    "cpu_percent": 9,
+    "free_ram_gb": 94.2,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 39.1733556,
+   "result": {
+    "args": {
+     "system": "groomlab",
+     "count": 500000,
+     "phase": "static",
+     "out": "<tmp>/bcpu/work\\gui_groomlab_static_500000_r0\\result.json",
+     "work": "<tmp>/bcpu/work\\gui_groomlab_static_500000_r0",
+     "plugin": "<repo>/build/wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>/build/wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 7,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.11144860000000101,
+    "creation": {
+     "to_first_frame_s": 0.658456300000001,
+     "commands_s": 0.09273620000000093,
+     "redraw_s": 0.002305400000000901,
+     "count": 500008,
+     "ws_delta_mb": 1598.88671875,
+     "private_delta_mb": 2057.5,
+     "ws_after_mb": 3649.25390625,
+     "gpu_device_delta_mb": 484.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 8000128,
+     "strands": 500008,
+     "lastEvaluationNodeMs": {
+      "centers": 12.878,
+      "clump": 22.8152,
+      "curl": 31.0827,
+      "guides": 0.6022,
+      "interpolate": 52.2405,
+      "noise": 42.7577,
+      "output": 0.0004,
+      "resample": 0.9942,
+      "scalp": 0.0089,
+      "scatter": 30.8365,
+      "width": 10.3437
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>/bcpu/work\\gui_groomlab_static_500000_r0\\look.png",
+    "tweak": {
+     "clump_s": [
+      0.172618700000001,
+      0.13863689999999806,
+      0.13316139999999876,
+      0.14193579999999884,
+      0.13823349999999834,
+      0.13611919999999955,
+      0.20461499999999688
+     ],
+     "noise_s": [
+      0.11505030000000005,
+      0.10789009999999877,
+      0.11265840000000082,
+      0.23657779999999917,
+      0.18864569999999858,
+      0.11143570000000125,
+      0.11209829999999954
+     ],
+     "clump_draw": [
+      {
+       "computeMs": 114.505,
+       "draw": {
+        "updateMs": 48.962,
+        "buildMs": 5.862,
+        "uploadMs": 42.96,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 13.653,
+          "writeMs": 26.459,
+          "commitMs": 2.511,
+          "bindMs": 0.077,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 98.976,
+       "draw": {
+        "updateMs": 32.165,
+        "buildMs": 5.422,
+        "uploadMs": 26.608,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 25.566,
+          "commitMs": 0.804,
+          "bindMs": 0.047,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.839,
+       "draw": {
+        "updateMs": 32.099,
+        "buildMs": 5.03,
+        "uploadMs": 26.926,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.102,
+          "writeMs": 25.559,
+          "commitMs": 0.966,
+          "bindMs": 0.055,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 102.666,
+       "draw": {
+        "updateMs": 34.718,
+        "buildMs": 5.101,
+        "uploadMs": 29.463,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.1,
+          "writeMs": 28.121,
+          "commitMs": 1.039,
+          "bindMs": 0.068,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 101.365,
+       "draw": {
+        "updateMs": 33.678,
+        "buildMs": 5.232,
+        "uploadMs": 28.303,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.105,
+          "writeMs": 27.127,
+          "commitMs": 0.839,
+          "bindMs": 0.056,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 100.696,
+       "draw": {
+        "updateMs": 32.892,
+        "buildMs": 5.013,
+        "uploadMs": 27.734,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.094,
+          "writeMs": 26.513,
+          "commitMs": 0.981,
+          "bindMs": 0.056,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 103.257,
+       "draw": {
+        "updateMs": 98.617,
+        "buildMs": 5.326,
+        "uploadMs": 93.147,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 64.936,
+          "writeMs": 27.021,
+          "commitMs": 0.916,
+          "bindMs": 0.079,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "noise_draw": [
+      {
+       "computeMs": 77.775,
+       "draw": {
+        "updateMs": 33.408,
+        "buildMs": 2.464,
+        "uploadMs": 30.777,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 1.853,
+          "writeMs": 27.751,
+          "commitMs": 1.001,
+          "bindMs": 0.065,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.995,
+       "draw": {
+        "updateMs": 29.416,
+        "buildMs": 2.459,
+        "uploadMs": 26.812,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 25.614,
+          "commitMs": 0.967,
+          "bindMs": 0.056,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 77.936,
+       "draw": {
+        "updateMs": 30.174,
+        "buildMs": 2.544,
+        "uploadMs": 27.451,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.108,
+          "writeMs": 26.154,
+          "commitMs": 1.029,
+          "bindMs": 0.062,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 82.99,
+       "draw": {
+        "updateMs": 148.583,
+        "buildMs": 2.597,
+        "uploadMs": 145.844,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 117.6,
+          "writeMs": 27.017,
+          "commitMs": 0.984,
+          "bindMs": 0.069,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 77.854,
+       "draw": {
+        "updateMs": 108.112,
+        "buildMs": 2.515,
+        "uploadMs": 105.455,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 77.04,
+          "writeMs": 27.453,
+          "commitMs": 0.803,
+          "bindMs": 0.064,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 77.075,
+       "draw": {
+        "updateMs": 30.954,
+        "buildMs": 2.532,
+        "uploadMs": 28.261,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 27.233,
+          "commitMs": 0.781,
+          "bindMs": 0.054,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 78.436,
+       "draw": {
+        "updateMs": 31.022,
+        "buildMs": 2.56,
+        "uploadMs": 28.306,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.106,
+          "writeMs": 27.013,
+          "commitMs": 1.006,
+          "bindMs": 0.067,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "clump_median_s": 0.13863689999999806,
+     "noise_median_s": 0.11265840000000082
+    },
+    "orbit": {
+     "frames": 60,
+     "seconds": 0.3281798000000009,
+     "fps": 182.8266090722215
+    },
+    "brush": {
+     "how": "groomLabBrushCtx -debugStroke (press, 9 drags, release; comb on ~508 guides)",
+     "stroke_s": [
+      0.22665329999999884,
+      0.1953922999999982,
+      0.20479160000000007,
+      0.20546549999999897,
+      0.18809930000000108
+     ],
+     "median_s": 0.20479160000000007,
+     "changed": true,
+     "stroke_document_ready": true,
+     "first_press_s": 0.09420579999999999,
+     "first_release_s": 0.1926029,
+     "first_steps_draw": [
+      {
+       "computeMs": 1.514,
+       "changedStrands": -1,
+       "draw": {
+        "updateMs": 5.504,
+        "buildMs": 0.836,
+        "uploadMs": 4.577,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 1.218,
+          "writeMs": 2.775,
+          "commitMs": 0.16,
+          "bindMs": 0.336,
+          "megabytes": 54.597,
+          "partialStrands": 0
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 8.86,
+         "clump": 8.4133,
+         "curl": 11.4436,
+         "guides": 0.5344,
+         "interpolate": 18.2103,
+         "noise": 15.3967,
+         "output": 0.0004,
+         "resample": 0.3677,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 3.8442
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 36.81,
+       "changedStrands": 92713,
+       "draw": {
+        "updateMs": 8.924,
+        "buildMs": 3.407,
+        "uploadMs": 5.374,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 2.803,
+          "commitMs": 2.449,
+          "bindMs": 0.093,
+          "megabytes": 18.35,
+          "partialStrands": 92713
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2842,
+         "clump": 3.5672,
+         "curl": 9.5988,
+         "guides": 0.4468,
+         "interpolate": 11.1974,
+         "noise": 6.0631,
+         "output": 0.0007,
+         "resample": 0.4821,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 3.2375
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.229,
+       "changedStrands": 93701,
+       "draw": {
+        "updateMs": 6.193,
+        "buildMs": 0.852,
+        "uploadMs": 5.199,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 3.715,
+          "commitMs": 1.367,
+          "bindMs": 0.091,
+          "megabytes": 18.513,
+          "partialStrands": 93701
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2235,
+         "clump": 3.2108,
+         "curl": 4.9288,
+         "guides": 0.5357,
+         "interpolate": 11.449,
+         "noise": 6.0377,
+         "output": 0.0012,
+         "resample": 0.4792,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.5583
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 31.249,
+       "changedStrands": 96899,
+       "draw": {
+        "updateMs": 3.291,
+        "buildMs": 0.847,
+        "uploadMs": 2.289,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.723,
+          "commitMs": 1.481,
+          "bindMs": 0.063,
+          "megabytes": 19.145,
+          "partialStrands": 96899
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2894,
+         "clump": 3.3687,
+         "curl": 5.6288,
+         "guides": 0.5342,
+         "interpolate": 10.9465,
+         "noise": 6.3594,
+         "output": 0.001,
+         "resample": 0.4946,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.7182
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.184,
+       "changedStrands": 100166,
+       "draw": {
+        "updateMs": 3.391,
+        "buildMs": 0.853,
+        "uploadMs": 2.394,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.744,
+          "commitMs": 1.56,
+          "bindMs": 0.068,
+          "megabytes": 19.796,
+          "partialStrands": 100166
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2258,
+         "clump": 3.0819,
+         "curl": 5.3837,
+         "guides": 0.4908,
+         "interpolate": 10.1036,
+         "noise": 6.7325,
+         "output": 0.0006,
+         "resample": 0.5091,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.7987
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 28.211,
+       "changedStrands": 95050,
+       "draw": {
+        "updateMs": 3.599,
+        "buildMs": 0.857,
+        "uploadMs": 2.604,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.567,
+          "commitMs": 1.868,
+          "bindMs": 0.081,
+          "megabytes": 18.725,
+          "partialStrands": 95050
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2073,
+         "clump": 2.9434,
+         "curl": 5.2033,
+         "guides": 0.3738,
+         "interpolate": 9.0675,
+         "noise": 6.3305,
+         "output": 0.0008,
+         "resample": 0.4804,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.7688
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.63,
+       "changedStrands": 95321,
+       "draw": {
+        "updateMs": 3.227,
+        "buildMs": 0.882,
+        "uploadMs": 2.189,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.705,
+          "commitMs": 1.4,
+          "bindMs": 0.063,
+          "megabytes": 18.773,
+          "partialStrands": 95321
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.245,
+         "clump": 3.5912,
+         "curl": 5.2323,
+         "guides": 0.4296,
+         "interpolate": 9.1911,
+         "noise": 6.4388,
+         "output": 0.001,
+         "resample": 0.5686,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.9941
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.94,
+       "changedStrands": 97028,
+       "draw": {
+        "updateMs": 3.282,
+        "buildMs": 0.866,
+        "uploadMs": 2.275,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.689,
+          "commitMs": 1.495,
+          "bindMs": 0.069,
+          "megabytes": 19.106,
+          "partialStrands": 97028
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2797,
+         "clump": 3.6477,
+         "curl": 5.6925,
+         "guides": 0.4032,
+         "interpolate": 9.6635,
+         "noise": 6.9223,
+         "output": 0.0012,
+         "resample": 0.6065,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.7912
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.251,
+       "changedStrands": 97209,
+       "draw": {
+        "updateMs": 3.154,
+        "buildMs": 0.871,
+        "uploadMs": 2.147,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.555,
+          "commitMs": 1.498,
+          "bindMs": 0.071,
+          "megabytes": 19.158,
+          "partialStrands": 97209
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2519,
+         "clump": 3.1598,
+         "curl": 5.233,
+         "guides": 0.6087,
+         "interpolate": 9.981,
+         "noise": 6.7446,
+         "output": 0.0013,
+         "resample": 0.5435,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.7344
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 95.668,
+       "changedStrands": 325576,
+       "draw": {
+        "updateMs": 72.329,
+        "buildMs": 2.483,
+        "uploadMs": 69.703,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 40.002,
+          "commitMs": 29.537,
+          "bindMs": 0.127,
+          "megabytes": 256.747,
+          "partialStrands": 325576
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 8000128,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 500008,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2914,
+         "clump": 9.9484,
+         "curl": 16.9448,
+         "guides": 0.3621,
+         "interpolate": 28.4,
+         "noise": 22.409,
+         "output": 0.0014,
+         "resample": 1.3878,
+         "width": 5.4112
+        },
+        "view": ""
+       }
+      }
+     ],
+     "steps_draw": [
+      {
+       "computeMs": 1.803,
+       "changedStrands": 112038,
+       "draw": {
+        "updateMs": 8.518,
+        "buildMs": 0.846,
+        "uploadMs": 7.573,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.67,
+          "commitMs": 6.753,
+          "bindMs": 0.07,
+          "megabytes": 22.034,
+          "partialStrands": 112038
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2438,
+         "clump": 3.4285,
+         "curl": 5.8301,
+         "guides": 0.6533,
+         "interpolate": 8.8454,
+         "noise": 7.3759,
+         "output": 0.0012,
+         "resample": 0.5735,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.8561
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 27.379,
+       "changedStrands": 88674,
+       "draw": {
+        "updateMs": 3.531,
+        "buildMs": 0.854,
+        "uploadMs": 2.549,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.498,
+          "commitMs": 1.97,
+          "bindMs": 0.063,
+          "megabytes": 17.57,
+          "partialStrands": 88674
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2169,
+         "clump": 2.8796,
+         "curl": 5.0155,
+         "guides": 0.3933,
+         "interpolate": 9.3659,
+         "noise": 5.6983,
+         "output": 0.0013,
+         "resample": 0.4966,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.6602
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 28.642,
+       "changedStrands": 92503,
+       "draw": {
+        "updateMs": 3.381,
+        "buildMs": 0.861,
+        "uploadMs": 2.378,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.588,
+          "commitMs": 1.697,
+          "bindMs": 0.07,
+          "megabytes": 18.282,
+          "partialStrands": 92503
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.21,
+         "clump": 2.8214,
+         "curl": 5.3287,
+         "guides": 0.558,
+         "interpolate": 9.6559,
+         "noise": 5.9296,
+         "output": 0.0009,
+         "resample": 0.5336,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.7266
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.198,
+       "changedStrands": 96856,
+       "draw": {
+        "updateMs": 3.185,
+        "buildMs": 0.876,
+        "uploadMs": 2.172,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.665,
+          "commitMs": 1.394,
+          "bindMs": 0.082,
+          "megabytes": 19.125,
+          "partialStrands": 96856
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2917,
+         "clump": 2.927,
+         "curl": 5.2836,
+         "guides": 0.4222,
+         "interpolate": 9.624,
+         "noise": 6.5066,
+         "output": 0.0011,
+         "resample": 0.5017,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.6959
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 28.442,
+       "changedStrands": 95727,
+       "draw": {
+        "updateMs": 3.061,
+        "buildMs": 0.879,
+        "uploadMs": 2.043,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.544,
+          "commitMs": 1.417,
+          "bindMs": 0.062,
+          "megabytes": 18.892,
+          "partialStrands": 95727
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.241,
+         "clump": 2.9382,
+         "curl": 5.1495,
+         "guides": 0.4756,
+         "interpolate": 8.9876,
+         "noise": 6.597,
+         "output": 0.001,
+         "resample": 0.5459,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.6442
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.389,
+       "changedStrands": 97402,
+       "draw": {
+        "updateMs": 3.548,
+        "buildMs": 0.889,
+        "uploadMs": 2.512,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.889,
+          "commitMs": 1.491,
+          "bindMs": 0.098,
+          "megabytes": 19.166,
+          "partialStrands": 97402
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2442,
+         "clump": 3.3291,
+         "curl": 5.1784,
+         "guides": 0.5867,
+         "interpolate": 9.1723,
+         "noise": 6.3655,
+         "output": 0.0011,
+         "resample": 0.5131,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.8325
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 31.118,
+       "changedStrands": 103651,
+       "draw": {
+        "updateMs": 3.695,
+        "buildMs": 0.878,
+        "uploadMs": 2.684,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.701,
+          "commitMs": 1.9,
+          "bindMs": 0.063,
+          "megabytes": 20.433,
+          "partialStrands": 103651
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2351,
+         "clump": 3.0527,
+         "curl": 5.8634,
+         "guides": 0.3944,
+         "interpolate": 10.6212,
+         "noise": 6.6625,
+         "output": 0.0011,
+         "resample": 0.6215,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.8263
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 31.248,
+       "changedStrands": 105024,
+       "draw": {
+        "updateMs": 3.293,
+        "buildMs": 0.879,
+        "uploadMs": 2.277,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.648,
+          "commitMs": 1.54,
+          "bindMs": 0.068,
+          "megabytes": 20.694,
+          "partialStrands": 105024
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2199,
+         "clump": 3.2921,
+         "curl": 5.626,
+         "guides": 0.7295,
+         "interpolate": 9.9569,
+         "noise": 7.1431,
+         "output": 0.001,
+         "resample": 0.5012,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 1.9109
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 31.82,
+       "changedStrands": 104124,
+       "draw": {
+        "updateMs": 3.428,
+        "buildMs": 0.911,
+        "uploadMs": 2.372,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.692,
+          "commitMs": 1.571,
+          "bindMs": 0.074,
+          "megabytes": 20.472,
+          "partialStrands": 104124
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2486,
+         "clump": 3.4895,
+         "curl": 5.6562,
+         "guides": 0.4539,
+         "interpolate": 9.9612,
+         "noise": 7.2967,
+         "output": 0.0008,
+         "resample": 0.5657,
+         "scalp": 0.002,
+         "scatter": 14.1375,
+         "width": 2.165
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 96.617,
+       "changedStrands": 327382,
+       "draw": {
+        "updateMs": 48.671,
+        "buildMs": 2.461,
+        "uploadMs": 46.072,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 18.96,
+          "commitMs": 26.945,
+          "bindMs": 0.129,
+          "megabytes": 257.738,
+          "partialStrands": 327382
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 8000128,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 500008,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.3234,
+         "clump": 10.4288,
+         "curl": 17.1046,
+         "guides": 0.5512,
+         "interpolate": 26.8644,
+         "noise": 23.0673,
+         "output": 0.001,
+         "resample": 1.4899,
+         "width": 5.4226
+        },
+        "view": ""
+       }
+      }
+     ],
+     "dab_s": [
+      0.036652500000000005,
+      0.0372583,
+      0.0359072,
+      0.0415892,
+      0.038315300000000004,
+      0.0372351,
+      0.0378627,
+      0.0415865,
+      0.0354983,
+      0.0365512,
+      0.037417099999999995,
+      0.04018,
+      0.042143099999999996,
+      0.0410572,
+      0.0412789,
+      0.041579099999999994,
+      0.0341104,
+      0.0362547,
+      0.0367805,
+      0.0384505,
+      0.0368442,
+      0.038141100000000004,
+      0.038214399999999996,
+      0.038417099999999996,
+      0.0348411,
+      0.0356807,
+      0.037339,
+      0.0365245,
+      0.0367648,
+      0.0377994,
+      0.0398138,
+      0.0387842,
+      0.034775799999999996,
+      0.0359029,
+      0.036787799999999996,
+      0.036307,
+      0.0372896,
+      0.0402682,
+      0.0390893,
+      0.039871000000000004
+     ],
+     "dab_median_s": 0.037378049999999996,
+     "press_s": [
+      0.0106847,
+      0.011282,
+      0.010244300000000001,
+      0.0101069,
+      0.0152443
+     ],
+     "press_median_s": 0.0106847,
+     "release_s": [
+      0.1827376,
+      0.19293780000000002,
+      0.1854021,
+      0.1742431,
+      0.17294990000000002
+     ],
+     "release_median_s": 0.1827376
+    }
+   },
+   "load_after": {
+    "cpu_percent": 12,
+    "free_ram_gb": 94.1,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab",
+   "count": 100000,
+   "phase": "static",
+   "run": 1,
+   "load_before": {
+    "cpu_percent": 6,
+    "free_ram_gb": 94.1,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 28.913218200000003,
+   "result": {
+    "args": {
+     "system": "groomlab",
+     "count": 100000,
+     "phase": "static",
+     "out": "<tmp>/bcpu/work\\gui_groomlab_static_100000_r1\\result.json",
+     "work": "<tmp>/bcpu/work\\gui_groomlab_static_100000_r1",
+     "plugin": "<repo>/build/wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>/build/wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 7,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.1197184,
+    "creation": {
+     "to_first_frame_s": 0.4082787000000003,
+     "commands_s": 0.10906999999999911,
+     "redraw_s": 0.003361100000001116,
+     "count": 99994,
+     "ws_delta_mb": 357.00390625,
+     "private_delta_mb": 431.1015625,
+     "ws_after_mb": 2409.37109375,
+     "gpu_device_delta_mb": 89.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 1599904,
+     "strands": 99994,
+     "lastEvaluationNodeMs": {
+      "centers": 4.5434,
+      "clump": 6.3507,
+      "curl": 6.5144,
+      "guides": 0.731,
+      "interpolate": 15.4633,
+      "noise": 9.2496,
+      "output": 0.0004,
+      "resample": 0.1709,
+      "scalp": 0.007,
+      "scatter": 8.112,
+      "width": 2.2039
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>/bcpu/work\\gui_groomlab_static_100000_r1\\look.png",
+    "tweak": {
+     "clump_s": [
+      0.04729160000000121,
+      0.038127100000000524,
+      0.03296279999999996,
+      0.03352050000000162,
+      0.03312800000000138,
+      0.030656300000000414,
+      0.03138179999999835
+     ],
+     "noise_s": [
+      0.027532900000000637,
+      0.028810699999997524,
+      0.029780999999999835,
+      0.027209700000000225,
+      0.026500599999998542,
+      0.02579240000000027,
+      0.02698570000000089
+     ],
+     "clump_draw": [
+      {
+       "computeMs": 25.813,
+       "draw": {
+        "updateMs": 11.297,
+        "buildMs": 1.099,
+        "uploadMs": 10.071,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 2.743,
+          "writeMs": 6.142,
+          "commitMs": 0.818,
+          "bindMs": 0.078,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.877,
+       "draw": {
+        "updateMs": 8.333,
+        "buildMs": 1.035,
+        "uploadMs": 7.164,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.102,
+          "writeMs": 6.681,
+          "commitMs": 0.269,
+          "bindMs": 0.039,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.496,
+       "draw": {
+        "updateMs": 7.824,
+        "buildMs": 1.136,
+        "uploadMs": 6.519,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 5.952,
+          "commitMs": 0.297,
+          "bindMs": 0.051,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.453,
+       "draw": {
+        "updateMs": 8.081,
+        "buildMs": 1.061,
+        "uploadMs": 6.887,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.103,
+          "writeMs": 6.273,
+          "commitMs": 0.375,
+          "bindMs": 0.049,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.658,
+       "draw": {
+        "updateMs": 8.629,
+        "buildMs": 1.104,
+        "uploadMs": 7.362,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 6.747,
+          "commitMs": 0.346,
+          "bindMs": 0.056,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.016,
+       "draw": {
+        "updateMs": 7.293,
+        "buildMs": 1.102,
+        "uploadMs": 6.066,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.101,
+          "writeMs": 5.547,
+          "commitMs": 0.291,
+          "bindMs": 0.04,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.789,
+       "draw": {
+        "updateMs": 8.144,
+        "buildMs": 1.02,
+        "uploadMs": 6.994,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 6.501,
+          "commitMs": 0.279,
+          "bindMs": 0.047,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "noise_draw": [
+      {
+       "computeMs": 16.466,
+       "draw": {
+        "updateMs": 7.661,
+        "buildMs": 0.489,
+        "uploadMs": 7.033,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.726,
+          "writeMs": 5.94,
+          "commitMs": 0.237,
+          "bindMs": 0.044,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.866,
+       "draw": {
+        "updateMs": 9.184,
+        "buildMs": 0.48,
+        "uploadMs": 8.565,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.097,
+          "writeMs": 7.982,
+          "commitMs": 0.329,
+          "bindMs": 0.069,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.641,
+       "draw": {
+        "updateMs": 8.49,
+        "buildMs": 0.485,
+        "uploadMs": 7.873,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.101,
+          "writeMs": 7.333,
+          "commitMs": 0.289,
+          "bindMs": 0.06,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.887,
+       "draw": {
+        "updateMs": 7.503,
+        "buildMs": 0.484,
+        "uploadMs": 6.886,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.102,
+          "writeMs": 6.328,
+          "commitMs": 0.332,
+          "bindMs": 0.051,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.603,
+       "draw": {
+        "updateMs": 6.795,
+        "buildMs": 0.486,
+        "uploadMs": 6.149,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.105,
+          "writeMs": 5.596,
+          "commitMs": 0.307,
+          "bindMs": 0.059,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.975,
+       "draw": {
+        "updateMs": 7.344,
+        "buildMs": 0.493,
+        "uploadMs": 6.682,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 6.1,
+          "commitMs": 0.336,
+          "bindMs": 0.057,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.754,
+       "draw": {
+        "updateMs": 7.081,
+        "buildMs": 0.499,
+        "uploadMs": 6.442,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.111,
+          "writeMs": 5.977,
+          "commitMs": 0.252,
+          "bindMs": 0.036,
+          "megabytes": 76.795,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "clump_median_s": 0.03312800000000138,
+     "noise_median_s": 0.027209700000000225
+    },
+    "orbit": {
+     "frames": 60,
+     "seconds": 0.07920079999999885,
+     "fps": 757.568105372684
+    },
+    "brush": {
+     "how": "groomLabBrushCtx -debugStroke (press, 9 drags, release; comb on ~508 guides)",
+     "stroke_s": [
+      0.0678851999999992,
+      0.05648340000000118,
+      0.05691449999999776,
+      0.05648949999999786,
+      0.05506859999999847
+     ],
+     "median_s": 0.05648949999999786,
+     "changed": true,
+     "stroke_document_ready": true,
+     "first_press_s": 0.0578404,
+     "first_release_s": 0.0542839,
+     "first_steps_draw": [
+      {
+       "computeMs": 0.819,
+       "changedStrands": -1,
+       "draw": {
+        "updateMs": 2.471,
+        "buildMs": 0.171,
+        "uploadMs": 2.213,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.623,
+          "writeMs": 1.154,
+          "commitMs": 0.079,
+          "bindMs": 0.275,
+          "megabytes": 10.872,
+          "partialStrands": 0
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 3.5776,
+         "clump": 2.1197,
+         "curl": 2.6379,
+         "guides": 1.0636,
+         "interpolate": 5.7512,
+         "noise": 3.0027,
+         "output": 0.0003,
+         "resample": 0.0791,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.8458
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.579,
+       "changedStrands": 18522,
+       "draw": {
+        "updateMs": 2.358,
+        "buildMs": 0.955,
+        "uploadMs": 1.275,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.686,
+          "commitMs": 0.463,
+          "bindMs": 0.098,
+          "megabytes": 3.696,
+          "partialStrands": 18522
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1805,
+         "clump": 1.1466,
+         "curl": 2.036,
+         "guides": 0.7234,
+         "interpolate": 4.1698,
+         "noise": 1.3093,
+         "output": 0.0007,
+         "resample": 0.1157,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.6689
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.87,
+       "changedStrands": 18563,
+       "draw": {
+        "updateMs": 1.072,
+        "buildMs": 0.26,
+        "uploadMs": 0.693,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.152,
+          "commitMs": 0.465,
+          "bindMs": 0.06,
+          "megabytes": 3.683,
+          "partialStrands": 18563
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2179,
+         "clump": 1.1158,
+         "curl": 1.1969,
+         "guides": 0.6318,
+         "interpolate": 4.3788,
+         "noise": 1.313,
+         "output": 0.0005,
+         "resample": 0.0913,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7064
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.277,
+       "changedStrands": 19213,
+       "draw": {
+        "updateMs": 1.747,
+        "buildMs": 0.263,
+        "uploadMs": 1.371,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.879,
+          "commitMs": 0.392,
+          "bindMs": 0.079,
+          "megabytes": 3.83,
+          "partialStrands": 19213
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.264,
+         "clump": 1.1229,
+         "curl": 1.2068,
+         "guides": 0.6546,
+         "interpolate": 4.6297,
+         "noise": 1.4107,
+         "output": 0.0008,
+         "resample": 0.1201,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.6916
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.109,
+       "changedStrands": 19797,
+       "draw": {
+        "updateMs": 1.066,
+        "buildMs": 0.263,
+        "uploadMs": 0.691,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.206,
+          "commitMs": 0.407,
+          "bindMs": 0.061,
+          "megabytes": 3.935,
+          "partialStrands": 19797
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1957,
+         "clump": 1.1926,
+         "curl": 1.2918,
+         "guides": 0.5285,
+         "interpolate": 4.4792,
+         "noise": 1.4072,
+         "output": 0.0009,
+         "resample": 0.1195,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7042
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.676,
+       "changedStrands": 18667,
+       "draw": {
+        "updateMs": 0.989,
+        "buildMs": 0.263,
+        "uploadMs": 0.61,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.238,
+          "commitMs": 0.262,
+          "bindMs": 0.089,
+          "megabytes": 3.723,
+          "partialStrands": 18667
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1924,
+         "clump": 1.1975,
+         "curl": 1.2381,
+         "guides": 0.5489,
+         "interpolate": 4.1097,
+         "noise": 1.436,
+         "output": 0.0006,
+         "resample": 0.1034,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.6931
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.611,
+       "changedStrands": 18935,
+       "draw": {
+        "updateMs": 1.019,
+        "buildMs": 0.272,
+        "uploadMs": 0.606,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.179,
+          "commitMs": 0.317,
+          "bindMs": 0.084,
+          "megabytes": 3.746,
+          "partialStrands": 18935
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1913,
+         "clump": 1.3052,
+         "curl": 1.3475,
+         "guides": 0.802,
+         "interpolate": 4.1795,
+         "noise": 1.753,
+         "output": 0.0008,
+         "resample": 0.0815,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.773
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.498,
+       "changedStrands": 19173,
+       "draw": {
+        "updateMs": 0.928,
+        "buildMs": 0.287,
+        "uploadMs": 0.545,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.175,
+          "commitMs": 0.287,
+          "bindMs": 0.063,
+          "megabytes": 3.787,
+          "partialStrands": 19173
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2618,
+         "clump": 1.0677,
+         "curl": 1.418,
+         "guides": 0.4765,
+         "interpolate": 3.8032,
+         "noise": 1.3945,
+         "output": 0.0011,
+         "resample": 0.1288,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7609
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.011,
+       "changedStrands": 19048,
+       "draw": {
+        "updateMs": 1.056,
+        "buildMs": 0.278,
+        "uploadMs": 0.659,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.197,
+          "commitMs": 0.384,
+          "bindMs": 0.058,
+          "megabytes": 3.824,
+          "partialStrands": 19048
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1994,
+         "clump": 1.2784,
+         "curl": 1.2568,
+         "guides": 0.6403,
+         "interpolate": 4.1329,
+         "noise": 1.3518,
+         "output": 0.0013,
+         "resample": 0.0976,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7889
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.096,
+       "changedStrands": 65225,
+       "draw": {
+        "updateMs": 15.838,
+        "buildMs": 0.477,
+        "uploadMs": 15.232,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 8.774,
+          "commitMs": 6.3,
+          "bindMs": 0.124,
+          "megabytes": 51.651,
+          "partialStrands": 65225
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 1599904,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 99994,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2171,
+         "clump": 2.4569,
+         "curl": 3.9264,
+         "guides": 0.8115,
+         "interpolate": 7.9935,
+         "noise": 4.1423,
+         "output": 0.0006,
+         "resample": 0.2523,
+         "width": 1.2298
+        },
+        "view": ""
+       }
+      }
+     ],
+     "steps_draw": [
+      {
+       "computeMs": 0.681,
+       "changedStrands": 22254,
+       "draw": {
+        "updateMs": 0.856,
+        "buildMs": 0.173,
+        "uploadMs": 0.598,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.155,
+          "commitMs": 0.288,
+          "bindMs": 0.079,
+          "megabytes": 4.455,
+          "partialStrands": 22254
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2172,
+         "clump": 0.9582,
+         "curl": 1.4528,
+         "guides": 0.7476,
+         "interpolate": 3.5353,
+         "noise": 1.7646,
+         "output": 0.001,
+         "resample": 0.0681,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7885
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 9.465,
+       "changedStrands": 17624,
+       "draw": {
+        "updateMs": 0.813,
+        "buildMs": 0.271,
+        "uploadMs": 0.441,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.158,
+          "commitMs": 0.215,
+          "bindMs": 0.051,
+          "megabytes": 3.509,
+          "partialStrands": 17624
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.205,
+         "clump": 0.8238,
+         "curl": 1.1545,
+         "guides": 0.5976,
+         "interpolate": 3.4622,
+         "noise": 1.2583,
+         "output": 0.0009,
+         "resample": 0.0726,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7511
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 9.793,
+       "changedStrands": 18382,
+       "draw": {
+        "updateMs": 0.843,
+        "buildMs": 0.273,
+        "uploadMs": 0.465,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.19,
+          "commitMs": 0.216,
+          "bindMs": 0.044,
+          "megabytes": 3.672,
+          "partialStrands": 18382
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1884,
+         "clump": 0.8835,
+         "curl": 1.2161,
+         "guides": 0.4561,
+         "interpolate": 3.977,
+         "noise": 1.2792,
+         "output": 0.0007,
+         "resample": 0.0699,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.64
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.339,
+       "changedStrands": 19126,
+       "draw": {
+        "updateMs": 0.844,
+        "buildMs": 0.264,
+        "uploadMs": 0.472,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.151,
+          "commitMs": 0.252,
+          "bindMs": 0.052,
+          "megabytes": 3.785,
+          "partialStrands": 19126
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2084,
+         "clump": 0.9927,
+         "curl": 1.2212,
+         "guides": 0.6137,
+         "interpolate": 3.7192,
+         "noise": 1.5666,
+         "output": 0.0006,
+         "resample": 0.0852,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7058
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 9.257,
+       "changedStrands": 18855,
+       "draw": {
+        "updateMs": 0.98,
+        "buildMs": 0.286,
+        "uploadMs": 0.567,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.212,
+          "commitMs": 0.286,
+          "bindMs": 0.05,
+          "megabytes": 3.755,
+          "partialStrands": 18855
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1824,
+         "clump": 0.8895,
+         "curl": 1.3788,
+         "guides": 0.3655,
+         "interpolate": 3.2417,
+         "noise": 1.2441,
+         "output": 0.0006,
+         "resample": 0.0711,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7715
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 9.624,
+       "changedStrands": 19370,
+       "draw": {
+        "updateMs": 0.864,
+        "buildMs": 0.275,
+        "uploadMs": 0.501,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.15,
+          "commitMs": 0.274,
+          "bindMs": 0.058,
+          "megabytes": 3.836,
+          "partialStrands": 19370
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.1771,
+         "clump": 0.8647,
+         "curl": 1.3063,
+         "guides": 0.5457,
+         "interpolate": 3.5796,
+         "noise": 1.2785,
+         "output": 0.0005,
+         "resample": 0.0845,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.6923
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.527,
+       "changedStrands": 20457,
+       "draw": {
+        "updateMs": 0.938,
+        "buildMs": 0.282,
+        "uploadMs": 0.55,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.172,
+          "commitMs": 0.289,
+          "bindMs": 0.068,
+          "megabytes": 4.1,
+          "partialStrands": 20457
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2563,
+         "clump": 1.6524,
+         "curl": 1.3122,
+         "guides": 0.5268,
+         "interpolate": 4.0953,
+         "noise": 1.5939,
+         "output": 0.0007,
+         "resample": 0.0699,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.8545
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 10.375,
+       "changedStrands": 20763,
+       "draw": {
+        "updateMs": 0.932,
+        "buildMs": 0.27,
+        "uploadMs": 0.56,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.168,
+          "commitMs": 0.298,
+          "bindMs": 0.08,
+          "megabytes": 4.151,
+          "partialStrands": 20763
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2229,
+         "clump": 0.9622,
+         "curl": 1.3152,
+         "guides": 0.6496,
+         "interpolate": 3.8434,
+         "noise": 1.4539,
+         "output": 0.0014,
+         "resample": 0.1043,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.6872
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 11.018,
+       "changedStrands": 20680,
+       "draw": {
+        "updateMs": 0.945,
+        "buildMs": 0.265,
+        "uploadMs": 0.558,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.167,
+          "commitMs": 0.298,
+          "bindMs": 0.07,
+          "megabytes": 4.104,
+          "partialStrands": 20680
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 557536,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 34846,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2277,
+         "clump": 1.0008,
+         "curl": 1.3239,
+         "guides": 0.6052,
+         "interpolate": 4.3471,
+         "noise": 1.5382,
+         "output": 0.0013,
+         "resample": 0.0984,
+         "scalp": 0.0019,
+         "scatter": 2.6929,
+         "width": 0.7188
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.454,
+       "changedStrands": 65703,
+       "draw": {
+        "updateMs": 9.075,
+        "buildMs": 0.498,
+        "uploadMs": 8.444,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 4.771,
+          "commitMs": 3.535,
+          "bindMs": 0.105,
+          "megabytes": 51.822,
+          "partialStrands": 65703
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 1599904,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 99994,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2217,
+         "clump": 2.4876,
+         "curl": 3.6051,
+         "guides": 0.602,
+         "interpolate": 7.2267,
+         "noise": 4.6188,
+         "output": 0.0008,
+         "resample": 0.2595,
+         "width": 1.2325
+        },
+        "view": ""
+       }
+      }
+     ],
+     "dab_s": [
+      0.013259499999999999,
+      0.0138446,
+      0.013708999999999999,
+      0.0133507,
+      0.0136908,
+      0.0138697,
+      0.0137359,
+      0.0166694,
+      0.013296200000000001,
+      0.013264900000000001,
+      0.0128161,
+      0.013517,
+      0.014300499999999999,
+      0.0145539,
+      0.0139666,
+      0.013624,
+      0.0137847,
+      0.0131808,
+      0.0130399,
+      0.0139413,
+      0.0138446,
+      0.0143393,
+      0.0145442,
+      0.0155856,
+      0.0123644,
+      0.0132078,
+      0.013891,
+      0.0139328,
+      0.013884800000000001,
+      0.0138047,
+      0.014332000000000001,
+      0.014315,
+      0.0136033,
+      0.013626,
+      0.014071400000000001,
+      0.013229699999999999,
+      0.0132365,
+      0.015330700000000001,
+      0.014181,
+      0.0148797
+     ],
+     "dab_median_s": 0.01382465,
+     "press_s": [
+      0.0054264000000000005,
+      0.0054631,
+      0.0053137,
+      0.005231499999999999,
+      0.0052910000000000006
+     ],
+     "press_median_s": 0.0053137,
+     "release_s": [
+      0.0481795,
+      0.0451939,
+      0.0451219,
+      0.0438719,
+      0.0459922
+     ],
+     "release_median_s": 0.0451939
+    }
+   },
+   "load_after": {
+    "cpu_percent": 10,
+    "free_ram_gb": 94.3,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab",
+   "count": 500000,
+   "phase": "static",
+   "run": 1,
+   "load_before": {
+    "cpu_percent": 14,
+    "free_ram_gb": 94.2,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 43.16870109999999,
+   "result": {
+    "args": {
+     "system": "groomlab",
+     "count": 500000,
+     "phase": "static",
+     "out": "<tmp>/bcpu/work\\gui_groomlab_static_500000_r1\\result.json",
+     "work": "<tmp>/bcpu/work\\gui_groomlab_static_500000_r1",
+     "plugin": "<repo>/build/wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>/build/wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 7,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.11269080000000287,
+    "creation": {
+     "to_first_frame_s": 0.6675816000000019,
+     "commands_s": 0.09320579999999978,
+     "redraw_s": 0.002927999999997155,
+     "count": 500008,
+     "ws_delta_mb": 1598.18359375,
+     "private_delta_mb": 2056.82421875,
+     "ws_after_mb": 3648.16796875,
+     "gpu_device_delta_mb": 484.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 8000128,
+     "strands": 500008,
+     "lastEvaluationNodeMs": {
+      "centers": 13.6449,
+      "clump": 23.663,
+      "curl": 31.4051,
+      "guides": 0.39,
+      "interpolate": 52.1212,
+      "noise": 42.5229,
+      "output": 0.0003,
+      "resample": 0.9612,
+      "scalp": 0.0054,
+      "scatter": 31.5768,
+      "width": 10.6746
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>/bcpu/work\\gui_groomlab_static_500000_r1\\look.png",
+    "tweak": {
+     "clump_s": [
+      0.16726799999999997,
+      0.13716460000000197,
+      0.13719120000000018,
+      0.13757969999999986,
+      0.13248610000000127,
+      0.13341540000000052,
+      0.1421898000000006
+     ],
+     "noise_s": [
+      0.1087182999999996,
+      0.11032940000000124,
+      0.11377489999999923,
+      0.11238740000000291,
+      0.10702689999999748,
+      0.10840269999999919,
+      0.11671160000000214
+     ],
+     "clump_draw": [
+      {
+       "computeMs": 111.559,
+       "draw": {
+        "updateMs": 47.111,
+        "buildMs": 4.9,
+        "uploadMs": 42.078,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 13.475,
+          "writeMs": 25.872,
+          "commitMs": 2.433,
+          "bindMs": 0.083,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 97.76,
+       "draw": {
+        "updateMs": 32.058,
+        "buildMs": 5.216,
+        "uploadMs": 26.702,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 25.674,
+          "commitMs": 0.779,
+          "bindMs": 0.056,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 99.781,
+       "draw": {
+        "updateMs": 32.751,
+        "buildMs": 4.943,
+        "uploadMs": 27.649,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.105,
+          "writeMs": 26.302,
+          "commitMs": 0.975,
+          "bindMs": 0.066,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 99.593,
+       "draw": {
+        "updateMs": 33.797,
+        "buildMs": 5.12,
+        "uploadMs": 28.54,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.1,
+          "writeMs": 27.28,
+          "commitMs": 0.977,
+          "bindMs": 0.068,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.875,
+       "draw": {
+        "updateMs": 32.606,
+        "buildMs": 5.017,
+        "uploadMs": 27.446,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 26.218,
+          "commitMs": 0.986,
+          "bindMs": 0.048,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 97.666,
+       "draw": {
+        "updateMs": 32.732,
+        "buildMs": 5.366,
+        "uploadMs": 27.203,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.099,
+          "writeMs": 26.033,
+          "commitMs": 0.925,
+          "bindMs": 0.051,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 105.794,
+       "draw": {
+        "updateMs": 33.784,
+        "buildMs": 5.049,
+        "uploadMs": 28.581,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 27.323,
+          "commitMs": 0.989,
+          "bindMs": 0.061,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "noise_draw": [
+      {
+       "computeMs": 73.357,
+       "draw": {
+        "updateMs": 31.809,
+        "buildMs": 2.546,
+        "uploadMs": 29.11,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 1.926,
+          "writeMs": 26.001,
+          "commitMs": 1.021,
+          "bindMs": 0.056,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 75.088,
+       "draw": {
+        "updateMs": 30.933,
+        "buildMs": 2.507,
+        "uploadMs": 28.246,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 26.839,
+          "commitMs": 1.163,
+          "bindMs": 0.057,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 79.175,
+       "draw": {
+        "updateMs": 30.062,
+        "buildMs": 2.494,
+        "uploadMs": 27.43,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.091,
+          "writeMs": 26.229,
+          "commitMs": 0.963,
+          "bindMs": 0.051,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 77.757,
+       "draw": {
+        "updateMs": 30.03,
+        "buildMs": 2.666,
+        "uploadMs": 27.23,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.1,
+          "writeMs": 26.095,
+          "commitMs": 0.897,
+          "bindMs": 0.044,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 74.269,
+       "draw": {
+        "updateMs": 29.259,
+        "buildMs": 2.5,
+        "uploadMs": 26.627,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.1,
+          "writeMs": 25.319,
+          "commitMs": 0.949,
+          "bindMs": 0.066,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 74.053,
+       "draw": {
+        "updateMs": 31.215,
+        "buildMs": 2.556,
+        "uploadMs": 28.516,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 27.302,
+          "commitMs": 0.933,
+          "bindMs": 0.071,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 81.562,
+       "draw": {
+        "updateMs": 32.157,
+        "buildMs": 2.764,
+        "uploadMs": 29.208,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.103,
+          "writeMs": 27.899,
+          "commitMs": 1.038,
+          "bindMs": 0.065,
+          "megabytes": 384.006,
+          "partialStrands": 0
+         }
+        }
+       }
+      }
+     ],
+     "clump_median_s": 0.13719120000000018,
+     "noise_median_s": 0.11032940000000124
+    },
+    "orbit": {
+     "frames": 60,
+     "seconds": 0.37823770000000323,
+     "fps": 158.63040622338673
+    },
+    "brush": {
+     "how": "groomLabBrushCtx -debugStroke (press, 9 drags, release; comb on ~508 guides)",
+     "stroke_s": [
+      0.22862340000000003,
+      0.1934748000000006,
+      0.19085369999999813,
+      0.18497170000000196,
+      0.18067910000000253
+     ],
+     "median_s": 0.19085369999999813,
+     "changed": true,
+     "stroke_document_ready": true,
+     "first_press_s": 0.085417,
+     "first_release_s": 0.192246,
+     "first_steps_draw": [
+      {
+       "computeMs": 1.316,
+       "changedStrands": -1,
+       "draw": {
+        "updateMs": 5.606,
+        "buildMs": 0.863,
+        "uploadMs": 4.649,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 1.216,
+          "writeMs": 2.814,
+          "commitMs": 0.176,
+          "bindMs": 0.343,
+          "megabytes": 54.597,
+          "partialStrands": 0
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 9.1229,
+         "clump": 8.6506,
+         "curl": 11.4524,
+         "guides": 0.6002,
+         "interpolate": 18.7996,
+         "noise": 14.9516,
+         "output": 0.0005,
+         "resample": 0.4236,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 3.883
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 35.79,
+       "changedStrands": 92713,
+       "draw": {
+        "updateMs": 8.825,
+        "buildMs": 3.178,
+        "uploadMs": 5.518,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 2.89,
+          "commitMs": 2.516,
+          "bindMs": 0.088,
+          "megabytes": 18.35,
+          "partialStrands": 92713
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2227,
+         "clump": 3.2017,
+         "curl": 9.2885,
+         "guides": 0.5466,
+         "interpolate": 10.8606,
+         "noise": 6.1075,
+         "output": 0.0009,
+         "resample": 0.4935,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 3.2444
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 31.677,
+       "changedStrands": 93701,
+       "draw": {
+        "updateMs": 6.258,
+        "buildMs": 0.855,
+        "uploadMs": 5.262,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 3.725,
+          "commitMs": 1.427,
+          "bindMs": 0.086,
+          "megabytes": 18.513,
+          "partialStrands": 93701
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2928,
+         "clump": 3.6427,
+         "curl": 5.1457,
+         "guides": 0.8361,
+         "interpolate": 11.5129,
+         "noise": 6.1514,
+         "output": 0.0013,
+         "resample": 0.5404,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.6224
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.846,
+       "changedStrands": 96899,
+       "draw": {
+        "updateMs": 3.535,
+        "buildMs": 0.861,
+        "uploadMs": 2.547,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.684,
+          "commitMs": 1.778,
+          "bindMs": 0.064,
+          "megabytes": 19.145,
+          "partialStrands": 96899
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2316,
+         "clump": 3.1715,
+         "curl": 5.519,
+         "guides": 0.5595,
+         "interpolate": 10.1005,
+         "noise": 6.1759,
+         "output": 0.0011,
+         "resample": 0.5425,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.6786
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.963,
+       "changedStrands": 100166,
+       "draw": {
+        "updateMs": 3.283,
+        "buildMs": 0.898,
+        "uploadMs": 2.257,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.684,
+          "commitMs": 1.489,
+          "bindMs": 0.065,
+          "megabytes": 19.796,
+          "partialStrands": 100166
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2545,
+         "clump": 3.1519,
+         "curl": 5.3815,
+         "guides": 0.4489,
+         "interpolate": 10.6354,
+         "noise": 6.7064,
+         "output": 0.0013,
+         "resample": 0.592,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.8993
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.344,
+       "changedStrands": 95050,
+       "draw": {
+        "updateMs": 3.745,
+        "buildMs": 0.888,
+        "uploadMs": 2.718,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.698,
+          "commitMs": 1.812,
+          "bindMs": 0.075,
+          "megabytes": 18.725,
+          "partialStrands": 95050
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2263,
+         "clump": 3.0126,
+         "curl": 5.1181,
+         "guides": 0.7678,
+         "interpolate": 9.3021,
+         "noise": 6.6032,
+         "output": 0.0009,
+         "resample": 0.5108,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.7942
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 28.908,
+       "changedStrands": 95321,
+       "draw": {
+        "updateMs": 3.129,
+        "buildMs": 0.876,
+        "uploadMs": 2.121,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.577,
+          "commitMs": 1.462,
+          "bindMs": 0.064,
+          "megabytes": 18.773,
+          "partialStrands": 95321
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.3335,
+         "clump": 3.1575,
+         "curl": 5.1174,
+         "guides": 0.4152,
+         "interpolate": 9.41,
+         "noise": 6.0242,
+         "output": 0.0015,
+         "resample": 0.5346,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.8293
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.338,
+       "changedStrands": 97028,
+       "draw": {
+        "updateMs": 3.178,
+        "buildMs": 0.866,
+        "uploadMs": 2.159,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.659,
+          "commitMs": 1.419,
+          "bindMs": 0.062,
+          "megabytes": 19.106,
+          "partialStrands": 97028
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2795,
+         "clump": 3.1005,
+         "curl": 5.4235,
+         "guides": 0.3661,
+         "interpolate": 9.7962,
+         "noise": 6.2396,
+         "output": 0.001,
+         "resample": 0.5488,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.6972
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.15,
+       "changedStrands": 97209,
+       "draw": {
+        "updateMs": 3.213,
+        "buildMs": 0.872,
+        "uploadMs": 2.198,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.614,
+          "commitMs": 1.475,
+          "bindMs": 0.088,
+          "megabytes": 19.158,
+          "partialStrands": 97209
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2372,
+         "clump": 2.9989,
+         "curl": 5.4911,
+         "guides": 0.4331,
+         "interpolate": 9.7006,
+         "noise": 6.1869,
+         "output": 0.0007,
+         "resample": 0.4958,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.723
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 96.285,
+       "changedStrands": 325576,
+       "draw": {
+        "updateMs": 71.051,
+        "buildMs": 2.754,
+        "uploadMs": 68.159,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 39.939,
+          "commitMs": 28.041,
+          "bindMs": 0.135,
+          "megabytes": 256.747,
+          "partialStrands": 325576
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 8000128,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 500008,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2756,
+         "clump": 9.6362,
+         "curl": 18.1772,
+         "guides": 0.3785,
+         "interpolate": 27.4852,
+         "noise": 22.0308,
+         "output": 0.0007,
+         "resample": 1.3142,
+         "width": 5.6491
+        },
+        "view": ""
+       }
+      }
+     ],
+     "steps_draw": [
+      {
+       "computeMs": 1.473,
+       "changedStrands": 112038,
+       "draw": {
+        "updateMs": 3.515,
+        "buildMs": 0.831,
+        "uploadMs": 2.594,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.715,
+          "commitMs": 1.736,
+          "bindMs": 0.068,
+          "megabytes": 22.034,
+          "partialStrands": 112038
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2671,
+         "clump": 3.2685,
+         "curl": 5.6926,
+         "guides": 0.6904,
+         "interpolate": 9.0717,
+         "noise": 7.5385,
+         "output": 0.0012,
+         "resample": 0.5315,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.9216
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.432,
+       "changedStrands": 88674,
+       "draw": {
+        "updateMs": 2.978,
+        "buildMs": 0.857,
+        "uploadMs": 1.942,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.601,
+          "commitMs": 1.258,
+          "bindMs": 0.064,
+          "megabytes": 17.57,
+          "partialStrands": 88674
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2491,
+         "clump": 2.9619,
+         "curl": 5.4402,
+         "guides": 0.4285,
+         "interpolate": 9.9537,
+         "noise": 6.2074,
+         "output": 0.0015,
+         "resample": 0.6228,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.662
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.794,
+       "changedStrands": 92503,
+       "draw": {
+        "updateMs": 3.327,
+        "buildMs": 0.895,
+        "uploadMs": 2.268,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.642,
+          "commitMs": 1.529,
+          "bindMs": 0.073,
+          "megabytes": 18.282,
+          "partialStrands": 92503
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2286,
+         "clump": 2.9504,
+         "curl": 5.4499,
+         "guides": 0.4499,
+         "interpolate": 9.9957,
+         "noise": 6.5026,
+         "output": 0.0017,
+         "resample": 0.5401,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.7528
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.08,
+       "changedStrands": 96856,
+       "draw": {
+        "updateMs": 3.038,
+        "buildMs": 0.885,
+        "uploadMs": 1.972,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.652,
+          "commitMs": 1.176,
+          "bindMs": 0.09,
+          "megabytes": 19.125,
+          "partialStrands": 96856
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2855,
+         "clump": 3.6867,
+         "curl": 5.1926,
+         "guides": 0.3722,
+         "interpolate": 9.8262,
+         "noise": 6.4446,
+         "output": 0.0021,
+         "resample": 0.5679,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.7644
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 29.04,
+       "changedStrands": 95727,
+       "draw": {
+        "updateMs": 3.335,
+        "buildMs": 0.972,
+        "uploadMs": 2.217,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.683,
+          "commitMs": 1.445,
+          "bindMs": 0.069,
+          "megabytes": 18.892,
+          "partialStrands": 95727
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2571,
+         "clump": 3.1251,
+         "curl": 4.9531,
+         "guides": 0.4206,
+         "interpolate": 9.5012,
+         "noise": 6.3083,
+         "output": 0.0014,
+         "resample": 0.4998,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.9624
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 30.297,
+       "changedStrands": 97402,
+       "draw": {
+        "updateMs": 3.256,
+        "buildMs": 0.87,
+        "uploadMs": 2.245,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.64,
+          "commitMs": 1.522,
+          "bindMs": 0.065,
+          "megabytes": 19.166,
+          "partialStrands": 97402
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2354,
+         "clump": 3.0208,
+         "curl": 5.6933,
+         "guides": 0.6464,
+         "interpolate": 9.7834,
+         "noise": 6.6004,
+         "output": 0.0009,
+         "resample": 0.5279,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.8303
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 32.46,
+       "changedStrands": 103651,
+       "draw": {
+        "updateMs": 3.574,
+        "buildMs": 0.899,
+        "uploadMs": 2.529,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.92,
+          "commitMs": 1.506,
+          "bindMs": 0.08,
+          "megabytes": 20.433,
+          "partialStrands": 103651
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2597,
+         "clump": 3.4079,
+         "curl": 5.5656,
+         "guides": 0.5195,
+         "interpolate": 10.4763,
+         "noise": 7.5689,
+         "output": 0.0013,
+         "resample": 0.5649,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 2.0821
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 31.235,
+       "changedStrands": 105024,
+       "draw": {
+        "updateMs": 3.462,
+        "buildMs": 0.917,
+        "uploadMs": 2.4,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.704,
+          "commitMs": 1.577,
+          "bindMs": 0.089,
+          "megabytes": 20.694,
+          "partialStrands": 105024
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2367,
+         "clump": 3.2943,
+         "curl": 5.6644,
+         "guides": 0.7327,
+         "interpolate": 10.1364,
+         "noise": 6.8261,
+         "output": 0.0007,
+         "resample": 0.5126,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.8721
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 31.546,
+       "changedStrands": 104124,
+       "draw": {
+        "updateMs": 7.452,
+        "buildMs": 0.915,
+        "uploadMs": 6.388,
+        "items": {
+         "groomLabStrandsDim": {
+          "acquireMs": 0.0,
+          "writeMs": 0.713,
+          "commitMs": 5.563,
+          "bindMs": 0.088,
+          "megabytes": 20.472,
+          "partialStrands": 104124
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 2799840,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 174990,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.2426,
+         "clump": 3.2965,
+         "curl": 5.6219,
+         "guides": 0.5937,
+         "interpolate": 10.6492,
+         "noise": 6.9786,
+         "output": 0.0006,
+         "resample": 0.4696,
+         "scalp": 0.0021,
+         "scatter": 13.8607,
+         "width": 1.7753
+        },
+        "view": ""
+       }
+      },
+      {
+       "computeMs": 98.266,
+       "changedStrands": 327382,
+       "draw": {
+        "updateMs": 56.264,
+        "buildMs": 2.526,
+        "uploadMs": 53.592,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.0,
+          "writeMs": 20.017,
+          "commitMs": 33.359,
+          "bindMs": 0.172,
+          "megabytes": 257.738,
+          "partialStrands": 327382
+         }
+        }
+       },
+       "stats": {
+        "cardFeathers": 0,
+        "cardNodes": {},
+        "cardStrands": 0,
+        "cardTextures": 0,
+        "cardTriangles": 0,
+        "cards": 0,
+        "cardsBaked": false,
+        "cardsStale": false,
+        "channels": {
+         "clump": [
+          "clumpId"
+         ],
+         "curl": [
+          "clumpId"
+         ],
+         "interpolate": [],
+         "noise": [
+          "clumpId"
+         ],
+         "output": [
+          "clumpId"
+         ],
+         "resample": [
+          "clumpId"
+         ],
+         "scatter": [],
+         "width": [
+          "clumpId"
+         ]
+        },
+        "colorBlends": [],
+        "guides": 508,
+        "hairColor": "",
+        "hairColors": [],
+        "instances": 0,
+        "notes": {},
+        "points": 8000128,
+        "restEvaluations": 0,
+        "scalpHistory": {
+         "frames": 0,
+         "reads": 0
+        },
+        "strands": 500008,
+        "strokeDocument": true,
+        "times": {
+         "centers": 0.3712,
+         "clump": 10.294,
+         "curl": 17.2707,
+         "guides": 0.5559,
+         "interpolate": 27.2923,
+         "noise": 24.0354,
+         "output": 0.0013,
+         "resample": 1.6865,
+         "width": 5.9007
+        },
+        "view": ""
+       }
+      }
+     ],
+     "dab_s": [
+      0.0355988,
+      0.035349,
+      0.0359049,
+      0.0378579,
+      0.0415376,
+      0.0381301,
+      0.0380591,
+      0.039036499999999995,
+      0.0358187,
+      0.0354636,
+      0.0374506,
+      0.0384632,
+      0.038188400000000004,
+      0.0396657,
+      0.038732300000000004,
+      0.0430997,
+      0.0339798,
+      0.0346923,
+      0.0364991,
+      0.038427300000000005,
+      0.2245005,
+      0.0459253,
+      0.2233044,
+      0.040084,
+      0.034781,
+      0.035810699999999994,
+      0.038747300000000005,
+      0.0382966,
+      0.0403446,
+      0.0381903,
+      0.0406161,
+      0.0383845,
+      0.0373266,
+      0.0373465,
+      0.037466099999999995,
+      0.0364923,
+      0.0378667,
+      0.0412625,
+      0.0396187,
+      0.0435827
+     ],
+     "dab_median_s": 0.038189350000000004,
+     "press_s": [
+      0.010183600000000001,
+      0.0108748,
+      0.011626200000000001,
+      0.010436299999999999,
+      0.0104468
+     ],
+     "press_median_s": 0.0104468,
+     "release_s": [
+      0.1718303,
+      0.1843427,
+      0.174079,
+      0.1756771,
+      0.18310659999999998
+     ],
+     "release_median_s": 0.1756771
+    }
+   },
+   "load_after": {
+    "cpu_percent": 1,
+    "free_ram_gb": 94.3,
+    "top_cpu_time": []
+   }
+  }
+ ],
+ "finished": "2026-10-02T02:03:57",
+ "summary": {
+  "Creation to first drawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 0.39320624999999865,
+     "min": 0.37813379999999697,
+     "max": 0.4082787000000003,
+     "n": 2,
+     "unit": "s"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 0.6630189500000014,
+     "min": 0.658456300000001,
+     "max": 0.6675816000000019,
+     "n": 2,
+     "unit": "s"
+    }
+   }
+  },
+  "Creation working set delta (GUI, incl. draw buffers)": {
+   "100000": {
+    "groomlab": {
+     "median": 357.54296875,
+     "min": 357.00390625,
+     "max": 358.08203125,
+     "n": 2,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 1598.53515625,
+     "min": 1598.18359375,
+     "max": 1598.88671875,
+     "n": 2,
+     "unit": "MB"
+    }
+   }
+  },
+  "GPU memory delta, whole device (GUI, nvidia-smi)": {
+   "100000": {
+    "groomlab": {
+     "median": 92.5,
+     "min": 89.0,
+     "max": 96.0,
+     "n": 2,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 484.0,
+     "min": 484.0,
+     "max": 484.0,
+     "n": 2,
+     "unit": "MB"
+    }
+   }
+  },
+  "Redraw, nothing changed (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 3.240350000001335,
+     "min": 3.1196000000015545,
+     "max": 3.361100000001116,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 2.616699999999028,
+     "min": 2.305400000000901,
+     "max": 2.927999999997155,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Clump tweak to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 33.32310000000227,
+     "min": 33.12800000000138,
+     "max": 33.51820000000316,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 137.91404999999912,
+     "min": 137.19120000000018,
+     "max": 138.63689999999806,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Noise tweak to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 26.758499999999685,
+     "min": 26.307299999999145,
+     "max": 27.209700000000225,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 111.49390000000103,
+     "min": 110.32940000000124,
+     "max": 112.65840000000082,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Orbit (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 762.2426704713941,
+     "min": 757.568105372684,
+     "max": 766.9172355701043,
+     "n": 2,
+     "unit": "fps"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 170.72850764780412,
+     "min": 158.63040622338673,
+     "max": 182.8266090722215,
+     "n": 2,
+     "unit": "fps"
+    }
+   }
+  },
+  "Brush stroke, 9 dabs + commit, to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 56.19894999999886,
+     "min": 55.90839999999986,
+     "max": 56.48949999999786,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 197.8226499999991,
+     "min": 190.85369999999813,
+     "max": 204.79160000000007,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Brush dab while dragging, to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 13.9806,
+     "min": 13.82465,
+     "max": 14.136550000000002,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 37.783699999999996,
+     "min": 37.378049999999995,
+     "max": 38.189350000000005,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Brush press (first dab), to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 5.4025,
+     "min": 5.3137,
+     "max": 5.4913,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 10.56575,
+     "min": 10.4468,
+     "max": 10.6847,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Brush press, the session's first stroke, to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 58.37995,
+     "min": 57.8404,
+     "max": 58.9195,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 89.81139999999999,
+     "min": 85.417,
+     "max": 94.2058,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Brush release, the session's first stroke, to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 54.1194,
+     "min": 53.9549,
+     "max": 54.2839,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 192.42445,
+     "min": 192.246,
+     "max": 192.6029,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Brush release (commit), to redrawn frame (GUI)": {
+   "100000": {
+    "groomlab": {
+     "median": 45.27645,
+     "min": 45.1939,
+     "max": 45.359,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab": {
+     "median": 179.20735,
+     "min": 175.6771,
+     "max": 182.7376,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  }
+ }
+}

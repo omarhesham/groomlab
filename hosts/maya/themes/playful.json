@@ -1,0 +1,86 @@
+{
+  "name": "Playful",
+  "description": "Charcoal and primaries: red, yellow, blue, emerald and white. Flat, round and friendly.",
+  "palette": {
+    "red": "#FF4D4F",
+    "yellow": "#FFC53D",
+    "blue": "#2F7BF6",
+    "emerald": "#2ECC8F",
+    "white": "#F5F5F7",
+    "purple": "#A36BFF"
+  },
+  "ui": {
+    "background": "#1C1D21",
+    "panel": "#26282D",
+    "raised": "#32353C",
+    "hover": "#3C4048",
+    "border": "#2E3137",
+    "text": "#F5F5F7",
+    "textDim": "#9BA1AB",
+    "accent": "blue",
+    "accentText": "#FFFFFF",
+    "warning": "yellow",
+    "keyed": "#CD4C4C",
+    "animated": "#E3A3A8",
+    "driven": "#E4D46C",
+    "radius": 12,
+    "fontSize": 12,
+    "sliders": ["blue", "yellow", "emerald", "red"]
+  },
+  "graph": {
+    "canvas": "#1C1D21",
+    "grid": "#2C2F35",
+    "node": "#2A2C31",
+    "nodeBorder": "#2A2C31",
+    "text": "#F5F5F7",
+    "textDim": "#9BA1AB",
+    "selected": "white",
+    "cornerRadius": 14,
+    "headerStyle": "filled",
+    "shadow": false,
+    "categories": {
+      "Sources": "emerald",
+      "Grow": "#4FD1C5",
+      "Shape": "blue",
+      "Color": "#FF7AB6",
+      "Look": "yellow",
+      "Fields & Curves": "purple",
+      "Utility": "#8A93A0",
+      "Output": "white",
+      "Compound": "emerald",
+      "Games": "#5EC8FF",
+      "Convert": "#FF8A5C",
+      "Motion": "#78C8FF",
+      "Feathers": "#FFC857"
+    },
+    "ports": {
+      "Strands": "yellow",
+      "Guides": "blue",
+      "Mesh": "emerald",
+      "Field": "purple",
+      "Curve": "red",
+      "Curves": "#D2D6DE"
+    }
+  },
+  "icons": {
+    "create": "emerald",
+    "shape": "blue",
+    "trim": "red",
+    "paint": "yellow",
+    "app": "accent",
+    "ink": "white"
+  },
+  "viewport": {
+    "guideLevels": ["blue", "emerald", "yellow", "red", "white"],
+    "pointSize": 6,
+    "selected": "white",
+    "softSelected": "yellow",
+    "frozen": "#5EC8FF",
+    "parts": "red",
+    "flow": "yellow",
+    "flowField": "#8FA3BF",
+    "tubes": "#8A93A0",
+    "instances": "#BFE3FF",
+    "clumpCenters": "#FF4FD8"
+  }
+}

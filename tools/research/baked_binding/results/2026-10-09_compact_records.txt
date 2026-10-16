@@ -1,0 +1,38 @@
+﻿threads: 24
+head: 1225 vertices, 2256 triangles, area 572.1
+
+== app_head (1225 v, 2256 tris, size 17.5), 99992 strands x 16 pts, 100 guides (spacing 2.392, edge 0.819)
+current: first eval (bind+blend) 8.9 ms, blend alone 8.9 ms, bind alone (take=length node) 5.9 ms; 7.43 guides/strand (max 11); my blend 7.8 ms (harness max diff 0.00e+00); records 7.7 MB CPU, 20.8 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 3.6 MB (35.7 B/strand) vs GPU's 20.8 MB; max point error 4.93e-04 (2.82e-05 of size); blend 8.2 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 500016 strands x 16 pts, 100 guides (spacing 2.392, edge 0.819)
+current: first eval (bind+blend) 36.8 ms, blend alone 38.6 ms, bind alone (take=length node) 23.6 ms; 7.43 guides/strand (max 11); my blend 39.6 ms (harness max diff 0.00e+00); records 38.7 MB CPU, 104.0 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 17.9 MB (35.7 B/strand) vs GPU's 104.0 MB; max point error 5.61e-04 (3.22e-05 of size); blend 40.1 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 999999 strands x 16 pts, 100 guides (spacing 2.392, edge 0.819)
+current: first eval (bind+blend) 73.8 ms, blend alone 73.9 ms, bind alone (take=length node) 43.1 ms; 7.43 guides/strand (max 11); my blend 83.4 ms (harness max diff 0.00e+00); records 77.4 MB CPU, 208.0 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 35.7 MB (35.7 B/strand) vs GPU's 208.0 MB; max point error 5.61e-04 (3.22e-05 of size); blend 81.3 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 99992 strands x 16 pts, 1000 guides (spacing 0.756, edge 0.819)
+current: first eval (bind+blend) 10.6 ms, blend alone 11.5 ms, bind alone (take=length node) 7.5 ms; 7.56 guides/strand (max 11); my blend 7.9 ms (harness max diff 0.00e+00); records 7.8 MB CPU, 20.8 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 3.6 MB (36.2 B/strand) vs GPU's 20.8 MB; max point error 3.47e-04 (1.99e-05 of size); blend 8.3 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 500016 strands x 16 pts, 1000 guides (spacing 0.756, edge 0.819)
+current: first eval (bind+blend) 43.0 ms, blend alone 41.0 ms, bind alone (take=length node) 25.0 ms; 7.56 guides/strand (max 12); my blend 40.5 ms (harness max diff 0.00e+00); records 39.3 MB CPU, 104.0 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 18.1 MB (36.3 B/strand) vs GPU's 104.0 MB; max point error 3.84e-04 (2.20e-05 of size); blend 41.0 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 999999 strands x 16 pts, 1000 guides (spacing 0.756, edge 0.819)
+current: first eval (bind+blend) 76.7 ms, blend alone 78.7 ms, bind alone (take=length node) 45.7 ms; 7.56 guides/strand (max 12); my blend 81.8 ms (harness max diff 0.00e+00); records 78.5 MB CPU, 208.0 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 36.3 MB (36.3 B/strand) vs GPU's 208.0 MB; max point error 4.29e-04 (2.46e-05 of size); blend 81.5 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 99992 strands x 16 pts, 5000 guides (spacing 0.338, edge 0.819)
+current: first eval (bind+blend) 17.9 ms, blend alone 20.2 ms, bind alone (take=length node) 15.2 ms; 7.58 guides/strand (max 11); my blend 8.1 ms (harness max diff 0.00e+00); records 7.9 MB CPU, 20.8 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 3.6 MB (36.3 B/strand) vs GPU's 20.8 MB; max point error 2.42e-04 (1.39e-05 of size); blend 8.7 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 500016 strands x 16 pts, 5000 guides (spacing 0.338, edge 0.819)
+current: first eval (bind+blend) 48.1 ms, blend alone 53.3 ms, bind alone (take=length node) 32.5 ms; 7.57 guides/strand (max 11); my blend 42.5 ms (harness max diff 0.00e+00); records 39.3 MB CPU, 104.0 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 18.1 MB (36.3 B/strand) vs GPU's 104.0 MB; max point error 2.45e-04 (1.40e-05 of size); blend 43.9 ms
+
+== app_head (1225 v, 2256 tris, size 17.5), 999999 strands x 16 pts, 5000 guides (spacing 0.338, edge 0.819)
+current: first eval (bind+blend) 89.8 ms, blend alone 92.4 ms, bind alone (take=length node) 57.7 ms; 7.57 guides/strand (max 11); my blend 81.4 ms (harness max diff 0.00e+00); records 78.6 MB CPU, 208.0 MB GPU
+compact records (u16 guide + u16 weight, offsets, f16 nearest2, twists aside: 0): 36.3 MB (36.3 B/strand) vs GPU's 208.0 MB; max point error 2.71e-04 (1.55e-05 of size); blend 86.5 ms

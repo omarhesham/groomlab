@@ -1,0 +1,3645 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "groomlab/gpu/look_chain.h"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <limits>
+#include <set>
+#include <unordered_map>
+#include <variant>
+
+#include "groomlab/curve.h"
+#include "groomlab/export_view.h"
+#include "groomlab/field.h"
+#include "groomlab/flow.h"
+#include "groomlab/map_ref.h"
+#include "groomlab/operators.h"
+#include "groomlab/parallel.h"
+#include "groomlab/point_index.h"
+#include "groomlab/preview_core.h"
+#include "groomlab/random.h"
+#include "groomlab/sculpt.h"
+
+namespace groomlab::gpu {
+
+namespace {
+
+constexpr std::size_t kMaxInterpolateSamples = 64;  // look.slang MAX_SAMPLES
+
+// The node feeding `id`'s input `slot` (from its primary output), or 0.
+NodeId upstream(const Graph& graph, NodeId id, std::size_t slot = 0) {
+    NodeId src = 0;
+    std::size_t output = 0;
+    if (!graph.inputSource(id, slot, &src, &output) || output != 0) return 0;
+    return src;
+}
+
+// The node whose result `id` hands on, where it hands one on: a Switch's picked input (SwitchOp:
+// the very strands of input a or b by its index), any other node's (and a bypassed Switch's) first.
+NodeId handedFrom(const Graph& graph, NodeId id) {
+    if (graph.node(id).typeName() == op::kSwitch && !graph.bypassedFor(id, true)) {
+        return upstream(graph, id, graph.node(id).params().getInt("index") == 0 ? 0 : 1);
+    }
+    return upstream(graph, id);
+}
+
+// Whether a Control node is plugged into `param` of node `id` (ControlOp: a constant field).
+bool pluggedControl(const Graph& graph, NodeId id, const std::string& param) {
+    const std::vector<std::string>& exposed = graph.paramInputs(id);
+    for (std::size_t k = 0; k < exposed.size(); ++k) {
+        NodeId src = 0;
+        if (exposed[k] == param && graph.inputSource(id, graph.node(id).inputs().size() + k, &src)) {
+            return graph.node(src).typeName() == op::kControl;
+        }
+    }
+    return false;
+}
+
+// ---- Affect masks ----
+// Whether a field is plugged into node `id`'s affect.
+bool affectPluggedIn(const Graph& graph, NodeId id) {
+    const std::vector<std::string>& exposed = graph.paramInputs(id);
+    for (std::size_t k = 0; k < exposed.size(); ++k) {
+        if (exposed[k] == kAffectParam && graph.inputSource(id, graph.node(id).inputs().size() + k, nullptr)) return true;
+    }
+    return false;
+}
+// Whether node `id` is restricted by its affect (a map, a plugged field, a number between 0 and 1):
+// the graph mixes its result back toward its input (applyAffect).
+bool maskedNode(const Graph& graph, NodeId id) {
+    return (graph.node(id).params().has(kAffectParam) && affectOf(graph.node(id)) == AffectKind::Mask) || affectPluggedIn(graph, id);
+}
+
+// A node's params as its last evaluation read them: the fields and curves plugged into its exposed
+// params set (the graph sets them for an evaluation only), from their sources' cached results.
+ParamSet evaluatedParams(const Graph& graph, NodeId id) {
+    ParamSet params = graph.node(id).params();
+    const std::vector<std::string>& exposed = graph.paramInputs(id);
+    const std::size_t own = graph.node(id).inputs().size();
+    for (std::size_t k = 0; k < exposed.size(); ++k) {
+        NodeId src = 0;
+        std::size_t output = 0;
+        if (!graph.inputSource(id, own + k, &src, &output)) continue;  // nothing plugged: its own value
+        const Value value = graph.cachedValue(src, output);
+        if (FieldPtr field = valueAs<FieldPtr>(value)) params.setField(exposed[k], field);
+        if (CurvePtr curve = valueAs<CurvePtr>(value)) params.setCurve(exposed[k], curve);
+    }
+    return params;
+}
+
+StrandsPtr cachedStrands(const Graph& graph, NodeId id) { return id ? valueAs<StrandsPtr>(graph.cachedValue(id)) : nullptr; }
+
+bool stageOf(const std::string& type, StageKind* kind) {
+    if (type == op::kInterpolate) *kind = StageKind::Interpolate;
+    else if (type == op::kLength) *kind = StageKind::Length;
+    else if (type == op::kClump || type == op::kWet) *kind = StageKind::Clump;  // (a Wet: a Clump stage a level)
+    else if (type == op::kNoise) *kind = StageKind::Noise;
+    else if (type == op::kCurl) *kind = StageKind::Curl;
+    else if (type == op::kWidth) *kind = StageKind::Width;
+    else if (type == op::kPart) *kind = StageKind::Part;
+    else if (type == op::kGravity) *kind = StageKind::Gravity;
+    else if (type == op::kFlyaway) *kind = StageKind::Flyaway;
+    else if (type == op::kCollide) *kind = StageKind::Collide;
+    else if (type == op::kWind) *kind = StageKind::Wind;
+    else if (type == op::kBlend) *kind = StageKind::Blend;
+    else if (type == op::kSelfCollide) *kind = StageKind::SelfCollide;
+    else if (type == op::kStatic) *kind = StageKind::Static;
+    else if (type == op::kTie) *kind = StageKind::Tie;
+    else if (type == op::kBend) *kind = StageKind::Bend;
+    else if (type == op::kDirection) *kind = StageKind::Direction;
+    else if (type == op::kTransform) *kind = StageKind::Transform;
+    else if (type == op::kDisplace) *kind = StageKind::Displace;
+    else if (type == op::kTwist) *kind = StageKind::Twist;
+    else if (type == op::kSmooth) *kind = StageKind::Smooth;
+    else if (type == op::kRestoreLength) *kind = StageKind::RestoreLength;
+    else if (type == op::kBlendNeighbors) *kind = StageKind::BlendNeighbors;
+    else if (type == op::kTangle) *kind = StageKind::Tangle;
+    else if (type == op::kFlow) *kind = StageKind::Flow;
+    else if (type == op::kJiggle) *kind = StageKind::Jiggle;
+    else if (type == op::kMeshCut) *kind = StageKind::MeshCut;
+    else return false;
+    return true;
+}
+
+// A Collide's surfaces (its scalp and collider inputs, as last evaluated).
+// `colliders`: which of them are the collider input's, a bit each (softness and smoothing act on it).
+std::vector<MeshPtr> collideMeshes(const Graph& graph, NodeId id, std::uint32_t* colliders = nullptr) {
+    std::vector<MeshPtr> meshes;
+    if (colliders) *colliders = 0;
+    for (std::size_t slot = 1; slot < 3; ++slot) {
+        NodeId src = 0;
+        std::size_t output = 0;
+        if (!graph.inputSource(id, slot, &src, &output)) continue;
+        const MeshPtr mesh = valueAs<MeshPtr>(graph.cachedValue(src, output));
+        if (!mesh || mesh->triangleCount() == 0) continue;
+        if (colliders && slot == 2) *colliders |= 1u << meshes.size();
+        meshes.push_back(mesh);
+    }
+    return meshes;
+}
+
+// A Collide pushing out of a surface deformed away from its rest pose (an animated scalp, a
+// collider given its rest pose): it asks the rest pose's field through each vertex's frame
+// (RestPoseCollision), which the GPU does not. The CPU's: the GPU runs from the node after it.
+bool collidesWithADeformedMesh(const Graph& graph, NodeId id) {
+    for (const MeshPtr& mesh : collideMeshes(graph, id)) {
+        if (mesh->hasRest() && mesh->restPoints() != mesh->points()) return true;
+    }
+    return false;
+}
+
+// A Jiggle handing its input back as it came (no history of the scalp's motion, or a scalp that
+// did not move: JiggleOp gives the very strands it took); a MeshCut too (no mesh to cut by).
+bool jiggleHandsOn(const Graph& graph, NodeId id) {
+    const NodeId in = upstream(graph, id);
+    const StrandsPtr out = in ? valueAs<StrandsPtr>(graph.cachedValue(id)) : nullptr;
+    return out && out == valueAs<StrandsPtr>(graph.cachedValue(in));
+}
+
+// Nodes that add channels and leave the points as they came (their strands share the points of
+// those they take): the GPU's points go through them. (What they write shows, in a color mode or
+// as the lit strands' own colors, as the CPU's last evaluation wrote it: the item's colors stream
+// stays bound through the drag, as the colors of any drag do.) RenderData (the shader's channels)
+// and Cards (its card layer, made from the strands it takes, or nothing where no cards are wanted)
+// too: their channels and cards stay as the last evaluation made them while the GPU previews, and
+// the commit makes them again from the committed strands.
+bool channelsOnly(const std::string& type) {
+    return type == op::kHairColor || type == op::kBands || type == op::kFeatherColor || type == op::kAttribute ||
+           type == op::kRenderData || type == op::kCards;
+}
+
+// A Bands node whose colors depend on the strands' shapes: guard hairs picked as the longest (its
+// band colors go by point index, FeatherColor's patterns by vane space, which no stage changes).
+bool readsLengths(const Graph& graph, NodeId id) {
+    const ParamSet& p = graph.node(id).params();
+    return p.getString("guardsBy") == "longest" && p.getDouble("guards") < 1.0;
+}
+
+// A Curl that added points to strands too few a turn (curl_op.cpp: its tolerance), as last
+// evaluated: its result is laid out unlike its input, and a run keeps the base's layout. The CPU's:
+// the GPU runs from the node after it.
+bool curlAddsPoints(const Graph& graph, NodeId id) {
+    const NodeId in = upstream(graph, id);
+    const StrandsPtr out = valueAs<StrandsPtr>(graph.cachedValue(id));
+    const StrandsPtr before = in ? valueAs<StrandsPtr>(graph.cachedValue(in)) : nullptr;
+    return out && before && out->pointCount() != before->pointCount();
+}
+
+// A Resample that hands its input on as it came whatever the points are: even, the strands at its count.
+bool evenResample(const Graph& graph, NodeId id) {
+    const ParamSet& p = graph.node(id).params();
+    return p.getString("mode") == "even";
+}
+
+// A Wet at a wetness of 0: dry, it hands its input on as it came (WetOp) and runs no level.
+bool dryWet(const Graph& graph, NodeId id) {
+    return graph.node(id).typeName() == op::kWet && !(graph.node(id).params().getDouble("wetness") > 0.0);
+}
+
+// A stage node's stages, its last first (findLookChainTo gathers them from the output up): a
+// Wet's levels, each a Clump stage, the smallest last.
+void pushStages(const Graph& graph, NodeId id, StageKind kind, std::vector<LookStage>* stages) {
+    if (graph.node(id).typeName() != op::kWet) {
+        stages->push_back({kind, id});
+        return;
+    }
+    for (std::int64_t j = wetLevelCount(graph.node(id).params()); j-- > 0;) {
+        LookStage s;
+        s.kind = StageKind::Clump;
+        s.node = id;
+        s.level = static_cast<int>(j);
+        stages->push_back(s);
+    }
+}
+
+}  // namespace
+
+const char* stageName(StageKind kind) {
+    switch (kind) {
+        case StageKind::Interpolate: return "interpolate";
+        case StageKind::Length: return "length";
+        case StageKind::Clump: return "clump";
+        case StageKind::Noise: return "noise";
+        case StageKind::Curl: return "curl";
+        case StageKind::Width: return "width";
+        case StageKind::Part: return "part";
+        case StageKind::Gravity: return "gravity";
+        case StageKind::Flyaway: return "flyaway";
+        case StageKind::Collide: return "collide";
+        case StageKind::Wind: return "wind";
+        case StageKind::Blend: return "blend";
+        case StageKind::SelfCollide: return "selfCollide";
+        case StageKind::Static: return "static";
+        case StageKind::Tie: return "tie";
+        case StageKind::Bend: return "bend";
+        case StageKind::Direction: return "direction";
+        case StageKind::Transform: return "transform";
+        case StageKind::Displace: return "displace";
+        case StageKind::Twist: return "twist";
+        case StageKind::Smooth: return "smooth";
+        case StageKind::RestoreLength: return "restoreLength";
+        case StageKind::BlendNeighbors: return "blendNeighbors";
+        case StageKind::Tangle: return "tangle";
+        case StageKind::Flow: return "flow";
+        case StageKind::Jiggle: return "jiggle";
+        case StageKind::MeshCut: return "meshCut";
+    }
+    return "?";
+}
+
+std::size_t LookChain::indexOf(NodeId id) const {
+    for (std::size_t k = 0; k < stages.size(); ++k) {
+        if (stages[k].node == id) return k;
+    }
+    return kNoStage;
+}
+
+NodeId LookChain::node(StageKind kind) const {
+    for (const LookStage& s : stages) {
+        if (s.kind == kind) return s.node;
+    }
+    return 0;
+}
+
+const StageParams* LookParams::find(StageKind kind) const {
+    for (const StageParams& s : stages) {
+        if (s.stage.kind == kind) return &s;
+    }
+    return nullptr;
+}
+StageParams* LookParams::find(StageKind kind) {
+    for (StageParams& s : stages) {
+        if (s.stage.kind == kind) return &s;
+    }
+    return nullptr;
+}
+
+bool LookFields::any() const {
+    for (const StageFields& s : stages) {
+        if (s.field[0].mode || s.field[1].mode || s.affect.mode) return true;
+    }
+    return false;
+}
+
+namespace {
+
+// The ramp params a stage reads (rampParam: an override of it is a ramp, not a number).
+bool rampParam(const std::string& type, const std::string& param) {
+    if (type == op::kInterpolate) return param == "falloff";
+    if (type == op::kClump && param == "volumizeProfile") return true;
+    if (type == op::kGravity) return param == "stiffnessProfile";
+    if (type == op::kCurl && param == "frequencyProfile") return true;
+    if (type == op::kJiggle) return param == "profile";
+    return (type == op::kNoise || type == op::kCurl || type == op::kWidth || type == op::kClump || type == op::kPart ||
+            type == op::kWind || type == op::kBlend || type == op::kSelfCollide || type == op::kStatic || type == op::kDisplace ||
+            type == op::kTwist || type == op::kSmooth || type == op::kBlendNeighbors) &&
+           param == "profile";
+}
+// The vector params a stage reads (an override of it is a Vec3f).
+bool vectorParam(const std::string& type, const std::string& param) {
+    if (type == op::kTransform) {
+        return param == "translate" || param == "rotate" || param == "pivot" || param == "translateRandom" || param == "rotateRandom";
+    }
+    if (type == op::kBend || type == op::kDirection || type == op::kDisplace) return param == "direction";
+    return (type == op::kCurl && param == "weightDirection") || (type == op::kTie && (param == "center" || param == "direction"));
+}
+
+}  // namespace
+
+bool previewableParam(const std::string& type, const std::string& param) {
+    if (rampParam(type, param) || vectorParam(type, param)) return true;
+    // A stage's affect (its result mixed back by it: StageParams::masked; Interpolate and Blend take none).
+    StageKind kind;
+    if (param == kAffectParam && stageOf(type, &kind)) return kind != StageKind::Interpolate && kind != StageKind::Blend;
+    // The shapers working on each strand alone: their numbers, their randoms' seeds.
+    if (type == op::kBend) return param == "angle" || param == "start" || param == "end" || param == "randomness" || param == "seed";
+    if (type == op::kDirection) {
+        return param == "inclination" || param == "roll" || param == "strength" || param == "inclinationRandom" || param == "rollRandom" ||
+               param == "seed";
+    }
+    if (type == op::kTransform) return param == "scale" || param == "scaleRandom" || param == "seed";
+    if (type == op::kDisplace) return param == "distance";
+    if (type == op::kTwist) return param == "turns";
+    // (Jiggle's history: the frames the host sampled for it read again, more refused: readLookParams.)
+    if (type == op::kJiggle) return param == "strength" || param == "frequency" || param == "damping" || param == "history";
+    if (type == op::kMeshCut) return param == "offset";
+    // (Wet's other params pick its levels' centers: the CPU's.)
+    if (type == op::kWet) return param == "wetness";
+    if (param == "seed") {
+        return type == op::kNoise || type == op::kCurl || type == op::kWidth || type == op::kClump || type == op::kLength ||
+               type == op::kFlyaway || type == op::kWind || type == op::kFlow;
+    }
+    if (type == op::kNoise) return param == "amplitude" || param == "frequency" || param == "fraction" || param == "octaves";
+    if (type == op::kCurl) {
+        return param == "radius" || param == "frequency" || param == "randomness" || param == "phase" || param == "phaseRandom" ||
+               param == "coilWidths" || param == "spacingRandom" || param == "weight" || param == "weightDirection";
+    }
+    if (type == op::kGravity) return param == "strength" || param == "stiffness";
+    if (type == op::kWind) {
+        return param == "strength" || param == "gust" || param == "frequency" || param == "speed" || param == "turbulence";
+    }
+    if (type == op::kBlend) return param == "mix";
+    // (The hair grid's layout is the core strands' and the scalp's: none of these change it.)
+    if (type == op::kSelfCollide) return param == "strength" || param == "packing";
+    if (type == op::kStatic) return param == "strength" || param == "randomness";
+    // (Flyaway's strays are drawn on the GPU by ID: a fraction or seed dragged picks others.)
+    if (type == op::kFlyaway) {
+        return param == "stray" || param == "fraction" || param == "frequency" || param == "start" || param == "standOut" ||
+               param == "lengthen";
+    }
+    // (Collide's offset and depth make its fields' tables: the CPU's.)
+    if (type == op::kWidth) return param == "width" || param == "randomness";
+    if (type == op::kClump) {
+        return param == "strength" || param == "lockRadius" || param == "repelRadius" || param == "volumize" ||
+               param == "flatness" || param == "strengthRandom" || param == "lockRadiusRandom";
+    }
+    // (An auto Part's splitAngle and minLength pick which lines it finds: the CPU's.)
+    if (type == op::kPart) return param == "strength" || param == "width";
+    if (type == op::kLength) return param == "keep" || param == "fraction" || param == "trimMin" || param == "trimMax";
+    if (type == op::kInterpolate) return param == "limitDistance";
+    // (The guides it hands on made on the CPU at the dragged strength: sculptedGuides.)
+    if (type == op::kSculpt) return param == "strength";
+    // (Its ring's bins are made on the GPU from the core strands: a center dragged too.)
+    if (type == op::kTie) {
+        return param == "center" || param == "radius" || param == "direction" || param == "tightness" || param == "spread" ||
+               param == "twist" || param == "ease";
+    }
+    // The shapers reading their neighbours or a reference. (BlendNeighbors' neighbors, Tangle's
+    // fraction, radius and seed pick whom a strand reads: the CPU's.)
+    if (type == op::kSmooth) return param == "strength" || param == "scale";
+    if (type == op::kBlendNeighbors) return param == "strength";
+    if (type == op::kTangle) return param == "strength" || param == "start" || param == "span" || param == "reach";
+    if (type == op::kFlow) return param == "lift" || param == "bend" || param == "rollRandom";
+    return false;
+}
+
+bool previewableOverrides(const GraphDocument& doc, const Overrides& overrides, std::string* why) {
+    for (const auto& [node, values] : overrides) {
+        const auto it = doc.nodesByName.find(node);
+        if (it == doc.nodesByName.end()) {
+            *why = "no node '" + node + "'";
+            return false;
+        }
+        const std::string type = doc.graph.node(it->second).typeName();
+        for (const auto& [param, value] : values) {
+            if (!previewableParam(type, param)) {
+                *why = node + "." + param + " is the CPU's";
+                return false;
+            }
+            // An affect of none of its own: the node hands its input on, no stage of the run.
+            if (param == kAffectParam && doc.graph.node(it->second).params().has(kAffectParam) &&
+                affectOf(doc.graph.node(it->second)) == AffectKind::None && !affectPluggedIn(doc.graph, it->second)) {
+                *why = node + " works nowhere at its own affect (the CPU's)";
+                return false;
+            }
+            if (rampParam(type, param) != std::holds_alternative<Ramp>(value) ||
+                vectorParam(type, param) != std::holds_alternative<Vec3f>(value)) {
+                *why = node + "." + param +
+                       (rampParam(type, param) ? " takes a ramp" : vectorParam(type, param) ? " takes a vector" : " takes a number");
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+namespace {
+
+// ---- Affect masks ----
+// Every stage restricted by its affect is mixed back by it one way, after it (StageParams::masked,
+// look.slang AffectCS), but Tie: its affect also picks which strands it ties and mixes its tail
+// channel, so its kernels read it themselves (StageParams flag[1-2]).
+bool mixesByItsAffect(StageKind kind) { return kind == StageKind::Tie; }
+// The shapers reading their neighbours or a reference.
+bool readsNeighbours(StageKind kind) {
+    return kind == StageKind::Smooth || kind == StageKind::RestoreLength || kind == StageKind::BlendNeighbors || kind == StageKind::Tangle ||
+           kind == StageKind::Flow;
+}
+
+// What a node is to the chain: a node handing its input (or its points) on as it came, a stage, the
+// end of the run (the CPU's), or one that refuses the GPU its preview (*why).
+enum class Role { PassOn, Stage, End, Refuse };
+Role roleOf(const GraphDocument& doc, NodeId id, StageKind* kind, std::string* why) {
+    const Graph& graph = doc.graph;
+    const std::string type = graph.node(id).typeName();
+    // Off in the viewport (bypassed, or set to run in renders only): it hands its input on.
+    const bool off = graph.bypassedFor(id, true);
+    // Restricted by its affect (a mask, or a field plugged into it): a stage all the same, its result
+    // mixed back by it (StageParams::masked; mixesByItsAffect: its own kernels). Of none: its input
+    // handed on.
+    const AffectKind affect = graph.node(id).params().has(kAffectParam) ? affectOf(graph.node(id)) : AffectKind::All;
+    const bool affectPlugged = affectPluggedIn(graph, id);
+    // (A Tie reads its mask itself: which strands it ties, the result mixed by it per strand; the
+    // shapers reading their neighbours or a reference mix their results by it as the graph does; any
+    // other stage is mixed after it: AffectCS.)
+    // A RestoreLength with nothing to restore from hands its input on (RestoreLengthOp).
+    if (type == op::kRestoreLength && graph.node(id).params().getString("mode") != "even" && !graph.inputSource(id, 1, nullptr)) {
+        return Role::PassOn;
+    }
+    if (type == op::kBands && !off && readsLengths(graph, id)) {
+        // Its colors follow the strands' lengths, which the run before it changes: they would
+        // show as the CPU's last evaluation left them.
+        *why = doc.nameOf(id) + " picks its guard hairs by length (the CPU's)";
+        return Role::Refuse;
+    }
+    if (type == op::kOutput || off || (affect == AffectKind::None && !affectPlugged) || type == op::kSwitch ||
+        (type == op::kResample && evenResample(graph, id)) || channelsOnly(type) ||
+        ((type == op::kJiggle || type == op::kMeshCut) && jiggleHandsOn(graph, id)) ||
+        dryWet(graph, id)) {
+        return Role::PassOn;
+    }
+    if (stageOf(type, kind) && (*kind != StageKind::Interpolate || upstream(graph, id, 1)) &&
+        (*kind != StageKind::Collide || !collidesWithADeformedMesh(graph, id)) && (*kind != StageKind::Curl || !curlAddsPoints(graph, id))) {
+        return Role::Stage;
+    }
+    return Role::End;
+}
+
+// A Blend's looks, each a run of the GPU's nodes up from its input to where they part: the first
+// node both come from. The nodes of look a then b (each from the Blend up) into `a` and `b`, that
+// node into *parted; false when they part nowhere the GPU runs both to, or a look has a Width (its
+// widths would differ from the other's: the CPU's).
+bool blendLooks(const GraphDocument& doc, NodeId blend, std::vector<NodeId>* a, std::vector<NodeId>* b, NodeId* parted) {
+    const Graph& graph = doc.graph;
+    // The nodes from `id` up the chain could take, the first it could not (or a Blend) last.
+    auto path = [&](NodeId id) {
+        std::vector<NodeId> nodes;
+        for (int guard = 0; id && guard < 256; ++guard) {
+            nodes.push_back(id);
+            StageKind kind;
+            std::string ignored;
+            const Role role = roleOf(doc, id, &kind, &ignored);
+            if (role == Role::End || role == Role::Refuse || (role == Role::Stage && kind == StageKind::Blend)) break;
+            id = handedFrom(graph, id);
+        }
+        return nodes;
+    };
+    const std::vector<NodeId> up[2] = {path(upstream(graph, blend, 0)), path(upstream(graph, blend, 1))};
+    for (std::size_t j = 0; j < up[1].size(); ++j) {
+        const auto at = std::find(up[0].begin(), up[0].end(), up[1][j]);
+        if (at == up[0].end()) continue;
+        a->assign(up[0].begin(), at);
+        b->assign(up[1].begin(), up[1].begin() + static_cast<std::ptrdiff_t>(j));
+        *parted = up[1][j];
+        for (const std::vector<NodeId>* look : {a, b}) {
+            for (const NodeId id : *look) {
+                if (graph.node(id).typeName() == op::kWidth && !graph.bypassedFor(id, true)) return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+// Each stage's `from` (and a Blend's `from2`): the stage whose result its input is, through nodes
+// handing it on (kNoStage: the base's, or anything not a stage of the chain).
+void linkStages(const Graph& graph, LookChain* c) {
+    const std::set<NodeId> passOn(c->passOn.begin(), c->passOn.end());
+    auto stageAbove = [&](NodeId id) {
+        for (int guard = 0; id && id != c->base && guard < 256; ++guard) {
+            std::size_t k = c->indexOf(id);
+            if (k != kNoStage) {
+                while (k + 1 < c->stages.size() && c->stages[k + 1].node == id) ++k;  // its last (a Wet's smallest level)
+                return k;
+            }
+            if (!passOn.count(id)) break;
+            id = handedFrom(graph, id);
+        }
+        return kNoStage;
+    };
+    for (std::size_t k = 0; k < c->stages.size(); ++k) {
+        LookStage& s = c->stages[k];
+        // A Wet's smaller levels: each takes the one before's result.
+        s.from = s.level > 0 && k > 0 ? k - 1 : stageAbove(upstream(graph, s.node, 0));
+        s.from2 = s.kind == StageKind::Blend || s.kind == StageKind::RestoreLength ? stageAbove(upstream(graph, s.node, 1)) : kNoStage;
+    }
+}
+
+}  // namespace
+
+bool findLookChain(const GraphDocument& doc, LookChain* chain, std::string* why) { return findLookChainTo(doc, doc.output, chain, why); }
+
+bool findLookChainTo(const GraphDocument& doc, NodeId end, LookChain* chain, std::string* why) {
+    const Graph& graph = doc.graph;
+    LookChain c;
+    c.output = end;
+    NodeId id = end;
+    if (!id || !graph.hasNode(id)) {
+        *why = "no output";
+        return false;
+    }
+    // From the output up: nodes handing their input on as it came, and stages, until the first
+    // other node: the base. A Blend's looks up to where they part (look b's nodes first: the list
+    // is reversed), the walk going on from there.
+    std::vector<LookStage> stages;  // output first
+    for (int guard = 0; guard < 256; ++guard) {
+        StageKind kind;
+        const Role role = roleOf(doc, id, &kind, why);
+        if (role == Role::Refuse) return false;
+        if (role == Role::End) {
+            c.base = id;
+            break;
+        }
+        if (role == Role::PassOn) {
+            c.passOn.push_back(id);
+        } else if (kind == StageKind::Blend) {
+            std::vector<NodeId> looks[2];
+            NodeId parted = 0;
+            if (!blendLooks(doc, id, &looks[0], &looks[1], &parted)) {
+                c.base = id;
+                break;
+            }
+            stages.push_back({kind, id});
+            for (const int look : {1, 0}) {
+                for (const NodeId n : looks[look]) {
+                    StageKind k;
+                    std::string ignored;
+                    if (roleOf(doc, n, &k, &ignored) == Role::PassOn) {
+                        c.passOn.push_back(n);
+                    } else {
+                        pushStages(graph, n, k, &stages);
+                    }
+                }
+            }
+            id = parted;
+            continue;
+        } else {
+            pushStages(graph, id, kind, &stages);
+        }
+        const NodeId next = handedFrom(graph, id);
+        if (!next) {
+            *why = std::string("node '") + doc.nameOf(id) + "' has no input";
+            return false;
+        }
+        id = next;
+    }
+    if (!c.base) {
+        *why = "no node feeds the GPU's";
+        return false;
+    }
+    if (stages.empty()) {
+        *why = std::string("the graph ends with ") + graph.node(c.base).typeName() + ", which the GPU does not run";
+        return false;
+    }
+    c.stages.assign(stages.rbegin(), stages.rend());
+    linkStages(graph, &c);
+    *chain = c;
+    return true;
+}
+
+LookChain chainFrom(const GraphDocument& doc, const LookChain& chain, std::size_t first) {
+    // Every stage from `first` on takes the result of one from it on or what stage `first` takes
+    // (the new base's): within a Blend's looks, back to where they part.
+    auto runsFrom = [&](std::size_t f) {
+        const std::size_t taken = chain.stages[f].from;
+        for (std::size_t k = f; k < chain.stages.size(); ++k) {
+            const LookStage& s = chain.stages[k];
+            for (const std::size_t from : {s.from, s.kind == StageKind::Blend ? s.from2 : s.from}) {
+                if (from != taken && (from == kNoStage || from < f)) return false;
+            }
+        }
+        return true;
+    };
+    // (A node's stages run from its first: a Wet from its largest level.)
+    while (first > 0 && first < chain.stages.size() && (chain.stages[first].level > 0 || !runsFrom(first))) --first;
+    if (first == 0 || first >= chain.stages.size()) return chain;
+    LookChain c = chain;
+    c.stages.erase(c.stages.begin(), c.stages.begin() + static_cast<std::ptrdiff_t>(first));
+    c.base = upstream(doc.graph, c.stages.front().node);
+    // Only what hands on what the remaining stages make (the rest is before the new base): the
+    // nodes up from the output to the base, through each Blend's looks.
+    std::set<NodeId> after;
+    std::vector<NodeId> todo{c.output};
+    while (!todo.empty()) {
+        const NodeId walk = todo.back();
+        todo.pop_back();
+        if (!walk || walk == c.base || !after.insert(walk).second) continue;
+        const std::size_t k = c.indexOf(walk);
+        if (k != kNoStage && c.stages[k].kind == StageKind::Blend) todo.push_back(upstream(doc.graph, walk, 1));
+        todo.push_back(k != kNoStage ? upstream(doc.graph, walk, 0) : handedFrom(doc.graph, walk));
+    }
+    std::vector<NodeId> kept;
+    for (const NodeId id : chain.passOn) {
+        if (after.count(id)) kept.push_back(id);
+    }
+    c.passOn = std::move(kept);
+    linkStages(doc.graph, &c);
+    return c;
+}
+
+namespace {
+
+// A drag's value for node `id`'s param, if it has one.
+const OverrideValue* overridden(const GraphDocument& doc, const Overrides& overrides, NodeId id, const std::string& name) {
+    const auto node = overrides.find(doc.nameOf(id));
+    if (node == overrides.end()) return nullptr;
+    const auto v = node->second.find(name);
+    return v == node->second.end() ? nullptr : &v->second;
+}
+const double* overriddenNumber(const GraphDocument& doc, const Overrides& overrides, NodeId id, const std::string& name) {
+    const OverrideValue* v = overridden(doc, overrides, id, name);
+    return v ? std::get_if<double>(v) : nullptr;
+}
+
+// A param that holds a map of its own (not a number; a plugged field leaves the number in place).
+bool ownMap(const ParamSet& params, const std::string& name) {
+    return params.has(name) && std::get_if<MapRef>(&params.get(name)) != nullptr;
+}
+
+// A param holding a map or with a field plugged in (as its node's last evaluation read it).
+bool mappedParam(const ParamSet& params, const std::string& name) { return ownMap(params, name) || params.field(name); }
+
+// Direction's mapped params, the first two of inclination, roll and strength (StageParams: the
+// fields holding their values, in this order).
+std::vector<std::string> directionMapped(const ParamSet& params) {
+    std::vector<std::string> names;
+    for (const char* name : {"inclination", "roll", "strength"}) {
+        if (mappedParam(params, name)) names.push_back(name);
+    }
+    return names;
+}
+
+// A vector param that is one world vector for every strand (a VectorField without an expression),
+// a drag's in place of the node's own; false for one per strand.
+bool constantVector(const GraphDocument& doc, const Overrides& overrides, NodeId id, const ParamSet& params, const std::string& name,
+                    Vec3f* out) {
+    const auto node = overrides.find(doc.nameOf(id));
+    if (node != overrides.end()) {
+        const auto v = node->second.find(name);
+        if (v != node->second.end() && std::holds_alternative<Vec3f>(v->second)) {
+            *out = std::get<Vec3f>(v->second);
+            return true;
+        }
+    }
+    try {
+        const VectorField field(params, name, nullptr);
+        *out = field.constant();
+        return field.isConstant();
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+}  // namespace
+
+std::size_t firstOverridden(const GraphDocument& doc, const LookChain& chain, const Overrides& overrides) {
+    for (std::size_t k = 0; k < chain.stages.size(); ++k) {
+        if (overrides.count(doc.nameOf(chain.stages[k].node))) return k;
+    }
+    return kNoStage;
+}
+
+bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Overrides& overrides, LookParams* out,
+                    std::string* why) {
+    const Graph& graph = doc.graph;
+    LookParams p;
+    for (const LookStage& stage : chain.stages) {
+        const NodeId id = stage.node;
+        const ParamSet params = evaluatedParams(graph, id);
+        StageParams s;
+        s.stage = stage;
+        // Within the spec's hard limits, a dragged number as the stored one (ParamSet clamps it).
+        auto number = [&](const std::string& name) {
+            if (const double* v = overriddenNumber(doc, overrides, id, name)) return graph.node(id).params().clamped(name, *v);
+            return graph.node(id).params().getDouble(name);
+        };
+        // A ramp as the operator reads it (getRamp: a plugged curve still wins, as on the CPU), a
+        // dragged one in place of the node's own.
+        auto ramp = [&](const std::string& name) {
+            const OverrideValue* v = overridden(doc, overrides, id, name);
+            const Ramp* dragged = v ? std::get_if<Ramp>(v) : nullptr;
+            if (!dragged) return params.getRamp(name);
+            ParamSet with = params;
+            with.set(name, *dragged);
+            return with.getRamp(name);
+        };
+        // A mappable param: its number, the multiplier of its values (StageFields): a plugged
+        // field's own number, 1 for a map that is the param's own value (dragging that as a number
+        // replaces the map: the CPU's).
+        auto mappable = [&](const std::string& name, float* value) {
+            if (ownMap(graph.node(id).params(), name)) {
+                if (overridden(doc, overrides, id, name)) {
+                    *why = doc.nameOf(id) + "." + name + " holds a map: a number dragged over it is the CPU's";
+                    return false;
+                }
+                *value = 1.0f;
+                return true;
+            }
+            *value = static_cast<float>(number(name));
+            return true;
+        };
+        s.seed = static_cast<std::uint64_t>(params.getInt("seed"));
+        if (const double* v = overriddenNumber(doc, overrides, id, "seed")) {
+            // An integer param: a dragged number truncated as a graph loads one (graph_io.cpp).
+            const double d = std::trunc(graph.node(id).params().clamped("seed", *v));
+            if (!(d >= -9.2233720368547758e18 && d < 9.2233720368547758e18)) {
+                *why = doc.nameOf(id) + ".seed: out of range for an integer";
+                return false;
+            }
+            const auto seed = static_cast<std::uint64_t>(static_cast<std::int64_t>(d));
+            if (stage.kind == StageKind::Clump && seed != s.seed && graph.node(id).params().getString("centersFrom") == "pick") {
+                *why = doc.nameOf(id) + " picks its own centers by its seed (the CPU's)";
+                return false;
+            }
+            s.seed = seed;
+        }
+        switch (stage.kind) {
+            case StageKind::Interpolate: {
+                if (params.getString("take") != "shape") {
+                    *why = doc.nameOf(id) + " takes the guides' length alone: the CPU's";
+                    return false;
+                }
+                const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+                const std::size_t samples = in ? interpolateSamples(*in) : 0;
+                if (samples > kMaxInterpolateSamples) {
+                    *why = doc.nameOf(id) + ": strands of more than " + std::to_string(kMaxInterpolateSamples) + " points are the CPU's";
+                    return false;
+                }
+                s.value[0] = static_cast<float>(number("limitDistance"));
+                s.flag[0] = static_cast<int>(samples);
+                s.flag[1] = params.getBool("preserveLength") ? 1 : 0;
+                s.ramp = ramp("falloff");
+                break;
+            }
+            case StageKind::Length: {
+                if (!mappable("keep", &s.value[0]) || !mappable("fraction", &s.value[1])) return false;
+                const auto a = static_cast<float>(number("trimMin")), b = static_cast<float>(number("trimMax"));
+                s.value[2] = std::min(a, b);
+                s.value[3] = std::max(a, b);
+                break;
+            }
+            case StageKind::Clump: {
+                // A Clump's params but its strength, volumize and profiles, `get` reading a number.
+                auto shape = [&](const ParamSet& clump, const auto& get) {
+                    s.value[2] = static_cast<float>(get("flatness"));
+                    s.value[3] = static_cast<float>(get("lockRadius"));
+                    const float repelRadius = static_cast<float>(get("repelRadius"));
+                    std::memcpy(&s.flag[0], &repelRadius, sizeof(float));  // the kernel reads its bits as a float
+                    s.flag[1] = clump.getString("pastTip") == "extend" ? 1 : 0;
+                    const std::string flatten = clump.getString("flatten");
+                    s.flag[2] = flatten == "random" ? 1 : flatten == "direction" ? 2 : 0;
+                    // The per-clump variation (by each center's ID: ClumpInputs::variation) and copy.
+                    s.value2[0] = static_cast<float>(get("strengthRandom"));
+                    s.value2[1] = static_cast<float>(get("lockRadiusRandom"));
+                    s.value2[2] = static_cast<float>(get("copyAmount"));
+                    const Vec3f direction = clump.getVec3("flattenDirection");
+                    std::memcpy(&s.flag2[0], &direction.x, sizeof(float));
+                    std::memcpy(&s.flag2[1], &direction.y, sizeof(float));
+                    std::memcpy(&s.flag2[2], &direction.z, sizeof(float));
+                    s.tabled = true;
+                    s.hasRamp2 = true;
+                };
+                if (stage.level >= 0) {
+                    // A Wet's level: its Clump's params as Wet set them for its last result
+                    // (WetState), its profile at the wetness (a drag's: the levels' centers stay).
+                    std::shared_ptr<const WetState> wet;
+                    const std::int64_t levels = wetLevelCount(graph.node(id).params());
+                    if (!wetState(graph.node(id), cachedStrands(graph, id), &wet) || wet->params.size() != static_cast<std::size_t>(levels) ||
+                        static_cast<std::size_t>(stage.level) >= wet->params.size()) {
+                        *why = doc.nameOf(id) + " keeps no levels for its result";
+                        return false;
+                    }
+                    const ParamSet& level = wet->params[static_cast<std::size_t>(stage.level)];
+                    auto get = [&](const char* name) { return level.getDouble(name); };
+                    if (ownMap(level, "strength") || ownMap(level, "volumize")) {
+                        *why = doc.nameOf(id) + "'s levels map their pull (the CPU's)";
+                        return false;
+                    }
+                    s.value[0] = static_cast<float>(get("strength"));
+                    s.value[1] = static_cast<float>(get("volumize"));
+                    shape(level, get);
+                    s.seed = static_cast<std::uint64_t>(level.getInt("seed"));
+                    s.ramp = wetLevelProfile(stage.level, levels, static_cast<float>(number("wetness")));
+                    s.ramp2 = level.getRamp("volumizeProfile");
+                    break;
+                }
+                if (!mappable("strength", &s.value[0]) || !mappable("volumize", &s.value[1])) return false;
+                shape(params, number);
+                s.ramp = ramp("profile");
+                s.ramp2 = ramp("volumizeProfile");
+                break;
+            }
+            case StageKind::Noise: {
+                if (!mappable("amplitude", &s.value[0]) || !mappable("fraction", &s.value[2])) return false;
+                s.value[1] = static_cast<float>(number("frequency"));
+                s.flag[0] = static_cast<int>(std::floor(number("octaves")));
+                s.flag[1] = params.getString("space") == "world" ? 1 : 0;
+                s.flag[2] = params.getString("mode") == "kinky" ? 1 : 0;
+                s.ramp = ramp("profile");  // a plugged curve too
+                s.tabled = true;
+                break;
+            }
+            case StageKind::Curl: {
+                const std::string shape = params.getString("shape");
+                s.flag[2] = params.getString("coherence") == "clump" ? 1 : 0;  // each clump as one (CurlInputs)
+                if (shape == "coil") {
+                    // A coil's radius: coilWidths strand widths at each point (its values: the widths).
+                    s.value[0] = static_cast<float>(number("coilWidths"));
+                } else if (!mappable("radius", &s.value[0])) {
+                    return false;
+                }
+                s.value[1] = static_cast<float>(number("frequency"));
+                s.value[2] = static_cast<float>(number("randomness"));
+                s.value[3] = static_cast<float>(number("phase"));
+                s.flag[0] = shape == "wave" ? 1 : shape == "zigzag" ? 2 : shape == "coil" ? 3 : 0;
+                const float phaseRandom = static_cast<float>(number("phaseRandom"));
+                std::memcpy(&s.flag[1], &phaseRandom, sizeof(float));  // the kernel reads its bits as a float
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                // The spacing: spacingRandom, and a frequencyProfile other than 1 everywhere (the
+                // angle by the profiled arc: CurlOp's `profiled`).
+                s.value2[0] = std::clamp(static_cast<float>(number("spacingRandom")), 0.0f, 1.0f);
+                s.ramp2 = ramp("frequencyProfile");
+                s.flag2[0] = std::any_of(s.ramp2.keys.begin(), s.ramp2.keys.end(), [](const auto& k) { return k.second != 1.0f; }) ? 1 : 0;
+                s.hasRamp2 = s.flag2[0] != 0;
+                // Weighted curls (CurlOp's weight: the turns spread where hair hangs below them):
+                // the weight over kWeightTurns and the unit weightDirection, as CurlOp::run takes
+                // them (none without a direction).
+                const OverrideValue* draggedDirection = overridden(doc, overrides, id, "weightDirection");
+                const Vec3f* dragged = draggedDirection ? std::get_if<Vec3f>(draggedDirection) : nullptr;
+                const Vec3f weightDirection = dragged ? *dragged : params.getVec3("weightDirection");
+                if (weightDirection.length() > 0.0f) {
+                    const Vec3f down = weightDirection.normalized();
+                    s.value2[1] = std::max(0.0f, static_cast<float>(number("weight"))) / 10.0f;  // (curl_op.cpp kWeightTurns)
+                    std::memcpy(&s.flag2[1], &down.x, sizeof(float));  // the kernel reads their bits as floats
+                    std::memcpy(&s.flag2[2], &down.y, sizeof(float));
+                    std::memcpy(&s.flag2[3], &down.z, sizeof(float));
+                }
+                break;
+            }
+            case StageKind::Width: {
+                if (!mappable("width", &s.value[0])) return false;
+                s.value[1] = static_cast<float>(number("randomness"));
+                s.ramp = ramp("profile");
+                break;
+            }
+            case StageKind::Part: {
+                // Auto parts are found in the strands it takes, which a live drag or stroke changes:
+                // the run opens the lines its last evaluation found (LookInputs::read), so it must
+                // have kept them for its result.
+                PartsPtr found;
+                if (params.getString("partsFrom") == "auto" && !autoPartState(graph.node(id), cachedStrands(graph, id), &found)) {
+                    *why = doc.nameOf(id) + " keeps no parts found in the hair's flow for its result";
+                    return false;
+                }
+                if (!mappable("strength", &s.value[0])) return false;
+                s.value[1] = static_cast<float>(number("width"));
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            case StageKind::Gravity: {
+                // The direction a world vector (as every strand takes it, normalized as the CPU
+                // does); one per strand (an expression, a painted color set) is the CPU's.
+                bool constant = false;
+                Vec3f down;
+                try {
+                    const VectorField direction(params, "direction", nullptr);
+                    constant = direction.isConstant();
+                    down = direction.constant();
+                } catch (const std::exception&) {
+                    constant = false;
+                }
+                if (!constant || !params.getString("directionColorSet").empty()) {
+                    *why = doc.nameOf(id) + " takes its direction per strand (the CPU's)";
+                    return false;
+                }
+                if (!mappable("strength", &s.value[0])) return false;
+                s.value[1] = static_cast<float>(number("stiffness"));
+                if (!(down.length() < 1e-6f)) {
+                    const Vec3f unit = down.normalized();
+                    s.value2[0] = unit.x;
+                    s.value2[1] = unit.y;
+                    s.value2[2] = unit.z;
+                }
+                s.ramp = ramp("stiffnessProfile");  // by the arc's share (its keys)
+                break;
+            }
+            case StageKind::Flyaway: {
+                if (!mappable("stray", &s.value[0]) || !mappable("fraction", &s.value[1])) return false;
+                s.value[2] = static_cast<float>(number("frequency"));
+                s.value[3] = static_cast<float>(number("start"));
+                s.value2[0] = static_cast<float>(number("standOut"));
+                s.value2[1] = static_cast<float>(number("lengthen"));
+                s.flag[0] = 1;  // the stray's noise: one octave
+                break;
+            }
+            case StageKind::Collide: {
+                if (params.getString("method") != "field") {
+                    *why = doc.nameOf(id) + " asks the mesh at every point (method exact: the CPU's)";
+                    return false;
+                }
+                const auto offset = static_cast<float>(params.getDouble("offset"));
+                const auto maxDepth = static_cast<float>(params.getDouble("maxDepth"));
+                const auto softness = static_cast<float>(params.getDouble("softness"));
+                s.value[0] = offset;
+                s.value[1] = maxDepth;
+                s.value[2] = std::max(offset + softness, maxDepth) * 1.001f + 1e-6f;  // CollideOp's search radius
+                s.flag[0] = static_cast<int>(params.getInt("iterations"));
+                s.value2[0] = softness;
+                s.value2[1] = static_cast<float>(params.getDouble("smoothing"));
+                break;
+            }
+            case StageKind::Wind: {
+                // At the time its cached result was made at, as WindOp works it out: how far the
+                // gusts travelled along the direction and the flutter's phase (in double, as the
+                // CPU's, then rounded to floats as it rounds them).
+                double time = 0.0, fps = 24.0;
+                if (!windTime(graph.node(id), cachedStrands(graph, id), &time, &fps)) {
+                    *why = doc.nameOf(id) + " keeps no time for its result";
+                    return false;
+                }
+                if (!mappable("strength", &s.value[0])) return false;
+                // A plain 0 of its own blows nowhere and stays cached whatever the time (WindOp's
+                // contextSalt): the time kept may be an earlier one than a drag of it would blow at.
+                const ParamSet& own = graph.node(id).params();
+                const double* still = own.has("strength") && !params.field("strength") ? std::get_if<double>(&own.get("strength")) : nullptr;
+                if (still && *still == 0.0 && overriddenNumber(doc, overrides, id, "strength")) {
+                    *why = doc.nameOf(id) + " blows nowhere at its own strength, so its time is not kept (the CPU's)";
+                    return false;
+                }
+                const auto frequency = static_cast<float>(number("frequency"));
+                const double speed = number("speed");
+                s.value[1] = static_cast<float>(number("gust"));
+                s.value[2] = frequency;
+                s.value[3] = static_cast<float>(number("turbulence"));
+                const Vec3f direction = params.getVec3("direction");
+                const Vec3f dir = direction.length() < 1e-6f ? Vec3f{} : direction.normalized();
+                const WindPhase phase = windPhase(dir, frequency, speed, time, fps, params.getBool("loop"),
+                                                  static_cast<double>(params.getInt("loopStart")),
+                                                  static_cast<double>(params.getInt("loopEnd")));
+                auto bits = [](int* to, float v) { std::memcpy(to, &v, sizeof(float)); };  // the kernel reads them as floats
+                if (!(direction.length() < 1e-6f)) {
+                    s.value2[0] = dir.x;
+                    s.value2[1] = dir.y;
+                    s.value2[2] = dir.z;
+                    if (phase.looped) {
+                        bits(&s.flag[0], phase.angle);
+                        bits(&s.flag[1], phase.turnsPer);
+                        s.flag[3] = 1;
+                        bits(&s.flag2[0], phase.across1.x);
+                        bits(&s.flag2[1], phase.across1.y);
+                        bits(&s.flag2[2], phase.across1.z);
+                        bits(&s.flag2[3], phase.radius);
+                    } else {
+                        bits(&s.flag[0], phase.shift.x);
+                        bits(&s.flag[1], phase.shift.y);
+                        bits(&s.flag[2], phase.shift.z);
+                    }
+                }
+                s.value2[3] = phase.flutterPhase;
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            case StageKind::Blend: {
+                if (!mappable("mix", &s.value[0])) return false;
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            case StageKind::SelfCollide: {
+                if (!mappable("strength", &s.value[0])) return false;
+                const double packing = std::max(number("packing"), 1e-3);  // (as SelfCollideOp reads it)
+                s.value[1] = static_cast<float>(packing);
+                // Overpacked past it: the hair's fixed point (2^32 a unit) above ceil(packing 2^32).
+                const auto limit = static_cast<std::uint64_t>(std::ceil(packing * 4294967296.0));
+                s.flag2[0] = static_cast<int>(static_cast<std::uint32_t>(limit));
+                s.flag2[1] = static_cast<int>(static_cast<std::uint32_t>(limit >> 32));
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            case StageKind::Static: {
+                if (!mappable("strength", &s.value[0])) return false;
+                s.value[1] = static_cast<float>(std::clamp(number("randomness"), 0.0, 1.0));
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            // ---- The shapers working on each strand alone ----
+            case StageKind::Bend:
+            case StageKind::Direction:
+            case StageKind::Displace: {
+                // The direction one world vector (as every strand takes it); one per strand (an
+                // expression) is the CPU's.
+                Vec3f direction;
+                if (!constantVector(doc, overrides, id, params, "direction", &direction)) {
+                    *why = doc.nameOf(id) + " takes its direction per strand (the CPU's)";
+                    return false;
+                }
+                if (stage.kind == StageKind::Bend) {
+                    if (!mappable("angle", &s.value[0])) return false;
+                    s.value[1] = static_cast<float>(number("start"));
+                    s.value[2] = static_cast<float>(number("end"));
+                    s.value[3] = static_cast<float>(number("randomness"));
+                    const std::string along = params.getString("along");
+                    s.flag[0] = along == "normal" ? 0 : along == "direction" ? 2 : 1;
+                    s.value2[0] = direction.x;
+                    s.value2[1] = direction.y;
+                    s.value2[2] = direction.z;
+                } else if (stage.kind == StageKind::Direction) {
+                    // Its mapped params' fields: the first two mapped (readLookFields), a third the CPU's.
+                    const std::vector<std::string> fields = directionMapped(params);
+                    if (fields.size() > 2) {
+                        *why = doc.nameOf(id) + " maps its inclination, roll and strength all three (the CPU's)";
+                        return false;
+                    }
+                    const char* const names[3] = {"inclination", "roll", "strength"};
+                    for (int i = 0; i < 3; ++i) {
+                        if (!mappable(names[i], &s.value[i])) return false;
+                        const auto at = std::find(fields.begin(), fields.end(), names[i]);
+                        s.flag[1 + i] = at == fields.end() ? 2 : static_cast<int>(at - fields.begin());
+                    }
+                    s.value[3] = static_cast<float>(number("inclinationRandom"));
+                    s.value2[0] = direction.x;
+                    s.value2[1] = direction.y;
+                    s.value2[2] = direction.z;
+                    s.value2[3] = static_cast<float>(number("rollRandom"));
+                    s.flag[0] = params.getString("along") == "tangent" ? 1 : 0;
+                } else {
+                    if (!mappable("distance", &s.value[0])) return false;
+                    s.flag[0] = params.getString("along") != "direction" ? 1 : 0;
+                    const Vec3f unit = direction.length() > 1e-6f ? direction.normalized() : Vec3f{};  // (DisplaceOp's `unit`)
+                    s.value2[0] = unit.x;
+                    s.value2[1] = unit.y;
+                    s.value2[2] = unit.z;
+                    s.ramp = ramp("profile");
+                    s.tabled = true;
+                }
+                break;
+            }
+            case StageKind::Transform: {
+                auto vec = [&](const std::string& name) {
+                    const OverrideValue* v = overridden(doc, overrides, id, name);
+                    const Vec3f* dragged = v ? std::get_if<Vec3f>(v) : nullptr;
+                    return dragged ? *dragged : params.getVec3(name);
+                };
+                if (!mappable("scale", &s.value[0])) return false;
+                const Vec3f translate = vec("translate"), rotate = vec("rotate"), pivot = vec("pivot");
+                const Vec3f translateRandom = vec("translateRandom"), rotateRandom = vec("rotateRandom");
+                const float scaleRandom = static_cast<float>(number("scaleRandom"));
+                s.value[1] = scaleRandom;
+                const Vec3f zero;
+                s.flag[0] = params.getString("space") == "world" ? 1 : 0;
+                s.flag[2] = translateRandom != zero ? 1 : 0;
+                s.flag[3] = rotateRandom != zero ? 1 : 0;
+                // Nothing to do (TransformOp's `identity`: its input handed on as it came).
+                s.flag[1] = translate == zero && rotate == zero && !s.flag[2] && !s.flag[3] && scaleRandom <= 0.0f &&
+                                    !mappedParam(params, "scale") && s.value[0] == 1.0f
+                                ? 1
+                                : 0;
+                const Vec3f* rows[4] = {&rotate, &pivot, &translateRandom, &rotateRandom};
+                for (int r = 0; r < 4; ++r) {
+                    s.more[r * 4] = rows[r]->x;
+                    s.more[r * 4 + 1] = rows[r]->y;
+                    s.more[r * 4 + 2] = rows[r]->z;
+                }
+                s.value2[0] = translate.x;
+                s.value2[1] = translate.y;
+                s.value2[2] = translate.z;
+                break;
+            }
+            case StageKind::Twist: {
+                if (!mappable("turns", &s.value[0])) return false;
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            case StageKind::Tie: {
+                // TieOp::evaluate's numbers, as it clamps them; its vectors dragged or its own.
+                auto vector = [&](const char* name) {
+                    const OverrideValue* v = overridden(doc, overrides, id, name);
+                    const Vec3f* dragged = v ? std::get_if<Vec3f>(v) : nullptr;
+                    return dragged ? *dragged : params.getVec3(name);
+                };
+                auto bits = [](int* to, float v) { std::memcpy(to, &v, sizeof(float)); };  // the kernels read them as floats
+                s.value[0] = std::max(0.0f, static_cast<float>(number("radius")));
+                s.value[1] = std::clamp(static_cast<float>(number("tightness")), 0.0f, 1.0f);
+                s.value[2] = std::clamp(static_cast<float>(number("spread")), 0.0f, 80.0f) * 3.14159265358979f / 180.0f;
+                s.value[3] = static_cast<float>(number("twist"));
+                s.value2[0] = std::max(0.0f, static_cast<float>(number("ease")));
+                const Vec3f direction = vector("direction"), center = vector("center");
+                s.value2[1] = direction.x;
+                s.value2[2] = direction.y;
+                s.value2[3] = direction.z;
+                bits(&s.flag2[0], center.x);
+                bits(&s.flag2[1], center.y);
+                bits(&s.flag2[2], center.z);
+                s.flag[0] = params.getString("tailChannel").empty() ? 0 : 1;
+                // Its affect a mask (a map, a field plugged in, a number under 1): which strands it
+                // ties (field 0, per strand) and how much of its result each keeps.
+                const bool masked = maskedNode(graph, id) || params.field(kAffectParam) != nullptr ||
+                                    overridden(doc, overrides, id, kAffectParam) != nullptr;
+                float affect = 1.0f;
+                if (masked && !mappable(kAffectParam, &affect)) return false;
+                bits(&s.flag[1], affect);
+                s.flag[2] = masked ? 1 : 0;
+                break;
+            }
+            // ---- The shapers reading their neighbours or a reference ----
+            case StageKind::Smooth: {
+                if (!mappable("strength", &s.value[0])) return false;
+                const float scale = std::clamp(static_cast<float>(number("scale")), 0.0f, 1.0f);
+                s.value[1] = scale;
+                // extra_ops.cpp smoothCells: four cells to the deviation, 8 to 128.
+                s.flag[0] = static_cast<int>(std::clamp(std::ceil(4.0f / std::max(scale, 1e-3f)), 8.0f, 128.0f));
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            case StageKind::RestoreLength: {
+                const std::string mode = params.getString("mode");
+                s.flag[0] = mode == "scale" ? 1 : mode == "even" ? 2 : 0;
+                s.flag[1] = stage.from2 != kNoStage ? 1 : 0;  // the reference a stage of the run makes
+                break;
+            }
+            case StageKind::BlendNeighbors:
+                if (!mappable("strength", &s.value[0])) return false;
+                s.flag[0] = params.getBool("preserveLength") ? 1 : 0;
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            case StageKind::Tangle:
+                if (!mappable("strength", &s.value[0])) return false;
+                s.value[1] = static_cast<float>(number("start"));
+                s.value[2] = static_cast<float>(number("span"));
+                s.value[3] = static_cast<float>(number("reach"));
+                break;
+            case StageKind::Flow:
+                // FlowOp's numbers: the lift in degrees (its multiplier), its jitter in radians.
+                if (!mappable("lift", &s.value[0])) return false;
+                s.value[1] = static_cast<float>(number("bend"));
+                s.value[2] = static_cast<float>(number("rollRandom")) * 0.0174532925f;
+                break;
+            // ---- Jiggle and MeshCut ----
+            case StageKind::Jiggle: {
+                // Its springs over the scalp and history its last evaluation read (operator_state.h
+                // jiggleState); a history dragged past the frames held reads frames the host would
+                // sample anew on the release: the CPU's.
+                JiggleState state;
+                if (!jiggleState(graph.node(id), cachedStrands(graph, id), &state)) {
+                    *why = doc.nameOf(id) + " keeps no scalp motion for its result";
+                    return false;
+                }
+                if (!mappable("strength", &s.value[0])) return false;
+                // (In double too, as JiggleOp weighs the frames by them: more[0-1], [2-3].)
+                const double frequency = number("frequency"), damping = number("damping");
+                s.value[1] = static_cast<float>(frequency);
+                s.value[2] = static_cast<float>(damping);
+                std::memcpy(&s.more[0], &frequency, sizeof frequency);
+                std::memcpy(&s.more[2], &damping, sizeof damping);
+                const std::int64_t own = graph.node(id).params().getInt("history");
+                std::int64_t history = own;
+                if (const double* v = overriddenNumber(doc, overrides, id, "history")) {
+                    history = static_cast<std::int64_t>(std::trunc(graph.node(id).params().clamped("history", *v)));
+                    ParamSet with = params, held = params;
+                    with.set("history", history);
+                    const std::size_t read = jiggleFramesRead(with, state);
+                    if (read != static_cast<std::size_t>(history) && jiggleFramesRead(held, state) == static_cast<std::size_t>(own)) {
+                        *why = doc.nameOf(id) + ".history reads frames of the scalp not sampled for it (the CPU's)";
+                        return false;
+                    }
+                }
+                s.flag[0] = static_cast<int>(history);
+                s.ramp = ramp("profile");
+                s.tabled = true;
+                break;
+            }
+            case StageKind::MeshCut: {
+                s.value[0] = static_cast<float>(number("offset"));
+                s.flag[0] = params.getString("keep") == "inside" ? 1 : 0;
+                break;
+            }
+        }
+        // ---- Affect masks ----
+        // Restricted by its affect (or one dragged): its result mixed back by it after its last stage
+        // (but Tie's: mixesByItsAffect).
+        if (!mixesByItsAffect(stage.kind) &&
+            (maskedNode(graph, id) || params.field(kAffectParam) != nullptr || overridden(doc, overrides, id, kAffectParam))) {
+            if (!mappable(kAffectParam, &s.affect)) return false;
+            s.masked = true;
+            const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+            s.mixWidths = stage.kind == StageKind::Width && in && in->widths().size() == in->pointCount();
+        }
+        p.stages.push_back(std::move(s));
+    }
+    *out = std::move(p);
+    return true;
+}
+
+bool lookStrands(const GraphDocument& doc, const LookChain& chain, StrandsPtr* base, StrandsPtr* output, std::string* why) {
+    const Graph& graph = doc.graph;
+    *base = cachedStrands(graph, chain.base);
+    const StrandsPtr made = cachedStrands(graph, chain.output);
+    if (!*base || !made) {
+        *why = "not evaluated";
+        return false;
+    }
+    // The output as the viewport was handed it: without the roles' channel and, in a preview under
+    // its core share, without the core strands it holds hidden (preview_core.h), which the engine
+    // runs and leaves out of its results.
+    *output = valueAs<StrandsPtr>(graph.shownCachedValue(chain.output));
+    if (!*output) *output = made;
+    for (const NodeId id : chain.passOn) {
+        const NodeId in = handedFrom(graph, id);
+        const StrandsPtr out = cachedStrands(graph, id), taken = cachedStrands(graph, in);
+        const bool same = out && taken &&
+                          (out == taken || (channelsOnly(graph.node(id).typeName()) &&
+                                            out->positions().data() == taken->positions().data() && out->offsets() == taken->offsets()));
+        if (!in || !same) {
+            *why = "node '" + doc.nameOf(id) + "' changes the strands";
+            return false;
+        }
+    }
+    if ((*base)->strandCount() != made->strandCount() || (*base)->pointCount() != made->pointCount() ||
+        (*base)->offsets() != made->offsets()) {
+        *why = "the strands' layout changes after the base";
+        return false;
+    }
+    return true;
+}
+
+namespace {
+
+// The strands each stage takes (its first input's cached result) and the stages' own results.
+std::vector<StrandsPtr> fieldSources(const GraphDocument& doc, const LookChain& chain) {
+    const Graph& graph = doc.graph;
+    std::vector<StrandsPtr> sources{cachedStrands(graph, chain.base)};
+    for (const LookStage& s : chain.stages) {
+        sources.push_back(cachedStrands(graph, upstream(graph, s.node)));
+        sources.push_back(cachedStrands(graph, s.node));
+    }
+    return sources;
+}
+
+// One mapped param's values on `in` (the strands its node takes), as `field` reads them there:
+// per point where it varies along the strands and the operator reads it so (`perPoint`), else
+// per strand (at the root, ScalarField::at).
+void readValues(const ScalarField& field, const StrandSet& in, bool pointsAllowed, FieldValues* out) {
+    field.validate(in);  // binds channels and expressions to the set; throws GraphError as the operator would
+    out->readsPositions = field.readsPositions();
+    if (pointsAllowed && field.perPoint()) {
+        out->mode = FieldValues::kPerPoint;
+        out->values.assign(in.pointCount(), 0.0f);
+        parallelFor(0, in.strandCount(), [&](std::size_t s) {
+            const std::size_t begin = in.strandBegin(s), n = in.strandPointCount(s);
+            for (std::size_t i = 0; i < n; ++i) out->values[begin + i] = field.atPoint(in, s, i);
+        }, 1024);
+    } else {
+        out->mode = FieldValues::kPerStrand;
+        out->values.assign(in.strandCount(), 0.0f);
+        parallelFor(0, in.strandCount(), [&](std::size_t s) { out->values[s] = field.at(in, s); }, 1024);
+    }
+}
+
+// The stages that move each point after reading a value for it from the points before it moved.
+bool movesPointByPoint(StageKind kind) {
+    return kind == StageKind::Clump || kind == StageKind::Noise || kind == StageKind::Curl || kind == StageKind::Displace;
+}
+
+// What a mapped param reads, against what a run of `chain` from its first stage changes before
+// stage k: channels the stages before it write (their cached result's channel is not the very
+// array their cached input holds) are Interpolate's (from its binding: its guides' influence, the
+// guide attributes it blends, its layers along the strands) or another's (Clump's clump numbers:
+// its choice, fixed through a run).
+struct FieldRead {
+    const ScalarField* field = nullptr;  // the one holding the map (a plugged Map or Expression node's)
+    const MapRef* map = nullptr;         // null: a number
+    bool unknown = false;                // a plugged field that says nothing of what it reads
+    bool positions = false;              // the points (ScalarField::readsPositions)
+    bool influence = false;              // the guides' influence the run's Interpolate makes
+    std::string influenceName;           // its channel
+    bool binding = false;                // a strand channel Interpolate blends from its binding
+    bool layer = false;                  // a point channel Interpolate writes along the strands
+    bool wet = false;                    // the wetness a Wet writes (a drag of it changes it)
+    bool tie = false;                    // the tail a Tie writes (on the GPU for a Tie after it, an affect mapped to it)
+    std::size_t tieStage = kNoStage;     // the last Tie writing it
+    bool otherUnknown = false;           // unknown for another reason than a Tie's tail
+};
+FieldRead whatItReads(const Graph& graph, const LookChain& chain, std::size_t k, const ScalarField& top) {
+    FieldRead r;
+    r.field = &top;
+    if (top.plugged()) {
+        r.field = top.plugged()->scalarField();
+        if (!r.field) {
+            r.unknown = r.otherUnknown = true;
+            r.positions = top.readsPositions();
+            return r;
+        }
+    }
+    r.map = r.field->map();
+    if (!r.map) return r;
+    r.positions = r.field->readsPositions();
+    auto channel = [&](const std::string& name) {
+        for (std::size_t j = 0; j < k; ++j) {
+            const NodeId id = chain.stages[j].node;
+            const StrandsPtr in = cachedStrands(graph, upstream(graph, id)), out = cachedStrands(graph, id);
+            if (!in || !out) {
+                r.unknown = r.otherUnknown = true;
+                return;
+            }
+            const bool point = out->pointChannel(name) != in->pointChannel(name);
+            const bool strand = out->strandChannel(name) != in->strandChannel(name);
+            if ((point || strand) && (chain.stages[j].kind == StageKind::Flyaway || chain.stages[j].kind == StageKind::Blend)) {
+                // Flyaway's strays' flags (the GPU draws the strays, not the flags), Blend's mix
+                // and its look's mixed channels: not made on the GPU.
+                r.unknown = r.otherUnknown = true;
+                continue;
+            }
+            if (point && chain.stages[j].kind == StageKind::Tie) {
+                // A Tie's tail (the GPU's run writes it for the Ties after it, and an affect mapped to it).
+                r.unknown = true;
+                r.tie = true;
+                r.tieStage = j;
+                continue;
+            }
+            if (point && chain.stages[j].level >= 0) {
+                // A Wet's point channel, its wetness (its clump numbers: its levels' choice, fixed).
+                r.unknown = r.otherUnknown = true;
+                r.wet = true;
+                continue;
+            }
+            if ((!point && !strand) || chain.stages[j].kind != StageKind::Interpolate) continue;
+            if (point) {
+                r.layer = true;
+            } else if (graph.node(id).params().getString("influenceChannel") == name) {
+                r.influence = true;
+                r.influenceName = name;
+            } else {
+                r.binding = true;
+            }
+        }
+    };
+    switch (r.map->source) {
+        case MapRef::Source::Texture:
+        case MapRef::Source::ColorSet: break;
+        case MapRef::Source::Attribute:
+        case MapRef::Source::Guide: channel(r.map->name); break;
+        case MapRef::Source::Expression:
+            if (const Expression* e = r.field->expression()) {
+                for (const std::string& name : e->channels()) channel(name);
+            } else {
+                r.unknown = r.otherUnknown = true;
+            }
+            break;
+    }
+    return r;
+}
+
+// The GPU's ops (look.slang FieldCS): kind, code, a value's bits, a slot.
+enum FieldOp : std::uint32_t { kOpNumber, kOpShape, kOpStatic, kOpInfluence, kOpNegate, kOpBinary, kOpSelect, kOpCall };
+// The functions FieldCS runs (look.slang fieldCall), by their name in expressions; any other runs on
+// the CPU. smoothstep and linearstep reach the GPU edges first, whichever order they were written
+// in (expression.cpp orders them). fieldCall's case 33, GroomLab's old clamped remap, is no
+// expression's: remap is SeExpr's now, CPU only.
+const char* const kGpuFunctions[] = {"sin",   "cos",    "tan",   "asin",   "acos",    "atan",    "abs",        "sqrt",  "floor",
+                                     "ceil",  "fract",  "exp",   "log",    "sign",    "pow",     "atan2",      "min",   "max",
+                                     "mod",   "step",   "clamp", "mix",    "smoothstep", "round", "trunc",     "radians",
+                                     "degrees", "gamma", "bias", "gain",   "lerp",    "linearstep", "fit"};
+const char* const kGpuOperators[] = {"+", "-", "*", "/", "^", "<", "<=", ">", ">=", "==", "!="};
+// The strand's shape variables FieldCS makes from the run's points, by their name.
+const char* const kGpuShape[] = {"length", "longest", "reach", "straightness", "lift", "tipx", "tipy", "tipz"};
+constexpr std::size_t kMaxFieldStack = 16, kMaxFieldOps = 256;
+
+// A field's program for FieldCS (FieldProgram), per strand on `in` (validated: the expression bound
+// there), or null with *why for what the kernels do not run.
+std::shared_ptr<const FieldProgram> fieldProgram(const FieldRead& r, const StrandSet& in, const ScalpMesh* scalp,
+                                                 std::string* why) {
+    auto program = std::make_shared<FieldProgram>();
+    program->low = r.map->min;
+    program->high = r.map->max;
+    auto push = [&](std::uint32_t kind, std::uint32_t code, float value, std::uint32_t slot) {
+        std::uint32_t bits = 0;
+        std::memcpy(&bits, &value, sizeof bits);
+        program->ops.insert(program->ops.end(), {kind, code, bits, slot});
+    };
+    const MapRef::Source source = r.map->source;
+    if (source == MapRef::Source::Attribute || source == MapRef::Source::Guide) {
+        // The guides' influence (a strand channel Interpolate writes), as the kernels make it.
+        push(kOpInfluence, 0, 0.0f, 0);
+        program->depth = 1;
+        program->influence = true;
+        return program;
+    }
+    const Expression* e = r.field->expression();
+    if (source != MapRef::Source::Expression || !e || e->isVector()) {
+        *why = "a map the GPU does not evaluate";
+        return nullptr;
+    }
+    if (e->stackDepth() > kMaxFieldStack || e->program().size() > kMaxFieldOps) {
+        *why = "an expression too long for the GPU";
+        return nullptr;
+    }
+    // Function, operator and shape codes by name (the expression's own codes may move).
+    std::map<int, std::uint32_t> functions, operators, shapes;
+    for (std::uint32_t f = 0; f < sizeof kGpuFunctions / sizeof kGpuFunctions[0]; ++f) functions[Expression::functionCode(kGpuFunctions[f])] = f;
+    for (std::uint32_t b = 0; b < sizeof kGpuOperators / sizeof kGpuOperators[0]; ++b) operators[Expression::binaryCode(kGpuOperators[b])] = b;
+    for (std::uint32_t v = 0; v < sizeof kGpuShape / sizeof kGpuShape[0]; ++v) shapes[Expression::variableCode(kGpuShape[v])] = v;
+    const int lift = Expression::variableCode("lift"), longest = Expression::variableCode("longest");
+    const int nx = Expression::variableCode("nx"), ny = Expression::variableCode("ny"), nz = Expression::variableCode("nz");
+    // The static slots: the root's normal first where the shape is read (lift), then each variable
+    // and channel as first read.
+    std::vector<int> slotVariables;               // per slot: a variable's code, or -1 - channel
+    std::map<int, std::uint32_t> slotOf;
+    auto slot = [&](int key) {
+        const auto it = slotOf.find(key);
+        if (it != slotOf.end()) return it->second;
+        const auto s = static_cast<std::uint32_t>(slotVariables.size());
+        slotOf[key] = s;
+        slotVariables.push_back(key);
+        return s;
+    };
+    for (const Expression::Op& op : e->program()) {
+        if (op.kind == Expression::Op::Variable && op.code == lift) {
+            slot(nx);
+            slot(ny);
+            slot(nz);
+            break;
+        }
+    }
+    const std::vector<std::string>& channels = e->channels();
+    for (const Expression::Op& op : e->program()) {
+        switch (op.kind) {
+            case Expression::Op::Number: push(kOpNumber, 0, op.value, 0); break;
+            case Expression::Op::Variable: {
+                const auto shape = shapes.find(op.code);
+                if (shape != shapes.end()) {
+                    push(kOpShape, shape->second, 0.0f, 0);
+                    program->shape = true;
+                    program->longest = program->longest || op.code == longest;
+                } else {
+                    push(kOpStatic, 0, 0.0f, slot(op.code));  // the root's, rand, index, the time: fixed
+                }
+                break;
+            }
+            case Expression::Op::Channel: {
+                const std::string& name = op.channel < channels.size() ? channels[op.channel] : std::string();
+                if (r.influence && name == r.influenceName) {
+                    push(kOpInfluence, 0, 0.0f, 0);
+                    program->influence = true;
+                } else {
+                    push(kOpStatic, 0, 0.0f, slot(-1 - static_cast<int>(op.channel)));
+                }
+                break;
+            }
+            case Expression::Op::Unary: push(kOpNegate, 0, 0.0f, 0); break;
+            case Expression::Op::Binary: {
+                const auto it = operators.find(op.code);
+                if (it == operators.end()) {
+                    *why = "an operator the GPU does not run";
+                    return nullptr;
+                }
+                push(kOpBinary, it->second, 0.0f, 0);
+                break;
+            }
+            case Expression::Op::Select: push(kOpSelect, 0, 0.0f, 0); break;
+            case Expression::Op::Call: {
+                const auto it = functions.find(op.code);
+                if (it == functions.end() || op.results != 1) {
+                    *why = "a function the GPU does not run";
+                    return nullptr;
+                }
+                push(kOpCall, it->second, 0.0f, op.args);
+                break;
+            }
+            default:
+                *why = "vectors (the GPU runs numbers alone)";
+                return nullptr;
+        }
+    }
+    program->depth = static_cast<std::uint32_t>(e->stackDepth());
+    program->slotCount = static_cast<std::uint32_t>(slotVariables.size());
+    if (program->slotCount) {
+        program->statics.assign(in.strandCount() * program->slotCount, 0.0f);
+        const Expression::Bound& bound = r.field->boundExpression();
+        parallelFor(0, in.strandCount(), [&](std::size_t s) {
+            float vars[Expression::kVariables];
+            e->strandVariablesInto(in, s, scalp, bound, vars);
+            float* to = program->statics.data() + s * program->slotCount;
+            for (std::uint32_t k = 0; k < program->slotCount; ++k) {
+                const int key = slotVariables[k];
+                if (key >= 0) {
+                    to[k] = vars[key];
+                    continue;
+                }
+                const auto c = static_cast<std::size_t>(-1 - key);
+                const std::vector<float>* strand = c < bound.channels.size() ? bound.channels[c] : nullptr;
+                const std::vector<float>* point = c < bound.pointChannels.size() ? bound.pointChannels[c] : nullptr;
+                if (strand) {
+                    to[k] = s < strand->size() ? (*strand)[s] : 0.0f;
+                } else {
+                    const std::size_t at = in.strandBegin(s);
+                    to[k] = point && at < point->size() ? (*point)[at] : 0.0f;
+                }
+            }
+        }, 1024);
+    }
+    if (program->longest) {
+        const PreviewCore core(in);
+        for (std::size_t s = 0; s < in.strandCount(); ++s) {
+            if (core.core(s)) program->core.push_back(static_cast<std::uint32_t>(s));
+        }
+    }
+    return program;
+}
+
+}  // namespace
+
+bool readLookFields(const GraphDocument& doc, const LookChain& chain, const ScalpMesh* scalp, LookFields* out, std::string* why) {
+    static std::atomic<std::uint64_t> serials{0};
+    const Graph& graph = doc.graph;
+    LookFields f;
+    f.sources = fieldSources(doc, chain);
+    f.stages.resize(chain.stages.size());
+    for (std::size_t k = 0; k < chain.stages.size(); ++k) {
+        const LookStage& stage = chain.stages[k];
+        const NodeId id = stage.node;
+        const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+        // (`tieChannel`: a Tie's tail it maps read on the GPU where the Tie writes it: an affect's.)
+        auto read = [&](const char* name, bool pointsAllowed, FieldValues* values, bool tieChannel = false) {
+            const ParamSet params = evaluatedParams(graph, id);
+            const bool mapped = ownMap(params, name) || params.field(name);
+            if (!mapped) return true;
+            if (!in) {
+                *why = "not evaluated";
+                return false;
+            }
+            // The field alone: a plugged one read with the param's number 1 (the CPU multiplies by the
+            // number, the kernels by the dragged one); a map of the param's own as it is.
+            ParamSet unit = params;
+            if (!ownMap(params, name)) unit.set(name, 1.0);
+            if (ownMap(params, name)) {
+                const MapRef& map = std::get<MapRef>(params.get(name));
+                // The time and the groom's maps are the graph's evaluation's (expressionEnvironment).
+                if (map.source == MapRef::Source::Expression) {
+                    const ExpressionDependencies deps = scanExpression(map.name);
+                    if (deps.time || !deps.maps.empty()) {
+                        *why = doc.nameOf(id) + "." + name + " reads the time or a map (the CPU's)";
+                        return false;
+                    }
+                }
+            }
+            try {
+                const ScalarField field(unit, name, scalp);
+                readValues(field, *in, pointsAllowed, values);
+                // What it reads against what the run moves before this node: fixed values hold
+                // whatever moves; values of the points or of the guides' influence (which the run's
+                // Interpolate makes) the GPU makes again from the run's points, per strand, where
+                // its kernels run the map (FieldProgram).
+                const FieldRead r = whatItReads(graph, chain, k, field);
+                if (r.wet) {
+                    *why = doc.nameOf(id) + "." + name + " reads the wetness a Wet before it writes (the CPU's)";
+                    return false;
+                }
+                if (r.tie) {
+                    // An affect mapped to it alone (an attribute map, per point): read where the
+                    // Tie writes it on the GPU, remapped as the map remaps it.
+                    if (tieChannel && r.map && r.map->source == MapRef::Source::Attribute && !r.otherUnknown && !r.layer &&
+                        !r.binding && !r.influence && r.tieStage != kNoStage && values->mode == FieldValues::kPerPoint) {
+                        values->channelFrom = r.tieStage;
+                        values->low = r.map->min;
+                        values->high = r.map->max;
+                        return true;
+                    }
+                    *why = doc.nameOf(id) + "." + name + " reads the tail a Tie before it writes (the CPU's)";
+                    return false;
+                }
+                const bool known = !r.unknown && !r.layer;
+                // A Control plugged in: a number the host sets, the same everywhere.
+                values->fixed = (known && !r.positions && !r.influence && !r.binding) || pluggedControl(graph, id, name);
+                values->binding = known && r.binding;
+                if (k > 0 && known && (r.positions || r.influence) && values->mode == FieldValues::kPerStrand) {
+                    std::string whyNot;
+                    values->program = fieldProgram(r, *in, scalp, &whyNot);
+                }
+            } catch (const std::exception& e) {
+                *why = doc.nameOf(id) + "." + name + ": " + e.what();
+                return false;
+            }
+            return true;
+        };
+        FieldValues* v = f.stages[k].field;
+        bool ok = true;
+        // ---- Affect masks ----
+        // A masked node's affect, at its first stage (a Wet's largest level), on what that takes, per
+        // strand or per point (a Tie mixes by its own: field 0).
+        if (!mixesByItsAffect(stage.kind) && (k == 0 || chain.stages[k - 1].node != id) && !read(kAffectParam, true, &f.stages[k].affect, true)) {
+            return false;
+        }
+        if (stage.level >= 0) continue;  // a Wet's level: its pull a number of its own
+        switch (stage.kind) {
+            case StageKind::Interpolate: break;
+            case StageKind::Length: ok = read("keep", false, &v[0]) && read("fraction", false, &v[1]); break;
+            case StageKind::Clump: ok = read("strength", true, &v[0]) && read("volumize", false, &v[1]); break;
+            case StageKind::Noise: ok = read("amplitude", true, &v[0]) && read("fraction", false, &v[1]); break;
+            case StageKind::Curl:
+                if (graph.node(id).params().getString("shape") == "coil") {
+                    // A coil's radius by the strands' widths at each point (times coilWidths), as
+                    // the strands it takes carry them.
+                    if (!in || in->widths().size() != in->pointCount()) {
+                        *why = in ? doc.nameOf(id) + ": the strands carry no widths" : std::string("not evaluated");
+                        return false;
+                    }
+                    v[0].mode = FieldValues::kPerPoint;
+                    v[0].values = in->widths();
+                    v[0].fixed = true;
+                    v[0].widths = true;
+                } else {
+                    ok = read("radius", true, &v[0]);
+                }
+                break;
+            case StageKind::Width: ok = read("width", true, &v[0]); break;
+            case StageKind::Part: ok = read("strength", false, &v[0]); break;
+            case StageKind::Gravity: ok = read("strength", false, &v[0]); break;
+            case StageKind::Wind: ok = read("strength", false, &v[0]); break;
+            case StageKind::Blend: ok = read("mix", true, &v[0]); break;
+            case StageKind::Flyaway: ok = read("stray", false, &v[0]) && read("fraction", false, &v[1]); break;
+            case StageKind::Collide: break;
+            case StageKind::SelfCollide:
+            case StageKind::Static: ok = read("strength", false, &v[0]); break;
+            case StageKind::Tie:
+                // Its affect: which strands it ties and how much each keeps of its result (the
+                // graph mixes it by the strand's value; one varying along the strands: the CPU's).
+                ok = read(kAffectParam, true, &v[0]);
+                if (ok && v[0].mode == FieldValues::kPerPoint) {
+                    *why = doc.nameOf(id) + "'s affect varies along its strands (the CPU's)";
+                    return false;
+                }
+                break;
+            case StageKind::Bend: ok = read("angle", false, &v[0]); break;
+            case StageKind::Direction: {
+                // The first two of its mapped params (readLookParams refuses a third).
+                const std::vector<std::string> mapped = directionMapped(evaluatedParams(graph, id));
+                for (std::size_t i = 0; i < mapped.size() && i < 2 && ok; ++i) ok = read(mapped[i].c_str(), false, &v[i]);
+                break;
+            }
+            case StageKind::Transform: ok = read("scale", false, &v[0]); break;
+            case StageKind::Displace: ok = read("distance", true, &v[0]); break;
+            case StageKind::Twist: ok = read("turns", false, &v[0]); break;
+            // The shapers reading their neighbours: their strength per strand (their affect, where a
+            // mask, the stage's own: StageFields::affect).
+            case StageKind::Smooth:
+            case StageKind::BlendNeighbors:
+            case StageKind::Tangle: ok = read("strength", false, &v[0]); break;
+            case StageKind::RestoreLength: break;
+            case StageKind::Flow: ok = read("lift", false, &v[0]); break;
+            case StageKind::Jiggle: ok = read("strength", false, &v[0]); break;
+            case StageKind::MeshCut: break;
+        }
+        if (!ok) return false;
+    }
+    f.serial = ++serials;
+    *out = std::move(f);
+    return true;
+}
+
+bool sameLookFields(const GraphDocument& doc, const LookChain& chain, const LookFields& fields) {
+    return fields.serial != 0 && fields.stages.size() == chain.stages.size() && fields.sources == fieldSources(doc, chain);
+}
+
+bool lookFieldsHold(const GraphDocument& doc, const LookChain& chain, const LookFields& fields, std::string* why) {
+    if (fields.stages.size() != chain.stages.size()) {
+        *why = "the mapped params were read for another chain";
+        return false;
+    }
+    static const char* const kNames[kStageKinds][2] = {{"", ""},           {"keep", "fraction"},   {"strength", "volumize"},
+                                                       {"amplitude", "fraction"}, {"radius", ""}, {"width", ""},
+                                                       {"strength", ""}, {"strength", ""}, {"stray", "fraction"}, {"", ""},
+                                                       {"strength", ""},     {"mix", ""},      {"strength", ""},
+                                                       {"strength", ""},     {"affect", ""},
+                                                       // Bend, Direction (its mapped ones: directionMapped), Transform, Displace, Twist
+                                                       {"angle", ""}, {"", ""}, {"scale", ""}, {"distance", ""}, {"turns", ""},
+                                                       // The shapers reading their neighbours or a reference.
+                                                       {"strength", ""}, {"", ""}, {"strength", ""},
+                                                       {"strength", ""}, {"lift", ""},
+                                                       // Jiggle, MeshCut
+                                                       {"strength", ""}, {"", ""}};
+    bool interpolateBefore = false, widthBefore = false, channelsBefore = false;
+    for (std::size_t k = 0; k < chain.stages.size(); ++k) {
+        const LookStage& stage = chain.stages[k];
+        // Its mapped params, then its affect (i 2: read on what it takes, mixing what it made after:
+        // no point read after the ones before it moved; a Tie's tail read where the run writes it).
+        for (int i = 0; i < 3; ++i) {
+            const FieldValues& v = i < 2 ? fields.stages[k].field[i] : fields.stages[k].affect;
+            if (!v.mode || v.channelFrom != kNoStage) continue;
+            std::string param = i < 2 ? kNames[static_cast<int>(stage.kind)][i] : kAffectParam;
+            if (i < 2 && stage.kind == StageKind::Direction) {
+                const std::vector<std::string> mapped = directionMapped(evaluatedParams(doc.graph, stage.node));
+                param = static_cast<std::size_t>(i) < mapped.size() ? mapped[static_cast<std::size_t>(i)] : "?";
+            }
+            const std::string name = doc.nameOf(stage.node) + "." + param;
+            if (v.widths) {
+                // A coil's widths: a Width before it in the run makes them anew, which the engine
+                // reads in place of these (a coil by clump has no room for them: the CPU's).
+                if (widthBefore && doc.graph.node(stage.node).params().getString("coherence") == "clump") {
+                    *why = doc.nameOf(stage.node) + " coils each clump by widths a Width before it makes (the CPU's)";
+                    return false;
+                }
+                continue;
+            }
+            if (channelsBefore && !v.fixed && !v.binding && !v.program) {
+                *why = name + " reads what a Flyaway or Blend before it writes (the CPU's)";
+                return false;
+            }
+            // Made again on the GPU from the run's points (its channels read as LookInputs::read
+            // checks: the binding held).
+            if (v.program) continue;
+            if (k == 0) {
+                if (i < 2 && v.readsPositions && v.mode == FieldValues::kPerPoint && movesPointByPoint(stage.kind)) {
+                    *why = name + " reads each point after the ones before it moved (the CPU's)";
+                    return false;
+                }
+                continue;
+            }
+            if (v.readsPositions) {
+                *why = name + " reads the points, which the run moves before it";
+                return false;
+            }
+            if (interpolateBefore && !v.fixed && !v.binding) {
+                *why = name + " reads what Interpolate makes (the CPU's while Interpolate runs)";
+                return false;
+            }
+        }
+        if (stage.kind == StageKind::Interpolate) interpolateBefore = true;
+        if (stage.kind == StageKind::Width) widthBefore = true;
+        if (stage.kind == StageKind::Flyaway || stage.kind == StageKind::Blend) channelsBefore = true;
+    }
+    return true;
+}
+
+// ---- What Interpolate and Clump take ---------------------------------------------------------
+
+namespace {
+
+std::vector<const Guide*> keptGuides(const GuideSet& guides) {
+    std::vector<const Guide*> kept;
+    for (const Guide& g : guides.guides()) {
+        if (g.points.size() >= 2) kept.push_back(&g);
+    }
+    return kept;
+}
+
+// Whether any of `targets` makes `id`'s result (is it or is upstream of it).
+bool dependsOn(const Graph& graph, NodeId id, const std::set<NodeId>& targets) {
+    std::vector<NodeId> todo{id};
+    std::set<NodeId> seen;
+    while (!todo.empty()) {
+        const NodeId n = todo.back();
+        todo.pop_back();
+        if (!n || !seen.insert(n).second) continue;
+        if (targets.count(n)) return true;
+        const std::size_t slots = graph.inputSpecs(n).size();
+        for (std::size_t slot = 0; slot < slots; ++slot) {
+            NodeId src = 0;
+            if (graph.inputSource(n, slot, &src)) todo.push_back(src);
+        }
+    }
+    return false;
+}
+
+// Whether a Clump's centers made by a branch the run moves run on the GPU (GROOMLAB_GPU_CENTERS_BRANCH=0:
+// the CPU's, as before they did, for comparisons).
+bool centersBranchesOn() {
+    static const bool on = [] {
+        char* v = nullptr;
+        std::size_t n = 0;
+        const bool off = _dupenv_s(&v, &n, "GROOMLAB_GPU_CENTERS_BRANCH") == 0 && v && v[0] == '0';
+        std::free(v);
+        return !off;
+    }();
+    return on;
+}
+
+bool sameStages(const LookChain& a, const LookChain& b) {
+    if (a.stages.size() != b.stages.size() || a.base != b.base || a.output != b.output) return false;
+    for (std::size_t k = 0; k < a.stages.size(); ++k) {
+        if (a.stages[k].node != b.stages[k].node || a.stages[k].level != b.stages[k].level) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+bool madeFrom(const Graph& graph, NodeId id, const std::set<NodeId>& nodes) { return dependsOn(graph, id, nodes); }
+
+std::size_t firstMadeFrom(const GraphDocument& doc, const LookChain& chain, const std::set<NodeId>& nodes) {
+    for (std::size_t k = 0; k < chain.stages.size(); ++k) {
+        if (dependsOn(doc.graph, chain.stages[k].node, nodes)) return k;
+    }
+    return kNoStage;
+}
+
+bool sculptedGuides(const GraphDocument& doc, NodeId sculpt, const SculptEdits* edits, double strength, GuidesPtr* out,
+                    std::string* why) {
+    const Graph& graph = doc.graph;
+    const std::string name = doc.nameOf(sculpt);
+    if (graph.node(sculpt).typeName() != op::kSculpt) {
+        *why = name + " is no Sculpt node";
+        return false;
+    }
+    if (pluggedControl(graph, sculpt, "strength")) {
+        *why = name + ".strength is plugged (the CPU's)";
+        return false;
+    }
+    if (graph.bypassedFor(sculpt, true)) {  // handing its input on as it came, whatever the strength
+        *out = valueAs<GuidesPtr>(graph.cachedValue(sculpt));
+        if (!*out) *why = name + " is not evaluated";
+        return *out != nullptr;
+    }
+    NodeId in = 0, scalpNode = 0;
+    std::size_t inOutput = 0, scalpOutput = 0;
+    const GuidesPtr fed = graph.inputSource(sculpt, 0, &in, &inOutput) ? valueAs<GuidesPtr>(graph.cachedValue(in, inOutput)) : nullptr;
+    if (!fed || !valueAs<GuidesPtr>(graph.cachedValue(sculpt))) {
+        *why = name + " is not evaluated";
+        return false;
+    }
+    const MeshPtr scalp = graph.inputSource(sculpt, 1, &scalpNode, &scalpOutput) ? valueAs<MeshPtr>(graph.cachedValue(scalpNode, scalpOutput))
+                                                                                  : nullptr;
+    // As SculptOp evaluates it, the number clamped as a stored one.
+    const float s = static_cast<float>(graph.node(sculpt).params().clamped("strength", strength));
+    *out = !edits || edits->empty() || s == 0.0f ? fed : applySculpts(fed, *edits, s, scalp.get());
+    return true;
+}
+
+bool LookInputs::centersRun(const GraphDocument& doc, NodeId clump, NodeId end, const std::set<NodeId>& moved, const PartLines* parts,
+                            const ScalpMesh* scalp, std::shared_ptr<const LookCentersRun>* out, std::string* why,
+                            const std::map<NodeId, GuidesPtr>& standIn) {
+    const Graph& graph = doc.graph;
+    const std::string name = doc.nameOf(clump) + "'s centers";
+    LookChain full;
+    std::string whyNot;
+    if (!findLookChainTo(doc, end, &full, &whyNot)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    // From the first of its nodes the run changes (an Interpolate of a stroke's guides): those
+    // before it keep their cached results, and the strands it starts from must be among those.
+    std::size_t first = kNoStage;
+    for (std::size_t k = 0; k < full.stages.size() && first == kNoStage; ++k) {
+        if (dependsOn(graph, full.stages[k].node, moved)) first = k;
+    }
+    if (first == kNoStage) {
+        *why = name + " are made by nodes the GPU does not run (" + doc.nameOf(full.base) + ")";
+        return false;
+    }
+    auto run = std::make_shared<LookCentersRun>();
+    run->chain = chainFrom(doc, full, first);
+    if (dependsOn(graph, run->chain.base, moved)) {
+        *why = name + " are made from strands the run moves before the GPU's part of their branch (the CPU's)";
+        return false;
+    }
+    StrandsPtr made;
+    if (!readLookParams(doc, run->chain, {}, &run->params, &whyNot) || !lookStrands(doc, run->chain, &run->base, &made, &whyNot)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    CentersMemo& memo = centers_[clump];
+    if (!memo.inputs) memo.inputs = std::make_shared<LookInputs>();
+    if (!sameStages(memo.fieldsChain, run->chain) || !sameLookFields(doc, run->chain, memo.fields)) {
+        LookFields read;
+        if (!readLookFields(doc, run->chain, scalp, &read, &whyNot)) {
+            memo.fields = LookFields{};
+            memo.fieldsChain = LookChain{};
+            *why = name + ": " + whyNot;
+            return false;
+        }
+        memo.fields = std::move(read);
+        memo.fieldsChain = run->chain;
+    }
+    if (!lookFieldsHold(doc, run->chain, memo.fields, &whyNot)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    run->fields = memo.fields;
+    if (!memo.inputs->read(doc, run->chain, run->params, parts, &run->inputs, &whyNot, moved, scalp, &run->fields, scalpMesh_, standIn)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    rebinds_ += memo.inputs->rebinds() - memo.rebindsSeen;
+    memo.rebindsSeen = memo.inputs->rebinds();
+    guidesMade_ += memo.inputs->lastGuidesMade();
+    *out = std::move(run);
+    return true;
+}
+
+bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const LookParams& params, const PartLines* parts,
+                      std::vector<StageInputs>* inputs, std::string* why, const std::set<NodeId>& changed,
+                      const ScalpMesh* groomScalp, const LookFields* fields, const MeshPtr& scalpMesh,
+                      const std::map<NodeId, GuidesPtr>& standIn) {
+    const auto start = std::chrono::steady_clock::now();
+    const Graph& graph = doc.graph;
+    if (doc_ != &doc) {  // another document: its operators keep their own
+        interpolate_.clear();
+        clump_.clear();
+        curl_.clear();
+        part_.clear();
+        collide_.clear();
+        reach_.clear();
+        centers_.clear();
+        grid_.clear();
+        tie_.clear();
+        roots_.clear();
+        twist_.clear();
+        shaper_.clear();
+        jiggle_.clear();
+        meshCut_.clear();
+        doc_ = &doc;
+    }
+    scalpMesh_ = scalpMesh;
+    bool rebound = false;  // a running Interpolate's binding bound again for moved guide roots
+    // Whether the binding a run's Interpolate blends with gives the guides' influence its cached
+    // result holds (not bound again, its radius and falloff its own).
+    bool influenceHolds = true;
+    guidesMade_ = 0;
+    std::vector<StageInputs> out(chain.stages.size());
+    std::set<NodeId> before = changed;  // the stages before the current one (and changed): what the run moves
+    for (std::size_t k = 0; k < chain.stages.size(); ++k) {
+        const LookStage& stage = chain.stages[k];
+        const NodeId id = stage.node;
+        const std::string name = doc.nameOf(id);
+        if (stage.kind == StageKind::Interpolate) {
+            InterpolateState state;
+            const StrandsPtr result = cachedStrands(graph, id);
+            if (!interpolateState(graph.node(id), result, &state)) {
+                *why = name + " keeps no binding for its result";
+                return false;
+            }
+            const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+            if (!in || in != state.strands || state.strandCount != in->strandCount()) {
+                *why = name + "'s binding is for other strands";
+                return false;
+            }
+            NodeId guidesNode = 0, scalpNode = 0;
+            std::size_t guidesOutput = 0, scalpOutput = 0;
+            graph.inputSource(id, 1, &guidesNode, &guidesOutput);
+            const bool hasScalp = graph.inputSource(id, 2, &scalpNode, &scalpOutput);
+            // The guides it takes: made for the run (a dragged Sculpt node's), else as cached.
+            const auto stands = guidesOutput == 0 ? standIn.find(guidesNode) : standIn.end();
+            if (stands == standIn.end() && !standIn.empty()) {
+                std::set<NodeId> makers;
+                for (const auto& m : standIn) makers.insert(m.first);
+                if (dependsOn(graph, guidesNode, makers)) {
+                    *why = name + "'s guides are made from " + doc.nameOf(*makers.begin()) + " through nodes the GPU does not run (the CPU's)";
+                    return false;
+                }
+            }
+            const GuidesPtr guides = stands != standIn.end() ? stands->second : valueAs<GuidesPtr>(graph.cachedValue(guidesNode, guidesOutput));
+            const MeshPtr scalp = hasScalp ? valueAs<MeshPtr>(graph.cachedValue(scalpNode, scalpOutput)) : nullptr;
+            if (!guides || !state.guides) {
+                *why = name + " has no guides";
+                return false;
+            }
+            const StageParams* p = k < params.stages.size() ? &params.stages[k] : nullptr;
+            const std::size_t samples = interpolateSamples(*in);
+            if (!p || static_cast<std::size_t>(p->flag[0]) != samples) {
+                *why = name + ": its params were read for other strands";
+                return false;
+            }
+            const bool smooth = graph.node(id).params().getBool("smoothGuides");
+            InterpolateMemo& memo = interpolate_[id];
+            if (memo.made != state.binding) {
+                // The operator bound again (an evaluation: a stroke's press). Where it bound the same
+                // strands, with the same params, to guide roots a rounding from those the binding held
+                // here (a reshaped guide's smooth curve starts a rounding away), the one held stands:
+                // its weights are a rounding apart, and it is on the GPU already.
+                bool same = memo.current && memo.current->baseKey == state.baseKey && memo.current->strandCount == state.strandCount &&
+                            memo.current->strands == state.strands && memo.current->roots.size() == state.roots.size();
+                for (std::size_t g = 0; same && g < state.roots.size(); ++g) {
+                    same = (state.roots[g] - memo.current->roots[g]).length() <= 1e-5f * std::max(1.0f, memo.current->roots[g].length());
+                }
+                memo.made = state.binding;
+                if (!same) {
+                    memo.current = std::make_shared<InterpolateState>(state);
+                    memo.fitting.clear();
+                }
+                memo.rows.reset();
+                memo.rebound = false;  // (held or not, a rounding from the binding its result was made with)
+            }
+            if (memo.guides != guides || memo.samples != samples || memo.smooth != smooth || memo.scalp != scalp.get() || !memo.rows) {
+                // The guides the binding was made for: as many kept, the same IDs in order, and
+                // where guide attributes or layers become channels, the same of those.
+                const std::vector<const Guide*> kept = keptGuides(*guides), was = keptGuides(*state.guides);
+                if (kept.size() != was.size() || kept.size() != state.roots.size()) {
+                    *why = name + ": guides were added or removed (the CPU binds again)";
+                    return false;
+                }
+                for (std::size_t g = 0; g < kept.size(); ++g) {
+                    if (kept[g]->id != was[g]->id) {
+                        *why = name + ": other guides (the CPU binds again)";
+                        return false;
+                    }
+                    if (state.channels && (kept[g]->attributes != was[g]->attributes || kept[g]->pointAttributes != was[g]->pointAttributes)) {
+                        *why = name + ": guide attributes changed (the CPU blends them)";
+                        return false;
+                    }
+                }
+                auto rows = std::make_shared<InterpolateGuideRows>();
+                // (The last rows' clearances kept for the guides a dab left as they were.)
+                const std::vector<const Guide*> measured = memo.lastRows && memo.guides ? keptGuides(*memo.guides)
+                                                                                         : std::vector<const Guide*>{};
+                interpolateGuideRows(graph.node(id).params(), kept, scalp, samples, rows.get(), memo.lastRows.get(),
+                                     memo.lastRows ? &measured : nullptr);
+                // Guide roots moved (a dab bends a guide at its root, and the children following it
+                // root elsewhere): the strands bound again as Interpolate binds them, sharing what no
+                // moved root reaches. A reshaped guide's root moves by rounding alone (the smooth
+                // curve's first point is a blend of its first point with itself), which the CPU binds
+                // again too, to the same guides with weights a rounding apart: those keep the
+                // binding's roots, so only the strands near roots that did move are bound and sent again.
+                std::vector<Vec3f> roots = memo.current->roots;
+                bool moved = false;
+                for (std::size_t g = 0; g < kept.size(); ++g) {
+                    const float rounding = 1e-5f * std::max(1.0f, roots[g].length());
+                    if (!((rows->roots[g] - roots[g]).length() <= rounding)) {
+                        roots[g] = rows->roots[g];
+                        moved = true;
+                    }
+                }
+                if (moved) {
+                    auto bound = std::make_shared<InterpolateState>(*memo.current);
+                    std::vector<StrandRoot> guideRoots(kept.size());
+                    for (std::size_t g = 0; g < kept.size(); ++g) guideRoots[g] = kept[g]->root;
+                    if (!interpolateRebind(graph.node(id), parts, roots, guideRoots, bound.get())) {
+                        *why = name + ": its guides could not be bound again";
+                        return false;
+                    }
+                    memo.current = std::move(bound);
+                    memo.rebound = true;
+                    ++rebinds_;
+                }
+                memo.guides = guides;
+                memo.samples = samples;
+                memo.smooth = smooth;
+                memo.scalp = scalp.get();
+                memo.rows = std::move(rows);
+                memo.lastRows = memo.rows;
+                guidesMade_ += kept.size();
+            }
+            // keepClearance: the scalp's field as tables, once per scalp.
+            std::shared_ptr<const InterpolateClearance> clearance;
+            if (interpolateKeepsClearance(graph.node(id).params(), scalp.get())) {
+                if (memo.clearanceScalp != scalp || !memo.clearance) {
+                    std::string whyNot;
+                    memo.clearance = interpolateClearance(graph.node(id).params(), scalp, &whyNot);
+                    memo.clearanceScalp = scalp;
+                    if (!memo.clearance) {
+                        *why = name + ": " + whyNot + " (the CPU's)";
+                        return false;
+                    }
+                }
+                clearance = memo.clearance;
+                // Over a deformed scalp: each strand's walk starts at the vertex of its root's face
+                // nearest its first point (RestPoseCollision::cursor).
+                if (clearance->rest && (memo.cursorsFor != clearance || memo.cursorStrands != in || !memo.cursors)) {
+                    auto cursors = std::make_shared<std::vector<std::uint32_t>>(in->strandCount(), 0xFFFFFFFFu);
+                    const RestPoseCollision& rest = *clearance->rest;
+                    parallelFor(0, in->strandCount(), [&](std::size_t s) {
+                        if (in->strandPointCount(s) == 0) return;
+                        const RestPoseCollision::Cursor c = rest.cursor(in->roots()[s], in->strandPoints(s)[0]);
+                        if (c.vertex != RestPoseCollision::Cursor::kNone) (*cursors)[s] = static_cast<std::uint32_t>(c.vertex);
+                    }, 4096);
+                    memo.cursors = std::move(cursors);
+                    memo.cursorsFor = clearance;
+                    memo.cursorStrands = in;
+                    // How near the strands' roots the scalp's degenerate faces' vertices come (which
+                    // push asks the mesh at: the CPU's alone).
+                    const std::vector<std::uint32_t>& w = *clearance->walk;
+                    std::vector<Vec3f> degenerate;
+                    for (std::uint32_t v = 0; v < w[RestPoseCollision::kWalkVertices]; ++v) {
+                        if (w[w[RestPoseCollision::kWalkMotions] + v * RestPoseCollision::kWalkMotionWords] != RestPoseCollision::kWalkNoMotion) continue;
+                        Vec3f q;
+                        std::memcpy(&q.x, &w[w[RestPoseCollision::kWalkPoints] + v * 3], sizeof(Vec3f));
+                        degenerate.push_back(q);
+                    }
+                    memo.degenerateApart = std::numeric_limits<float>::infinity();
+                    if (!degenerate.empty()) {
+                        const PointIndex index(degenerate);
+                        for (std::size_t s = 0; s < in->strandCount(); ++s) {
+                            if (in->strandPointCount(s) == 0) continue;
+                            float d2 = 0.0f;
+                            index.nearest(in->strandPoints(s)[0], &d2);
+                            memo.degenerateApart = std::min(memo.degenerateApart, std::sqrt(d2));
+                        }
+                    }
+                }
+                if (clearance->rest) {
+                    // A walk from a root reaches no vertex farther from it than twice the strand's
+                    // reach (twice the longest guide: lookBounds) and two of the longest edge, and
+                    // asks a vertex's motion only within the longest edge and the search of it.
+                    float longest = 0.0f;
+                    for (const float length : memo.rows->lengths) longest = std::max(longest, length);
+                    float edge = 0.0f;
+                    std::memcpy(&edge, &(*clearance->walk)[RestPoseCollision::kWalkLongestEdge], sizeof(float));
+                    const float reach = 4.0f * longest + 3.0f * edge + clearance->searchRadius;
+                    if (!(memo.degenerateApart > reach * 1.01f)) {
+                        *why = name + ": its strands come near a degenerate face of the deformed scalp (the CPU's)";
+                        return false;
+                    }
+                }
+            }
+            // Each strand's guides fit the GPU's slots (kInterpolateSlots): the chunks not seen yet.
+            // (Only the binding's live chunks are remembered: a freed chunk's address may come back.)
+            const std::vector<const void*> chunks = interpolateChunks(*memo.current);
+            const std::size_t per = interpolateChunkStrands();
+            std::set<const void*> fitting;
+            for (std::size_t c = 0; c < chunks.size(); ++c) {
+                if (!memo.fitting.count(chunks[c])) {
+                    InterpolateRecords records;
+                    interpolateRecords(*memo.current, c * per, per, &records);
+                    for (std::size_t s = 0; s + 1 < records.offsets.size(); ++s) {
+                        if (records.offsets[s + 1] - records.offsets[s] > kInterpolateSlots) {
+                            *why = name + ": strands blend more than " + std::to_string(kInterpolateSlots) + " guides (the CPU's)";
+                            return false;
+                        }
+                    }
+                }
+                fitting.insert(chunks[c]);
+            }
+            memo.fitting.swap(fitting);
+            if (memo.strands != in || !memo.normals) {
+                // Each strand's normal where the blend turns its guides to (zero: not turned).
+                auto normals = std::make_shared<std::vector<Vec3f>>(in->strandCount());
+                const bool align = scalp && scalp->triangleCount() > 0;
+                parallelFor(0, in->strandCount(), [&](std::size_t s) {
+                    const StrandRoot& root = in->roots()[s];
+                    (*normals)[s] = align && scalp->contains(root) ? scalp->normal(root) : Vec3f{};
+                }, 4096);
+                memo.strands = in;
+                memo.normals = std::move(normals);
+            }
+            auto data = std::make_shared<InterpolateInputs>();
+            data->binding = memo.current;
+            data->rows = memo.rows;
+            data->strandNormals = memo.normals;
+            if (clearance && clearance->rest) data->cursors = memo.cursors;
+            data->clearance = std::move(clearance);
+            out[k].interpolate = std::move(data);
+            // The guides' influence as its cached result holds it: the same binding, radius and
+            // falloff (what a centerWeight reading it picked the Clump's centers by).
+            rebound = rebound || memo.rebound;
+            const ParamSet own = evaluatedParams(graph, id);
+            influenceHolds = influenceHolds && !memo.rebound && p->value[0] == static_cast<float>(own.getDouble("limitDistance")) &&
+                             p->ramp == own.getRamp("falloff");
+        } else if (stage.kind == StageKind::Clump) {
+            const StrandsPtr result = cachedStrands(graph, id);
+            ClumpMemo& memo = clump_[{id, stage.level}];
+            if (memo.output != result) memo = ClumpMemo{};
+            const StageParams* p = k < params.stages.size() ? &params.stages[k] : nullptr;
+            const std::uint64_t seed = p ? p->seed : 0;
+            // A Wet's level: its Clump's params and center choice as Wet kept them for its result
+            // (WetState). A smaller level takes the strands the one before it moves in the run.
+            std::shared_ptr<const WetState> wet;
+            const auto level = static_cast<std::size_t>(std::max(stage.level, 0));
+            if (stage.level >= 0 && (!wetState(graph.node(id), result, &wet) || level >= wet->levels.size())) {
+                *why = name + " keeps no center choice for its result";
+                return false;
+            }
+            const ParamSet& clumpParams = wet ? wet->params[level] : graph.node(id).params();
+            auto keptState = [&](ClumpState* s) { return wet ? (*s = wet->levels[level], true) : clumpState(graph.node(id), result, s); };
+            ClumpState state;
+            if (!memo.fixed) {
+                if (!keptState(&state)) {
+                    *why = name + " keeps no center choice for its result";
+                    return false;
+                }
+                if (state.centerIds.size() != state.centerGuides.size() || state.centerRoots.size() != state.centerGuides.size()) {
+                    *why = name + " keeps no centers' IDs";
+                    return false;
+                }
+                auto fixed = std::make_shared<ClumpInputs>();
+                fixed->assigned = state.assigned;
+                fixed->centers = state.centerGuides.size();
+                fixed->curves = std::make_shared<const std::vector<Vec3f>>(state.curves);
+                fixed->normals = std::make_shared<const std::vector<Vec3f>>(state.centerNormals);
+                // copyAmount, for centers made on the GPU: each center's nearest centers by the
+                // roots it was assigned by (ClumpOp::shareCenters; a center of centersFrom inputPoints
+                // gathering no strand neither gives nor takes), in the order it sums them.
+                const std::size_t count = fixed->centers;
+                if (clumpParams.getDouble("copyAmount") > 0.0 && count > 1) {
+                    const std::size_t want = std::min<std::size_t>(static_cast<std::size_t>(clumpParams.getInt("copyNeighbors")), count - 1);
+                    const PointIndex index(state.centerRoots);
+                    const bool axes = state.axes.size() == count;
+                    auto shapeless = [&](std::size_t c) { return axes && state.axes[c] == kNoClumpCenter; };
+                    auto neighbors = std::make_shared<std::vector<std::uint32_t>>(count * 9, 0u);
+                    parallelFor(0, count, [&](std::size_t c) {
+                        if (shapeless(c)) return;
+                        std::array<std::size_t, 9> near{};
+                        std::array<float, 9> d2{};
+                        const std::size_t found = index.kNearest(state.centerRoots[c], want + 1, near.data(), d2.data());
+                        std::uint32_t* to = neighbors->data() + c * 9;
+                        std::uint32_t taken = 0;
+                        for (std::size_t j = 0; j < found && taken < want; ++j) {
+                            if (near[j] == c || shapeless(near[j])) continue;
+                            to[1 + taken++] = static_cast<std::uint32_t>(near[j]);
+                        }
+                        to[0] = taken;
+                    }, 16);
+                    fixed->neighbors = std::move(neighbors);
+                }
+                memo.ids = std::make_shared<const std::vector<StrandId>>(state.centerIds);
+                if (clumpParams.getString("pastTip") == "extend") {
+                    // How far past an axis's tip a point can go: the longest strand it takes (a
+                    // Wet's level: the longest the Wet takes).
+                    if (const StrandsPtr in = cachedStrands(graph, upstream(graph, id))) {
+                        for (std::size_t i = 0; i < in->strandCount(); ++i) {
+                            fixed->reach = std::max(fixed->reach, arcLength(in->strandPoints(i), in->strandPointCount(i)));
+                        }
+                    }
+                }
+                memo.output = result;
+                memo.fixed = std::move(fixed);
+            }
+            NodeId centersNode = 0;
+            std::size_t centersOutput = 0;
+            // centersFrom pick: the Clump picks its centers among the strands it takes (a centers
+            // input ignored); else they are its centers input's, and with nothing linked it clumps
+            // nothing (the CPU's).
+            const std::string centersFrom = clumpParams.getString("centersFrom");
+            const bool own = centersFrom == "pick";
+            if (!own && !graph.inputSource(id, 1, &centersNode, &centersOutput)) {
+                *why = name + " has no centers connected";
+                return false;
+            }
+            // inputPoints: each center's curve is a strand it takes (its axis).
+            const bool fromStrands = centersFrom == "inputPoints";
+            // inputCurves: each center's curve is a strand of its centers input (their preview core,
+            // strandsAsGuides), resampled.
+            const bool fromCurves = centersFrom == "inputCurves";
+            // Centers the run moves (made from a stage before this one): the Clump's own choice of
+            // the strands it takes, or its axis strands, resampled on the GPU; or the curves of a
+            // branch of their own the run moves (a stroke's guides through another Interpolate),
+            // made by that branch's run on the GPU, then resampled.
+            if (stage.level <= 0 && !dependsOn(graph, own || fromStrands ? upstream(graph, id) : centersNode, before)) {
+                out[k].clump = memo.fixed;
+            } else {
+                if (!memo.tried) {
+                    memo.tried = true;
+                    const bool kept = (own || fromStrands || fromCurves) && keptState(&state);
+                    auto strands = std::make_shared<std::vector<std::uint32_t>>();
+                    bool ok = false;
+                    // Its own choice by the roots alone (`chosen`), else by centerWeight's values
+                    // too (`picked`): those hold while what the weight reads does (below).
+                    const bool byRoots = kept && own && !state.chosen.empty();
+                    const std::vector<std::size_t>& chosen = byRoots ? state.chosen : state.picked;
+                    if (kept && own && !chosen.empty()) {
+                        ok = true;
+                        for (const std::size_t g : state.centerGuides) {
+                            ok = ok && g < chosen.size();
+                            if (ok) strands->push_back(static_cast<std::uint32_t>(chosen[g]));
+                        }
+                        memo.weighed = !byRoots;
+                    } else if (kept && fromStrands && state.axes.size() == state.centerGuides.size()) {
+                        // A center gathering no strand: any strand (no strand clumps toward it).
+                        ok = true;
+                        for (const std::uint32_t a : state.axes) strands->push_back(a == kNoClumpCenter ? 0u : a);
+                    } else if (kept && fromCurves && centersOutput == 0 && centersBranchesOn()) {
+                        // Center c is guide centerGuides[c] of the centers input as guides: its
+                        // strands' preview core in order.
+                        if (const StrandsPtr curves = valueAs<StrandsPtr>(graph.cachedValue(centersNode, centersOutput))) {
+                            std::vector<std::uint32_t> core;
+                            const PreviewCore preview(*curves);
+                            for (std::size_t s = 0; s < curves->strandCount(); ++s) {
+                                if (preview.core(s)) core.push_back(static_cast<std::uint32_t>(s));
+                            }
+                            ok = true;
+                            for (const std::size_t g : state.centerGuides) {
+                                ok = ok && g < core.size() && curves->strandPointCount(core[g]) >= 2;
+                                if (ok) strands->push_back(core[g]);
+                            }
+                            memo.branch = true;
+                        }
+                    }
+                    if (ok) {
+                        auto made = std::make_shared<ClumpInputs>(*memo.fixed);
+                        made->curves = nullptr;
+                        made->chosen = std::move(strands);
+                        memo.made = std::move(made);
+                    }
+                }
+                if (!memo.made) {
+                    *why = name + "'s centers move with the strands the run moves, and are not strands it takes";
+                    return false;
+                }
+                if (memo.weighed && !wet) {  // (a Wet's levels weigh every strand alike: their choice holds)
+                    // Picked by centerWeight's values: they hold for the run while what they read
+                    // does (the roots, channels nothing before writes, the binding's channels while
+                    // it is not bound again, the guides' influence while its radius and falloff too).
+                    const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+                    bool holds = false;
+                    try {
+                        const ScalarField weight(evaluatedParams(graph, id), "centerWeight", groomScalp);
+                        if (in) weight.validate(*in);
+                        const FieldRead r = whatItReads(graph, chain, k, weight);
+                        holds = in && !r.unknown && !r.layer && !r.positions && (!r.binding || !rebound) &&
+                                (!r.influence || influenceHolds);
+                    } catch (const std::exception&) {
+                        holds = false;
+                    }
+                    if (!holds) {
+                        *why = name + " picks its centers by a centerWeight the run changes (the CPU's)";
+                        return false;
+                    }
+                }
+                out[k].clump = memo.made;
+                if (memo.branch) {
+                    // The centers' branch run on the GPU before the Clump, for the strands it names.
+                    std::shared_ptr<const LookCentersRun> run;
+                    if (!centersRun(doc, id, centersNode, before, parts, groomScalp, &run, why, standIn)) return false;
+                    for (const std::uint32_t s : *memo.made->chosen) {
+                        if (s >= run->base->strandCount()) {
+                            *why = name + "'s centers are other strands than its centers' branch makes";
+                            return false;
+                        }
+                    }
+                    auto made = std::make_shared<ClumpInputs>(*memo.made);
+                    made->centersRun = std::move(run);
+                    out[k].clump = std::move(made);
+                }
+            }
+            // The per-clump variation: drawn from the centers' IDs and the seed (a seed dragged
+            // draws again).
+            if (memo.seed != seed || !memo.variation) {
+                auto variation = std::make_shared<std::vector<float>>(memo.ids->size() * 4, 0.0f);
+                for (std::size_t c = 0; c < memo.ids->size(); ++c) {
+                    const StrandId cid = (*memo.ids)[c];
+                    float* v = variation->data() + c * 4;
+                    v[0] = unitFloat(hashCombine(cid, seed ^ 0x57E4Aull));
+                    v[1] = unitFloat(hashCombine(cid, seed ^ 0x2AD1Bull));
+                    v[2] = unitFloat(hashCombine(cid, seed ^ 0xF1A7));
+                }
+                memo.variation = std::move(variation);
+                memo.seed = seed;
+            }
+            auto with = std::make_shared<ClumpInputs>(*out[k].clump);
+            with->variation = memo.variation;
+            out[k].clump = std::move(with);
+        } else if (stage.kind == StageKind::Curl && k < params.stages.size() && params.stages[k].flag[2] != 0) {
+            // Coherent by clump: the clumps found on the strands it takes, as the CPU finds them.
+            const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+            if (!in) {
+                *why = "not evaluated";
+                return false;
+            }
+            const std::uint64_t seed = params.stages[k].seed;
+            CurlMemo& memo = curl_[id];
+            if (memo.in != in || memo.seed != seed || !memo.inputs) {
+                const std::string channel = graph.node(id).params().getString("clumpChannel");
+                const std::vector<float>* groups = in->strandChannel(channel);
+                if (!groups) {
+                    *why = name + ": coherence clump needs a Clump before it (no '" + channel + "' channel)";
+                    return false;
+                }
+                const std::size_t strands = in->strandCount();
+                auto clumpOf = std::make_shared<std::vector<std::uint32_t>>(strands, 0xffffffffu);
+                std::map<long long, std::size_t> slot;
+                std::vector<long long> keys;
+                std::vector<std::vector<std::uint32_t>> members;
+                const PreviewCore core(*in);
+                for (std::size_t s = 0; s < strands; ++s) {
+                    const long long key = std::llround((*groups)[s]);
+                    if (key < 0 || in->strandPointCount(s) < 2) continue;
+                    auto it = slot.find(key);
+                    if (it == slot.end()) {
+                        it = slot.emplace(key, members.size()).first;
+                        members.emplace_back();
+                        keys.push_back(key);
+                    }
+                    (*clumpOf)[s] = static_cast<std::uint32_t>(it->second);
+                    if (core.core(s)) members[it->second].push_back(static_cast<std::uint32_t>(s));
+                }
+                for (std::uint32_t& c : *clumpOf) {
+                    if (c != 0xffffffffu && members[c].empty()) c = 0xffffffffu;  // no core strand: alone
+                }
+                auto list = std::make_shared<std::vector<std::uint32_t>>(members.size() + 1, 0u);
+                for (std::size_t c = 0; c < members.size(); ++c) (*list)[c + 1] = (*list)[c] + static_cast<std::uint32_t>(members[c].size());
+                for (const auto& m : members) list->insert(list->end(), m.begin(), m.end());
+                auto clumps = std::make_shared<std::vector<float>>(members.size() * 8, 0.0f);
+                parallelFor(0, members.size(), [&](std::size_t c) {
+                    float* to = clumps->data() + c * 8;
+                    Vec3f normal;
+                    for (const std::uint32_t s : members[c]) {
+                        const StrandRoot& root = in->roots()[s];
+                        normal += groomScalp && groomScalp->contains(root) ? groomScalp->normal(root) : Vec3f{};
+                    }
+                    normal = normal.normalized();
+                    to[0] = normal.x;
+                    to[1] = normal.y;
+                    to[2] = normal.z;
+                    // CurlOp::drawFor's four draws, from the clump's key.
+                    Rng rng(hashCombine(hashCombine(hash64(static_cast<std::uint64_t>(keys[c])), 0xC1D0C0E5ull), seed ^ 0xC041));
+                    for (int d = 0; d < 4; ++d) to[4 + d] = rng.nextFloat();
+                }, 16);
+                auto made = std::make_shared<CurlInputs>();
+                made->clumpOf = std::move(clumpOf);
+                made->members = std::move(list);
+                made->clumps = std::move(clumps);
+                made->count = members.size();
+                memo.in = in;
+                memo.seed = seed;
+                memo.inputs = std::move(made);
+            }
+            out[k].curl = memo.inputs;
+        } else if (stage.kind == StageKind::Part) {
+            // Each strand's side of the parts, from its root on the rest scalp (fixed).
+            const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+            if (!in) {
+                *why = "not evaluated";
+                return false;
+            }
+            // The groom's painted parts, or with partsFrom auto the lines its last evaluation found
+            // in the strands it took (as it found them: a run upstream moves those strands, the
+            // release finds them again), every one of them.
+            const ParamSet& own = graph.node(id).params();
+            const bool flow = own.getString("partsFrom") == "auto";
+            PartsPtr found;
+            if (flow && !autoPartState(graph.node(id), cachedStrands(graph, id), &found)) {
+                *why = name + " keeps no parts found in the hair's flow for its result";
+                return false;
+            }
+            const PartLines* lines = flow ? found.get() : parts;
+            PartMemo& memo = part_[id];
+            if (memo.in != in || memo.parts != lines || memo.found != found || memo.scalp != groomScalp || !memo.inputs) {
+                auto sides = std::make_shared<std::vector<float>>(in->strandCount() * 4, 0.0f);
+                const std::string only = flow ? std::string() : own.getString("part");
+                const bool open = lines && !lines->empty() && groomScalp;
+                parallelFor(0, in->strandCount(), [&](std::size_t s) {
+                    float* to = sides->data() + s * 4;
+                    to[3] = -1.0f;
+                    const StrandRoot& root = in->roots()[s];
+                    if (!open || in->strandPointCount(s) < 2 || !groomScalp->contains(root)) return;
+                    const PartLines::Side side = lines->sideOf(groomScalp->restPositionOr(root, in->strandPoints(s)[0]), only);
+                    if (side.side == 0) return;
+                    const Vec3f away = lines->awayFrom(side, groomScalp->normal(root));
+                    to[0] = away.x;
+                    to[1] = away.y;
+                    to[2] = away.z;
+                    to[3] = side.distance;
+                }, 1024);
+                auto made = std::make_shared<PartInputs>();
+                made->sides = std::move(sides);
+                for (std::size_t s = 0; s < in->strandCount(); ++s) {
+                    made->reach = std::max(made->reach, arcLength(in->strandPoints(s), in->strandPointCount(s)));
+                }
+                memo.in = in;
+                memo.parts = lines;
+                memo.found = found;
+                memo.scalp = groomScalp;
+                memo.inputs = std::move(made);
+            }
+            out[k].part = memo.inputs;
+        }
+        if (stage.kind == StageKind::Gravity || stage.kind == StageKind::Flyaway || stage.kind == StageKind::Collide ||
+            stage.kind == StageKind::Wind || stage.kind == StageKind::SelfCollide || stage.kind == StageKind::Static ||
+            stage.kind == StageKind::Tie || stage.kind == StageKind::Bend || stage.kind == StageKind::Direction ||
+            stage.kind == StageKind::Transform || stage.kind == StageKind::Jiggle || readsNeighbours(stage.kind)) {
+            // How far from its root a point the node moves can go: the longest strand it took.
+            const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+            if (!in) {
+                *why = "not evaluated";
+                return false;
+            }
+            ReachMemo& memo = reach_[id];
+            if (memo.in != in) {
+                std::vector<float> lengths(in->strandCount(), 0.0f);
+                parallelFor(0, in->strandCount(), [&](std::size_t s) { lengths[s] = arcLength(in->strandPoints(s), in->strandPointCount(s)); },
+                            4096);
+                memo.reach = lengths.empty() ? 0.0f : *std::max_element(lengths.begin(), lengths.end());
+                memo.in = in;
+            }
+            out[k].reach = memo.reach;
+        }
+        if (stage.kind == StageKind::SelfCollide || stage.kind == StageKind::Static) {
+            // The hair grid as the node lays it on the strands it took (the strands splatted are the
+            // core by ID, the cell by the scalp's area: the same for the strands a run hands it), and
+            // the scalp near the grid's nodes for that cell (kept while the scalp and the cell are).
+            const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+            if (!in) {
+                *why = "not evaluated";
+                return false;
+            }
+            if (groomScalp && (!scalpMesh || scalpMesh.get() != groomScalp)) {
+                *why = name + ": the groom's scalp is not at hand";
+                return false;
+            }
+            GridMemo& memo = grid_[id];
+            if (memo.in != in || memo.scalp != scalpMesh || !memo.inputs) {
+                auto layout = std::make_shared<HairGridLayout>();
+                std::string whyNot;
+                if (!hairGridLayout(graph.node(id).typeName(), *in, scalpMesh, layout.get(), &whyNot)) {
+                    *why = name + ": " + whyNot + " (the CPU's)";
+                    return false;
+                }
+                if (layout->coarsened) {
+                    *why = name + "'s hair spreads far wider than its scalp: its grid's cells coarsen (the CPU's)";
+                    return false;
+                }
+                auto made = std::make_shared<HairGridInputs>();
+                made->layout = layout;
+                if (scalpMesh) {
+                    const HairGridInputs* held = memo.inputs.get();
+                    if (held && held->walls && memo.scalp == scalpMesh && held->layout->h == layout->h &&
+                        held->layout->wallReach == layout->wallReach) {
+                        made->walls = held->walls;
+                    } else {
+                        made->walls = hairGridWalls(*scalpMesh, layout->h, layout->wallReach);
+                    }
+                    if (!made->walls) {
+                        *why = name + ": its scalp is too large for its grid's cell (the CPU's)";
+                        return false;
+                    }
+                }
+                memo.in = in;
+                memo.scalp = scalpMesh;
+                memo.inputs = std::move(made);
+            }
+            // Without a scalp the cell is a share of the strands' size: of the strands it took, which
+            // a run moving them before it changes.
+            if (!scalpMesh && stage.from != kNoStage) {
+                *why = name + " has no scalp: its grid's cell goes by the strands the run moves before it (the CPU's)";
+                return false;
+            }
+            out[k].grid = memo.inputs;
+        }
+        if (stage.kind == StageKind::Collide) {
+            // Its surfaces' fields as tables, once per surface (the scalp's, then the collider's).
+            const StageParams* p = k < params.stages.size() ? &params.stages[k] : nullptr;
+            if (!p) {
+                *why = name + ": its params were read for another chain";
+                return false;
+            }
+            std::uint32_t colliders = 0;
+            const std::vector<MeshPtr> meshes = collideMeshes(graph, id, &colliders);
+            CollideMemo& memo = collide_[id];
+            bool same = memo.inputs && memo.offset == p->value[0] && memo.softness == p->value2[0] && memo.searchRadius == p->value[2];
+            for (std::size_t m = 0; m < 2; ++m) same = same && memo.meshes[m] == (m < meshes.size() ? meshes[m] : nullptr);
+            if (!same) {
+                auto made = std::make_shared<CollideInputs>();
+                for (const MeshPtr& mesh : meshes) {
+                    const DistanceFieldPtr field = collisionField(mesh, p->value[0], p->value[2]);
+                    MeshDistanceField::Tables tables = field ? field->tables(p->value[0] + p->value2[0], p->value[2]) : nullptr;
+                    if (!tables) {
+                        *why = name + ": a surface has no field the GPU can read (deformed, or too big for its grid: the CPU's)";
+                        return false;
+                    }
+                    made->tables.push_back(std::move(tables));
+                    made->colliders = colliders;
+                    Vec3f lo = mesh->points().empty() ? Vec3f{} : mesh->points().front(), hi = lo;
+                    for (const Vec3f& q : mesh->points()) {
+                        lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                        hi = {std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                    }
+                    made->boxes.push_back(lo);
+                    made->boxes.push_back(hi);
+                }
+                memo = CollideMemo{};
+                for (std::size_t m = 0; m < meshes.size() && m < 2; ++m) memo.meshes[m] = meshes[m];
+                memo.offset = p->value[0];
+                memo.softness = p->value2[0];
+                memo.searchRadius = p->value[2];
+                memo.inputs = std::move(made);
+            }
+            out[k].collide = memo.inputs;
+        }
+        if (stage.kind == StageKind::Tie && !readTie(doc, chain, k, groomScalp, scalpMesh, &out[k], why)) return false;
+        // ---- The shapers working on each strand alone ----
+        if (stage.kind == StageKind::Bend || stage.kind == StageKind::Direction || stage.kind == StageKind::Transform ||
+            stage.kind == StageKind::Displace) {
+            if (!shaperRoots(doc, id, groomScalp, &out[k], why)) return false;
+        }
+        if (stage.kind == StageKind::Twist) {
+            std::set<NodeId> stands;
+            for (const auto& m : standIn) stands.insert(m.first);
+            if (!twistAxes(doc, id, stands, &out[k], why)) return false;
+        }
+        if ((stage.kind == StageKind::RestoreLength || stage.kind == StageKind::BlendNeighbors || stage.kind == StageKind::Tangle ||
+             stage.kind == StageKind::Flow) &&
+            !readShaper(doc, chain, k, before, rebound, groomScalp, scalpMesh, &out[k], why)) {
+            return false;
+        }
+        // ---- Jiggle and MeshCut ----
+        if (stage.kind == StageKind::Jiggle) {
+            if (k >= params.stages.size()) {
+                *why = name + ": its params were read for another chain";
+                return false;
+            }
+            if (!readJiggle(doc, id, params.stages[k], &out[k], why)) return false;
+        }
+        if (stage.kind == StageKind::MeshCut && !readMeshCut(doc, id, &out[k], why)) return false;
+        before.insert(id);
+    }
+    // Mapped params reading channels Interpolate blends from its binding: they hold while it is
+    // the one its cached result was made with.
+    if (rebound && fields) {
+        for (std::size_t k = 0; k < fields->stages.size() && k < chain.stages.size(); ++k) {
+            const StageFields& f = fields->stages[k];
+            for (const FieldValues* v : {&f.field[0], &f.field[1], &f.affect}) {
+                if (v->binding) {
+                    *why = doc.nameOf(chain.stages[k].node) + " reads what Interpolate blends from guides bound again (the CPU's)";
+                    return false;
+                }
+            }
+        }
+    }
+    *inputs = std::move(out);
+    readMs_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    return true;
+}
+
+// ---- What Tie takes ------------------------------------------------------------------------------
+
+namespace {
+
+// The field's tables with each vertex's triangles joined with those of the vertices at its position
+// (within a millionth of the mesh's size: a seam's split vertices, a UV seam, a sphere's first and
+// last meridian, its poles), in triangle order, after the rest (the header pointing at them): the
+// walks down the mesh to a closest point cross the seam, as the CPU's closest point (the mesh's
+// tree) knows no seams. The same tables where no two vertices are that near.
+MeshDistanceField::Tables weldedRings(const MeshDistanceField::Tables& tables, const ScalpMesh& mesh) {
+    const std::vector<Vec3f>& points = mesh.points();
+    const std::size_t count = points.size();
+    if (count == 0) return tables;
+    Vec3f lo = points.front(), hi = lo;
+    for (const Vec3f& q : points) {
+        lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+        hi = {std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+    }
+    const float within = std::max((hi - lo).length() * 1e-6f, 1e-30f);
+    // Each vertex's group (its lowest member), the near ones joined (by cells `within` wide).
+    std::vector<std::uint32_t> group(count);
+    for (std::size_t v = 0; v < count; ++v) group[v] = static_cast<std::uint32_t>(v);
+    std::function<std::uint32_t(std::uint32_t)> root = [&](std::uint32_t v) { return group[v] == v ? v : group[v] = root(group[v]); };
+    std::map<std::array<std::int64_t, 3>, std::vector<std::uint32_t>> cells;
+    auto cellOf = [&](const Vec3f& q) {
+        return std::array<std::int64_t, 3>{static_cast<std::int64_t>(std::floor((q.x - lo.x) / within)),
+                                           static_cast<std::int64_t>(std::floor((q.y - lo.y) / within)),
+                                           static_cast<std::int64_t>(std::floor((q.z - lo.z) / within))};
+    };
+    bool shared = false;
+    for (std::size_t v = 0; v < count; ++v) {
+        const std::array<std::int64_t, 3> c = cellOf(points[v]);
+        for (std::int64_t dx = -1; dx <= 1; ++dx) {
+            for (std::int64_t dy = -1; dy <= 1; ++dy) {
+                for (std::int64_t dz = -1; dz <= 1; ++dz) {
+                    const auto it = cells.find({c[0] + dx, c[1] + dy, c[2] + dz});
+                    if (it == cells.end()) continue;
+                    for (const std::uint32_t u : it->second) {
+                        if (!((points[u] - points[v]).length() <= within)) continue;
+                        const std::uint32_t a = root(u), b = root(static_cast<std::uint32_t>(v));
+                        if (a != b) group[std::max(a, b)] = std::min(a, b);
+                        shared = true;
+                    }
+                }
+            }
+        }
+        cells[c].push_back(static_cast<std::uint32_t>(v));
+    }
+    if (!shared) return tables;
+    std::vector<std::vector<std::uint32_t>> members(count);
+    for (std::size_t v = 0; v < count; ++v) members[root(static_cast<std::uint32_t>(v))].push_back(static_cast<std::uint32_t>(v));
+    const std::vector<std::uint32_t>& w = *tables;
+    const std::uint32_t starts = w[MeshDistanceField::kTableRingStart], rings = w[MeshDistanceField::kTableRings];
+    auto words = std::make_shared<std::vector<std::uint32_t>>(w);
+    std::vector<std::uint32_t> start(count + 1, 0), faces;
+    for (std::size_t v = 0; v < count; ++v) {
+        start[v] = static_cast<std::uint32_t>(faces.size());
+        std::vector<std::uint32_t> joined;
+        for (const std::uint32_t u : members[root(static_cast<std::uint32_t>(v))]) {
+            joined.insert(joined.end(), w.begin() + rings + w[starts + u], w.begin() + rings + w[starts + u + 1]);
+        }
+        std::sort(joined.begin(), joined.end());
+        joined.erase(std::unique(joined.begin(), joined.end()), joined.end());
+        faces.insert(faces.end(), joined.begin(), joined.end());
+    }
+    start[count] = static_cast<std::uint32_t>(faces.size());
+    (*words)[MeshDistanceField::kTableRingStart] = static_cast<std::uint32_t>(words->size());
+    words->insert(words->end(), start.begin(), start.end());
+    (*words)[MeshDistanceField::kTableRings] = static_cast<std::uint32_t>(words->size());
+    words->insert(words->end(), faces.begin(), faces.end());
+    return words;
+}
+
+}  // namespace
+
+bool LookInputs::readTie(const GraphDocument& doc, const LookChain& chain, std::size_t k, const ScalpMesh* groomScalp,
+                         const MeshPtr& scalpMesh, StageInputs* out, std::string* why) {
+    const Graph& graph = doc.graph;
+    const NodeId id = chain.stages[k].node;
+    const std::string name = doc.nameOf(id);
+    const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+    if (!in) {
+        *why = "not evaluated";
+        return false;
+    }
+    if (groomScalp && (!scalpMesh || scalpMesh.get() != groomScalp)) {
+        *why = name + ": the groom's scalp is not at hand";
+        return false;
+    }
+    // The scalp TieOp takes (the "scalp" external). Deformed away from its rest pose, its push
+    // asks the rest pose's field through each vertex's frame (RestPoseCollision): the CPU's.
+    const MeshPtr scalp = scalpMesh && scalpMesh->triangleCount() > 0 ? scalpMesh : nullptr;
+    if (scalp && scalp->hasRest() && scalp->restPoints() != scalp->points()) {
+        *why = name + ": its scalp is deformed away from its rest pose (the CPU's)";
+        return false;
+    }
+    const std::string channel = graph.node(id).params().getString("tailChannel");
+    TieMemo& memo = tie_[id];
+    if (memo.in != in || memo.scalp != scalp || memo.channel != channel || !memo.inputs) {
+        auto made = std::make_shared<TieInputs>();
+        if (scalp) {
+            // TieOp's scalp: its box's center and size, the clearance, depth and search radius of
+            // its push, and the field it pushes through (CollisionSurface::of: collisionField).
+            Vec3f lo = scalp->points().front(), hi = lo;
+            for (const Vec3f& q : scalp->points()) {
+                lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                hi = {std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+            }
+            made->hasScalp = true;
+            made->scalpSize = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+            made->scalpCenter = (lo + hi) * 0.5f;
+            made->clearance = made->scalpSize * (1.0f / 400.0f);  // (tie_op.cpp kClearanceShare, kDepthShare)
+            made->depth = made->scalpSize * (1.0f / 8.0f);
+            made->searchRadius = std::max(made->clearance, made->depth) * 1.001f + 1e-6f;
+            if (made->clearance > 0.0f && (memo.tablesScalp != scalp || !memo.tables)) {
+                const DistanceFieldPtr field = collisionField(scalp, made->clearance, made->searchRadius);
+                memo.tables = field ? field->tables(made->clearance, made->searchRadius) : nullptr;
+                if (memo.tables) memo.tables = weldedRings(memo.tables, *scalp);
+                memo.tablesScalp = scalp;
+            }
+            if (made->clearance > 0.0f) made->tables = memo.tables;
+            // The routes' closest points are found down the mesh the tables hold.
+            if (!made->tables) {
+                *why = name + ": its scalp has no field the GPU can read (too big for its grid: the CPU's)";
+                return false;
+            }
+        }
+        // Each strand's start as TieOp finds it (after an earlier Tie's tail start), and the face
+        // nearest it: its root's where it is rooted on the scalp, else the scalp's closest point's.
+        const std::vector<float>* earlier = channel.empty() ? nullptr : in->pointChannel(channel);
+        if (earlier && earlier->size() != in->pointCount()) earlier = nullptr;
+        auto seeds = std::make_shared<std::vector<std::uint32_t>>(in->strandCount(), 0xFFFFFFFFu);
+        if (scalp) {
+            parallelFor(0, in->strandCount(), [&](std::size_t s) {
+                const std::size_t n = in->strandPointCount(s);
+                if (n < 2) return;
+                std::size_t start = 0;
+                if (earlier) {
+                    const float* t = earlier->data() + in->strandBegin(s);
+                    for (std::size_t i = 1; i < n; ++i) {
+                        if (t[i] >= 0.5f) {
+                            start = i;
+                            break;
+                        }
+                    }
+                }
+                const StrandRoot& root = in->roots()[s];
+                if (start == 0 && scalp->contains(root)) {
+                    (*seeds)[s] = static_cast<std::uint32_t>(root.face);
+                    return;
+                }
+                const SurfacePoint sp = scalp->closestPoint(in->strandPoints(s)[start]);
+                if (sp.root.face >= 0) (*seeds)[s] = static_cast<std::uint32_t>(sp.root.face);
+            }, 1024);
+        }
+        made->seeds = std::move(seeds);
+        auto core = std::make_shared<std::vector<std::uint32_t>>();
+        const PreviewCore preview(*in);
+        for (std::size_t s = 0; s < in->strandCount(); ++s) {
+            if (preview.core(s)) core->push_back(static_cast<std::uint32_t>(s));
+        }
+        made->core = std::move(core);
+        if (earlier) made->channel = std::shared_ptr<const std::vector<float>>(in, earlier);  // (holding the strands)
+        memo.in = in;
+        memo.scalp = scalp;
+        memo.channel = channel;
+        memo.inputs = std::move(made);
+    }
+    // The tail channel it takes: an earlier Tie of the run writing it (its GPU's), else as the
+    // strands it took carry it; another node of the run writing it: the CPU's.
+    std::size_t from = kNoStage;
+    if (!channel.empty()) {
+        for (std::size_t j = 0; j < k; ++j) {
+            const NodeId jd = chain.stages[j].node;
+            const StrandsPtr jin = cachedStrands(graph, upstream(graph, jd)), jout = cachedStrands(graph, jd);
+            if (!jin || !jout) {
+                *why = "not evaluated";
+                return false;
+            }
+            if (jout->pointChannel(channel) == jin->pointChannel(channel)) continue;
+            if (chain.stages[j].kind != StageKind::Tie || graph.node(jd).params().getString("tailChannel") != channel) {
+                *why = name + " reads the '" + channel + "' channel " + doc.nameOf(jd) + " before it writes (the CPU's)";
+                return false;
+            }
+            from = j;
+        }
+        if (from != kNoStage && in->pointChannel(channel) != cachedStrands(graph, chain.stages[from].node)->pointChannel(channel)) {
+            *why = name + " reads a '" + channel + "' channel a node after " + doc.nameOf(chain.stages[from].node) + " writes (the CPU's)";
+            return false;
+        }
+    }
+    if (from == memo.inputs->channelFrom) {
+        out->tie = memo.inputs;
+    } else {
+        auto with = std::make_shared<TieInputs>(*memo.inputs);
+        with->channelFrom = from;
+        out->tie = std::move(with);
+    }
+    return true;
+}
+
+// ---- What the shapers working on each strand alone take ----------------------------------------
+
+namespace {
+
+// transform_ops.cpp uvTangent: the direction U grows in across face `face` of a scalp with UVs
+// (zero where the UVs give none).
+Vec3f scalpUvTangent(const ScalpMesh& scalp, std::int32_t face) {
+    const auto& tri = scalp.triangles()[static_cast<std::size_t>(face)];
+    const auto& uv = scalp.cornerUVs();
+    const std::size_t c = static_cast<std::size_t>(face) * 3;
+    if (c + 2 >= uv.size()) return {};
+    const Vec3f a = scalp.points()[static_cast<std::size_t>(tri[0])];
+    const Vec3f e1 = scalp.points()[static_cast<std::size_t>(tri[1])] - a;
+    const Vec3f e2 = scalp.points()[static_cast<std::size_t>(tri[2])] - a;
+    const float du1 = uv[c + 1][0] - uv[c][0], dv1 = uv[c + 1][1] - uv[c][1];
+    const float du2 = uv[c + 2][0] - uv[c][0], dv2 = uv[c + 2][1] - uv[c][1];
+    const float det = du1 * dv2 - du2 * dv1;
+    if (!(std::fabs(det) > 1e-12f)) return {};
+    return (e1 * dv2 - e2 * dv1) / det;
+}
+
+}  // namespace
+
+bool LookInputs::shaperRoots(const GraphDocument& doc, NodeId id, const ScalpMesh* scalp, StageInputs* out, std::string* why) {
+    const StrandsPtr in = cachedStrands(doc.graph, upstream(doc.graph, id));
+    if (!in) {
+        *why = "not evaluated";
+        return false;
+    }
+    RootMemo& memo = roots_[id];
+    if (memo.in != in || memo.scalp != scalp || !memo.inputs) {
+        // Another such node's, for the very roots (a run's strands share them) on this scalp.
+        std::shared_ptr<const RootInputs> same;
+        for (const auto& [node, m] : roots_) {
+            if (m.inputs && m.in && m.scalp == scalp && &m.in->roots() == &in->roots()) same = m.inputs;
+        }
+        if (!same) {
+            auto frames = std::make_shared<std::vector<float>>(in->strandCount() * 8, 0.0f);
+            const bool uvs = scalp && scalp->hasUVs();
+            parallelFor(0, in->strandCount(), [&](std::size_t s) {
+                const StrandRoot& root = in->roots()[s];
+                if (!scalp || !scalp->contains(root)) return;
+                float* to = frames->data() + s * 8;
+                const Vec3f n = scalp->normal(root);
+                const Vec3f u = uvs ? scalpUvTangent(*scalp, root.face) : Vec3f{};
+                to[0] = n.x;
+                to[1] = n.y;
+                to[2] = n.z;
+                to[3] = 1.0f;
+                to[4] = u.x;
+                to[5] = u.y;
+                to[6] = u.z;
+            }, 4096);
+            auto made = std::make_shared<RootInputs>();
+            made->frames = std::move(frames);
+            same = std::move(made);
+        }
+        memo.in = in;
+        memo.scalp = scalp;
+        memo.inputs = std::move(same);
+    }
+    out->roots = memo.inputs;
+    return true;
+}
+
+bool LookInputs::twistAxes(const GraphDocument& doc, NodeId id, const std::set<NodeId>& standIn, StageInputs* out, std::string* why) {
+    const Graph& graph = doc.graph;
+    const std::string name = doc.nameOf(id);
+    const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+    if (!in) {
+        *why = "not evaluated";
+        return false;
+    }
+    NodeId axesNode = 0;
+    std::size_t axesOutput = 0;
+    const bool plugged = graph.inputSource(id, 1, &axesNode, &axesOutput);
+    // Its axes as cached (a stroke's guides as its dab made them); guides standing in for a node's
+    // cached result (a dragged Sculpt node's) are not.
+    if (plugged && dependsOn(graph, axesNode, standIn)) {
+        *why = name + "'s axes are guides made for the run (the CPU's)";
+        return false;
+    }
+    const GuidesPtr axesIn = plugged ? valueAs<GuidesPtr>(graph.cachedValue(axesNode, axesOutput)) : nullptr;
+    const bool aroundAxes = axesIn && !axesIn->empty();
+    const std::string channel = graph.node(id).params().getString("clumpChannel");
+    TwistMemo& memo = twist_[id];
+    // New axes alone (a stroke's dab on the guides they are): each strand's nearest found on the GPU
+    // (its root words other than any root), the CPU's search for every strand spared.
+    const bool axesAlone = memo.inputs && memo.in == in && memo.channel == channel && memo.axes != axesIn && aroundAxes &&
+                           memo.inputs->axes;
+    if (memo.in != in || memo.axes != axesIn || memo.channel != channel || !memo.inputs) {
+        const std::size_t strands = in->strandCount();
+        auto words = std::make_shared<std::vector<std::uint32_t>>(strands * 4, 0u);
+        auto made = std::make_shared<TwistInputs>();
+        auto rootBits = [&](std::size_t s) {
+            if (in->strandPointCount(s) == 0) return;
+            std::memcpy(words->data() + s * 4 + 1, &in->strandPoints(s)[0], 12);
+        };
+        if (aroundAxes) {
+            // TwistOp: each guide of two points or more resampled by arc length, and each strand's
+            // nearest by its root.
+            auto axes = std::make_shared<std::vector<float>>();
+            std::vector<Vec3f> roots;
+            for (const Guide& g : axesIn->guides()) {
+                if (g.points.size() < 2) continue;
+                const std::vector<Vec3f> pts = resampleByArcLength(g.points.data(), g.points.size(), kTwistAxisSamples);
+                roots.push_back(pts.front());
+                for (const Vec3f& q : pts) axes->insert(axes->end(), {q.x, q.y, q.z});
+            }
+            made->count = roots.size();
+            for (std::size_t a = 0; a < roots.size(); ++a) {
+                axes->push_back(arcLength(reinterpret_cast<const Vec3f*>(axes->data() + a * kTwistAxisSamples * 3), kTwistAxisSamples));
+            }
+            if (axesAlone) {
+                std::fill(words->begin(), words->end(), 0xffffffffu);  // (no root's bits: TwistCS finds each nearest)
+            } else if (!roots.empty()) {
+                const PointIndex index(roots);
+                parallelFor(0, strands, [&](std::size_t s) {
+                    (*words)[s * 4] = in->strandPointCount(s) == 0 ? 0xffffffffu
+                                                                   : static_cast<std::uint32_t>(index.nearest(in->strandPoints(s)[0]));
+                    rootBits(s);
+                }, 1024);
+            }
+            if (axes->empty()) axes->push_back(0.0f);
+            made->axes = std::move(axes);
+        } else {
+            // Around each clump's middle: its core strands' mean (by the channel, any key).
+            const std::vector<float>* groups = in->strandChannel(channel);
+            if (!groups) {
+                *why = name + ": no axes, and no '" + channel + "' channel to find the clumps (the CPU's)";
+                return false;
+            }
+            const PreviewCore core(*in);
+            std::map<long long, std::size_t> slot;
+            std::vector<std::vector<std::uint32_t>> members;
+            for (std::size_t s = 0; s < strands; ++s) {
+                const auto key = std::llround((*groups)[s]);
+                auto it = slot.find(key);
+                if (it == slot.end()) {
+                    it = slot.emplace(key, members.size()).first;
+                    members.emplace_back();
+                }
+                (*words)[s * 4] = static_cast<std::uint32_t>(it->second);
+                if (core.core(s)) members[it->second].push_back(static_cast<std::uint32_t>(s));
+            }
+            for (std::size_t s = 0; s < strands; ++s) {
+                if (members[(*words)[s * 4]].empty()) (*words)[s * 4] = 0xffffffffu;  // no core strand: it does not turn
+            }
+            auto list = std::make_shared<std::vector<std::uint32_t>>(members.size() + 1, 0u);
+            for (std::size_t c = 0; c < members.size(); ++c) (*list)[c + 1] = (*list)[c] + static_cast<std::uint32_t>(members[c].size());
+            for (const auto& m : members) list->insert(list->end(), m.begin(), m.end());
+            made->members = std::move(list);
+            made->count = members.size();
+        }
+        made->strands = std::move(words);
+        memo.in = in;
+        memo.axes = axesIn;
+        memo.channel = channel;
+        memo.inputs = std::move(made);
+    }
+    out->twist = memo.inputs;
+    return true;
+}
+
+
+// ---- What Jiggle and MeshCut take ----------------------------------------------------------------
+
+bool LookInputs::readJiggle(const GraphDocument& doc, NodeId id, const StageParams& p, StageInputs* out, std::string* why) {
+    const Graph& graph = doc.graph;
+    const std::string name = doc.nameOf(id);
+    const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+    JiggleState state;
+    if (!in || !jiggleState(graph.node(id), cachedStrands(graph, id), &state) || !state.scalp || !state.history) {
+        *why = name + " keeps no scalp motion for its result";
+        return false;
+    }
+    double frequency = 0.0, damping = 0.0;
+    std::memcpy(&frequency, &p.more[0], sizeof frequency);
+    std::memcpy(&damping, &p.more[2], sizeof damping);
+    JiggleMemo& memo = jiggle_[id];
+    if (memo.in != in || memo.scalp != state.scalp || memo.history != state.history || memo.nowFrame != state.nowFrame ||
+        memo.frequency != frequency || memo.damping != damping || memo.frames != p.flag[0] || !memo.inputs) {
+        // The lags at these params (JiggleOp's: the frames read, the springs' weights, each vertex's
+        // and face's drag), for the faces the strands grow from.
+        ParamSet params = evaluatedParams(graph, id);
+        params.set("frequency", frequency);
+        params.set("damping", damping);
+        params.set("history", static_cast<std::int64_t>(p.flag[0]));
+        const ScalpMesh& scalp = *state.scalp;
+        const auto& tris = scalp.triangles();
+        std::vector<char> used(tris.size(), 0);
+        for (const StrandRoot& root : in->roots()) {
+            if (scalp.contains(root)) used[static_cast<std::size_t>(root.face)] = 1;
+        }
+        JiggleLags lags;
+        jiggleLags(params, state, used, &lags);
+        auto strands = std::make_shared<std::vector<float>>(in->strandCount() * 4, 0.0f);
+        parallelFor(0, in->strandCount(), [&](std::size_t s) {
+            float* to = strands->data() + s * 4;
+            std::uint32_t face = 0xFFFFFFFFu;
+            const StrandRoot& root = in->roots()[s];
+            if (in->strandPointCount(s) >= 2 && scalp.contains(root) && !lags.vertexLag.empty()) {
+                const auto& t = tris[static_cast<std::size_t>(root.face)];
+                const float wa = 1.0f - root.u - root.v;
+                const auto a = static_cast<std::size_t>(t[0]), b = static_cast<std::size_t>(t[1]), c = static_cast<std::size_t>(t[2]);
+                const Vec3f lag = lags.vertexLag[a] * wa + lags.vertexLag[b] * root.u + lags.vertexLag[c] * root.v;  // (as JiggleOp blends it)
+                to[0] = lag.x;
+                to[1] = lag.y;
+                to[2] = lag.z;
+                face = static_cast<std::uint32_t>(root.face);
+            }
+            std::memcpy(&to[3], &face, sizeof face);
+        }, 4096);
+        auto faces = std::make_shared<std::vector<float>>(std::max<std::size_t>(tris.size(), 1) * 12, 0.0f);
+        for (std::size_t f = 0; f < tris.size() && f < lags.faceTurned.size(); ++f) {
+            if (!lags.faceTurned[f]) continue;
+            float* to = faces->data() + f * 12;
+            for (int r = 0; r < 3; ++r) {
+                for (int col = 0; col < 3; ++col) to[r * 4 + col] = static_cast<float>(lags.faceTurn[f][static_cast<std::size_t>(r * 3 + col)]);
+            }
+            to[3] = 1.0f;
+        }
+        auto made = std::make_shared<JiggleInputs>();
+        made->strands = std::move(strands);
+        made->faces = std::move(faces);
+        memo.in = in;
+        memo.scalp = state.scalp;
+        memo.history = state.history;
+        memo.nowFrame = state.nowFrame;
+        memo.frequency = frequency;
+        memo.damping = damping;
+        memo.frames = p.flag[0];
+        memo.inputs = std::move(made);
+    }
+    out->jiggle = memo.inputs;
+    return true;
+}
+
+bool LookInputs::readMeshCut(const GraphDocument& doc, NodeId id, StageInputs* out, std::string* why) {
+    (void)why;
+    const Graph& graph = doc.graph;
+    NodeId src = 0;
+    std::size_t output = 0;
+    const MeshPtr mesh = graph.inputSource(id, 1, &src, &output) ? valueAs<MeshPtr>(graph.cachedValue(src, output)) : nullptr;
+    MeshCutMemo& memo = meshCut_[id];
+    if (memo.mesh != mesh || !memo.inputs) {
+        auto made = std::make_shared<MeshCutInputs>();
+        if (mesh && mesh->triangleCount() > 0) made->tree = mesh->rayTree();
+        memo.mesh = mesh;
+        memo.inputs = std::move(made);
+    }
+    out->meshCut = memo.inputs;
+    return true;
+}
+
+// ---- What the shapers reading their neighbours or a reference take -----------------------------
+
+bool LookInputs::readShaper(const GraphDocument& doc, const LookChain& chain, std::size_t k, const std::set<NodeId>& before, bool rebound,
+                            const ScalpMesh* groomScalp, const MeshPtr& scalpMesh, StageInputs* out, std::string* why) {
+    const Graph& graph = doc.graph;
+    const LookStage& stage = chain.stages[k];
+    const NodeId id = stage.node;
+    const std::string name = doc.nameOf(id);
+    const ParamSet& own = graph.node(id).params();
+    const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+    if (!in) {
+        *why = "not evaluated";
+        return false;
+    }
+    // A strand channel whom a strand reads goes by (clump numbers, regions) holds through the run
+    // where no stage before it writes it but a Clump (its choice the CPU's, fixed) or an Interpolate
+    // that is not bound again.
+    auto channelHolds = [&](const std::string& channel) {
+        if (channel.empty()) return true;
+        for (std::size_t j = 0; j < k; ++j) {
+            const NodeId jd = chain.stages[j].node;
+            const StrandsPtr jin = cachedStrands(graph, upstream(graph, jd)), jout = cachedStrands(graph, jd);
+            if (!jin || !jout) return false;
+            if (jout->strandChannel(channel) == jin->strandChannel(channel)) continue;
+            const StageKind kind = chain.stages[j].kind;
+            if (kind == StageKind::Clump || (kind == StageKind::Interpolate && !rebound)) continue;
+            return false;
+        }
+        return true;
+    };
+    ShaperMemo& memo = shaper_[id];
+    switch (stage.kind) {
+        case StageKind::RestoreLength: {
+            const std::string mode = own.getString("mode");
+            if (mode == "even") return true;  // (its own points alone)
+            if (stage.from2 != kNoStage) {
+                // Made by a stage of the run: the same strands (IDs, layout) as it takes, read on the GPU.
+                const StrandsPtr ref = cachedStrands(graph, chain.stages[stage.from2].node);
+                if (!ref || ref->ids() != in->ids() || ref->offsets() != in->offsets()) {
+                    *why = name + "'s reference is other strands than it takes (the CPU's)";
+                    return false;
+                }
+                for (std::size_t s = 0; s < ref->strandCount(); ++s) {
+                    out->reach = std::max(out->reach, arcLength(ref->strandPoints(s), ref->strandPointCount(s)));
+                }
+                return true;
+            }
+            NodeId src = 0;
+            std::size_t output = 0;
+            if (!graph.inputSource(id, 1, &src, &output)) return true;  // (handed on: not a stage)
+            if (dependsOn(graph, src, before)) {
+                *why = name + "'s reference is made from what the run moves, through nodes the GPU does not run (the CPU's)";
+                return false;
+            }
+            const Value value = graph.cachedValue(src, output);
+            const StrandsPtr refStrands = valueAs<StrandsPtr>(value);
+            const GuidesPtr refGuides = refStrands ? nullptr : valueAs<GuidesPtr>(value);
+            const void* made = refStrands ? static_cast<const void*>(refStrands.get()) : static_cast<const void*>(refGuides.get());
+            if (!made) {
+                *why = name + "'s reference is not evaluated";
+                return false;
+            }
+            if (memo.in != in || memo.made != made || !memo.restore) {
+                // The reference curves by ID (RestoreLengthOp: strands, or guides), each at the
+                // strand's point count as the node resamples it.
+                struct Ref {
+                    const Vec3f* points;
+                    std::size_t count;
+                };
+                std::unordered_map<StrandId, Ref> reference;
+                float longest = 0.0f;
+                if (refStrands) {
+                    for (std::size_t s = 0; s < refStrands->strandCount(); ++s) {
+                        if (refStrands->strandPointCount(s) >= 2) reference[refStrands->ids()[s]] = {refStrands->strandPoints(s), refStrands->strandPointCount(s)};
+                    }
+                } else {
+                    for (const Guide& g : refGuides->guides()) {
+                        if (g.points.size() >= 2) reference[g.id] = {g.points.data(), g.points.size()};
+                    }
+                }
+                auto lengths = std::make_shared<std::vector<float>>(in->pointCount(), 0.0f);
+                auto firsts = std::make_shared<std::vector<float>>(in->strandCount() * 4, 0.0f);
+                std::vector<float> reaches(in->strandCount(), 0.0f);
+                parallelFor(0, in->strandCount(), [&](std::size_t s) {
+                    const std::size_t n = in->strandPointCount(s), begin = in->strandBegin(s);
+                    if (n == 0) return;
+                    (*lengths)[begin] = -1.0f;
+                    if (n < 2) return;
+                    const auto it = reference.find(in->ids()[s]);
+                    if (it == reference.end()) return;
+                    const Ref& ref = it->second;
+                    thread_local std::vector<Vec3f> sampled;
+                    const Vec3f* pts = ref.points;
+                    if (ref.count != n) {
+                        sampled.resize(n);
+                        resampleByArcLengthInto(ref.points, ref.count, sampled.data(), n);
+                        pts = sampled.data();
+                    }
+                    const float whole = arcLength(ref.points, ref.count);
+                    (*lengths)[begin] = whole;
+                    reaches[s] = whole;
+                    for (std::size_t i = 1; i < n; ++i) (*lengths)[begin + i] = (pts[i] - pts[i - 1]).length();
+                    const Vec3f first = pts[1] - pts[0];
+                    float* f = firsts->data() + s * 4;
+                    f[0] = first.x;
+                    f[1] = first.y;
+                    f[2] = first.z;
+                }, 1024);
+                for (const float r : reaches) longest = std::max(longest, r);
+                auto made2 = std::make_shared<RestoreInputs>();
+                made2->lengths = std::move(lengths);
+                made2->firsts = std::move(firsts);
+                memo.in = in;
+                memo.made = made;
+                memo.keep = refStrands ? std::shared_ptr<const void>(refStrands) : std::shared_ptr<const void>(refGuides);
+                memo.restore = std::move(made2);
+                memo.reach = longest;
+            }
+            out->restore = memo.restore;
+            out->reach = std::max(out->reach, memo.reach);
+            return true;
+        }
+        case StageKind::BlendNeighbors: {
+            std::shared_ptr<const BlendNeighborsState> state;
+            if (!blendNeighborsState(graph.node(id), cachedStrands(graph, id), &state) || state->offsets.size() != in->strandCount() + 1 ||
+                state->normals.size() != in->strandCount()) {
+                *why = name + " keeps no neighbours for its result";
+                return false;
+            }
+            if (!channelHolds(own.getString("regionChannel"))) {
+                *why = name + " blends within regions the run writes anew (the CPU's)";
+                return false;
+            }
+            out->neighbors = std::move(state);
+            return true;
+        }
+        case StageKind::Tangle: {
+            std::shared_ptr<const TangleState> state;
+            if (!tangleState(graph.node(id), cachedStrands(graph, id), &state) || state->partners.size() != in->strandCount() ||
+                state->draws.size() != in->strandCount()) {
+                *why = name + " keeps no partners for its result";
+                return false;
+            }
+            if (!channelHolds(own.getBool("sameClump") ? std::string(kClumpIdChannel) : std::string()) ||
+                !channelHolds(own.getString("regionChannel"))) {
+                *why = name + " picks its partners by clumps or regions the run writes anew (the CPU's)";
+                return false;
+            }
+            // Its fraction picks which strands stick: on the strands the run hands it, where the
+            // values it reads hold (the roots, IDs, channels the run does not write anew).
+            const ParamSet params = evaluatedParams(graph, id);
+            if (k > 0 && (ownMap(params, "fraction") || params.field("fraction"))) {
+                bool holds = false;
+                try {
+                    const ScalarField fraction(params, "fraction", groomScalp);
+                    fraction.validate(*in);
+                    const FieldRead r = whatItReads(graph, chain, k, fraction);
+                    holds = !r.unknown && !r.layer && !r.positions && !r.influence && (!r.binding || !rebound);
+                } catch (const std::exception&) {
+                    holds = false;
+                }
+                if (!holds) {
+                    *why = name + " picks the strands that stick by a fraction the run changes (the CPU's)";
+                    return false;
+                }
+            }
+            if (memo.in != in || memo.made != state.get() || !memo.tangle) {
+                const std::size_t count = in->strandCount();
+                auto words = std::make_shared<std::vector<std::uint32_t>>(count * 4, 0u);
+                for (std::size_t s = 0; s < count; ++s) {
+                    std::uint32_t* w = words->data() + s * 4;
+                    const std::uint32_t p = state->partners[s];
+                    w[0] = p < count ? p : kNoTanglePartner;
+                    if (w[0] == kNoTanglePartner) continue;
+                    // TangleOp: a pair that picked each other meets in the middle over the span of
+                    // its lower ID; a strand whose partner picked another moves all the way onto it.
+                    const bool mutual = state->partners[p] == s;
+                    const float draw = mutual && in->ids()[p] < in->ids()[s] ? state->draws[p] : state->draws[s];
+                    const float share = mutual ? 0.5f : 1.0f;
+                    std::memcpy(&w[1], &draw, 4);
+                    std::memcpy(&w[2], &share, 4);
+                }
+                auto made = std::make_shared<TangleInputs>();
+                made->strands = std::move(words);
+                memo.in = in;
+                memo.made = state.get();
+                memo.keep = state;
+                memo.tangle = std::move(made);
+            }
+            out->tangle = memo.tangle;
+            return true;
+        }
+        case StageKind::Flow: {
+            FlowState state;
+            if (!flowState(graph.node(id), cachedStrands(graph, id), &state)) {
+                *why = name + " keeps no flow for its result";
+                return false;
+            }
+            // The scalp it traced the strands over (its "scalp" external, the groom's), as Tie
+            // finds closest points on it: still in its rest pose.
+            const ScalpMesh* traced = state.scalp && state.scalp->triangleCount() > 0 ? state.scalp : nullptr;
+            if (traced && (!scalpMesh || scalpMesh.get() != traced)) {
+                *why = name + ": the scalp it lays its strands over is not at hand";
+                return false;
+            }
+            if (traced && traced->hasRest() && traced->restPoints() != traced->points()) {
+                *why = name + ": its scalp is deformed away from its rest pose (the CPU's)";
+                return false;
+            }
+            const FlowField* field = state.flow.get();
+            constexpr std::size_t kMaxPins = 4096, kMaxSinks = 256;  // (look.slang FlowCS asks every one where it asks the field)
+            if (field && (field->positions().size() > kMaxPins || field->sinkPositions().size() > kMaxSinks)) {
+                *why = name + ": its flow has too many arrows for the GPU (the CPU's)";
+                return false;
+            }
+            if (memo.in != in || memo.made != field || memo.tablesScalp != (traced ? scalpMesh : nullptr) || !memo.flow) {
+                auto made = std::make_shared<FlowInputs>();
+                made->arrows = field != nullptr;
+                if (traced) {
+                    // Tie's tables of this scalp (readTie: its box's size, the clearance and search
+                    // radius of its push): their mesh is what the closest points are found down.
+                    if (memo.tablesScalp != scalpMesh || !memo.tables) {
+                        Vec3f lo = traced->points().front(), hi = lo;
+                        for (const Vec3f& q : traced->points()) {
+                            lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                            hi = {std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                        }
+                        const float size = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+                        const float clearance = size * (1.0f / 400.0f), depth = size * (1.0f / 8.0f);
+                        const float searchRadius = std::max(clearance, depth) * 1.001f + 1e-6f;
+                        const DistanceFieldPtr df = clearance > 0.0f ? collisionField(scalpMesh, clearance, searchRadius) : nullptr;
+                        memo.tables = df ? df->tables(clearance, searchRadius) : nullptr;
+                        if (memo.tables) memo.tables = weldedRings(memo.tables, *traced);
+                        memo.tablesScalp = scalpMesh;
+                    }
+                    if (!memo.tables) {
+                        *why = name + ": its scalp has no field the GPU can read (too big for its grid: the CPU's)";
+                        return false;
+                    }
+                    made->tables = memo.tables;
+                }
+                // Each strand's root on the scalp, its normal and the field there (FlowOp's first
+                // heading), as the CPU reads them.
+                const std::size_t count = in->strandCount();
+                auto strands = std::make_shared<std::vector<float>>(count * 12, 0.0f);
+                parallelFor(0, count, [&](std::size_t s) {
+                    float* to = strands->data() + s * 12;
+                    const StrandRoot& root = in->roots()[s];
+                    const bool onScalp = traced && traced->contains(root);
+                    const std::uint32_t face = onScalp ? static_cast<std::uint32_t>(root.face) : 0xFFFFFFFFu;
+                    std::memcpy(&to[0], &face, 4);
+                    if (!onScalp) return;
+                    to[1] = root.u;
+                    to[2] = root.v;
+                    const Vec3f normal = traced->normal(root);
+                    to[4] = normal.x;
+                    to[5] = normal.y;
+                    to[6] = normal.z;
+                    if (field) {
+                        const Vec3f d = field->atRoot(*traced, root, normal);
+                        to[8] = d.x;
+                        to[9] = d.y;
+                        to[10] = d.z;
+                    }
+                }, 1024);
+                made->strands = std::move(strands);
+                auto words = std::make_shared<std::vector<float>>();
+                if (field) {
+                    const std::vector<Vec3f>& baked = field->vertexDirections();
+                    if (traced && baked.size() == traced->pointCount()) {
+                        for (const Vec3f& d : baked) words->insert(words->end(), {d.x, d.y, d.z, 0.0f});
+                        made->vertices = static_cast<std::uint32_t>(baked.size());
+                    }
+                    for (std::size_t p = 0; p < field->positions().size(); ++p) {
+                        const Vec3f& at = field->positions()[p];
+                        const Vec3f& d = field->directions()[p];
+                        words->insert(words->end(), {at.x, at.y, at.z, 0.0f, d.x, d.y, d.z, 0.0f});
+                    }
+                    made->pins = static_cast<std::uint32_t>(field->positions().size());
+                    for (std::size_t k = 0; k < field->sinkPositions().size(); ++k) {
+                        const Vec3f& at = field->sinkPositions()[k];
+                        const Vec3f& n = field->sinkNormals()[k];
+                        words->insert(words->end(), {at.x, at.y, at.z, field->sinkRadii()[k], n.x, n.y, n.z, field->sinkAngles()[k]});
+                    }
+                    made->sinks = static_cast<std::uint32_t>(field->sinkPositions().size());
+                }
+                if (words->empty()) words->push_back(0.0f);
+                made->field = std::move(words);
+                memo.in = in;
+                memo.made = field;
+                memo.keep = state.flow;
+                memo.flow = std::move(made);
+            }
+            out->flow = memo.flow;
+            return true;
+        }
+        default: return true;
+    }
+
+}
+
+LookBounds lookBounds(const LookParams& p, const LookFields& fields, const std::vector<StageInputs>& inputs, const StrandSet& base,
+                      float slack) {
+    LookBounds b;
+    const auto extent = base.extent();
+    if (extent.empty()) return b;
+    Vec3f lo = extent.lo, hi = extent.hi;
+    auto grow = [&](float by) {
+        const Vec3f g(by, by, by);
+        lo = lo - g;
+        hi = hi + g;
+    };
+    // The largest |value| of a param: its number, or its values times the multiplier.
+    auto largest = [](float number, const FieldValues& f) {
+        if (!f.mode) return std::abs(number);
+        float m = 0.0f;
+        for (const float v : f.values) m = std::max(m, std::abs(v));
+        return m * std::abs(number);
+    };
+    // A profile never leaves its keys' range (monotone cubic Hermite): its largest |key|.
+    auto peak = [](const Ramp& r) {
+        if (r.keys.empty()) return 1.0f;
+        float m = 0.0f;
+        for (const auto& k : r.keys) m = std::max(m, std::abs(k.second));
+        return m;
+    };
+    for (std::size_t k = 0; k < p.stages.size(); ++k) {
+        const StageParams& s = p.stages[k];
+        const FieldValues* f = k < fields.stages.size() ? fields.stages[k].field : nullptr;
+        static const FieldValues kNone;
+        const FieldValues& f0 = f ? f[0] : kNone;
+        switch (s.stage.kind) {
+            case StageKind::Interpolate: {
+                // Within twice the guides' longest offset of the roots (inside the box so far); keeping
+                // clearance (points lifted, the segments' lengths kept), twice the longest guide.
+                float longest = 0.0f;
+                const InterpolateInputs* in = k < inputs.size() ? inputs[k].interpolate.get() : nullptr;
+                if (in && in->rows) {
+                    for (const Vec3f& o : in->rows->offsets) longest = std::max(longest, o.length());
+                    if (in->clearance) {
+                        for (const float length : in->rows->lengths) longest = std::max(longest, length);
+                    }
+                }
+                grow(2.0f * longest * slack);
+                break;
+            }
+            case StageKind::Length:
+            case StageKind::MeshCut: break;  // trimmed: within the strand
+            case StageKind::Clump: {
+                // Between each point and its center's (the centers' box grown by the lock).
+                const ClumpInputs* in = k < inputs.size() ? inputs[k].clump.get() : nullptr;
+                Vec3f clo = lo, chi = hi;  // made from the strands: inside the box so far
+                if (in && in->curves && !in->curves->empty()) {
+                    clo = chi = in->curves->front();
+                    for (const Vec3f& c : *in->curves) {
+                        clo = {std::min(clo.x, c.x), std::min(clo.y, c.y), std::min(clo.z, c.z)};
+                        chi = {std::max(chi.x, c.x), std::max(chi.y, c.y), std::max(chi.z, c.z)};
+                    }
+                } else if (in && in->centersRun && in->centersRun->base) {
+                    // Made by their branch's run: within its box (resampled, shared: within it still).
+                    const LookCentersRun& run = *in->centersRun;
+                    const LookBounds made = lookBounds(run.params, run.fields, run.inputs, *run.base, slack);
+                    if (made.valid) {
+                        clo = made.lo;
+                        chi = made.hi;
+                    }
+                }
+                // pastTip extend: on past an axis's tip by up to the longest strand. (A lock radius
+                // varied per clump up to 1 + lockRadiusRandom of it.)
+                const float lock = s.value[3] * (1.0f + std::abs(s.value2[1]));
+                const float r = (lock + (s.flag[1] != 0 && in ? in->reach : 0.0f)) * slack;
+                lo = {std::min(lo.x, clo.x - r), std::min(lo.y, clo.y - r), std::min(lo.z, clo.z - r)};
+                hi = {std::max(hi.x, chi.x + r), std::max(hi.y, chi.y + r), std::max(hi.z, chi.z + r)};
+                // Volumize pushes a point out from its axis by a share of how far it is across it
+                // (both within the box so far).
+                const FieldValues& f1 = f ? f[1] : kNone;
+                const float volume = largest(s.value[1], f1) * (s.hasRamp2 ? peak(s.ramp2) : 1.0f);
+                if (volume > 0.0f) {
+                    const Vec3f d = hi - lo;
+                    grow(volume * d.length() * slack);
+                }
+                // A negative strength pushes points out by the repel radius at most.
+                float lowest = s.value[0];
+                if (f0.mode) {
+                    lowest = 0.0f;
+                    for (const float v : f0.values) lowest = std::min(lowest, v * s.value[0]);
+                }
+                float repelRadius = 0.0f;
+                std::memcpy(&repelRadius, &s.flag[0], sizeof(float));
+                if (lowest < 0.0f) grow(repelRadius * slack);
+                break;
+            }
+            case StageKind::Noise:
+                grow(kNoiseReach * largest(s.value[0], f0) * peak(s.ramp) * slack);
+                break;
+            case StageKind::Curl: {
+                float radius = largest(s.value[0], f0);
+                if (f0.widths) {
+                    // A coil by widths a Width before it makes in the run: its largest width.
+                    for (std::size_t j = 0; j < k; ++j) {
+                        const StageParams& w = p.stages[j];
+                        if (w.stage.kind != StageKind::Width) continue;
+                        const FieldValues& wf = j < fields.stages.size() ? fields.stages[j].field[0] : kNone;
+                        radius = std::max(radius, std::abs(s.value[0]) * largest(w.value[0], wf) * (1.0f + std::abs(w.value[1])) * peak(w.ramp));
+                    }
+                }
+                grow(radius * (1.0f + std::abs(s.value[2])) * peak(s.ramp) * slack);
+                break;
+            }
+            case StageKind::Width: break;
+            case StageKind::Blend: break;  // between its looks' points: inside the box so far
+            case StageKind::Displace: {
+                // Each point moved along a unit way by its distance times the profile.
+                grow(largest(s.value[0], f0) * peak(s.ramp) * slack);
+                break;
+            }
+            case StageKind::Twist: {
+                // A point turned about a centre on its axis keeps its distance from it: within the
+                // box so far and its axes' (a clump's middle is inside the box so far) grown by that
+                // box's diagonal.
+                const TwistInputs* in = k < inputs.size() ? inputs[k].twist.get() : nullptr;
+                if (in && in->axes) {
+                    for (std::size_t a = 0; a < in->count * kTwistAxisSamples; ++a) {
+                        const Vec3f q((*in->axes)[a * 3], (*in->axes)[a * 3 + 1], (*in->axes)[a * 3 + 2]);
+                        lo = {std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                        hi = {std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                    }
+                }
+                grow((hi - lo).length() * slack);
+                break;
+            }
+            case StageKind::Transform: {
+                // Each strand scaled by k at most and turned (lengths times k) about its root, then
+                // moved; or the set about the pivot.
+                const float most = largest(s.value[0], f0) * (1.0f + std::max(s.value[1], 0.0f));
+                const Vec3f translate(s.value2[0], s.value2[1], s.value2[2]), random(s.more[8], s.more[9], s.more[10]);
+                const float move = translate.length() + random.length();
+                if (s.flag[0] != 0) {
+                    const Vec3f pivot(s.more[4], s.more[5], s.more[6]);
+                    float far = 0.0f;
+                    for (int c = 0; c < 8; ++c) {
+                        const Vec3f corner(c & 1 ? hi.x : lo.x, c & 2 ? hi.y : lo.y, c & 4 ? hi.z : lo.z);
+                        far = std::max(far, (corner - pivot).length());
+                    }
+                    const float r = (most * far + move) * slack;
+                    lo = {std::min(lo.x, pivot.x - r), std::min(lo.y, pivot.y - r), std::min(lo.z, pivot.z - r)};
+                    hi = {std::max(hi.x, pivot.x + r), std::max(hi.y, pivot.y + r), std::max(hi.z, pivot.z + r)};
+                    break;
+                }
+                float reach = k < inputs.size() ? inputs[k].reach : 0.0f;
+                for (std::size_t j = 0; j < k && j < inputs.size(); ++j) {
+                    const InterpolateInputs* interpolate = inputs[j].interpolate.get();
+                    if (!interpolate || !interpolate->rows) continue;
+                    for (const float length : interpolate->rows->lengths) reach = std::max(reach, 2.0f * length);
+                }
+                grow((most * reach + move) * slack);
+                break;
+            }
+            case StageKind::Bend:
+            case StageKind::Direction:
+            case StageKind::Part:
+            case StageKind::Gravity:
+            case StageKind::Flyaway:
+            case StageKind::Collide:
+            case StageKind::Wind:
+            case StageKind::SelfCollide:
+            case StageKind::Static:
+            case StageKind::Tie:
+            case StageKind::Smooth:
+            case StageKind::RestoreLength:
+            case StageKind::BlendNeighbors:
+            case StageKind::Tangle:
+            case StageKind::Flow:
+            case StageKind::Jiggle: {
+                // Each segment turned (Part, Gravity, Wind, Static, Jiggle) or pushed and walked from the root
+                // (SelfCollide), or laid along a path from its start (Tie), its length kept: a point stays within its
+                // strand's length of its root (the longest strand it took; after a running
+                // Interpolate, its guides' too). Collide keeps lengths from points it pushed out to
+                // its offset above its surfaces: within that of their boxes. Flyaway's strays carry
+                // on past their tips by lengthen, wandering by their stray under the noise's reach
+                // (its length at most sqrt 3 of it, stood out by 1 at most). Smooth and Tangle keep
+                // their segments' lengths from the root, BlendNeighbors' shapes are mixed of strands no
+                // longer than the longest it took (its own length kept or not), RestoreLength's lengths
+                // its reference's (the reach the longer of the two).
+                const PartInputs* in = k < inputs.size() ? inputs[k].part.get() : nullptr;
+                float reach = in ? in->reach : k < inputs.size() ? inputs[k].reach : 0.0f;
+                for (std::size_t j = 0; j < k && j < inputs.size(); ++j) {
+                    const InterpolateInputs* interpolate = inputs[j].interpolate.get();
+                    if (!interpolate || !interpolate->rows) continue;
+                    for (const float length : interpolate->rows->lengths) reach = std::max(reach, 2.0f * length);
+                }
+                if (s.stage.kind == StageKind::Collide) {
+                    const CollideInputs* collide = k < inputs.size() ? inputs[k].collide.get() : nullptr;
+                    for (std::size_t m = 0; collide && m + 1 < collide->boxes.size(); m += 2) {
+                        const float r = 2.0f * std::abs(s.value[0] + s.value2[0]);  // (the offset, and the softness above it)
+                        const Vec3f clo = collide->boxes[m], chi = collide->boxes[m + 1];
+                        lo = {std::min(lo.x, clo.x - r), std::min(lo.y, clo.y - r), std::min(lo.z, clo.z - r)};
+                        hi = {std::max(hi.x, chi.x + r), std::max(hi.y, chi.y + r), std::max(hi.z, chi.z + r)};
+                    }
+                }
+                if (s.stage.kind == StageKind::Flyaway) {
+                    const FieldValues& f1 = f ? f[0] : kNone;
+                    reach = reach * (1.0f + std::max(s.value2[1], 0.0f)) + largest(s.value[0], f1) * (1.7320508f * kNoiseReach + 1.0f);
+                }
+                // Flow lays a strand along the skin and lifts it off it: within its length of its
+                // root along the skin and as far off it, sqrt 2 of it at most (twice, rounded up).
+                if (s.stage.kind == StageKind::Flow) reach *= 2.0f;
+                grow(reach * slack);
+                break;
+            }
+        }
+    }
+    b.lo = lo;
+    b.hi = hi;
+    b.valid = true;
+    return b;
+}
+
+PointError compareVectors(const std::vector<Vec3f>& a, const std::vector<Vec3f>& b) {
+    PointError e;
+    if (a.size() != b.size()) {
+        e.max = std::numeric_limits<double>::infinity();
+        return e;
+    }
+    double sum = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const double d = (a[i] - b[i]).length();
+        if (!(d <= e.max)) e.max = d;  // NaN shows as NaN
+        sum += d;
+    }
+    e.count = a.size();
+    e.mean = a.empty() ? 0.0 : sum / static_cast<double>(a.size());
+    return e;
+}
+
+}  // namespace groomlab::gpu

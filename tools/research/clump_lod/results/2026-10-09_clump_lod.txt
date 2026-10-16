@@ -1,0 +1,34 @@
+﻿hair_basics on the head: 999985 strands x 17 points, evaluated in 675 ms
+546 clumps (1831 strands a clump on average)
+
+== near: head 1600 px, mean width 1.423 px; reference 11499 ms; LOD keeps 820872 of 999985 strands (82.1%), impostor clumps 0 of 546
+  reference alpha 1.000
+  current      999985 strands  15999760 segments   24785000 fragments raster 16176.4 ms | vs reference: MAE (blur 1px)  8.31 (blur 2px)  7.16 SSIM 0.7032 ink 0.987 color MAE 7.11 | alpha drawn 0.994 expected 1.000 | predicted viewport frame 7.5 ms
+  unfloored    999985 strands  15999760 segments   24785000 fragments raster 16510.8 ms | vs reference: MAE (blur 1px)  8.31 (blur 2px)  7.16 SSIM 0.7032 ink 0.987 color MAE 7.11 | alpha drawn 0.994 expected 1.000 | predicted viewport frame 7.5 ms
+  clumpLod     820872 strands  13133952 segments   16055539 fragments raster 16295.0 ms | vs reference: MAE (blur 1px)  7.14 (blur 2px)  6.04 SSIM 0.7509 ink 0.993 color MAE 5.91 | alpha drawn 0.997 expected 1.000 | predicted viewport frame 6.5 ms
+  preview      820469 strands  13127504 segments   20346462 fragments raster 11384.4 ms | vs reference: MAE (blur 1px)  7.74 (blur 2px)  6.57 SSIM 0.7273 ink 0.992 color MAE 6.45 | alpha drawn 0.997 expected 1.000 | predicted viewport frame 6.5 ms
+  impostor     820872 strands  13133952 segments   16055539 fragments raster 14207.7 ms | vs reference: MAE (blur 1px)  7.14 (blur 2px)  6.04 SSIM 0.7509 ink 0.993 color MAE 5.91 | alpha drawn 0.997 expected 1.000 | predicted viewport frame 6.5 ms
+
+== mid: head 384 px, mean width 0.105 px; reference 16920 ms; LOD keeps 257593 of 999985 strands (25.8%), impostor clumps 0 of 546
+  reference alpha 0.887
+  current      999985 strands  15999760 segments  132671902 fragments raster 1107.3 ms | vs reference: MAE (blur 1px)  7.97 (blur 2px)  7.37 SSIM 0.8040 ink 0.975 color MAE 8.56 | alpha drawn 0.868 expected 0.891 | predicted viewport frame 7.5 ms
+  unfloored    999985 strands  15999760 segments  132671902 fragments raster 1111.9 ms | vs reference: MAE (blur 1px)  7.74 (blur 2px)  7.02 SSIM 0.8020 ink 0.971 color MAE 8.25 | alpha drawn 0.863 expected 0.887 | predicted viewport frame 7.5 ms
+  clumpLod     257593 strands   4121488 segments   35117642 fragments raster  303.6 ms | vs reference: MAE (blur 1px)  4.17 (blur 2px)  3.28 SSIM 0.8967 ink 0.990 color MAE 3.81 | alpha drawn 0.878 expected 0.886 | predicted viewport frame 3.4 ms
+  preview      256885 strands   4110160 segments   34088620 fragments raster  279.2 ms | vs reference: MAE (blur 1px)  4.21 (blur 2px)  3.42 SSIM 0.9008 ink 0.994 color MAE 3.87 | alpha drawn 0.883 expected 0.889 | predicted viewport frame 3.4 ms
+  impostor     257593 strands   4121488 segments   35117642 fragments raster  279.5 ms | vs reference: MAE (blur 1px)  4.17 (blur 2px)  3.28 SSIM 0.8967 ink 0.990 color MAE 3.81 | alpha drawn 0.878 expected 0.886 | predicted viewport frame 3.4 ms
+
+== far: head 96 px, mean width 0.025 px; reference 4248 ms; LOD keeps 59520 of 999985 strands (6.0%), impostor clumps 0 of 546
+  reference alpha 0.055
+  current      999985 strands  15999760 segments   33464290 fragments raster  568.4 ms | vs reference: MAE (blur 1px)  4.67 (blur 2px)  4.17 SSIM 0.9267 ink 1.034 color MAE 5.84 | alpha drawn 0.057 expected 0.057 | predicted viewport frame 7.5 ms
+  unfloored    999985 strands  15999760 segments   33464290 fragments raster  618.9 ms | vs reference: MAE (blur 1px)  2.58 (blur 2px)  1.68 SSIM 0.9573 ink 1.009 color MAE 2.50 | alpha drawn 0.056 expected 0.056 | predicted viewport frame 7.5 ms
+  clumpLod      59520 strands    952320 segments    1999028 fragments raster   36.0 ms | vs reference: MAE (blur 1px)  2.85 (blur 2px)  1.93 SSIM 0.9498 ink 1.004 color MAE 2.92 | alpha drawn 0.055 expected 0.055 | predicted viewport frame 2.3 ms
+  preview       59241 strands    947856 segments    1982923 fragments raster   36.1 ms | vs reference: MAE (blur 1px)  4.42 (blur 2px)  3.85 SSIM 0.9319 ink 1.028 color MAE 5.42 | alpha drawn 0.057 expected 0.057 | predicted viewport frame 2.3 ms
+  impostor      59520 strands    952320 segments    1999028 fragments raster   31.6 ms | vs reference: MAE (blur 1px)  2.85 (blur 2px)  1.93 SSIM 0.9498 ink 1.004 color MAE 2.92 | alpha drawn 0.055 expected 0.055 | predicted viewport frame 2.3 ms
+
+== veryfar: head 32 px, mean width 0.008 px; reference 2064 ms; LOD keeps 19744 of 999985 strands (2.0%), impostor clumps 487 of 546
+  reference alpha 0.006
+  current      999985 strands  15999760 segments   11077157 fragments raster  386.6 ms | vs reference: MAE (blur 1px)  7.11 (blur 2px)  6.28 SSIM 0.8992 ink 1.071 color MAE 9.84 | alpha drawn 0.007 expected 0.007 | predicted viewport frame 7.5 ms
+  unfloored    999985 strands  15999760 segments   11077157 fragments raster  386.0 ms | vs reference: MAE (blur 1px)  3.53 (blur 2px)  2.69 SSIM 0.9579 ink 1.026 color MAE 4.45 | alpha drawn 0.006 expected 0.006 | predicted viewport frame 7.5 ms
+  clumpLod      19744 strands    315904 segments     219053 fragments raster    7.5 ms | vs reference: MAE (blur 1px)  4.23 (blur 2px)  3.43 SSIM 0.9437 ink 1.039 color MAE 5.70 | alpha drawn 0.006 expected 0.006 | predicted viewport frame 2.1 ms
+  preview       19722 strands    315552 segments     218218 fragments raster    6.8 ms | vs reference: MAE (blur 1px)  6.03 (blur 2px)  5.27 SSIM 0.9210 ink 1.057 color MAE 8.43 | alpha drawn 0.006 expected 0.006 | predicted viewport frame 2.1 ms
+  impostor       2858 strands     45728 segments      52068 fragments raster    4.5 ms | vs reference: MAE (blur 1px)  4.11 (blur 2px)  3.28 SSIM 0.9194 ink 1.013 color MAE 5.76 | alpha drawn 0.006 expected 0.006 | predicted viewport frame 2.0 ms

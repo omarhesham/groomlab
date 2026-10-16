@@ -1,0 +1,1881 @@
+{
+ "tag": "2026-10-01_gpu_preview_gl",
+ "started": "2026-10-01T19:46:48",
+ "machine": {
+  "cpu": {
+   "Name": "AMD Ryzen Threadripper PRO 5945WX 12-Cores     ",
+   "NumberOfCores": 12,
+   "NumberOfLogicalProcessors": 24,
+   "MaxClockSpeed": 4101
+  },
+  "ram_gb": 127.9,
+  "gpu": {
+   "Name": "NVIDIA GeForce RTX 3090",
+   "DriverVersion": "32.0.16.1692"
+  },
+  "os": "Windows-10-10.0.26100",
+  "power_plan": "Power Scheme GUID: cca203d3-44a6-4ecf-81f3-2a331abf3246  (Lenovo Default)"
+ },
+ "maya": "C:\\Program Files\\Autodesk\\Maya2022",
+ "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+ "groomlab_commit": "4fee040",
+ "counts": [
+  100000,
+  500000
+ ],
+ "runs": 2,
+ "draw_api": "default",
+ "jobs": [
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 100000,
+   "phase": "static",
+   "run": 0,
+   "load_before": {
+    "cpu_percent": 3,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 25.9054402,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 100000,
+     "phase": "static",
+     "out": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_100000_r0\\result.json",
+     "work": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_100000_r0",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.1296659999999985,
+    "creation": {
+     "to_first_frame_s": 0.23746389999999984,
+     "commands_s": 0.09874700000000125,
+     "redraw_s": 0.002768599999999566,
+     "count": 99994,
+     "ws_delta_mb": 348.234375,
+     "private_delta_mb": 413.25390625,
+     "ws_after_mb": 2382.75,
+     "gpu_device_delta_mb": 99.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 1599904,
+     "strands": 99994,
+     "lastEvaluationNodeMs": {
+      "centers": 3.9285,
+      "clump": 5.1632,
+      "curl": 6.9822,
+      "guides": 0.4317,
+      "interpolate": 12.811,
+      "noise": 9.412,
+      "output": 0.0005,
+      "resample": 0.2745,
+      "scalp": 0.0077,
+      "scatter": 6.2512,
+      "width": 2.5626
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_100000_r0\\look.png",
+    "gpu": {
+     "api": "OpenGLCoreProfile",
+     "cpu_noise_s": [
+      0.04754579999999997,
+      0.03833030000000015,
+      0.036529099999999204,
+      0.03841659999999969,
+      0.037583500000000214,
+      0.03712010000000099,
+      0.03557610000000011,
+      0.036234099999999714,
+      0.037534799999999535
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 19.68,
+       "draw": {
+        "updateMs": 10.675,
+        "buildMs": 0.527,
+        "uploadMs": 9.977,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 2.74,
+          "writeMs": 6.374,
+          "commitMs": 0.679,
+          "bindMs": 0.066,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.765,
+       "draw": {
+        "updateMs": 7.052,
+        "buildMs": 0.484,
+        "uploadMs": 6.443,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.554,
+          "writeMs": 5.545,
+          "commitMs": 0.246,
+          "bindMs": 0.035,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.755,
+       "draw": {
+        "updateMs": 6.702,
+        "buildMs": 0.485,
+        "uploadMs": 6.088,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.085,
+          "writeMs": 5.621,
+          "commitMs": 0.242,
+          "bindMs": 0.036,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.481,
+       "draw": {
+        "updateMs": 6.865,
+        "buildMs": 0.715,
+        "uploadMs": 6.027,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.094,
+          "writeMs": 5.556,
+          "commitMs": 0.238,
+          "bindMs": 0.039,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.789,
+       "draw": {
+        "updateMs": 6.674,
+        "buildMs": 0.523,
+        "uploadMs": 6.017,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.091,
+          "writeMs": 5.487,
+          "commitMs": 0.233,
+          "bindMs": 0.061,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.535,
+       "draw": {
+        "updateMs": 6.518,
+        "buildMs": 0.484,
+        "uploadMs": 5.914,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 5.505,
+          "commitMs": 0.217,
+          "bindMs": 0.037,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.916,
+       "draw": {
+        "updateMs": 6.874,
+        "buildMs": 0.492,
+        "uploadMs": 6.254,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.31,
+          "writeMs": 5.598,
+          "commitMs": 0.238,
+          "bindMs": 0.039,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.591,
+       "draw": {
+        "updateMs": 7.022,
+        "buildMs": 0.487,
+        "uploadMs": 6.314,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 5.774,
+          "commitMs": 0.294,
+          "bindMs": 0.07,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.532,
+       "draw": {
+        "updateMs": 6.732,
+        "buildMs": 0.487,
+        "uploadMs": 6.129,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.09,
+          "writeMs": 5.683,
+          "commitMs": 0.231,
+          "bindMs": 0.05,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 4.9405,
+      "noise": 7.4265,
+      "output": 0.0003,
+      "resample": 0.127,
+      "width": 1.6876
+     },
+     "cpu_clump_s": [
+      0.043433499999999015,
+      0.03403519999999993,
+      0.03371590000000069,
+      0.03440480000000079,
+      0.03361079999999994,
+      0.03440029999999972,
+      0.03415440000000025,
+      0.033798100000000275,
+      0.035079599999999544
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 21.205,
+       "draw": {
+        "updateMs": 7.095,
+        "buildMs": 1.034,
+        "uploadMs": 5.935,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.097,
+          "writeMs": 5.533,
+          "commitMs": 0.203,
+          "bindMs": 0.035,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.806,
+       "draw": {
+        "updateMs": 7.539,
+        "buildMs": 1.018,
+        "uploadMs": 6.389,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 5.891,
+          "commitMs": 0.285,
+          "bindMs": 0.04,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.801,
+       "draw": {
+        "updateMs": 7.276,
+        "buildMs": 1.052,
+        "uploadMs": 6.094,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.088,
+          "writeMs": 5.565,
+          "commitMs": 0.267,
+          "bindMs": 0.081,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.739,
+       "draw": {
+        "updateMs": 7.79,
+        "buildMs": 1.028,
+        "uploadMs": 6.639,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.092,
+          "writeMs": 6.201,
+          "commitMs": 0.237,
+          "bindMs": 0.037,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.608,
+       "draw": {
+        "updateMs": 7.295,
+        "buildMs": 1.074,
+        "uploadMs": 6.09,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 5.636,
+          "commitMs": 0.259,
+          "bindMs": 0.034,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.324,
+       "draw": {
+        "updateMs": 7.403,
+        "buildMs": 1.106,
+        "uploadMs": 6.151,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 5.691,
+          "commitMs": 0.244,
+          "bindMs": 0.041,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.101,
+       "draw": {
+        "updateMs": 7.363,
+        "buildMs": 1.018,
+        "uploadMs": 6.222,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 5.75,
+          "commitMs": 0.274,
+          "bindMs": 0.034,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.838,
+       "draw": {
+        "updateMs": 7.255,
+        "buildMs": 1.045,
+        "uploadMs": 6.081,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.088,
+          "writeMs": 5.677,
+          "commitMs": 0.22,
+          "bindMs": 0.032,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 21.504,
+       "draw": {
+        "updateMs": 7.855,
+        "buildMs": 1.027,
+        "uploadMs": 6.704,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.092,
+          "writeMs": 6.247,
+          "commitMs": 0.233,
+          "bindMs": 0.035,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 3.6227,
+      "curl": 6.4828,
+      "noise": 7.9771,
+      "output": 0.0004,
+      "resample": 0.1285,
+      "width": 2.0048
+     },
+     "first_taken": false,
+     "first_stats": {
+      "api": "OpenGLCoreProfile",
+      "cpuMs": 0.0,
+      "runs": 0,
+      "vp2Buffer": "",
+      "why": ""
+     },
+     "cpu_noise_median_s": 0.037534799999999535,
+     "cpu_clump_median_s": 0.03415440000000025
+    }
+   },
+   "load_after": {
+    "cpu_percent": 0,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 500000,
+   "phase": "static",
+   "run": 0,
+   "load_before": {
+    "cpu_percent": 1,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 26.074062600000005,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 500000,
+     "phase": "static",
+     "out": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_500000_r0\\result.json",
+     "work": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_500000_r0",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.12870470000000012,
+    "creation": {
+     "to_first_frame_s": 0.5488774000000003,
+     "commands_s": 0.09635309999999997,
+     "redraw_s": 0.003544599999999676,
+     "count": 500008,
+     "ws_delta_mb": 1589.546875,
+     "private_delta_mb": 2047.0234375,
+     "ws_after_mb": 3624.3359375,
+     "gpu_device_delta_mb": 494.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 8000128,
+     "strands": 500008,
+     "lastEvaluationNodeMs": {
+      "centers": 12.6632,
+      "clump": 21.9064,
+      "curl": 31.6404,
+      "guides": 0.4954,
+      "interpolate": 49.8934,
+      "noise": 42.7196,
+      "output": 0.0007,
+      "resample": 1.1211,
+      "scalp": 0.0076,
+      "scatter": 29.0388,
+      "width": 10.32
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_500000_r0\\look.png",
+    "gpu": {
+     "api": "OpenGLCoreProfile",
+     "cpu_noise_s": [
+      0.15544570000000135,
+      0.1257419000000013,
+      0.12672799999999995,
+      0.12478929999999977,
+      0.1231434999999994,
+      0.12640709999999977,
+      0.12612190000000112,
+      0.12446160000000006,
+      0.12544389999999872
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 90.41,
+       "draw": {
+        "updateMs": 46.014,
+        "buildMs": 2.448,
+        "uploadMs": 43.431,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 12.027,
+          "writeMs": 28.928,
+          "commitMs": 2.23,
+          "bindMs": 0.067,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.755,
+       "draw": {
+        "updateMs": 31.083,
+        "buildMs": 2.476,
+        "uploadMs": 28.476,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 1.92,
+          "writeMs": 25.7,
+          "commitMs": 0.73,
+          "bindMs": 0.046,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.814,
+       "draw": {
+        "updateMs": 33.007,
+        "buildMs": 2.547,
+        "uploadMs": 30.326,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 29.357,
+          "commitMs": 0.732,
+          "bindMs": 0.047,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.714,
+       "draw": {
+        "updateMs": 30.621,
+        "buildMs": 2.501,
+        "uploadMs": 27.985,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.094,
+          "writeMs": 27.026,
+          "commitMs": 0.737,
+          "bindMs": 0.046,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.09,
+       "draw": {
+        "updateMs": 29.543,
+        "buildMs": 2.586,
+        "uploadMs": 26.822,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 25.764,
+          "commitMs": 0.762,
+          "bindMs": 0.045,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 74.841,
+       "draw": {
+        "updateMs": 30.283,
+        "buildMs": 2.548,
+        "uploadMs": 27.6,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.089,
+          "writeMs": 26.581,
+          "commitMs": 0.743,
+          "bindMs": 0.054,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 75.783,
+       "draw": {
+        "updateMs": 29.873,
+        "buildMs": 2.531,
+        "uploadMs": 27.205,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.256,
+          "writeMs": 26.054,
+          "commitMs": 0.766,
+          "bindMs": 0.046,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.049,
+       "draw": {
+        "updateMs": 31.437,
+        "buildMs": 2.582,
+        "uploadMs": 28.718,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.091,
+          "writeMs": 27.72,
+          "commitMs": 0.74,
+          "bindMs": 0.048,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 75.336,
+       "draw": {
+        "updateMs": 29.619,
+        "buildMs": 2.529,
+        "uploadMs": 26.951,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 25.903,
+          "commitMs": 0.751,
+          "bindMs": 0.047,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 26.2849,
+      "noise": 36.437,
+      "output": 0.0005,
+      "resample": 1.0667,
+      "width": 8.2274
+     },
+     "cpu_clump_s": [
+      0.14806710000000045,
+      0.15772770000000058,
+      0.15535030000000027,
+      0.15319630000000117,
+      0.15526329999999966,
+      0.16112409999999855,
+      0.15681660000000086,
+      0.15844359999999824,
+      0.16097740000000016
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 96.809,
+       "draw": {
+        "updateMs": 31.356,
+        "buildMs": 4.905,
+        "uploadMs": 26.319,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 25.355,
+          "commitMs": 0.73,
+          "bindMs": 0.057,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 99.624,
+       "draw": {
+        "updateMs": 33.205,
+        "buildMs": 5.048,
+        "uploadMs": 28.023,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.092,
+          "writeMs": 27.008,
+          "commitMs": 0.769,
+          "bindMs": 0.055,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 97.144,
+       "draw": {
+        "updateMs": 32.847,
+        "buildMs": 5.736,
+        "uploadMs": 26.97,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 25.877,
+          "commitMs": 0.739,
+          "bindMs": 0.045,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.122,
+       "draw": {
+        "updateMs": 31.724,
+        "buildMs": 4.963,
+        "uploadMs": 26.625,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.091,
+          "writeMs": 25.65,
+          "commitMs": 0.747,
+          "bindMs": 0.046,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.383,
+       "draw": {
+        "updateMs": 32.021,
+        "buildMs": 5.128,
+        "uploadMs": 26.757,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.09,
+          "writeMs": 25.806,
+          "commitMs": 0.728,
+          "bindMs": 0.041,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 97.3,
+       "draw": {
+        "updateMs": 36.269,
+        "buildMs": 5.063,
+        "uploadMs": 31.051,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.089,
+          "writeMs": 30.043,
+          "commitMs": 0.738,
+          "bindMs": 0.088,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.302,
+       "draw": {
+        "updateMs": 31.995,
+        "buildMs": 4.982,
+        "uploadMs": 26.875,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.092,
+          "writeMs": 25.853,
+          "commitMs": 0.731,
+          "bindMs": 0.037,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.906,
+       "draw": {
+        "updateMs": 33.368,
+        "buildMs": 5.075,
+        "uploadMs": 28.156,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.084,
+          "writeMs": 27.202,
+          "commitMs": 0.734,
+          "bindMs": 0.049,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.965,
+       "draw": {
+        "updateMs": 35.647,
+        "buildMs": 5.014,
+        "uploadMs": 30.499,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 29.531,
+          "commitMs": 0.736,
+          "bindMs": 0.048,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 15.0705,
+      "curl": 31.4151,
+      "noise": 37.4223,
+      "output": 0.0007,
+      "resample": 1.1293,
+      "width": 8.3228
+     },
+     "first_taken": false,
+     "first_stats": {
+      "api": "OpenGLCoreProfile",
+      "cpuMs": 0.0,
+      "runs": 0,
+      "vp2Buffer": "",
+      "why": ""
+     },
+     "cpu_noise_median_s": 0.1257419000000013,
+     "cpu_clump_median_s": 0.15681660000000086
+    }
+   },
+   "load_after": {
+    "cpu_percent": 2,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 100000,
+   "phase": "static",
+   "run": 1,
+   "load_before": {
+    "cpu_percent": 0,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 25.965555199999997,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 100000,
+     "phase": "static",
+     "out": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_100000_r1\\result.json",
+     "work": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_100000_r1",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.12741770000000052,
+    "creation": {
+     "to_first_frame_s": 0.2345378999999994,
+     "commands_s": 0.09688309999999944,
+     "redraw_s": 0.0022385000000006983,
+     "count": 99994,
+     "ws_delta_mb": 351.73046875,
+     "private_delta_mb": 415.36328125,
+     "ws_after_mb": 2385.8828125,
+     "gpu_device_delta_mb": 99.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 1599904,
+     "strands": 99994,
+     "lastEvaluationNodeMs": {
+      "centers": 3.895,
+      "clump": 4.8567,
+      "curl": 6.9769,
+      "guides": 0.3947,
+      "interpolate": 13.614,
+      "noise": 8.7034,
+      "output": 0.0007,
+      "resample": 0.2808,
+      "scalp": 0.008,
+      "scatter": 6.3602,
+      "width": 2.5266
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_100000_r1\\look.png",
+    "gpu": {
+     "api": "OpenGLCoreProfile",
+     "cpu_noise_s": [
+      0.04424880000000009,
+      0.038460900000000464,
+      0.03792100000000076,
+      0.037119499999999306,
+      0.03677300000000017,
+      0.03768780000000049,
+      0.0646331,
+      0.039114900000001285,
+      0.036621800000000704
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 19.422,
+       "draw": {
+        "updateMs": 10.713,
+        "buildMs": 0.477,
+        "uploadMs": 10.112,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 2.704,
+          "writeMs": 6.058,
+          "commitMs": 1.212,
+          "bindMs": 0.049,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.276,
+       "draw": {
+        "updateMs": 7.299,
+        "buildMs": 0.477,
+        "uploadMs": 6.707,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.571,
+          "writeMs": 5.819,
+          "commitMs": 0.22,
+          "bindMs": 0.035,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.252,
+       "draw": {
+        "updateMs": 6.424,
+        "buildMs": 0.48,
+        "uploadMs": 5.831,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.084,
+          "writeMs": 5.437,
+          "commitMs": 0.213,
+          "bindMs": 0.032,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.31,
+       "draw": {
+        "updateMs": 6.623,
+        "buildMs": 0.478,
+        "uploadMs": 6.013,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 5.56,
+          "commitMs": 0.216,
+          "bindMs": 0.064,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.033,
+       "draw": {
+        "updateMs": 6.749,
+        "buildMs": 0.485,
+        "uploadMs": 6.139,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.084,
+          "writeMs": 5.654,
+          "commitMs": 0.226,
+          "bindMs": 0.038,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.202,
+       "draw": {
+        "updateMs": 6.592,
+        "buildMs": 0.487,
+        "uploadMs": 5.98,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.094,
+          "writeMs": 5.555,
+          "commitMs": 0.233,
+          "bindMs": 0.034,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 16.028,
+       "draw": {
+        "updateMs": 7.351,
+        "buildMs": 0.489,
+        "uploadMs": 6.762,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.241,
+          "writeMs": 6.234,
+          "commitMs": 0.195,
+          "bindMs": 0.033,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.457,
+       "draw": {
+        "updateMs": 8.552,
+        "buildMs": 0.478,
+        "uploadMs": 7.943,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 1.894,
+          "writeMs": 5.661,
+          "commitMs": 0.261,
+          "bindMs": 0.048,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 15.527,
+       "draw": {
+        "updateMs": 6.957,
+        "buildMs": 0.482,
+        "uploadMs": 6.359,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.084,
+          "writeMs": 5.957,
+          "commitMs": 0.215,
+          "bindMs": 0.037,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 5.0263,
+      "noise": 7.3125,
+      "output": 0.0003,
+      "resample": 0.1088,
+      "width": 1.7529
+     },
+     "cpu_clump_s": [
+      0.04211980000000004,
+      0.04324380000000083,
+      0.04246219999999923,
+      0.041918499999999526,
+      0.04080280000000158,
+      0.04215940000000096,
+      0.03459499999999949,
+      0.03410560000000018,
+      0.03449900000000028
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 20.033,
+       "draw": {
+        "updateMs": 7.175,
+        "buildMs": 1.028,
+        "uploadMs": 6.02,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.087,
+          "writeMs": 5.556,
+          "commitMs": 0.211,
+          "bindMs": 0.046,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.629,
+       "draw": {
+        "updateMs": 7.108,
+        "buildMs": 1.016,
+        "uploadMs": 5.979,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.09,
+          "writeMs": 5.501,
+          "commitMs": 0.228,
+          "bindMs": 0.043,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.975,
+       "draw": {
+        "updateMs": 7.823,
+        "buildMs": 1.025,
+        "uploadMs": 6.665,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.087,
+          "writeMs": 6.241,
+          "commitMs": 0.238,
+          "bindMs": 0.034,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.597,
+       "draw": {
+        "updateMs": 7.103,
+        "buildMs": 1.011,
+        "uploadMs": 5.967,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 5.484,
+          "commitMs": 0.286,
+          "bindMs": 0.033,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.39,
+       "draw": {
+        "updateMs": 7.295,
+        "buildMs": 1.016,
+        "uploadMs": 6.153,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.087,
+          "writeMs": 5.71,
+          "commitMs": 0.249,
+          "bindMs": 0.043,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.708,
+       "draw": {
+        "updateMs": 7.152,
+        "buildMs": 0.999,
+        "uploadMs": 6.031,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.085,
+          "writeMs": 5.614,
+          "commitMs": 0.243,
+          "bindMs": 0.029,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.431,
+       "draw": {
+        "updateMs": 7.882,
+        "buildMs": 1.014,
+        "uploadMs": 6.741,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.086,
+          "writeMs": 6.258,
+          "commitMs": 0.251,
+          "bindMs": 0.059,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.666,
+       "draw": {
+        "updateMs": 7.174,
+        "buildMs": 1.023,
+        "uploadMs": 6.023,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.089,
+          "writeMs": 5.501,
+          "commitMs": 0.238,
+          "bindMs": 0.039,
+          "megabytes": 76.795
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 20.924,
+       "draw": {
+        "updateMs": 7.288,
+        "buildMs": 1.021,
+        "uploadMs": 6.143,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 5.679,
+          "commitMs": 0.253,
+          "bindMs": 0.04,
+          "megabytes": 76.795
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 3.5961,
+      "curl": 6.4148,
+      "noise": 7.5953,
+      "output": 0.0004,
+      "resample": 0.1247,
+      "width": 1.8542
+     },
+     "first_taken": false,
+     "first_stats": {
+      "api": "OpenGLCoreProfile",
+      "cpuMs": 0.0,
+      "runs": 0,
+      "vp2Buffer": "",
+      "why": ""
+     },
+     "cpu_noise_median_s": 0.03792100000000076,
+     "cpu_clump_median_s": 0.041918499999999526
+    }
+   },
+   "load_after": {
+    "cpu_percent": 3,
+    "free_ram_gb": 97.6,
+    "top_cpu_time": []
+   }
+  },
+  {
+   "kind": "gui",
+   "system": "groomlab_gpu",
+   "count": 500000,
+   "phase": "static",
+   "run": 1,
+   "load_before": {
+    "cpu_percent": 6,
+    "free_ram_gb": 97.6,
+    "top_cpu_time": []
+   },
+   "status": 0,
+   "process_wall_s": 26.039476099999987,
+   "result": {
+    "args": {
+     "system": "groomlab_gpu",
+     "count": 500000,
+     "phase": "static",
+     "out": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_500000_r1\\result.json",
+     "work": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_500000_r1",
+     "plugin": "<repo>\\build\\wt\\maya\\RelWithDebInfo\\GroomLab.mll",
+     "scripts": "<repo>\\maya\\scripts",
+     "extensions": "<repo>\\build\\wt\\maya\\extensions\\RelWithDebInfo",
+     "tweaks": 9,
+     "self": "<repo>\\tools\\bench\\xgen_compare\\xgc_gui.py"
+    },
+    "errors": [],
+    "dialogs": [],
+    "view": [
+     1100,
+     573
+    ],
+    "plugin_load_s": 0.13381899999999902,
+    "creation": {
+     "to_first_frame_s": 0.5227246999999995,
+     "commands_s": 0.09640570000000004,
+     "redraw_s": 0.004053600000000657,
+     "count": 500008,
+     "ws_delta_mb": 1591.58203125,
+     "private_delta_mb": 2048.20703125,
+     "ws_after_mb": 3626.35546875,
+     "gpu_device_delta_mb": 486.0
+    },
+    "info": {
+     "guides": 508,
+     "curl": true,
+     "followScalp": false,
+     "points": 8000128,
+     "strands": 500008,
+     "lastEvaluationNodeMs": {
+      "centers": 12.6651,
+      "clump": 21.8662,
+      "curl": 30.7107,
+      "guides": 0.4512,
+      "interpolate": 51.3116,
+      "noise": 42.1551,
+      "output": 0.0005,
+      "resample": 1.0068,
+      "scalp": 0.0076,
+      "scatter": 29.9321,
+      "width": 10.4615
+     },
+     "version": "0.1.0"
+    },
+    "shot": "<tmp>\\bench_gl\\gui_groomlab_gpu_static_500000_r1\\look.png",
+    "gpu": {
+     "api": "OpenGLCoreProfile",
+     "cpu_noise_s": [
+      0.15251600000000032,
+      0.12530399999999986,
+      0.12323290000000142,
+      0.1235558999999995,
+      0.12261230000000012,
+      0.13182219999999845,
+      0.12785399999999925,
+      0.12878580000000106,
+      0.12838299999999947
+     ],
+     "cpu_noise_draw": [
+      {
+       "computeMs": 88.958,
+       "draw": {
+        "updateMs": 44.632,
+        "buildMs": 2.526,
+        "uploadMs": 41.97,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 12.363,
+          "writeMs": 27.129,
+          "commitMs": 2.203,
+          "bindMs": 0.065,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.445,
+       "draw": {
+        "updateMs": 31.369,
+        "buildMs": 2.493,
+        "uploadMs": 28.733,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 1.885,
+          "writeMs": 25.98,
+          "commitMs": 0.737,
+          "bindMs": 0.048,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.485,
+       "draw": {
+        "updateMs": 29.732,
+        "buildMs": 2.583,
+        "uploadMs": 27.017,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 26.027,
+          "commitMs": 0.739,
+          "bindMs": 0.04,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 74.239,
+       "draw": {
+        "updateMs": 29.256,
+        "buildMs": 2.501,
+        "uploadMs": 26.624,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.086,
+          "writeMs": 25.677,
+          "commitMs": 0.733,
+          "bindMs": 0.043,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.495,
+       "draw": {
+        "updateMs": 28.763,
+        "buildMs": 2.499,
+        "uploadMs": 26.124,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.108,
+          "writeMs": 25.06,
+          "commitMs": 0.74,
+          "bindMs": 0.04,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 75.088,
+       "draw": {
+        "updateMs": 30.646,
+        "buildMs": 2.469,
+        "uploadMs": 28.015,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.099,
+          "writeMs": 26.925,
+          "commitMs": 0.796,
+          "bindMs": 0.049,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.308,
+       "draw": {
+        "updateMs": 29.619,
+        "buildMs": 2.786,
+        "uploadMs": 26.696,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.276,
+          "writeMs": 25.502,
+          "commitMs": 0.747,
+          "bindMs": 0.05,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 73.203,
+       "draw": {
+        "updateMs": 29.624,
+        "buildMs": 2.521,
+        "uploadMs": 26.97,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.093,
+          "writeMs": 25.966,
+          "commitMs": 0.742,
+          "bindMs": 0.048,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 72.928,
+       "draw": {
+        "updateMs": 29.927,
+        "buildMs": 2.498,
+        "uploadMs": 27.302,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.098,
+          "writeMs": 26.236,
+          "commitMs": 0.766,
+          "bindMs": 0.041,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_noise_node_ms": {
+      "curl": 24.2772,
+      "noise": 35.6597,
+      "output": 0.0003,
+      "resample": 1.0634,
+      "width": 8.5523
+     },
+     "cpu_clump_s": [
+      0.15421010000000024,
+      0.15541550000000015,
+      0.15797290000000075,
+      0.15648690000000087,
+      0.1563920999999997,
+      0.15556379999999947,
+      0.15725109999999987,
+      0.15856369999999842,
+      0.1624453999999993
+     ],
+     "cpu_clump_draw": [
+      {
+       "computeMs": 95.133,
+       "draw": {
+        "updateMs": 32.038,
+        "buildMs": 4.929,
+        "uploadMs": 26.976,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.096,
+          "writeMs": 26.077,
+          "commitMs": 0.676,
+          "bindMs": 0.043,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.669,
+       "draw": {
+        "updateMs": 31.716,
+        "buildMs": 5.019,
+        "uploadMs": 26.559,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.088,
+          "writeMs": 25.513,
+          "commitMs": 0.787,
+          "bindMs": 0.051,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.717,
+       "draw": {
+        "updateMs": 33.025,
+        "buildMs": 5.238,
+        "uploadMs": 27.636,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.089,
+          "writeMs": 26.529,
+          "commitMs": 0.756,
+          "bindMs": 0.048,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 96.12,
+       "draw": {
+        "updateMs": 32.144,
+        "buildMs": 4.988,
+        "uploadMs": 27.019,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.088,
+          "writeMs": 26.007,
+          "commitMs": 0.752,
+          "bindMs": 0.063,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.026,
+       "draw": {
+        "updateMs": 32.316,
+        "buildMs": 5.051,
+        "uploadMs": 27.128,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.083,
+          "writeMs": 26.184,
+          "commitMs": 0.73,
+          "bindMs": 0.043,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.797,
+       "draw": {
+        "updateMs": 31.477,
+        "buildMs": 4.914,
+        "uploadMs": 26.429,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.091,
+          "writeMs": 25.428,
+          "commitMs": 0.775,
+          "bindMs": 0.041,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 94.999,
+       "draw": {
+        "updateMs": 31.942,
+        "buildMs": 4.942,
+        "uploadMs": 26.87,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.099,
+          "writeMs": 25.836,
+          "commitMs": 0.733,
+          "bindMs": 0.041,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.721,
+       "draw": {
+        "updateMs": 33.079,
+        "buildMs": 5.097,
+        "uploadMs": 27.821,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.095,
+          "writeMs": 26.706,
+          "commitMs": 0.838,
+          "bindMs": 0.047,
+          "megabytes": 384.006
+         }
+        }
+       }
+      },
+      {
+       "computeMs": 95.014,
+       "draw": {
+        "updateMs": 31.836,
+        "buildMs": 4.896,
+        "uploadMs": 26.795,
+        "items": {
+         "groomLabStrands": {
+          "acquireMs": 0.091,
+          "writeMs": 25.767,
+          "commitMs": 0.797,
+          "bindMs": 0.044,
+          "megabytes": 384.006
+         }
+        }
+       }
+      }
+     ],
+     "cpu_clump_node_ms": {
+      "clump": 14.7735,
+      "curl": 30.8615,
+      "noise": 36.7519,
+      "output": 0.0005,
+      "resample": 1.0608,
+      "width": 8.2111
+     },
+     "first_taken": false,
+     "first_stats": {
+      "api": "OpenGLCoreProfile",
+      "cpuMs": 0.0,
+      "runs": 0,
+      "vp2Buffer": "",
+      "why": ""
+     },
+     "cpu_noise_median_s": 0.12785399999999925,
+     "cpu_clump_median_s": 0.15648690000000087
+    }
+   },
+   "load_after": {
+    "cpu_percent": 1,
+    "free_ram_gb": 97.7,
+    "top_cpu_time": []
+   }
+  }
+ ],
+ "finished": "2026-10-01T19:49:06",
+ "summary": {
+  "Creation to first drawn frame (GUI)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 0.23600089999999962,
+     "min": 0.2345378999999994,
+     "max": 0.23746389999999984,
+     "n": 2,
+     "unit": "s"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 0.5358010499999999,
+     "min": 0.5227246999999995,
+     "max": 0.5488774000000003,
+     "n": 2,
+     "unit": "s"
+    }
+   }
+  },
+  "Creation working set delta (GUI, incl. draw buffers)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 349.982421875,
+     "min": 348.234375,
+     "max": 351.73046875,
+     "n": 2,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 1590.564453125,
+     "min": 1589.546875,
+     "max": 1591.58203125,
+     "n": 2,
+     "unit": "MB"
+    }
+   }
+  },
+  "GPU memory delta, whole device (GUI, nvidia-smi)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 99.0,
+     "min": 99.0,
+     "max": 99.0,
+     "n": 2,
+     "unit": "MB"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 490.0,
+     "min": 486.0,
+     "max": 494.0,
+     "n": 2,
+     "unit": "MB"
+    }
+   }
+  },
+  "Redraw, nothing changed (GUI)": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 2.503550000000132,
+     "min": 2.2385000000006983,
+     "max": 2.768599999999566,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 3.7991000000001662,
+     "min": 3.544599999999676,
+     "max": 4.053600000000657,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Noise tweak to drawn frame, GPU waited for: CPU evaluation": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 37.72790000000015,
+     "min": 37.534799999999535,
+     "max": 37.92100000000076,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 126.79795000000027,
+     "min": 125.7419000000013,
+     "max": 127.85399999999925,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  },
+  "Clump tweak to drawn frame, GPU waited for: CPU evaluation": {
+   "100000": {
+    "groomlab_gpu": {
+     "median": 38.03644999999989,
+     "min": 34.15440000000025,
+     "max": 41.918499999999526,
+     "n": 2,
+     "unit": "ms"
+    }
+   },
+   "500000": {
+    "groomlab_gpu": {
+     "median": 156.65175000000085,
+     "min": 156.48690000000087,
+     "max": 156.81660000000085,
+     "n": 2,
+     "unit": "ms"
+    }
+   }
+  }
+ }
+}

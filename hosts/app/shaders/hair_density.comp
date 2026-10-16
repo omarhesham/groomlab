@@ -1,0 +1,37 @@
+#version 440
+// SPDX-License-Identifier: Apache-2.0
+#extension GL_GOOGLE_include_directive : require
+
+// The voxel grid's density (hair_voxelize.comp's fixed point sums) as a float 3D texture,
+// smoothed by a 3 x 3 x 3 tent so a strand passing near a voxel's corner does not leave a
+// voxel-sized step in the shadows (hair_volume.comp then reads it trilinearly).
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "hair_voxel.glsl"
+
+layout(std430, binding = 4) buffer Density {
+    uint density[];
+};
+layout(r32f, binding = 5) uniform writeonly image3D densityImage;
+
+float at(ivec3 v) {
+    ivec3 dims = ivec3(gridDims.xyz);
+    if (any(lessThan(v, ivec3(0))) || any(greaterThanEqual(v, dims))) return 0.0;
+    return float(density[uint((v.z * dims.y + v.y) * dims.x + v.x)]);
+}
+
+void main() {
+    ivec3 v = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(v, ivec3(gridDims.xyz)))) return;
+    float sum = 0.0;
+    for (int z = -1; z <= 1; ++z) {
+        for (int y = -1; y <= 1; ++y) {
+            for (int x = -1; x <= 1; ++x) {
+                float w = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0) * (z == 0 ? 2.0 : 1.0);
+                sum += w * at(v + ivec3(x, y, z));
+            }
+        }
+    }
+    imageStore(densityImage, v, vec4(sum / (64.0 * gridParams.z)));
+}

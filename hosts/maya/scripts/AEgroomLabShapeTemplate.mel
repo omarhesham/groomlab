@@ -1,0 +1,163 @@
+// SPDX-License-Identifier: Apache-2.0
+// Attribute Editor layout for groomLabShape.
+//
+// The groom stores its graph, guides, parts and layout as JSON strings; shown
+// raw they made huge text fields that broke the Attribute Editor's scrolling.
+// They are hidden here: edit them with the Graph Editor and the Groom Tools
+// (buttons below).
+
+global proc AEgroomLabButtonsNew(string $attr)
+{
+    setUITemplate -pushTemplate attributeEditorTemplate;
+    rowLayout -numberOfColumns 3 -adjustableColumn 3 -columnWidth3 130 130 10
+        -columnAttach3 "both" "both" "both" -columnOffset3 2 2 0 groomLabAEButtons;
+        button -label "Groom Tools" -height 28 -annotation "Brushes, guide groups, painted maps, sculpt layers"
+            -command "python(\"import groomlab.ui.palette as p; p.show()\")";
+        button -label "Graph Editor" -height 28 -annotation "The look: the groom's node graph"
+            -command "python(\"import groomlab.ui.graph_editor as g; g.show()\")";
+        text -label "";
+    setParent ..;
+    setUITemplate -popTemplate;
+}
+
+global proc AEgroomLabButtonsReplace(string $attr)
+{
+}
+
+global proc AEgroomLabInputsNew(string $attr) { python("import groomlab.ui.ae as a; a.inputs_new('" + $attr + "')"); }
+global proc AEgroomLabInputsReplace(string $attr) { python("import groomlab.ui.ae as a; a.inputs_replace('" + $attr + "')"); }
+global proc AEgroomLabControlsNew(string $attr) { python("import groomlab.ui.ae as a; a.controls_new('" + $attr + "')"); }
+global proc AEgroomLabControlsReplace(string $attr) { python("import groomlab.ui.ae as a; a.controls_replace('" + $attr + "')"); }
+global proc AEgroomLabColorNew(string $attr) { python("import groomlab.ui.ae as a; a.color_new('" + $attr + "')"); }
+global proc AEgroomLabColorReplace(string $attr) { python("import groomlab.ui.ae as a; a.color_replace('" + $attr + "')"); }
+
+global proc AEgroomLabShapeTemplate(string $nodeName)
+{
+    editorTemplate -beginScrollLayout;
+
+        // The groom at a glance, and the two windows everything is done in.
+        editorTemplate -beginLayout "Groom" -collapse 0;
+            editorTemplate -callCustom "AEgroomLabButtonsNew" "AEgroomLabButtonsReplace" "outStrandCount";
+            editorTemplate -addControl "previewDensity";
+            editorTemplate -annotation ("Preview point budget, in millions of strand points: the most the viewport "
+                + "holds (each groom keeps a copy, the draw buffers more); past it the preview thins itself. "
+                + "0: no limit") -addControl "previewPointBudget";
+            editorTemplate -addControl "outStrandCount";
+            editorTemplate -addControl "locked";
+        editorTemplate -endLayout;
+
+        // What the groom is made from: always visible, and changeable here.
+        editorTemplate -beginLayout "Inputs" -collapse 0;
+            editorTemplate -callCustom "AEgroomLabInputsNew" "AEgroomLabInputsReplace" "inMesh";
+            editorTemplate -annotation ("Evaluate the groom on the rest mesh and carry each strand to the scalp by its root "
+                + "(a rigid turn and move, no stretch): the groom keeps its rest shape and only the carrying runs per "
+                + "frame. Needs a rest mesh. Guide curves and simulated or cached guides keep their place; colliders, "
+                + "ImportCurves, Wind's direction and world-space noise are read at rest (they do not follow the head).")
+                -addControl "followScalp";
+        editorTemplate -endLayout;
+        // Sliders that Control nodes add (keyable ctl_ attributes).
+        editorTemplate -beginLayout "Controls" -collapse 0;
+            editorTemplate -callCustom "AEgroomLabControlsNew" "AEgroomLabControlsReplace" "graph";
+        editorTemplate -endLayout;
+        // The hair's color: the HairColor node making the output, its everyday params here.
+        editorTemplate -beginLayout "Hair Color" -collapse 0;
+            editorTemplate -callCustom "AEgroomLabColorNew" "AEgroomLabColorReplace" "graph";
+        editorTemplate -endLayout;
+
+        // What shows in the viewport: the everyday switches open, the fine tuning folded.
+        editorTemplate -beginLayout "Display" -collapse 0;
+            editorTemplate -addControl "displayGuides";
+            editorTemplate -addControl "displayFlow";
+            editorTemplate -addControl "displayTubes";
+            editorTemplate -addControl "displayInstances";
+            editorTemplate -addSeparator;
+            editorTemplate -addControl "strandColorMode";
+            editorTemplate -addControl "strandColorSource";
+            editorTemplate -addControl "strandColorMin";
+            editorTemplate -addControl "strandColorMax";
+            editorTemplate -beginLayout "Guides" -collapse 1;
+                editorTemplate -addControl "displayOverlaysOnTop";
+                editorTemplate -addControl "themeGuideColors";
+                editorTemplate -addControl "guideColor";
+                editorTemplate -addControl "guideWidth";
+                editorTemplate -addControl "guidePoints";
+                editorTemplate -addControl "guideSmoothing";
+                editorTemplate -addControl "guideDisplaySegments";
+                editorTemplate -addControl "displayLevel";
+                editorTemplate -addControl "guideColorMode";
+                editorTemplate -addControl "guideColorLayer";
+                editorTemplate -addControl "hiddenGuideGroups";
+            editorTemplate -endLayout;
+            editorTemplate -beginLayout "Strand Shading" -collapse 1;
+                editorTemplate -addControl "displayLighting";
+                editorTemplate -addControl "displayHairShading";
+                editorTemplate -addControl "displaySelfShadowing";
+                editorTemplate -addControl "displayStrandVariation";
+                editorTemplate -addControl "displayShadows";
+                editorTemplate -addControl "displayWidthCoverage";
+                editorTemplate -addControl "displayCoverageDensity";
+                editorTemplate -addControl "displayClumpLod";
+                editorTemplate -addControl "clumpLodError";
+                editorTemplate -addControl "useMaterialColor";
+                editorTemplate -addControl "displayColor";
+                editorTemplate -addSeparator;
+                editorTemplate -addControl "displayRibbons";
+                editorTemplate -addControl "ribbonWidthScale";
+            editorTemplate -endLayout;
+        editorTemplate -endLayout;
+
+        editorTemplate -beginLayout "Sculpting" -collapse 1;
+            editorTemplate -addControl "sculptDisplay";
+            editorTemplate -addControl "sculptDensity";
+            editorTemplate -addControl "softSelectRadius";
+            editorTemplate -addControl "shotSculpt";
+            editorTemplate -addControl "shotLayer";
+        editorTemplate -endLayout;
+
+        editorTemplate -beginLayout "Game Cards" -collapse 1;
+            editorTemplate -addControl "displayCards";
+            editorTemplate -addControl "displayCardTextures";
+            editorTemplate -addControl "cardDensity";
+        editorTemplate -endLayout;
+
+        editorTemplate -beginLayout "Rendering" -collapse 1;
+            editorTemplate -addControl "renderMode";
+            editorTemplate -addControl "groomFile";
+            // Render overrides: the render (Arnold, exports with render overrides) changes them, the
+            // viewport and the groom stay as groomed.
+            editorTemplate -beginLayout "Render Overrides" -collapse 1;
+                editorTemplate -annotation ("The share of the strands rendered, by the preview's thinning: the same "
+                                            + "look with fewer strands (1: every strand)") -addControl "renderDensity";
+                editorTemplate -annotation "Times every strand's width in renders" -addControl "renderWidthScale";
+                editorTemplate -annotation ("Each strand scaled about its root in renders, shape and all (a "
+                                            + "Transform node's scale): 0.5 renders it at half size") -addControl "renderLengthScale";
+            editorTemplate -endLayout;
+            editorTemplate -beginLayout "Level of Detail" -collapse 1;
+                editorTemplate -addControl "lodDistance";
+                editorTemplate -addControl "lodNear";
+                editorTemplate -addControl "lodFar";
+                editorTemplate -addControl "lodMinDensity";
+                editorTemplate -addControl "lodWidthCompensation";
+                editorTemplate -addSeparator;
+                editorTemplate -addControl "cameraCull";
+                editorTemplate -addControl "cullMargin";
+                editorTemplate -addSeparator;
+                editorTemplate -addControl "backfaceCull";
+                editorTemplate -addControl "backfaceAngle";
+            editorTemplate -endLayout;
+        editorTemplate -endLayout;
+
+        // Stored data and plumbing: edited through GroomLab's tools, not here.
+        string $hidden[] = {"graph", "graphUi", "guideData", "partData", "guideSelection", "lastError", "brushTick",
+                            "viewNode", "inMesh", "restMesh", "guideCurves", "simGuides", "guideCache",
+                            "guideCacheObject", "time", "outCards", "correctiveData", "flowData"};
+        for ($attr in $hidden) editorTemplate -suppress $attr;
+        // Controls show in their own section, not under Extra Attributes.
+        string $controls[] = `listAttr -userDefined -string "ctl_*" $nodeName`;
+        for ($attr in $controls) editorTemplate -suppress $attr;
+
+        AEshapeTemplate $nodeName;
+        editorTemplate -addExtraControls;
+
+    editorTemplate -endScrollLayout;
+}

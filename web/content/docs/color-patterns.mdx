@@ -1,0 +1,172 @@
+---
+title: Color patterns
+description: HairColor's params and randomness, the Bands node for banded and tipped fur, the FeatherColor node for feather patterns and iridescence, and the downy base of feathers.
+---
+
+<Example name="color-patterns.jpg" alt="Feathers patterned by GroomLab: bars, an eye spot, iridescence from two angles" caption="Bars and a downy base, an eye spot, iridescence face-on and turned" />
+
+Two nodes placed after a **HairColor** add color variation within a strand: **Bands** for fur and
+**FeatherColor** for feathers (Add Node > Color). Each modifies the color it receives. Both write
+per-point color, so the patterns render the same in Maya's viewport, the standalone app and
+Arnold, bake into game cards and export to Unreal.
+
+## HairColor
+
+**HairColor** (Add Node > Color) sets each strand's color. It follows RenderMan's PxrHairColor:
+a base color, per-strand randomness, grey strands, and a tip color, plus the highlight that
+`aiStandardHair` renders. Its result is one linear RGB per strand (per point with a tip color),
+which every renderer and export uses as it is ([Rendering](/docs/rendering#hair-shader)).
+
+| Group | Param | Meaning |
+| --- | --- | --- |
+| Base | `mode` | `melanin`: natural hair from `melanin`, `redness` and `dye` (PxrHairColor's Physical mode). `color`: the color you pick (its Artistic mode). |
+| Base | `melanin` | Pigment, 0 (white, blond) to 1 (black), as `aiStandardHair`'s melanin. Mappable. |
+| Base | `redness` | Share of red pigment, 0 (brown, black) to 1 (red). Mappable. |
+| Base | `dye` | A color dyeing the pigment (white: none): its absorption adds to the pigment's, as `aiStandardHair` combines melanin and base color. |
+| Base | `color` | Mode `color`: the hair's color as it shows and renders. |
+| Base | `map` | A painted map, a color set or an image read at each root. Mode `color`: it is the color. Mode `melanin`: it dyes the pigment. |
+| Base | `greys` | Mode `melanin`: the share of strands with almost no pigment (grey and white hairs). Mappable. |
+| Random | `melaninRandom` | Mode `melanin`: each strand's melanin up to this much more or less. |
+| Random | `valueRandom` | Mode `color`: each strand up to this share lighter or darker, its hue kept. |
+| Random | `hueRandom` | Each strand's hue turned, up to half a turn either way at 1. |
+| Random | `saturationRandom` | Each strand's saturation up to this share more or less. Grey and white stay neutral. |
+| Random | `clumpShare` | How much of the randomness the strands of one clump share: 0 each strand its own, 1 the whole clump alike. Needs a Clump before the HairColor. |
+| Random | `clumpChannel` | The clump attribute `clumpShare` reads (a Clump's `clumpChannel`, `clumpId` by default). |
+| Tip | `tipColor` | The color the strands blend toward at the tip. |
+| Tip | `tipStrength` | How far toward `tipColor` the tips go, 0-1. Mappable per point. |
+| Tip | `tipProfile` | Where along the strand the tip color shows, root to tip. |
+| Tip | `tipOffsetRandom` | Each strand's tip color starts up to this share of its length earlier or later. |
+| Highlight | `specular` | Highlight strength (0.3 is `aiStandardHair`'s full specular tint; Lama's `gainR`). Mappable. |
+| Highlight | `specularRandom` | Each strand's specular up to this share more or less. |
+| Highlight | `roughness` | Highlight spread, 0 sharp to 1 broad (Arnold's roughness 0.1 to 0.5; Lama's `ltRoughnessR`). Mappable. |
+| Highlight | `roughnessRandom` | Each strand's roughness up to this share more or less. |
+| Highlight | `tilt` | Cuticle tilt in degrees (Arnold's `shift`, Lama's `offset`). |
+| Advanced | `seed` | Random seed. |
+
+How the randomness is applied, per strand: the melanin offset first (mode `melanin`), then the
+map, then the hue turn and the saturation scale in HSL (as PxrHairColor varies its dye: the
+lightness is kept), then the value scale (mode `color`). The tip color takes the strand's hue,
+saturation and value draws too. Each draw mixes the strand's own random number with its clump's
+by `clumpShare`, so the overall spread stays the same at any `clumpShare`.
+
+Differences from PxrHairColor: the randomness needs no hair ID primvar (it uses GroomLab's stable
+strand IDs); hue and saturation randomness apply to the whole color in both modes, not only to a
+non-white dye; the dye combines with the pigment by adding absorptions (PxrHairColor multiplies the colors); `melaninRandom` is +/- the full amount (PxrHairColor's is +/- half); there is no
+root darkening (use `tipColor` with a `tipProfile`), and grey strands take the pigment of almost
+no melanin instead of a stray color.
+
+**Clump colors:** set `clumpShare` to 1 and raise a randomness (for example `hueRandom` 0.1 or
+`melaninRandom` 0.2), with a **Clump** node before the HairColor. A fresh groom's HairColor comes
+before any Clump you add: move it after the Clump (its note says so when `clumpShare` has nothing
+to read).
+
+**A color map on a color param:** `color`, `dye` and `tipColor` each take a Map node's `rgb`
+output (right-click the param in the Graph Editor > Expose as Input, then link the Map node's `rgb`
+port to it; in Python, `groomlab.use_map(groom, "color", "color", "myColorMap", kind="texture",
+channel="rgb")`). Each strand takes the map's color at its root, times the param's own color. In
+mode `color` that colors the hair by the map; in mode `melanin` it dyes the pigment. Imported or
+painted color textures work the same way.
+
+The Attribute Editor's **Hair Color** section shows the everyday params, with a swatch for each
+color (click it to pick) and, in mode `melanin`, the resulting color. The Graph Editor shows every
+param, with the same swatches.
+
+## White hair, and tips a different color
+
+HairColor has two modes. **`melanin`** (the default) is natural hair: `melanin` and `redness` make
+the pigment and `dye` dyes it, so a white `dye` over the default melanin still renders brown.
+**`color`** uses the RGB `color` you pick as it is, with no pigment under it. The viewport, the app,
+Arnold, RenderMan, Blender and the exports all show the picked color.
+
+To get roots matching the skin, white tips and a little variation:
+
+1. Select the groom. In the Attribute Editor's **Hair Color** section (or on the HairColor node in
+   the Graph Editor), set **Mode** to **Color**.
+2. Set **Color** to the skin tone (the roots).
+3. Set **Tip Color** to white, and raise **Tip Strength** to 1. **`tipProfile`** sets where along
+   the strand the blend happens: a key at (0.3, 0) keeps the bottom third the root color.
+4. For variation, raise **Value Random** (each strand, tip included, a little lighter or darker,
+   hue unchanged) and **Tip Offset Random** (each strand's tip color starts at its own place).
+   **Hue Random** and **Saturation Random** vary the hue and saturation.
+
+For all-white hair or fur, set **Color** to white (or off-white, such as 0.9, 0.88, 0.84) and leave
+Tip Strength at 0. The `white_wool` preset is a crimped white fleece. The `two_tone_tips` add-on
+inserts this setup into any groom (Presets > Add-ons).
+
+Grooms with no hair shader of their own render in Arnold with a shader made from the groom's
+colors, so a picked color renders without **Create Hair Shader**. A shader made earlier with
+Create Hair Shader is a snapshot: after switching the mode, click Create Hair Shader again (the
+Hair Color section in the Attribute Editor does this for you).
+
+## Banded fur
+
+Agouti, ticked and shaded coats change color along each hair. Add a **Bands** node after the
+HairColor.
+
+- **`strength`** sets the band's opacity (0-1, mappable per point).
+- **`melanin`**, **`redness`**, **`dye`** define the band's pigment, in the same terms as
+  HairColor; **`randomness`** varies it per hair.
+- **`profile`** is a root-to-tip ramp: 0 keeps the hair's color, 1 uses the band's. **`count`**
+  repeats the profile along the hair (three or four for ticked fur).
+- **`offsetRandom`** and **`widthRandom`** shift and stretch each hair's bands so they do not line
+  up across the coat, as in natural agouti coats.
+- **Guard hairs:** **`guards`** is the fraction of hairs that get the bands and the tip color; the
+  rest are a plain undercoat (tinted by **`undercoatDye`**). **`guardsBy`** selects the guard hairs
+  at random or by length (the longest).
+- For a black tip, use HairColor's tip color (`tipColor`, `tipStrength`, a `tipProfile` near 1).
+  The bands are applied over it, so keep the band profile at 0 there. A shaded coat is a long,
+  soft tip profile.
+
+The `agouti_fur` preset (HairColor, Bands, RenderData) shows the setup.
+
+## Feather patterns
+
+After a **Propagate** and a HairColor, a **FeatherColor** node evaluates its pattern in each
+feather's flat 2D space (the feather laid out with its shaft up the middle). A bar therefore
+crosses many barbs, each at a different position along its barb, which a root-to-tip color ramp
+cannot produce.
+
+| `pattern` | Result |
+| --- | --- |
+| `bars` | Bands across the vane: `count` per feather, `width`, `angle` (tilt), `sharpness` |
+| `chevrons` | V-shaped bands mirrored across the shaft (`angle` sets the arms; try 30) |
+| `spots` | `count` rows of spots, `width` sets their size |
+| `fringe` | The vane's edge: the last `width` of every barb |
+| `eye` | An eye spot at `offset` along the feather; `profile` defines its rings |
+| `texture` | A painted image: the `texture` param is the feather laid flat (root at the bottom, left vane on the left, alpha for coverage); add `textureRight` for a separate image per vane |
+| `none` | No pattern, only the down color and iridescence |
+
+- The pattern color is `melanin`, `redness` and `dye` (white bars: melanin 0), applied by
+  `strength`.
+- **`vanes`** applies the pattern to both vanes or one (left and right as seen from the vane's top,
+  tip up).
+- **`offsetRandom`**, **`scaleRandom`** and **`angleRandom`** vary the pattern per feather.
+- It works on scattered shafts, hand-placed shafts and Split assortments. Put the FeatherColor
+  inside a design's compound to use a different image per design.
+
+## Downy base
+
+On Propagate, **`down`** (0.2-0.4) turns the barbs at the base of the shaft into soft, curly down
+(an afterfeather), controlled by **`downCount`**, **`downLength`**, **`downCurl`** and
+**`downFrizz`**. FeatherColor's **`downColor`** and **`downStrength`** color them.
+
+## Iridescence
+
+FeatherColor's **`iridescence`** (mappable, per point) adds view-dependent structural color: the
+strands shift toward **`iridescenceColor`** when facing the camera, and the hue rotates by
+**`iridescenceShift`** as they turn edge-on (on a feather, the angle between the vane and the view
+direction). **`iridescenceOn`** restricts it to one vane, or to inside or outside the feather
+pattern.
+
+- **Arnold:** **Create Hair Shader** builds the effect as a ramp driven by the angle between the
+  camera and each strand's root normal (an approximation, within a few degrees of hue face-on and
+  edge-on). Arnold's hair shader renders the pattern colors lighter and softer than the viewport,
+  because it includes multiple scattering between hairs; the patterns stay in the same places.
+- **Game cards** store the iridescence mask in the Color map's alpha; **Unreal strands** in
+  `groom_iridescence` (and in `groom_ao` with **Iridescence as AO**, which Unreal's Hair Attributes
+  node exposes). See [Game export](/docs/game-export#color-patterns-in-engines) for the Unreal
+  material.
+
+The `barred` feather design (`groomlab.add_feathers(groom, "barred")`) is a barred feather with
+a green iridescent outer vane and a white downy base: HairColor, FeatherColor and RenderData
+inside the design's compound.

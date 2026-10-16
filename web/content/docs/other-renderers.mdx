@@ -1,0 +1,341 @@
+---
+title: Other renderers
+description: Rendering GroomLab hair with the RenderMan procedural, or in RenderMan, Redshift and V-Ray from Alembic and USD exports - file layout, units, attributes and hair shader setup.
+---
+
+GroomLab renders natively in **Arnold** ([Rendering](/docs/rendering)) and in **RenderMan 27**
+([below](#renderman)), where a procedural evaluates the groom file at render time. For Redshift,
+V-Ray and other renderers, export the strands as **Alembic** or **USD** curves.
+
+<Callout title="What we have tested">
+  The contents of the exported files ([File contents](#file-contents)) and the RenderMan
+  procedural (in prman) are tested. The Alembic and USD import steps for each renderer below
+  follow that renderer's documentation, linked in each section; they have not been tested in
+  Redshift or V-Ray yet. If a step does not work, contact
+  [support@getgroomlab.com](mailto:support@getgroomlab.com).
+</Callout>
+
+## Export
+
+<Steps>
+<Step>
+
+### Set the frame range
+
+The menu exports the playback range. For a still, set a one-frame range.
+
+</Step>
+<Step>
+
+### Export
+
+Select the groom and choose **GroomLab > Export > Alembic...** (`.abc`) or **USD...** (`.usda`).
+From Python:
+
+```python
+import groomlab
+
+groomlab.export_alembic(groom, "C:/shots/010/hair.abc", start=1, end=48)
+groomlab.export_usd(groom, "C:/shots/010/hair.usda", start=1, end=48,
+                    render_overrides=True)  # renderDensity, renderWidthScale, renderLengthScale
+```
+
+</Step>
+</Steps>
+
+- **Density:** exports contain every strand (`density=1.0`), regardless of `previewDensity`. Pass
+  a lower `density` for a lighter file, or `render_overrides=True` to export the groom with its
+  [render overrides](/docs/rendering#render-overrides) applied. The menu exports without the
+  overrides.
+- **No render-time LOD:** distance thinning and camera culling only apply in Arnold at render
+  time. Exports do not apply them.
+- **Alembic or USD:** prefer USD. Only USD carries per-point attributes (opacity, a tip color or
+  bands, wetness); Alembic carries per-strand attributes only.
+
+## File contents
+
+Both formats are written from the same strand data, so their contents match except where the
+table says otherwise. For the full list of attributes and their names, see
+[Strand attributes](/docs/rendering#strand-attributes).
+
+| | Alembic (`.abc`) | USD (`.usda`) |
+| --- | --- | --- |
+| **Layout** | `/<groom>/<groom>Shape`, an ICurves object | `/<groom>` (Xform, the default prim) with `strands`, a `BasisCurves` prim |
+| **Curves** | Linear, non-periodic (no basis) | `type = "linear"`, `wrap = "nonperiodic"` |
+| **Points** | The strands' own points (a Resample node sets how many) | Same |
+| **Widths** | `width`, one per point (vertex scope): the strand **diameter** | `widths`, one per point (`vertex` interpolation): the **diameter** |
+| **Strand ID** | `strandId` (uint64, uniform scope) | `primvars:strandId` (int64, `uniform`) |
+| **Root UV** | The curves' `uvs`, one per curve (with scalp UVs) | `primvars:st` (texCoord2f, `uniform`) |
+| **Color** | `Cd` (linear RGB, uniform scope) | `primvars:displayColor` (linear RGB, `uniform`) |
+| **Per-strand attributes** | Each as a float arbGeomParam, uniform scope, by its name | Each as `primvars:<name>` (float, `uniform`) |
+| **Per-point attributes** | Not written | Each as `primvars:<name>` (float, `vertex`) |
+| **Units** | Scene units: centimeters in Maya. Alembic has no unit metadata | Centimeters, with `metersPerUnit = 0.01` |
+| **Up axis** | Maya's (Y unless the scene is Z-up), not tagged | `upAxis` metadata, from Maya's preference |
+| **Animation** | One sample per exported frame | One time sample per exported frame (`timeCodesPerSecond` = the scene frame rate) |
+| **Velocities** | None | None |
+
+- **Space:** points are in the groom node's object space. The file's root transform is identity,
+  so if the groom's transform was moved in Maya, parent the imported cache under the same
+  transform.
+- **Color:** `Cd` / `displayColor` is one color per strand. Color that varies along a strand (a
+  tip color, bands) is only carried by USD's per-point attributes `colorR_2`, `colorG_2`,
+  `colorB_2` (renamed because the per-strand `colorR`, `colorG`, `colorB` already use the names).
+- **Scales and instances:** the Scales node's scales are exported next to the strands as a mesh,
+  and USD also writes Instance nodes' instances as a `PointInstancer`
+  ([Scales](/docs/rendering#scales)).
+- **Inspecting a file:** `groomlab-cli abc-info hair.abc` lists an Alembic file's frames and
+  strands; `.usda` files are plain text.
+
+## Shading
+
+GroomLab describes hair color with the same parameters as `aiStandardHair`. To reproduce a look in
+another renderer:
+
+1. **Read the values.** On the HairColor node: `melanin`, `redness` (`melaninRedness` in the
+   file) and `dye`, and under **Highlight**: `specular` (default 0.3), `roughness` (0.5) and
+   `tilt` (3 degrees). Opacity is on the RenderData node. From Python:
+   `groomlab.hair_color_params(groom)`, `groomlab.hair_look(groom)` and
+   `groomlab.render_data_params(groom)`.
+2. **Set the hair shader's base values** using the table below.
+3. **Connect the per-strand values** where they vary: HairColor varies `melanin` and `redness`
+   per strand and per clump, so read the `melanin` and `melaninRedness` attributes rather than a
+   constant, and disable the shader's own melanin randomization.
+
+GroomLab's `melanin` and `redness` are `aiStandardHair`'s 0-1 parameters. The other renderers use
+0-1 parameters for similar melanin models, but each converts them to fiber absorption
+differently. Use the same values as a starting point, then match against the GroomLab viewport
+or an Arnold render.
+
+| GroomLab | Arnold (`create_hair_shader`) | RenderMan: PxrHairColor + PxrMarschnerHair | Redshift: Principled Hair | V-Ray: VRayHairNextMtl |
+| --- | --- | --- | --- | --- |
+| `melanin` (0-1) | `melanin` | **Melanin** (Physical mode) | **Melanin** | **Melanin** |
+| `redness` / `melaninRedness` (0-1) | `melanin_redness` | **Redness** (the eumelanin/pheomelanin balance) | **Melanin Redness** | **Pheomelanin** (redness as a share of the melanin) |
+| `dye` (RGB, white: none) | `base_color` | **Dye** | **Tint** | **Dye Color** |
+| RGB color (`Cd` / `displayColor`) | `base_color` from `hair_color`, melanin 0 | **Color** (Artistic mode) | **Albedo**, with **Albedo Mix** 1 | **Dye Color**, with **Melanin** 0 |
+| `specular` (0-1) | `specular_tint` = min(1, specular / 0.3) | Primary specular color/gain: keep white for physical hair | No direct control | **Primary Tint** |
+| `roughness` (0-1) | `roughness` = 0.1 + 0.4 x roughness | Specular cone angles: match visually | **Roughness**: start at 0.1 + 0.4 x roughness | **Glossiness** (higher is sharper): match visually |
+| `opacity` (per point, USD only) | `opacity` | See RenderMan's documentation | See Redshift's documentation | **Transparency** (white is opaque): use 1 - opacity |
+| Melanin randomization | `melaninRandomize` off | **Melanin Randomize** 0 | **Melanin Var.** 0 | **Random Melanin** 0 |
+
+- **Wet hair:** GroomLab's wet look (darker, more saturated, glossier) is built for Arnold by
+  `create_hair_shader`. Elsewhere, use the `wetness` attribute to build it: more melanin and
+  lower roughness where it is high.
+- **Iridescence:** FeatherColor's iridescence network exists for Arnold only. The `iridescence`
+  attribute (USD) gives the mask.
+
+## RenderMan
+
+### RenderMan procedural
+
+The Maya download includes `GroomLab/procedurals/renderman/groomlab_renderman.dll`, a RenderMan 27
+procedural: prman evaluates the groom from a `.groom` file at render time and emits linear
+`RiCurves` with the strands' color, highlight, opacity and wetness as primvars for a
+**PxrHairColor** + **PxrMarschnerHair** network. `groom.rib` next to it is a complete example
+scene, shading network included. The primvars are listed in
+[Strand attributes](/docs/rendering#strand-attributes).
+
+- **In a RIB or on a farm:**
+
+  ```
+  Procedural2 "DynamicLoad" "DSOBound" "string dsoname" ["groomlab_renderman"]
+      "string filename" ["C:/shots/010/hair.groom"] "float frame" [12]
+  ```
+
+  Parameters: `filename`, `frame`, `fps`, `density`, `widthScale`, `lengthScale`,
+  `motionStart`, `motionEnd`, `motionKeys` (motion blur), `searchPaths`, `name`, and `debug`
+  (prints every primvar). Instances and scales are not rendered by this procedural.
+- **In RenderMan for Maya (Maya 2024 to 2026), experimental:** load RenderMan for Maya, select
+  the groom and choose **GroomLab > Export > RenderMan Procedural (experimental)**. It creates a
+  RenderMan Procedural node that renders the groom, exporting the groom file each frame, and can
+  build the hair shading network. It is tested through prman but has not yet been run inside
+  Maya; please report results.
+- **Color:** GroomLab's melanin and redness are converted to PxrHairColor's (the `rman_melanin`
+  and `rman_redness` primvars). Under a strong key light, light hair can render darker than in
+  Arnold, because PxrMarschnerHair transmits less light through many hairs.
+
+### From Alembic or USD
+
+Links: [PxrHairColor](https://rmanwiki-25.pixar.com/space/REN25/20415447),
+[PxrPrimvar](https://rmanwiki-25.pixar.com/space/REN25/20416322),
+[Alembic workflows in RenderMan for Maya](https://rmanwiki-25.pixar.com/space/RFM25/21889214),
+[hdPrman (RenderMan's USD plugin)](https://openusd.org/dev/plugins_renderman.html). These are the
+RenderMan 25 pages; check the RenderMan 27 pages on [rmanwiki.pixar.com](https://rmanwiki.pixar.com)
+for changes.
+
+<Steps>
+<Step>
+
+### Export (verified)
+
+`groomlab.export_alembic(groom, "C:/shots/010/hair.abc", start=1, end=48)` for Maya, or
+`groomlab.export_usd(...)` for a USD pipeline (Solaris, or another Hydra host).
+
+</Step>
+<Step>
+
+### Load it in the renderer
+
+In **Maya**, load the Alembic file in a `gpuCache` node (**Cache > GPU Cache > Import...**) and
+enable its **Render Alembic Cache**; RenderMan for Maya renders gpuCache archives at full
+quality. RenderMan renders linear curves, so no conversion is needed.
+
+For **USD**, reference the layer into a stage that RenderMan renders through hdPrman, its Hydra
+delegate (for example Houdini's Solaris with RenderMan for Houdini).
+
+</Step>
+<Step>
+
+### Assign the hair shader
+
+Create a **PxrMarschnerHair** fed by a **PxrHairColor** in Physical mode, connected as RenderMan's
+documentation shows. Set **Melanin** from the HairColor node, **Redness** from its `redness`
+(PxrHairColor's Redness is the eumelanin/pheomelanin balance, as GroomLab's is), **Dye** from its
+`dye`, and keep the primary specular color white. PxrHairColor's **Stray** settings (density,
+melanin) correspond to GroomLab's `greys`, and its randomization options need **Hair ID Primvar**
+set. RenderMan's melanin scale may not match Arnold's exactly; compare on a test frame.
+
+</Step>
+<Step>
+
+### Read the per-strand values
+
+Add a **PxrPrimvar** with **Variable Name** `melanin` and **Variable Type** float, and connect
+its result (`resultR` in Maya) to PxrHairColor's **Melanin**. Leave **Melanin Randomize** at 0,
+since GroomLab already varies melanin per strand. For an RGB color, a PxrPrimvar of type color
+reading `Cd` (Alembic) or `displayColor` (USD) feeds Artistic mode's **Color**.
+
+</Step>
+</Steps>
+
+- PxrHairColor's randomization options need a per-curve **Hair ID Primvar**. The Alembic and USD
+  exports write `strandId` as a 64-bit integer, which RenderMan may not accept as an ID; reading
+  `melanin` per strand, as above, gives the same variation. (The RenderMan procedural writes
+  `hair_index`, a `uniform float`, for this purpose.)
+- RenderMan's documentation recommends Alembic archives written by RenderMan's own exporter for
+  gpuCache renders, so check a GroomLab archive on a test frame first.
+
+## Redshift
+
+Links: [Principled Hair](https://help.maxon.net/r3d/maya/en-us/Content/html/Principled+Hair.html),
+[Alembic Procedural](https://help.maxon.net/r3d/maya/en-us/Content/html/Alembic+Procedural.html),
+[USD Procedural](https://help.maxon.net/r3d/maya/en-us/Content/html/USD+Procedural.html),
+[Scalar User Data](https://help.maxon.net/r3d/maya/en-us/Content/html/Scalar+User+Data.html),
+[Color User Data](https://help.maxon.net/r3d/katana/en-us/Content/html/Color+User+Data.html).
+
+<Steps>
+<Step>
+
+### Export (verified)
+
+`groomlab.export_alembic(...)` or `groomlab.export_usd(...)`, as above.
+
+</Step>
+<Step>
+
+### Load it in a Redshift Proxy
+
+From the Redshift shelf, create a **Redshift Proxy** and set its **File Type** to **Alembic**
+(Redshift 2025.4 and later in Maya) or **USD**, then pick the file. The proxy loads it at render
+time. Redshift's documentation does not state whether the proxy renders Alembic or USD curves as
+hair in Maya; check on a test frame.
+
+</Step>
+<Step>
+
+### Assign the hair shader
+
+Create a **Principled Hair** material and assign it to the proxy's placeholder (for USD, set
+**Material Mode** to **From Scene (assigned to placeholder)**). Set **Melanin** and **Melanin
+Redness** from the HairColor node, leave **Tint** white unless the hair is dyed, and set
+**Roughness** from the HairColor node.
+
+</Step>
+<Step>
+
+### Read the per-strand values
+
+A **Scalar User Data** node with **Attribute Name** `melanin` feeds **Melanin**, another with
+`melaninRedness` feeds **Melanin Redness**; set **Melanin Var.** and **Melanin Redness Var.** to
+0. For an RGB color, a **Color User Data** node reading `Cd` (Alembic) or `displayColor` (USD)
+feeds **Albedo**, with **Albedo Mix** at 1.
+
+</Step>
+</Steps>
+
+- Redshift's documentation says hair reads per-vertex color and scalar attributes from Redshift
+  2025.4 on. GroomLab's `melanin` and color are **per curve**, so check that they reach the
+  shader. If they don't, use a single value for the whole groom.
+
+## V-Ray
+
+Links: [VRayHairNextMtl](https://documentation.chaos.com/space/VMAYA/111740199),
+[V-Ray Proxy](https://documentation.chaos.com/space/VMAYA/111739092),
+[USD workflow](https://documentation.chaos.com/space/VMAYA/111739288),
+[USD supported features](https://documentation.chaos.com/space/VMAYA/111739268).
+
+<Steps>
+<Step>
+
+### Export (verified)
+
+`groomlab.export_alembic(...)` for a V-Ray Proxy, or `groomlab.export_usd(...)` for MayaUSD.
+
+</Step>
+<Step>
+
+### Load it
+
+**Alembic:** create a **V-Ray Proxy** and point it at the `.abc` file. It loads Alembic curves,
+with **Tessellate Hair** and a **Hair width multiplier** for hair. Leave **Flip Axis** off for a
+Y-up Maya scene.
+
+**USD:** **Create > Universal Scene Description (USD) > Stage From File...** loads the layer
+through MayaUSD, which V-Ray renders. V-Ray's USD page lists hair as supported.
+
+</Step>
+<Step>
+
+### Assign the hair shader
+
+Create a **VRayHairNextMtl** and assign it. Set **Melanin** from the HairColor node,
+**Pheomelanin** from its `redness`, **Dye Color** from its `dye`, and **Glossiness** by matching
+against GroomLab's viewport. For opacity, **Transparency** is the inverse (white is opaque).
+
+</Step>
+<Step>
+
+### Read the per-strand values
+
+A **VRayUserScalar** reading `melanin` can feed **Melanin**, and a **VRayUserColor** reading `Cd`
+can feed **Dye Color** for an RGB color (with **Melanin** 0, as V-Ray's documentation advises for
+dyed hair). Leave **Random Melanin** at 0.
+
+</Step>
+</Steps>
+
+- V-Ray's documentation does not say whether a proxy's Alembic hair passes per-curve attributes
+  to VRayUserScalar and VRayUserColor. Check on a test frame; if they don't arrive, use a single
+  value for the whole groom.
+
+## Animation, motion blur and farms
+
+- **Animated grooms:** export the frame range; each frame is one sample in the same file. Give a
+  groom on a deforming scalp a rest mesh, so every frame has the same strands and point counts
+  ([Motion and simulation](/docs/motion-and-simulation)). Renderers only compute deformation blur
+  for curves when the samples have matching topology.
+- **Motion blur:** the files carry no velocities. The renderer interpolates between samples, so
+  for fast motion export subframes: `step=0.5` (or `0.25`) writes samples between frames.
+- **Without Maya:** save a groom file (**GroomLab > Export > Groom File...**) with its scalp
+  cache, and `groomlab-cli` writes the Alembic or USD on any machine:
+
+```bash
+groomlab-cli eval hair.groom -o hair.abc -f 1-48
+groomlab-cli eval hair.groom -o hair.usda -f 1-48 --step 0.5 --density 1
+```
+
+  The CLI names the root `groom` and writes USD in the groom file's own up axis and units. It has
+  no render-overrides option; pass `--density` instead.
+- **Size:** `.usda` is text, about 60 bytes per point per frame. Convert large files to binary
+  with USD's `usdcat` (`usdcat hair.usda -o hair.usdc`).
+- **Arnold farms** don't need any of this: the Arnold procedural evaluates the groom file at
+  render time ([Farm renders](/docs/rendering#farm-renders-from-a-groom-file)).

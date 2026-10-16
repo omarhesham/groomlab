@@ -1,0 +1,10 @@
+{
+  "name": "Fade toward the tips",
+  "description": "0 at the root rising to 1 at the tip (per point: Width, Clump strength, HairColor tipStrength)",
+  "expression": "# $t runs 0 at the root to 1 at the tip\nsmoothstep($t, $start, 1)",
+  "variables": {
+    "start": 0.5
+  },
+  "min": 0.0,
+  "max": 1.0
+}

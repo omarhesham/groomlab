@@ -1,0 +1,12 @@
+{
+  "name": "Noise patches",
+  "description": "Soft random patches over the scalp",
+  "expression": "# snoise: smooth noise, -1 to 1 (noise is the same, 0 to 1)\n$n = snoise($P * $scale);\nsmoothstep($n + $bias, -$softness, $softness)",
+  "variables": {
+    "scale": 3,
+    "softness": 0.3,
+    "bias": 0
+  },
+  "min": 0.0,
+  "max": 1.0
+}

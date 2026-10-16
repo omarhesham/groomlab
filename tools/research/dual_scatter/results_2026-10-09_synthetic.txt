@@ -1,0 +1,6 @@
+V0 as shipped            lights  1:   210 instruction slots,   31 transcendental (exp/log/sqrt/rsq/rcp/sincos)
+V1 factorized (exact)    lights  1:   210 instruction slots,   31 transcendental (exp/log/sqrt/rsq/rcp/sincos)
+V2 azimuth-averaged      lights  1:   211 instruction slots,   32 transcendental (exp/log/sqrt/rsq/rcp/sincos)
+V0 as shipped            lights 11:  1864 instruction slots,  271 transcendental (exp/log/sqrt/rsq/rcp/sincos)
+V1 factorized (exact)    lights 11:  1864 instruction slots,  271 transcendental (exp/log/sqrt/rsq/rcp/sincos)
+V2 azimuth-averaged      lights 11:  1856 instruction slots,  272 transcendental (exp/log/sqrt/rsq/rcp/sincos)

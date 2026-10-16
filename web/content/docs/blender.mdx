@@ -1,0 +1,320 @@
+---
+title: Blender
+description: GroomLab for Blender 5.2 (beta) - installation, the Groom Tools and graph editor in Blender, rendering in Cycles and EEVEE, the attributes on the hair object, and current limitations.
+---
+
+<Callout type="info" title="Beta">
+  GroomLab for Blender is in beta. It is usable, but details may change before the first release.
+  Keep backups of important grooms, and report problems to
+  [support@getgroomlab.com](mailto:support@getgroomlab.com).
+</Callout>
+
+GroomLab for Blender provides the same grooming workflow as the Maya plug-in: the same **Groom
+Tools** (Place, Draw, Comb, Smooth, Cut, Paint, Select, Freeze...), guide groups and painted maps,
+a **pie menu** on **Y** in place of Maya's marking menu, and GroomLab's node graph with the same
+presets as Maya and the GroomLab app. A groom saved from Blender evaluates to the same strands in
+Maya, and the other way round.
+
+It is a Blender **extension** for Blender 5.2 LTS on Windows (x64), distributed from our site.
+
+## Install
+
+<Steps>
+<Step>
+
+### Download the extension
+
+[Download GroomLab for Blender](https://downloads.getgroomlab.com/blender/GroomLab-Blender-windows-x64-latest.zip).
+Do not unzip it; Blender installs the zip directly.
+
+</Step>
+<Step>
+
+### Install from Disk
+
+In Blender choose **Edit > Preferences > Get Extensions**, open the **⌄** menu at the top right and
+choose **Install from Disk...**, then pick the zip. GroomLab appears in the list, enabled.
+
+</Step>
+<Step>
+
+### Open the GroomLab tab
+
+In the 3D viewport press **N** for the sidebar and pick the **GroomLab** tab.
+
+</Step>
+</Steps>
+
+<Callout type="info" title="Updates through Blender">
+  Add `https://downloads.getgroomlab.com/blender/index.json` as a remote repository (**Get
+  Extensions > Repositories > + > Add Remote Repository**) and Blender offers new GroomLab versions
+  with its own updates. Installing a newer zip from disk works too.
+</Callout>
+
+## Make a groom
+
+1. Select the mesh the hair grows on (the scalp or the whole head, at real size: a head is about
+   0.2 m), with a UV map.
+2. Choose **GroomLab > Create Groom from Selection** in the top bar (or **Object > Add GroomLab
+   Groom**, or the button in the Groom Tools). Pick a **preset** to start from; **Starter Guides**
+   spreads some guides over the scalp, or leave it at 0 and place them yourself, as in Maya.
+
+GroomLab adds a Curves object **`<mesh>_hair`** parented to the mesh. It holds the evaluated
+strands, is not selectable, and is rewritten whenever the groom changes. The guides are not
+Blender curves: they are GroomLab's guide hierarchy (as in Maya), drawn as an overlay and edited
+with the Groom Tools.
+
+## Groom Tools
+
+The **GroomLab** tab of the 3D viewport's sidebar (**N**) opens on **Groom Tools**, the equivalent
+of Maya's Groom Tools panel:
+
+- At the top: the **groom** the tools work on, its eye (show or hide the strands), the **Graph
+  Editor** and a **More** menu.
+- **Your first groom** walks you through placing guides and giving the groom a look.
+- **Group**: the guide group the brushes edit and new guides go into (**All groups**: every
+  guide); **Isolate** dims the other levels.
+- **Tools** and **Paint** tabs. The tools come by category, with Maya's icons:
+  **Create** (Place, Draw, Part, Flow), **Shape** (Comb, Slide, Smooth, Straighten, Lift, Twist,
+  Curl, Attract, Direction, Noise, Tube), **Trim** (Cut, Length, Erase), **Paint** (Paint) and
+  **Guides** (Select, Freeze, and Unfreeze All beside them). Shift+click a guide with
+  a brush to solo it (the rest freeze); Shift+click off a guide to unfreeze them all.
+- The active tool's **card** shows what it does and exactly its settings, by Maya's names:
+  **Radius** (pixels), **Strength** (±: tools that work both ways go negative), **Falloff**,
+  **Falloff curve**, **Root to tip**, **Symmetry** (World X or Topology), **Selected only**, **Pen
+  pressure**, **Keep off scalp**, **Front facing only**; Place and Draw's **New guides** (Match
+  nearby guides, Solo new guides, Length, Segments, Spacing), Paint's map, Comb's
+  **Stretch**, what shaping brushes act on (Guides, Parts, Flow), what Erase erases, the next
+  part's name, Flow's arrows or sinks (Whorl, Gather, Part out), the Select tool's lasso or box
+  and soft radius, the freeze mask. Each tool keeps its own strength.
+- **Undo** / **Redo** name the groom's last edit.
+- Folded below: **While sculpting** (guides only while a stroke is live; full density), **Guide
+  groups & edits** (new group, rename, select, show/hide, delete; **Edit Guides**: Children, Sync
+  ±X, Mirror Group, Lock, Freeze, Delete Selected, Promote/Demote...) and **Display**.
+
+Pick a tool and drag over the groom in the viewport. The brush ring follows the cursor on the
+scalp in Maya's colors (yellow; red for Part and Erase, orange for Flow, green for Place and Draw)
+and highlights the guides it would affect. During a stroke the hair is drawn at a reduced density;
+the full preview density returns on release.
+
+### Keys while a tool is active
+
+| Keys | |
+|---|---|
+| **Ctrl** + stroke | The opposite (Ctrl+Length shrinks, Ctrl+Lift lays down, Ctrl+Freeze unfreezes, Ctrl+Paint on the density map removes hair) |
+| **Shift** + drag | Smooth instead |
+| **Shift** + click | Solo the guide (the rest freeze) and brush its group; off a guide, unfreeze them all |
+| **B** + drag, **M** + drag | The brush radius, the strength (Maya's hotkeys) |
+| **S** | The Select tool (drag a lasso; Shift toggles, Ctrl deselects; click a guide) |
+| **Page Up** / **Page Down** | The group a level up or down |
+| **Y** | The pie menu |
+| **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo the groom's edits (strokes, guide edits, maps) |
+| **Esc** or right-click | Cancel a live stroke; **Esc** again leaves the tool |
+
+Navigation (middle mouse, wheel, numpad) works as always while a tool is active. Outside a
+GroomLab tool, Ctrl+Z is Blender's own undo.
+
+### The pie menu
+
+**Y** in the viewport opens GroomLab's pie menu, laid out like Maya's marking menu: **Comb** at the top, **Slide**,
+**Smooth**, **Cut**, **Place** at the bottom, **Draw**, **Length**, **Lift**, and below it the rest
+of the tools, Select, Freeze and Groom Tools. Change its key in **Edit > Preferences > Add-ons >
+GroomLab**.
+
+## Paint maps
+
+The **Paint** tab lists the groom's maps: 0-1 values (or colors) painted on the scalp that any
+param can read through a Map node. **New Map** makes one on the guides, on the scalp's vertices,
+or as a texture. Pick it, take the **Paint** tool and paint toward the **Value** (a color map: the
+**Color**, in the channels ticked); Ctrl paints toward 0 (a color map: toward the inverse),
+Shift+drag smooths. **Fill** sets a guide map everywhere (or on the selected guides). **Show on**
+colors the guides by a guide map, or shows the map on the scalp while painting.
+
+To paint a setting, set **New Map**'s **For** to **Density**, **Width**, **Length**, **Clump
+strength**, **Curl**, **Noise amplitude**, **Flyaways** (the ones the graph has a node for), or
+**Other setting...** for any mappable param, pick vertices or a texture, and click OK. A white map
+is created, connected to the setting, selected and painted with the **Paint** tool, in one undo
+step; if the setting already reads a map, that map is picked instead. Strokes paint toward the
+**Value** (1: the setting's full value); **Ctrl** paints toward 0, so Ctrl on the density map
+removes hair.
+
+## Viewport display
+
+Guides are drawn as in Maya: colored by level (or by a painted layer, or a hue per group), frozen
+guides blue, the selection white with its soft-selection falloff orange, root and tip dots, tubes
+when shown, part lines red, flow arrows orange. **Display** (under Groom Tools) has Maya's toggles: Guides,
+Tubes, Flow, Strands, the guide points, the guide colors and the **Strand Colors** (Solid,
+Color set, Attribute, Random, Clump, Density). Strand colors are a color attribute on the hair
+(`groomlab_display`): **Show in Viewport** sets Solid shading's color to Attribute. Renders keep
+the hair's material.
+
+## Presets and the graph
+
+**Presets** lists the shipped looks and your own (shared with Maya and the app) by category.
+**Apply** replaces the groom's graph with the preset's, fitted to the size of your scalp (your
+guides stay). **Insert After Node** adds a preset's look (frizz, flyaways, gravity...) after the
+selected node, as one compound node.
+
+**Graph** lists the groom's nodes, the strands' chain from the roots to the output first. Select a
+node to edit its params below the list:
+
+- Params come in groups (click a group's name to open it) with the rarely needed ones folded into
+  **Advanced**; params that don't apply to the node's current mode are hidden.
+- Lengths and widths show in the scene's units (Blender's own unit display), densities in hairs
+  per cm², per-length rates per scene unit, fractions as sliders. GroomLab stores centimeters, as
+  Maya does, so a groom means the same everywhere.
+- Ramps and painted maps are shown here; edit ramps in the Graph Editor (below), paint maps in
+  Maya or the GroomLab app.
+
+**+** adds a node of the **New Node** type after the selected one, **−** removes the selected node
+(the chain closes over it) and the arrows move it along the chain. For the whole graph, open the
+Graph Editor.
+
+## The Graph Editor
+
+**Graph Editor** (in the GroomLab tab's Graph panel) opens the groom's graph in a node editor of
+its own, as Maya's GroomLab Graph Editor shows it. Any node editor shows it too: set its type to
+**GroomLab Graph** and pick the groom's graph (`<mesh> Graph`). Choosing another groom in the
+editor's header (or the GroomLab tab) shows that groom's graph.
+
+- **Nodes** carry their type's ports, colored by what flows through them as in Maya: strands
+  orange, guides blue, meshes green, fields violet, curves yellow, strands-or-guides grey. A
+  param exposed as an input is a diamond port. Each node is tinted with its category's color
+  (Grow, Shape, Look, Color...) and shows a couple of the params you changed.
+- **Add** a node with **Shift+A** or **Tab** (search), by category in Maya's order. Drag from a
+  port to wire it; a wire the graph can't take (a mesh into strands, a loop) is refused and the
+  sidebar says why. **X** or **Delete** removes nodes, **Shift+D** or **Ctrl+D** duplicates them
+  with their params, **F2** renames, **M** or **B** disables a node (its input passes straight
+  through).
+- **V** (Focus) shows the groom up to the selected node in the viewport instead of the output's;
+  renders keep the output. On a Clump it shows its clump centers as dots on the scalp too. **Set as Output** makes a node the groom's output. **F** frames the
+  selection, or everything.
+- Every edit goes to the groom at once and the hair follows; **Ctrl+Z** undoes it, the graph too.
+- The **Node** tab of the editor's sidebar (**N**) edits the selected node as Maya's param panel
+  does: its name, type and what it does; its params by group (click a group's title to fold it,
+  for every node of that type), **Advanced** folded; sliders over each param's usual range, which
+  you can type past; lengths in scene units. **Ramps** are edited with Blender's curve widget. A
+  param set by a painted map or a texture shows the map's name. A node saved with an older
+  behaviour offers **Upgrade**; a note (ⓘ) says when a node does nothing as set, errors show in
+  red.
+- **Presets** in the header (and the sidebar's GroomLab tab) lists the presets by category: each
+  one can be applied (the graph replaced, fitted to your scalp) or inserted after the selected
+  node as one Compound node, its key params on the Compound itself.
+- The editor's **⋯** menu has **Tidy Layout** (columns from the sources to the output) and
+  **Reload from Groom**.
+
+Node positions are saved with the groom, where Maya's and the app's editors keep them: a groom laid
+out in Blender opens laid out the same in Maya, and the other way round.
+
+## Animation
+
+GroomLab follows a deforming scalp, from an armature or shape keys: on each frame it reads the
+mesh as Blender deforms it. With **Follow Scalp** on (the default) the groom is made on the scalp's
+rest pose and each strand is carried along by its root, so the hair keeps its shape as the head
+turns. Groom at a frame where the head is at rest.
+
+Modifiers that change the mesh's vertex count (Subdivision Surface, Decimate...) can't be
+followed: GroomLab then grows on the mesh before its modifiers.
+
+## Rendering
+
+Cycles and EEVEE render the hair object like any other Blender Curves object. A final render (F12,
+or an animation) uses every strand: GroomLab switches the hair object to full density for the
+render and back to the preview density afterwards, and turns on **Render > Lock Interface** for
+that switch.
+
+Each point's width (a diameter) is written as Blender's per-point `radius` (half the width), so
+Cycles and EEVEE render the same coverage as Arnold to within about a percent. EEVEE needs
+**Render > Curves > Shape** set to **Strip**; its default, Strand, draws every hair one pixel wide
+regardless of width. GroomLab sets Strip when you create or open a groom, and the panel warns if it
+has been set back to Strand.
+
+The hair material reproduces GroomLab's Arnold hair shader with Blender's **Principled Hair BSDF**,
+driven by the same HairColor, Bands, FeatherColor and RenderData nodes:
+
+- **Pigment**: each strand's melanin and redness, with the node's dye over them.
+- **RGB**: when the color comes from more than the pigment (a tip color, a map, hue, saturation
+  or value randomness, a Bands or Feather Color node, a Blend of two looks), the strands' color,
+  per point along them.
+- **Both**, mixed strand by strand by its share, when the Hair Color node sets a Color Source; the
+  pigment's look then varies in hue, saturation and value per strand as the RGB does.
+- **Iridescence**: the structural color shifting with the viewing angle, mixed in where the
+  Feather Color node puts it.
+- **Highlight**: HairColor's specular and roughness (roughness per strand where it
+  varies), and its opacity.
+
+Arnold's and Cycles' hair models parameterize melanin differently, so a **GroomLab Hair Color**
+node group converts melanin, redness, dye and color to the values that render in Cycles as they do
+in Arnold (measured on the same grooms: average hair color within about 2-5%, comparable highlight
+brightness).
+
+The hair object carries these attributes, readable in your own shaders with an **Attribute** node.
+Per-strand values use Blender's **Curve** domain, per-point values the **Point** domain:
+
+| Attribute | Domain, type | Contents |
+| --- | --- | --- |
+| `radius` | Point, float | Half the strand width (Blender's own radius attribute) |
+| `groomlab_strand_id` | Curve, 2 x int32 | The 64-bit strand ID, split into low and high 32 bits |
+| `surface_uv_coordinate` | Curve, float2 | The scalp UV at the root (Blender's standard name) |
+| `groomlab_color` | Curve, color | Linear RGB per strand |
+| `groomlab_point_color` | Point, color | Linear RGB per point, when the color varies along the strand |
+| `melanin`, `melaninRedness`, `specular`, `roughness`, `opacity`, `iridescence` | Curve or Point (as the graph wrote them), float | HairColor, RenderData and FeatherColor values, when the graph writes them |
+| `groomlab_root_normal` | Curve, vector | The root normal used for iridescence (only with FeatherColor iridescence) |
+
+Only the attributes in this table reach Blender. Other strand attributes (`clumpId`, Group masks,
+Attribute node output) are not written to the hair object yet; export Alembic or USD to get them.
+GroomLab does not modify a material you assign yourself.
+
+What's approximate:
+
+- **EEVEE** shades hair as a flat color without highlights or transmission. GroomLab gives it the
+  color that matches Cycles' average, which is close for a full head of hair and slightly bright
+  for light, sparse fur. Use Cycles to compare with Arnold.
+- A HairColor **specular** below 0.2 renders a little shinier than in Arnold, and **iridescence**
+  doesn't tint the highlight as Arnold's does.
+- Compare colors with **Color Management > View Transform: Standard** (Blender's default, AgX,
+  tones the image differently from Arnold's sRGB output).
+
+
+## Files
+
+- **Save .groom** writes the groom in GroomLab's file conventions (Y up, centimeters). Maya and the
+  GroomLab app open it as evaluated in Blender, with the same guides.
+- **Open .groom** opens a groom from Maya, the app or Blender on the selected mesh, or with the
+  scalp stored in the file (**Use the File's Scalp**) when you don't have the head in Blender.
+- A **.blend** file stores the whole groom (guides, groups, maps, the selection), so reopening it
+  restores the hair and the Groom Tools state.
+
+## The GroomLab menu
+
+The top bar's **GroomLab** menu has Maya's GroomLab menu items: **Groom Tools**, **Graph Editor**,
+**Create Groom from Selection**, **Groom Files** (open and save `.groom`), **Paint**, **Presets**,
+**Export** (Alembic, USD, Groom File), **GroomLab Hotkeys...**, **Support GroomLab**, **Check for
+Updates...** and **Help** (Docs, Keyboard Shortcuts, About GroomLab).
+
+## Export
+
+**Alembic** and **USD** export the strands (the current frame or the scene's range, every strand
+by default) in GroomLab's space: Y up, centimeters for Alembic, `metersPerUnit = 0.01` for USD.
+Blender's importers convert both. The files carry the same attributes as Maya's exports
+([Strand attributes](/docs/rendering#strand-attributes)).
+
+## Not in Blender yet
+
+- **Jiggle** and **Simulate** nodes: the panel marks them. Jiggle passes the strands through in
+  Blender, and Simulate isn't fed the scalp's motion frame by frame, so don't rely on either in a
+  Blender render yet.
+- The Groom Tools' **Sculpt** (correctives) and **Reference** (photos) tabs: use Maya or the
+  GroomLab app; grooms carrying correctives evaluate in Blender as made.
+- Grooms made with earlier previews keep their guides as a Blender Curves object you sculpt with
+  Blender's Curves Sculpt brushes (**Sculpt Guides**); make a new groom for the Groom Tools.
+- macOS and Linux builds.
+- Keep the scalp object's scale at 1 (apply it): presets fit the groom to the mesh's own size.
+
+## What's open source
+
+All of it. The add-on (its Python code) is free software under GPL-3.0-or-later. Its source is
+included in the extension. GroomLab's engine runs in `groomlab-helper`, a separate program the
+add-on starts and talks to. It is never loaded into Blender. The helper is open source too, under
+the Apache License 2.0 (`bin/LICENSE-HELPER.txt` inside the extension), and its source is in
+[GroomLab's repository](https://github.com/thekesslereffect/groomlab).

@@ -1,0 +1,61 @@
+Qt in the GroomLab app
+======================
+
+The GroomLab app uses the Qt framework, version 6.8.3: Copyright (C) The Qt Company Ltd. and
+other contributors. Qt is used under the GNU Lesser General Public License version 3
+(LGPL-3.0-only): LGPL-3.0.txt in this folder, with GPL-3.0.txt, the GNU General Public License
+version 3 that the LGPL incorporates. Qt and the Qt logo are trademarks of The Qt Company Ltd.
+
+
+How GroomLab uses Qt
+--------------------
+
+GroomLab links Qt dynamically. Qt is entirely in separate files beside GroomLab.exe, loaded when
+the program starts:
+
+    Qt6Core.dll  Qt6Gui.dll  Qt6Widgets.dll  Qt6Network.dll  Qt6Svg.dll
+    platforms\  styles\  imageformats\  iconengines\  tls\  networkinformation\   (Qt's plugins)
+
+These are unmodified builds of Qt 6.8.3, the binaries The Qt Company publishes for Windows
+(MSVC 2022, 64-bit). GroomLab.exe holds no part of Qt but what Qt's headers place in a program
+that uses them (declarations, inline functions and templates: LGPL-3.0 section 3).
+
+
+Qt's source code
+----------------
+
+The complete source code of this Qt version:
+
+    https://download.qt.io/archive/qt/6.8/6.8.3/single/qt-everywhere-src-6.8.3.zip
+    (or the modules alone: https://download.qt.io/archive/qt/6.8/6.8.3/submodules/
+     qtbase-everywhere-src-6.8.3.zip and qtsvg-everywhere-src-6.8.3.zip)
+    git: https://code.qt.io/qt/qtbase.git and https://code.qt.io/qt/qtsvg.git, tag v6.8.3
+
+If you can't get it there, write to support@getgroomlab.com and we will send you a copy of the
+source code of the Qt version we distribute, for at least three years after we last distribute
+this version of GroomLab, for no more than the cost of sending it.
+
+
+Using your own Qt
+-----------------
+
+You may replace the Qt files in this folder with your own build of Qt, for example a modified
+one: build Qt 6.8 (qtbase and qtsvg) from the source above with MSVC 2022 for x64, as a shared
+release build, and copy your Qt6Core.dll, Qt6Gui.dll, Qt6Widgets.dll, Qt6Network.dll,
+Qt6Svg.dll and the plugin folders over the ones here (Qt's windeployqt tool, run on
+GroomLab.exe, copies them for you). GroomLab does not check, sign or lock the Qt files, and
+loads whatever Qt files are beside it. A Qt build that is not binary compatible with Qt 6.8.3
+may not run.
+
+The GroomLab license terms do not restrict this: you may modify the Qt libraries GroomLab uses
+for your own use, and reverse engineer GroomLab as far as needed to debug such modifications
+(LGPL-3.0 section 4).
+
+
+Third-party code inside Qt
+--------------------------
+
+The Qt libraries in turn contain third-party code under its own licenses (zlib, libpng, libjpeg,
+FreeType, HarfBuzz, PCRE2 and others): QT_THIRD_PARTY.txt in this folder lists each component in
+the Qt files GroomLab ships, with its copyright and license, from Qt's own software bill of
+materials.
