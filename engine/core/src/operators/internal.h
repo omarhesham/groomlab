@@ -164,6 +164,7 @@ void registerFeatherOperators(OperatorRegistry& registry);
 void registerTransformOperators(OperatorRegistry& registry);
 void registerMeshCutOperator(OperatorRegistry& registry);
 void registerRenderDataOperator(OperatorRegistry& registry);
+void registerStrandMeshOperator(OperatorRegistry& registry);
 
 // Compound definitions (graph_io.cpp, which owns the JSON): the inner graph
 // as graph JSON, the declared inputs, and exposed name -> "node.param".

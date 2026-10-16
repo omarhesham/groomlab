@@ -966,10 +966,12 @@ const json* GroomDocument::nodeSpec(const std::string& node) const {
     const json* n = nodeJson(node);
     if (!n) return nullptr;
     const std::string type = n->value("type", std::string());
-    if (type != "Compound" && type != "Input") return spec(type);
-    // A Compound's params are the ones its definition exposes (an Input's output its type):
-    // the core resolves them from the node's own JSON (graph_edit.h's nodeSpecJson), cached by
-    // that JSON, so an edit of the node gives a fresh spec.
+    const bool exposes = n->contains("paramInputs") && (*n)["paramInputs"].is_array() && !(*n)["paramInputs"].empty();
+    if (type != "Compound" && type != "Input" && type != "Value" && type != "Expression" && !exposes) return spec(type);
+    // A Compound's params are the ones its definition exposes (an Input's output its type, a
+    // Value's and an Expression's output by their params; exposed params add ports): the core
+    // resolves them from the node's own JSON (graph_edit.h's nodeSpecJson), cached by that JSON,
+    // so an edit of the node gives a fresh spec.
     const std::string key = n->dump();
     auto it = resolvedSpecs_.find(key);
     if (it == resolvedSpecs_.end()) {

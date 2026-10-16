@@ -29,7 +29,7 @@ std::string operatorDescription(const std::string& type) {
         {"Curve", "A ramp shared by several params."},
         {"Direction", "Points strands by inclination from the scalp and roll around its normal, at the root."},
         {"Displace", "Moves strands along the scalp's normal (or a direction): volume off the scalp."},
-        {"Expression", "A value per strand from a formula, feeding any param."},
+        {"Expression", "A value per strand from a formula, feeding any param (or one value, of the frame and its variables)."},
         {"FeatherColor", "Patterns on feathers (bars, spots, an eye, a painted image), a down color and iridescence. After HairColor."},
         {"FieldCombine", "Two fields multiplied, added, mixed..."},
         {"FieldNoise", "Smooth noise over the scalp, feeding any param."},
@@ -68,6 +68,7 @@ std::string operatorDescription(const std::string& type) {
         {"Smooth", "Takes out bumps up to a size (a share of the length; 1 straightens), keeping lengths and roots."},
         {"Split", "Sends each strand to one of four outputs by share or by a map: several designs on one set."},
         {"Static", "Hair charged with static repels itself, like dry winter hair: strands spread, the outer layer puffs out, tips lift and locks fray."},
+        {"StrandMesh", "The strands it is handed as a polygon mesh (tubes or ribbons) that follows the animation: Maya's groom outStrandMesh, for Alembic or a renderer without curves."},
         {"Switch", "Picks one of several inputs: look variants."},
         {"Tangle", "Strands stuck together: mats and wet hair."},
         {"ToGuides", "Strands become guides, for nodes that follow guides."},
@@ -75,6 +76,7 @@ std::string operatorDescription(const std::string& type) {
         {"Tie", "Ponytails and hair ties: strands run along the scalp to a ring, pass through it in order and fan into a tail."},
         {"Transform", "Moves, turns and scales strands about their roots (or the whole set), with randomness."},
         {"Twist", "Twists strands around a lock or clump: ropes, twisted locks."},
+        {"Value", "One value for a whole node: a number, integer, switch, vector, color or text that drives any exposed param."},
         {"Width", "Strand thickness, root to tip."},
         {"Wet", "Wet hair: small clumps near the root merging into bigger ones toward the tip, from one wetness slider."},
         {"Wind", "Strands bend along a wind moving through space and time. Play the timeline to see it."},
@@ -107,6 +109,7 @@ void registerBuiltinOperators(OperatorRegistry& registry) {
     registerTransformOperators(registry);
     registerMeshCutOperator(registry);
     registerRenderDataOperator(registry);
+    registerStrandMeshOperator(registry);
     registerGroupOperator(registry);
     registerPlumeOperator(registry);
     registerWetOperator(registry);

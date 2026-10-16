@@ -89,6 +89,12 @@ ParamSet evaluatedParams(const Graph& graph, NodeId id) {
         const Value value = graph.cachedValue(src, output);
         if (FieldPtr field = valueAs<FieldPtr>(value)) params.setField(exposed[k], field);
         if (CurvePtr curve = valueAs<CurvePtr>(value)) params.setCurve(exposed[k], curve);
+        // A Value in a Field slot: its number on every strand (one in a Value slot set the param
+        // itself before the CPU's evaluation: the node's params hold it).
+        const UniformPtr uniform = valueAs<UniformPtr>(value);
+        if (uniform && !graph.paramDriven(id, exposed[k])) {
+            if (const FieldPtr constant = uniformField(*uniform)) params.setField(exposed[k], constant);
+        }
     }
     return params;
 }
@@ -168,10 +174,11 @@ bool jiggleHandsOn(const Graph& graph, NodeId id) {
 // stays bound through the drag, as the colors of any drag do.) RenderData (the shader's channels)
 // and Cards (its card layer, made from the strands it takes, or nothing where no cards are wanted)
 // too: their channels and cards stay as the last evaluation made them while the GPU previews, and
-// the commit makes them again from the committed strands.
+// the commit makes them again from the committed strands. StrandMesh hands its strands on as they
+// are (hosts make its mesh).
 bool channelsOnly(const std::string& type) {
     return type == op::kHairColor || type == op::kBands || type == op::kFeatherColor || type == op::kAttribute ||
-           type == op::kRenderData || type == op::kCards;
+           type == op::kRenderData || type == op::kCards || type == op::kStrandMesh;
 }
 
 // A Bands node whose colors depend on the strands' shapes: guard hairs picked as the longest (its
@@ -390,6 +397,11 @@ bool previewableOverrides(const GraphDocument& doc, const Overrides& overrides, 
         for (const auto& [param, value] : values) {
             if (!previewableParam(type, param)) {
                 *why = node + "." + param + " is the CPU's";
+                return false;
+            }
+            // A Value input sets it: a number dragged over it does nothing (as on the CPU).
+            if (doc.graph.paramDriven(it->second, param)) {
+                *why = node + "." + param + " is set by a Value input (the CPU's)";
                 return false;
             }
             // An affect of none of its own: the node hands its input on, no stage of the run.

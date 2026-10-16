@@ -101,6 +101,7 @@ from groomlab import reference  # noqa: F401
 from groomlab.from_reference import guides_from_reference  # noqa: F401  (a prototype: guides from the reference photos)
 # GroomLab > Utilities (guides and strands to and from curves and meshes, copying a look): groomlab.utils.
 from groomlab import utils  # noqa: F401
+from groomlab.utils import add_strand_mesh, strand_mesh_shape  # noqa: F401  (a StrandMesh node, its mesh in the scene)
 # Sculpt nodes: brush the guides the graph made, the strokes kept in the node: groomlab.sculpts.
 from groomlab import sculpts  # noqa: F401
 # Importers (GroomLab > Import > From XGen... / From Yeti...): XGen's and Yeti's grooms as GroomLab

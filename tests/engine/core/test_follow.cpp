@@ -9,11 +9,13 @@
 #include <algorithm>
 #include <cmath>
 
+#include "groomlab/display.h"
 #include "groomlab/follow_scalp.h"
 #include "groomlab/groom_file.h"
 #include "groomlab/groom_session.h"
 #include "groomlab/guide_hierarchy.h"
 #include "groomlab/random.h"
+#include "groomlab/strand_geometry.h"
 #include "test_helpers.h"
 
 namespace groomlab {
@@ -442,6 +444,105 @@ TEST(FollowScalp, ReadsTimeKnowsWhatMoves) {
     EXPECT_FALSE(session.readsTime());
     session.setScalpHistory(ScalpHistory::make(1.0 / 24.0, {data.scalp->points()}));
     EXPECT_TRUE(session.readsTime());
+}
+
+TEST(FollowScalp, AStrandMeshNodeFollowsWithAFixedTopology) {
+    // A StrandMesh node between Clump and Noise: the output is as without it; its strands are the
+    // clumped ones at its density, thinned to maxStrands, carried with the scalp frame after frame:
+    // the same strands and point counts (one topology key), other points.
+    std::string graph = kLookGraph;
+    const std::string noiseNode = R"({"name": "noise", "type": "Noise", "params": {"amplitude": 0.03}},)";
+    graph.replace(graph.find(noiseNode), noiseNode.size(),
+                  R"({"name": "tubes", "type": "StrandMesh", "params": {"density": 0.5, "maxStrands": 120, "sides": 5}},)" +
+                      noiseNode);
+    const std::string toNoise = R"({"from": "clump", "to": "noise", "input": "strands"})";
+    graph.replace(graph.find(toNoise), toNoise.size(),
+                  R"({"from": "clump", "to": "tubes", "input": "strands"}, {"from": "tubes", "to": "noise", "input": "strands"})");
+    // Its params go through the graph's JSON.
+    const GraphDocument doc = loadGraphJson(graph);
+    const GraphDocument again = loadGraphJson(saveGraphJson(doc));
+    const StrandMeshSettings settings = strandMeshSettings(again.graph.node(again.node("tubes")).params());
+    EXPECT_EQ(settings.options.sides, 5);
+    EXPECT_EQ(settings.options.style, StrandMeshOptions::Style::Tube);
+    EXPECT_FLOAT_EQ(settings.density, 0.5f);
+    EXPECT_EQ(settings.maxStrands, 120u);
+
+    GroomData data = followData(graph.c_str());
+    EXPECT_EQ(GroomSession(data).evaluate(1.0f, 0.0)->contentHash(),
+              GroomSession(followData(kLookGraph)).evaluate(1.0f, 0.0)->contentHash());  // handed on as they came
+    data.followScalp = true;
+    GroomSession session(data);
+    std::uint64_t key = 0;
+    StrandsPtr last;
+    int lastFrame = 0;
+    for (const int frame : {2, 3, 3}) {
+        SCOPED_TRACE("frame " + std::to_string(frame));
+        session.updateScalpPoints(deformedPoints(*data.scalp, frame));
+        session.evaluate(ViewRequest{});
+        const auto sources = session.evaluateStrandMeshes(frame / 24.0);
+        ASSERT_EQ(sources.size(), 1u);
+        EXPECT_EQ(sources[0].node, "tubes");
+        EXPECT_EQ(sources[0].options.sides, 5);
+        const StrandsPtr strands = sources[0].strands;
+        ASSERT_TRUE(strands);
+        EXPECT_EQ(strands->strandCount(), 120u);
+        // The node's strands as evaluateNode gives them, thinned the same way.
+        const StrandsPtr node = std::get<StrandsPtr>(session.evaluateNode("tubes", 0.5f, frame / 24.0));
+        EXPECT_EQ(strands->contentHash(), node->subset(thinStrandsById(*node, 120)).contentHash());
+        const std::uint64_t k = strandMeshTopologyKey(*strands, sources[0].options);
+        if (last) {
+            EXPECT_EQ(k, key);
+            if (frame == lastFrame) {
+                EXPECT_EQ(strands, last);  // the same frame again: the same strands
+            } else {
+                EXPECT_GT(maxDistance(*strands, *last), 1e-3f);  // carried with the scalp
+            }
+        }
+        key = k;
+        last = strands;
+        lastFrame = frame;
+    }
+    // The view's (wantStrandMeshes): the same strands, a version that moves with them; drawn
+    // instead of the strands (DisplaySettings::strandMeshView) as lit triangles.
+    ViewRequest request;
+    request.wantStrandMeshes = true;
+    EXPECT_TRUE(session.hasStrandMeshNode());
+    session.updateScalpPoints(deformedPoints(*data.scalp, 4));
+    const ViewResult first = session.evaluate(request);
+    ASSERT_EQ(first.strandMeshes.size(), 1u);
+    EXPECT_EQ(first.strandMeshes[0].strands->strandCount(), 120u);
+    EXPECT_EQ(session.evaluate(request).versions.strandMeshes, first.versions.strandMeshes);  // nothing moved
+    session.updateScalpPoints(deformedPoints(*data.scalp, 5));
+    const ViewResult moved = session.evaluate(request);
+    EXPECT_GT(moved.versions.strandMeshes, first.versions.strandMeshes);
+    EXPECT_GT(moved.versions.evaluation, first.versions.evaluation);
+    DisplayBuilder builder;
+    DisplaySettings shown;
+    shown.strandMeshView = shown.drawStrandMesh = true;
+    const DisplayFrame& frame = builder.update(DisplayInputs::fromView(moved), shown);
+    const DisplayItem& mesh = frame.item(DisplayItemId::StrandMesh);
+    ASSERT_TRUE(mesh.geometry);
+    const auto& strands = *moved.strandMeshes[0].strands;
+    EXPECT_EQ(mesh.vertexCount, strandMeshPointCount(strands, moved.strandMeshes[0].options));
+    EXPECT_TRUE(mesh.geometry->triangles && mesh.geometry->scaleSurface);
+    std::size_t triangles = 0;
+    for (std::size_t k = 0; k < strands.strandCount(); ++k) triangles += 2 * 5 * (strands.strandPointCount(k) - 1) + 5;
+    EXPECT_EQ(mesh.geometry->indices.size(), 3 * triangles);
+    EXPECT_FALSE(frame.item(DisplayItemId::Strands).shown);  // the mesh instead of the strands
+    // A mesh of the host's shows it (drawStrandMesh off): the strands still step aside.
+    shown.drawStrandMesh = false;
+    const DisplayFrame& hosted = builder.update(DisplayInputs::fromView(moved), shown);
+    EXPECT_FALSE(hosted.item(DisplayItemId::StrandMesh).shown);
+    EXPECT_FALSE(hosted.item(DisplayItemId::Strands).shown);
+    shown.strandMeshView = false;  // off: the strands
+    EXPECT_TRUE(builder.update(DisplayInputs::fromView(moved), shown).item(DisplayItemId::Strands).shown);
+    request.wantStrandMeshes = false;
+    EXPECT_TRUE(session.evaluate(request).strandMeshes.empty());
+
+    // No StrandMesh node: nothing.
+    session.setGraphJson(kLookGraph);
+    session.evaluate(ViewRequest{});
+    EXPECT_TRUE(session.evaluateStrandMeshes(0.0).empty());
 }
 
 TEST(FollowScalp, GroomFilesKeepTheFlag) {

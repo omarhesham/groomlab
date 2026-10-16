@@ -53,10 +53,17 @@ QPixmap tintedIcon(const QString& resource, const QColor& color, int size, qreal
     return pixmap;
 }
 
-void paintGlass(QPainter& painter, const QRectF& rect, qreal radius, const QColor& color) {
+void paintGlass(QPainter& painter, const QRectF& rect, qreal radius, const QColor& color, const QColor& edge) {
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(Qt::NoPen);
     painter.setBrush(color);
+    if (edge.isValid() && edge.alpha() > 0) {
+        // A solid theme's panel: a thin border inside the rect (theme::glassEdge).
+        painter.setPen(QPen(edge, 1.0));
+        const QRectF inner = rect.adjusted(0.5, 0.5, -0.5, -0.5);
+        painter.drawRoundedRect(inner, std::max<qreal>(0.0, radius - 0.5), std::max<qreal>(0.0, radius - 0.5));
+        return;
+    }
+    painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(rect, radius, radius);
 }
 
@@ -79,7 +86,7 @@ void GlassPanel::setColor(const QColor& color) {
 
 void GlassPanel::paintEvent(QPaintEvent* /*event*/) {
     QPainter painter(this);
-    paintGlass(painter, QRectF(rect()), radius_, color_);
+    paintGlass(painter, QRectF(rect()), radius_, color_, theme::glassEdge());
 }
 
 // ---- Windows on small screens -------------------------------------------------------------------
@@ -252,7 +259,8 @@ void RoundButton::paintEvent(QPaintEvent* /*event*/) {
         if (hover_ && isEnabled()) paintGlass(painter, QRectF(rect()), radius, theme::chip());
         if (!on && hover_) fill = fillRest_;
     }
-    if (fill.alpha() > 0) paintGlass(painter, circle, radius, fill);
+    // A floating button at rest wears the panels' edge on a solid theme.
+    if (fill.alpha() > 0) paintGlass(painter, circle, radius, fill, !on && fillRest_ == theme::glass() ? theme::glassEdge() : QColor());
     if (on && ringWidth_ > 0.0 && ring_.isValid()) {
         painter.setPen(QPen(ring_, ringWidth_));
         painter.setBrush(Qt::NoBrush);
@@ -321,7 +329,7 @@ constexpr int kStackedHeight = kCaptionLine + 6 + kTrack + 6;
 
 }  // namespace
 
-ValueSlider::ValueSlider(QWidget* parent) : QWidget(parent), fill_(theme::blue()) {
+ValueSlider::ValueSlider(QWidget* parent) : QWidget(parent), fill_(theme::sliderFill(theme::blue())) {
     setAttribute(Qt::WA_NoSystemBackground, true);
     setCursor(Qt::SizeHorCursor);
     setFocusPolicy(Qt::NoFocus);
@@ -351,7 +359,7 @@ void ValueSlider::setValue(double value) {
 }
 
 void ValueSlider::setFill(const QColor& color) {
-    fill_ = color;
+    fill_ = theme::sliderFill(color);  // the theme's one slider color, if it has one
     update();
 }
 
@@ -560,8 +568,8 @@ void ValueSlider::beginEdit() {
         editor_->setFont(theme::monoFont(13));
         editor_->setAlignment(stacked_ ? Qt::AlignRight : Qt::AlignLeft);
         editor_->setStyleSheet(QStringLiteral("QLineEdit { background: rgba(255,255,255,0.10); border: 1px solid %1; border-radius: 6px; "
-                                              "padding: 0 4px; color: #F3F1EC; }")
-                                   .arg(fill_.name()));
+                                              "padding: 0 4px; color: %2; }")
+                                   .arg(fill_.name(), theme::text().name()));
         editor_->installEventFilter(this);
         connect(editor_, &QLineEdit::returnPressed, this, [this] { commitEdit(); });
     }
@@ -699,13 +707,13 @@ std::vector<QRect> Segmented::segmentRects() const {
 
 void Segmented::paintEvent(QPaintEvent* /*event*/) {
     QPainter painter(this);
-    paintGlass(painter, QRectF(rect()), height() / 2.0, background_);
+    paintGlass(painter, QRectF(rect()), height() / 2.0, background_, background_ == theme::glass() ? theme::glassEdge() : QColor());
     const std::vector<QRect> rects = segmentRects();
     for (std::size_t i = 0; i < items_.size(); ++i) {
         const bool on = static_cast<int>(i) == current_;
-        if (on) paintGlass(painter, QRectF(rects[i]), rects[i].height() / 2.0, items_[i].fill);
+        if (on) paintGlass(painter, QRectF(rects[i]), rects[i].height() / 2.0, theme::segmentFill(items_[i].fill));
         painter.setFont(theme::uiFont(fontSize_, on ? 800 : 600));
-        painter.setPen(on ? items_[i].text : theme::textSoft());
+        painter.setPen(on ? theme::segmentText(items_[i].text) : theme::textSoft());
         painter.drawText(rects[i], Qt::AlignCenter, items_[i].label);
     }
 }
@@ -795,7 +803,7 @@ void ShadowText::paintEvent(QPaintEvent* /*event*/) {
 
 FloatingPanel::FloatingPanel(const QString& title, const QColor& dot, QWidget* content, QWidget* parent)
     : GlassPanel(parent, 20.0), content_(content) {
-    setColor(QColor(31, 32, 37, 236));  // a working panel reads better a little more opaque
+    setColor(theme::glassPanel());  // a working panel reads better a little more opaque
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 12, 16, 16);
     layout->setSpacing(10);
@@ -807,7 +815,7 @@ FloatingPanel::FloatingPanel(const QString& title, const QColor& dot, QWidget* c
     row->addWidget(dotLabel);
     auto* titleLabel = new QLabel(title, this);
     titleLabel->setFont(theme::uiFont(15, 800));
-    titleLabel->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    titleLabel->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     row->addWidget(titleLabel, 1);
     auto* close = new RoundButton(this);
     close->setIcon(QStringLiteral(":/groomlab/icons/ui_close.svg"), 14);

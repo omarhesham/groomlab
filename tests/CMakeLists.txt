@@ -37,6 +37,7 @@ add_executable(groomlab_tests
     engine/core/test_hierarchy.cpp
     engine/core/test_incremental.cpp
     engine/core/test_keyed_params.cpp
+    engine/core/test_value_inputs.cpp
     engine/core/test_cards.cpp
     engine/core/test_fields.cpp
     engine/core/test_game_exports.cpp
@@ -473,6 +474,17 @@ if(GROOMLAB_BUILD_MAYA AND TARGET GroomLab)
                 "${PROJECT_SOURCE_DIR}/hosts/maya/scripts")
 endif()
 
+# The live strand mesh (StrandMesh node, outStrandMesh): a deforming scalp with follow scalp and
+# Simulate, a fixed topology, the snapshot matched, Alembic export; ms per frame of 10k tubes.
+if(GROOMLAB_BUILD_MAYA AND TARGET GroomLab)
+    add_test(NAME maya.strand_mesh
+        COMMAND "${MAYA_LOCATION}/bin/mayapy${CMAKE_EXECUTABLE_SUFFIX}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/hosts/maya/test_strand_mesh.py"
+                "$<TARGET_FILE:GroomLab>"
+                "${PROJECT_SOURCE_DIR}/hosts/maya/scripts"
+                "${CMAKE_CURRENT_BINARY_DIR}/strand_mesh")
+endif()
+
 # Importing XGen grooms (both flavors) on synthetic scenes made with XGen's API, compared with
 # XGen's own strands (pictures in the work dir). Needs Maya's XGen plugin (skipped without it).
 if(GROOMLAB_BUILD_MAYA AND TARGET GroomLab AND TARGET groomlab_alembic)
@@ -577,7 +589,7 @@ endif()
 # The plugin's Python imports the build's groomlab_core module (as the
 # installed module's PYTHONPATH has it). COST starts the long suites first.
 set(GROOMLAB_MAYA_PYTHONPATH "$<$<TARGET_EXISTS:groomlab_core_py>:$<TARGET_FILE_DIR:groomlab_core_py>>")
-foreach(_maya_test maya.plugin maya.graph_editor maya.pipeline maya.groom_io maya.grooming maya.subdivision maya.hardening maya.updates maya.arnold maya.xgen_import maya.yeti_import)
+foreach(_maya_test maya.plugin maya.graph_editor maya.pipeline maya.groom_io maya.grooming maya.strand_mesh maya.subdivision maya.hardening maya.updates maya.arnold maya.xgen_import maya.yeti_import)
     if(TEST ${_maya_test})
         set(_app_dir "${CMAKE_CURRENT_BINARY_DIR}/maya_app_dirs/${_maya_test}")
         file(MAKE_DIRECTORY "${_app_dir}")

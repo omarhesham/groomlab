@@ -62,7 +62,8 @@ TOGGLE_ROOM = 44.0  # header space for the Focus and Disable toggles
 
 TYPE_COLORS = {"Strands": QtGui.QColor(232, 168, 92), "Guides": QtGui.QColor(92, 196, 232),
                "Mesh": QtGui.QColor(140, 206, 110), "Field": QtGui.QColor(214, 122, 214),
-               "Curve": QtGui.QColor(245, 215, 90), "Curves": QtGui.QColor(206, 210, 218)}
+               "Curve": QtGui.QColor(245, 215, 90), "Curves": QtGui.QColor(206, 210, 218),
+               "Value": QtGui.QColor(120, 214, 190)}
 NODE_BG = QtGui.QColor(43, 45, 50)
 NODE_BG_TOP = QtGui.QColor(50, 53, 59)
 NODE_BORDER = QtGui.QColor(24, 25, 28)
@@ -86,9 +87,9 @@ CATEGORIES = [
     ("Motion", ["Wind", "Jiggle", "Simulate"]),
     ("Feathers", ["Propagate", "Plume", "Split"]),
     ("Color", ["HairColor", "Bands", "FeatherColor", "RenderData"]),
-    ("Convert", ["ToGuides", "ToStrands"]),
+    ("Convert", ["ToGuides", "ToStrands", "StrandMesh"]),
     ("Fields & Curves", ["Map", "Expression", "Control", "FieldNoise", "FieldRemap", "FieldCombine", "Curve"]),
-    ("Utility", ["Group", "Blend", "Attribute", "Merge", "Switch", "Output"]),
+    ("Utility", ["Value", "Group", "Blend", "Attribute", "Merge", "Switch", "Output"]),
     ("Games", ["Cards"]),
 ]
 HIDDEN_TYPES = {"Compound", "Input"}  # made by Group, not from the Add menu
@@ -435,17 +436,18 @@ def categories(catalog):
 class PortItem(QtWidgets.QGraphicsItem):
     """A port dot: hollow when free, filled when linked; larger to pick than to see."""
 
-    def __init__(self, node_item, name, port_type, is_output, is_param=False):
+    def __init__(self, node_item, name, port_type, is_output, is_param=False, value_kind=None):
         super(PortItem, self).__init__(node_item)
         self.node_item = node_item
         self.name = name
         self.port_type = port_type
+        self.value_kind = value_kind or "any"  # a Value port's: number, integer, bool, vec3, choice, text
         self.is_output = is_output
-        self.is_param = is_param   # an exposed param's Field input
+        self.is_param = is_param   # an exposed param's input (Field, Curve or Value)
         self.highlight = False     # a compatible target while a link is dragged
         self.hovered = False
         self.setAcceptHoverEvents(True)
-        kind = "strands or guides" if port_type == "Curves" else port_type
+        kind = gm.port_label(port_type, self.value_kind)
         self.setToolTip("%s (%s)%s" % (name, kind, " — exposed param" if is_param else ""))
         self.setCursor(QtCore.Qt.CrossCursor)
 
@@ -522,7 +524,7 @@ class NodeItem(QtWidgets.QGraphicsItem):
         self.inputs = {}
         y = HEADER_H + ROW_H / 2 + 4
         for port in spec["inputs"]:
-            item = PortItem(self, port["name"], port["type"], False, port.get("param", False))
+            item = PortItem(self, port["name"], port["type"], False, port.get("param", False), port.get("valueKind"))
             item.setPos(0, y)
             self.inputs[port["name"]] = item
             y += ROW_H
@@ -531,7 +533,7 @@ class NodeItem(QtWidgets.QGraphicsItem):
         self.outputs = {}
         y = HEADER_H + ROW_H / 2 + 4
         for port in spec["outputs"]:
-            item = PortItem(self, port["name"], model.output_type(name, port["name"]), True)
+            item = PortItem(self, port["name"], model.output_type(name, port["name"]), True, value_kind=port.get("valueKind"))
             item.setPos(NODE_W, y)
             self.outputs[port["name"]] = item
             y += ROW_H
@@ -1271,7 +1273,7 @@ class GraphScene(QtWidgets.QGraphicsScene):
         if port.node_item is start.node_item or port.is_output == start.is_output:
             return False
         out, inp = (start, port) if start.is_output else (port, start)
-        return gm.types_match(out.port_type, inp.port_type)
+        return gm.types_match(out.port_type, inp.port_type, out.value_kind, inp.value_kind)
 
     def _begin(self, port, scene_pos):
         self._drag_port = port
@@ -1593,7 +1595,7 @@ class ParamPanel(QtWidgets.QScrollArea):
                 driver = model.driver_of(name, spec["name"])
                 if driver and len(model.output_names(driver)) > 1:  # which output: "mask.r"
                     driver = "%s.%s" % (driver, model.output_of(name, spec["name"]))
-                if driver and (spec.get("mappable") or spec.get("colorField")):
+                if driver and (spec.get("mappable") or spec.get("colorField")) and not gm.value_port(spec):
                     # Driven by a field node: the param's own value multiplies the field (a 0-1
                     # mask on a density of 100 gives 0-100), so it stays editable, with the driver named.
                     widget = QtWidgets.QWidget()
@@ -1605,7 +1607,8 @@ class ParamPanel(QtWidgets.QScrollArea):
                                      "is 0" % driver)
                     row.addWidget(times)
                 elif driver:
-                    # A ramp driven by a Curve node: its shape comes from there.
+                    # A ramp driven by a Curve node (its shape comes from there), or any param a
+                    # Value input sets (its value comes from there).
                     widget = QtWidgets.QLabel('<span style="color:#d67ad6">← driven by <b>%s</b></span>' % driver)
                 elif op_type == "Scatter" and spec["name"] == "length" and guides_shape(model, name):
                     # Interpolate gives the strands the guides' shapes and lengths: say so beside it,
@@ -1625,6 +1628,9 @@ class ParamPanel(QtWidgets.QScrollArea):
                     tip = ATTRIBUTE_TIPS[spec["channel"]] + "\n" + tip
                 if spec.get("colorField"):
                     tip += "\nRight-click: expose as an input, so a Map node's rgb output colors it per strand."
+                elif gm.value_port(spec):
+                    tip += ("\nRight-click: expose as an input, so a Value node (or an Expression set to give a value) "
+                            "sets it for the whole node.")
                 elif gm.linkable(spec):
                     tip += "\nRight-click: expose as an input, so a field node (Field, FieldNoise, ...) can drive it."
                 if spec.get("kind") in KEYABLE_KINDS:
@@ -2274,6 +2280,22 @@ class ParamPanel(QtWidgets.QScrollArea):
                 action.setToolTip(info["description"])
             preset.setMenu(preset_menu)
             buttons.append(preset)
+        elif node_type == "StrandMesh":
+            show = QtWidgets.QCheckBox("Show mesh")
+            show.setObjectName("nodeAction_ShowStrandMesh")
+            show.setToolTip("The StrandMesh nodes' meshes instead of the strands in the viewport (the groom's "
+                            "displayStrandMesh)")
+            show.setChecked(bool(groom) and bool(cmds.getAttr(groom + ".displayStrandMesh")))
+            show.toggled.connect(lambda on: groom and cmds.setAttr(groom + ".displayStrandMesh", bool(on)))
+            buttons.append(show)
+
+            def mesh_in_scene():
+                shape = groomlab.strand_mesh_shape(groom)
+                cmds.select(shape)
+                self.editor.report("%s: the StrandMesh nodes' live mesh (export it with Alembic)" % shape.split("|")[-1])
+            buttons.append(("Mesh in Scene", "A Maya mesh on the groom's outStrandMesh (selected if there is one): "
+                            "the StrandMesh nodes' meshes, following the animation, for Alembic export or "
+                            "other tools (one undo step)", lambda _=False: later(mesh_in_scene)))
         elif node_type == "HairColor":
             buttons.append(("Create Hair Shader", "An aiStandardHair rendering this node's colors (its melanin, or "
                             "with mode color or a tip color its RGB), assigned to the groom; it follows later "

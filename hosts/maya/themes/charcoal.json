@@ -1,0 +1,92 @@
+{
+  "name": "Charcoal",
+  "description": "Calm neutral charcoal greys, off-white primary buttons, thin borders and muted color only where it means something.",
+  "palette": {
+    "red": "#D9736C",
+    "yellow": "#D4B26A",
+    "blue": "#7C9CD4",
+    "emerald": "#6DB897",
+    "white": "#F5F5F5",
+    "purple": "#A493D6",
+    "silver": "#A3A3A3"
+  },
+  "ui": {
+    "background": "#171717",
+    "panel": "#1F1F1F",
+    "raised": "#262626",
+    "hover": "#333333",
+    "border": "#2E2E2E",
+    "text": "#EDEDED",
+    "textDim": "#A3A3A3",
+    "accent": "#F5F5F5",
+    "accentText": "#0A0A0A",
+    "warning": "yellow",
+    "keyed": "#C46262",
+    "animated": "#D3A0A4",
+    "driven": "#CFC27A",
+    "radius": 12,
+    "fontSize": 12,
+    "sliders": ["silver"],
+    "glass": false,
+    "outline": "#2E2E2E",
+    "selection": "#383838",
+    "selectionText": "#F5F5F5"
+  },
+  "graph": {
+    "canvas": "#141414",
+    "grid": "#262626",
+    "node": "#1F1F1F",
+    "nodeBorder": "#2E2E2E",
+    "text": "#EDEDED",
+    "textDim": "#A3A3A3",
+    "selected": "#F5F5F5",
+    "cornerRadius": 12,
+    "headerStyle": "tinted",
+    "shadow": false,
+    "categories": {
+      "Sources": "#6DB897",
+      "Grow": "#5EB0AA",
+      "Shape": "#7C9CD4",
+      "Color": "#CF84A8",
+      "Look": "#D4B26A",
+      "Fields & Curves": "#A493D6",
+      "Utility": "#8C8C8C",
+      "Output": "#E5E5E5",
+      "Compound": "#6DB897",
+      "Games": "#68B4D4",
+      "Convert": "#D48F6A",
+      "Motion": "#86AEDB",
+      "Feathers": "#D6B877"
+    },
+    "ports": {
+      "Strands": "#D4B26A",
+      "Guides": "#7C9CD4",
+      "Mesh": "#6DB897",
+      "Field": "#A493D6",
+      "Curve": "#D9736C",
+      "Curves": "#C4C4C4",
+      "Value": "#7CC8B4"
+    }
+  },
+  "icons": {
+    "create": "#D4D4D4",
+    "shape": "#D4D4D4",
+    "trim": "#D4D4D4",
+    "paint": "#D4D4D4",
+    "app": "#F5F5F5",
+    "ink": "#EDEDED"
+  },
+  "viewport": {
+    "guideLevels": ["#6E9BFF", "#4FD39A", "#F2C14E", "#F06A60", "#F5F5F5"],
+    "pointSize": 6,
+    "selected": "#FFFFFF",
+    "softSelected": "#E8A44C",
+    "frozen": "#6EC3E8",
+    "parts": "#F06A60",
+    "flow": "#F2C14E",
+    "flowField": "#9AA3AF",
+    "tubes": "#9A9A9A",
+    "instances": "#C8D8EE",
+    "clumpCenters": "#E06CE0"
+  }
+}

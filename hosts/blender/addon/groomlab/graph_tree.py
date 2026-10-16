@@ -34,7 +34,8 @@ LAYOUT_DX, LAYOUT_DY = 240, 140  # the core's column and row for a new node (gra
 # Maya's Graph Editor (hosts/maya/scripts/groomlab/ui/graph_editor.py): port and category colors,
 # the Add menu's order, the spec categories' names.
 TYPE_COLORS = {"Strands": (232, 168, 92), "Guides": (92, 196, 232), "Mesh": (140, 206, 110),
-               "Field": (214, 122, 214), "Curve": (245, 215, 90), "Curves": (206, 210, 218)}
+               "Field": (214, 122, 214), "Curve": (245, 215, 90), "Curves": (206, 210, 218),
+               "Value": (120, 214, 190)}
 CATEGORIES = [
     ("Sources", ["Scalp", "Guides", "ColliderMesh", "ImportCurves", "Reference"]),
     ("Grow", ["Scatter", "Interpolate", "Cull"]),
@@ -48,7 +49,7 @@ CATEGORIES = [
     ("Color", ["HairColor", "Bands", "FeatherColor", "RenderData"]),
     ("Convert", ["ToGuides", "ToStrands"]),
     ("Fields & Curves", ["Map", "Expression", "Control", "FieldNoise", "FieldRemap", "FieldCombine", "Curve"]),
-    ("Utility", ["Group", "Blend", "Attribute", "Merge", "Switch", "Output"]),
+    ("Utility", ["Value", "Group", "Blend", "Attribute", "Merge", "Switch", "Output"]),
     ("Games", ["Cards"]),
 ]
 HIDDEN_TYPES = {"Compound", "Input"}  # made by grouping (Maya) or a preset, not from the Add menu
@@ -234,7 +235,7 @@ def _socket_class(port_type):
     })
 
 
-SOCKET_CLASSES = [_socket_class(t) for t in ("Strands", "Guides", "Mesh", "Field", "Curve", "Curves", "Any")]
+SOCKET_CLASSES = [_socket_class(t) for t in ("Strands", "Guides", "Mesh", "Field", "Curve", "Curves", "Value", "Any")]
 
 
 def socket_idname(port_type):

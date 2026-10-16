@@ -122,7 +122,7 @@ CorrectivesPanel::CorrectivesPanel(QWidget* parent) : QWidget(parent) {
     hint_ = new QLabel(tr("Strokes edit the guides."), this);
     hint_->setWordWrap(true);
     hint_->setFont(theme::uiFont(12, 500));
-    hint_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    hint_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     layout->addWidget(hint_);
     setEnabled(false);
 }

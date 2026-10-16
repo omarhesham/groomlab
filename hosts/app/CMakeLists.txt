@@ -95,9 +95,11 @@ qt_add_library(groomlab_app_lib STATIC
 # THIRD_PARTY_NOTICES.txt) as resources, so the app looks the same on every machine.
 qt_add_resources(groomlab_app_lib "groomlab_app_fonts" PREFIX "/groomlab" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
     FILES "fonts/Figtree[wght].ttf" "fonts/JetBrainsMono[wght].ttf")
-# The Maya host's Playful theme, read by theme.cpp: one file for both hosts' colors.
+# The Maya host's themes (Playful, Charcoal, Polar, Studio), read by theme.cpp: one set of files for
+# both hosts' colors.
+file(GLOB _groomlab_themes CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/hosts/maya/themes/*.json")
 qt_add_resources(groomlab_app_lib "groomlab_app_theme" PREFIX "/groomlab/themes" BASE "${PROJECT_SOURCE_DIR}/hosts/maya/themes"
-    FILES "${PROJECT_SOURCE_DIR}/hosts/maya/themes/playful.json")
+    FILES ${_groomlab_themes})
 # Every shader set is PRECOMPILEd: on Windows qsb runs the SDK's fxc at build time and the .qsb
 # carries DXBC, so Direct3D 11 and 12 load bytecode instead of compiling HLSL when the first frame
 # makes its pipelines (the wolf's first frame 3.9 s -> 0.26 s; the pixels as before).

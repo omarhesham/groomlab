@@ -631,6 +631,76 @@ TEST(AppTheme, FontsBrushesAndColors) {
     EXPECT_FALSE(theme::styleSheet().contains(QStringLiteral("@")));
 }
 
+TEST(AppTheme, EveryShippedThemeIsEmbeddedAndCharcoalIsSolid) {
+    // Every theme file the Maya host ships is a resource; Playful is the default (glass, round
+    // filled headers); Charcoal is solid: opaque panels with a thin edge, its own text tones, an
+    // accent pill for the chosen segment and the Render button, tinted node headers.
+    const std::string folder = std::string(GROOMLAB_TEST_DATA) + "/../../hosts/maya/themes";
+    QStringList files;
+    for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+        if (entry.path().extension() == ".json") files << QString::fromStdString(entry.path().stem().string());
+    }
+    files.sort();
+    EXPECT_EQ(theme::themeNames(), files);
+    EXPECT_TRUE(theme::themeNames().contains(QStringLiteral("charcoal")));
+    EXPECT_EQ(theme::themeLabel(QStringLiteral("charcoal")), QStringLiteral("Charcoal"));
+    EXPECT_EQ(theme::themeLabel(QStringLiteral("my_theme")), QStringLiteral("My Theme"));
+    ASSERT_EQ(theme::currentTheme(), QStringLiteral("playful"));
+    EXPECT_TRUE(theme::glassy());
+    EXPECT_FALSE(theme::glassEdge().isValid());
+    EXPECT_EQ(theme::nodeRadius(), 14.0);
+    EXPECT_FALSE(theme::tintedHeaders());
+    EXPECT_EQ(theme::segmentFill(theme::red()), theme::red());
+    EXPECT_EQ(theme::sliderFill(theme::purple()), theme::purple()) << "Playful's slider cycle: each slider its own color";
+    EXPECT_EQ(theme::actionFill(theme::yellow()), theme::yellow());
+
+    std::ifstream in(folder + "/charcoal.json");
+    ASSERT_TRUE(in);
+    const json charcoal = json::parse(in);
+    auto hex = [&](const json& value) { return QColor(QString::fromStdString(value.get<std::string>())); };
+    ASSERT_TRUE(theme::setTheme(QStringLiteral("charcoal")));
+    struct Restore {
+        ~Restore() { theme::setTheme(QStringLiteral("playful")); }
+    } restore;
+    EXPECT_FALSE(theme::glassy());
+    EXPECT_EQ(theme::blue(), hex(charcoal["palette"]["blue"]));
+    EXPECT_EQ(theme::glass(), hex(charcoal["ui"]["panel"]));
+    EXPECT_EQ(theme::glass().alpha(), 255) << "solid panels, no glass";
+    EXPECT_EQ(theme::glassPanel(), hex(charcoal["ui"]["panel"]));
+    EXPECT_EQ(theme::glassEdge(), hex(charcoal["ui"]["outline"]));
+    EXPECT_EQ(theme::text(), hex(charcoal["ui"]["text"]));
+    EXPECT_EQ(theme::textMuted(), hex(charcoal["ui"]["textDim"]));
+    EXPECT_EQ(theme::backdrop(), hex(charcoal["ui"]["background"]));
+    EXPECT_EQ(theme::renderRed(), hex(charcoal["ui"]["accent"])) << "the primary action: the off-white pill";
+    EXPECT_EQ(theme::readableOn(theme::renderRed()), theme::ink());
+    EXPECT_EQ(theme::segmentFill(theme::red()), hex(charcoal["ui"]["accent"]));
+    EXPECT_EQ(theme::segmentText(Qt::white), hex(charcoal["ui"]["accentText"]));
+    // Every slider takes the theme's one slider color (ui.sliders ["silver"]), as in Maya; filled
+    // actions (Export, Bake, Paint) are the accent pill.
+    const QColor silver = hex(charcoal["palette"][charcoal["ui"]["sliders"][0].get<std::string>()]);
+    EXPECT_EQ(theme::sliderFill(theme::yellow()), silver);
+    EXPECT_EQ(theme::sliderFill(theme::purple()), silver);
+    EXPECT_EQ(theme::actionFill(theme::emerald()), hex(charcoal["ui"]["accent"]));
+    EXPECT_EQ(theme::actionText(theme::ink()), hex(charcoal["ui"]["accentText"]));
+    EXPECT_EQ(theme::nodeRadius(), charcoal["graph"]["cornerRadius"].get<double>());
+    EXPECT_TRUE(theme::tintedHeaders());
+    EXPECT_EQ(theme::nodeBorder(), hex(charcoal["graph"]["nodeBorder"]));
+    EXPECT_EQ(theme::nodeCategoryColor("shape"), hex(charcoal["graph"]["categories"]["Shape"]));
+    EXPECT_EQ(theme::portColor("guides"), hex(charcoal["graph"]["ports"]["Guides"]));
+    const QString sheet = theme::styleSheet();
+    EXPECT_TRUE(sheet.contains(hex(charcoal["ui"]["panel"]).name()));
+    EXPECT_TRUE(sheet.contains(hex(charcoal["ui"]["selection"]).name()));
+    EXPECT_FALSE(sheet.contains(QStringLiteral("@")));
+    EXPECT_FALSE(sheet.contains(QStringLiteral("#F3F1EC"), Qt::CaseInsensitive)) << "the glass text tone";
+    // An unknown theme changes nothing; a theme without "glass" (Polar) takes Playful's (it extends it).
+    EXPECT_FALSE(theme::setTheme(QStringLiteral("no such theme")));
+    EXPECT_EQ(theme::currentTheme(), QStringLiteral("charcoal"));
+    ASSERT_TRUE(theme::setTheme(QStringLiteral("polar")));
+    EXPECT_TRUE(theme::glassy());
+    EXPECT_EQ(theme::nodeRadius(), 12.0);
+    EXPECT_EQ(theme::sliderFill(theme::yellow()), theme::uiColor("accent")) << "Polar's sliders: [\"accent\"]";
+}
+
 TEST(AppTheme, OverlayLayoutFollowsTheMockup) {
     // At the mockup's 1440x900: the top row on one line, the mode pill centered, the rail
     // between the top row and the stats (its buttons shrunk to fit every brush), the bar at the
@@ -3119,6 +3189,15 @@ TEST(AppCards, BuildBakeAndExportCards) {
     EXPECT_TRUE(surface->mesh->hasUVs());
     EXPECT_EQ(surface->cornerNormals.size(), surface->mesh->triangleCount() * 3);
     EXPECT_EQ(surface->material.albedoMap, bake.preview);
+    // Its UVs are the cards' as a mesh's are (v up): the surface shader turns them to the
+    // image's rows itself, so a flipped v showed every card another place in the atlas.
+    const auto& corners = surface->mesh->cornerUVs();
+    ASSERT_GE(corners.size(), 3u);
+    for (std::size_t k = 0; k < 3; ++k) {
+        const std::uint32_t vertex = view.cards->quads[k];
+        EXPECT_FLOAT_EQ(corners[k][0], view.cards->u[vertex]);
+        EXPECT_FLOAT_EQ(corners[k][1], view.cards->v[vertex]);
+    }
 
     // glTF: the cards with their maps embedded, the hair cap with its, under one root.
     const std::string glb = tempPath("groomlab_app_cards.glb");

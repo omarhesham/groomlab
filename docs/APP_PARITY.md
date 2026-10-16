@@ -64,7 +64,7 @@ missing, 3 partial, and the number sliders were remade).
 | Live / Apply toggle | Live checkbox | present by design: every edit applies live, one undo step |
 | Undo / Redo named after the step | More menu, Ctrl+Z/Y | present (top-right, Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) |
 | Units (cm/mm/m, widths, density) | More > Units | missing |
-| Theme switch | More > Theme | missing (the app reads Playful; the Maya host's themes are the same files) |
+| Theme switch | More > Theme | present (View > Theme: the shipped themes, the Maya host's files; applies on the next start) |
 | GPU preview toggle | More > Preview Drags on the GPU | present (Display panel) |
 | Reload from groom | More > Reload from Groom | present by design (the view follows the document) |
 | Seed warnings for nodes sharing a seed | status bar | partial: the core's `seedWarnings` is there; the app does not show them |
@@ -137,7 +137,7 @@ missing, 3 partial, and the number sliders were remade).
 | Isolate a level | the palette | missing |
 | Groom picker / pin, show or hide the groom | the palette | Maya only: one groom per app window |
 | The starter card, status line | the palette | present by design (toasts and the stats line) |
-| Theme menu | the palette | missing (see the graph section) |
+| Theme menu | the palette | present (View > Theme; see the graph section) |
 
 ## Guide groups and layers (Tools tab's section, the Paint tab)
 
@@ -241,7 +241,7 @@ missing, 3 partial, and the number sliders were remade).
 | Bake a node to guides | Utilities > Bake Node to Guides... | missing |
 | Find missing files | Utilities > Find Missing Files... | missing |
 | Install hotkeys, marking menu (Y), B/M drags | GroomLab > Install Hotkeys | partial: B drag, Shift+middle, S, Esc, Tab, F, Page Up/Down are built in; no marking menu or user-bindable commands |
-| Theme follow in the viewport | automatic | present by design (the Playful theme is embedded) |
+| Theme follow in the viewport | automatic | present by design (the shipped themes are embedded) |
 
 ## Still missing, in order of artist value
 
@@ -260,4 +260,4 @@ missing, 3 partial, and the number sliders were remade).
    warnings shown.
 9. Bake a node to guides; Find missing files; a map exported as PNG; a scalp cache written with
    the groom file; another guide cache picked.
-10. Units, themes, a lasso selection.
+10. Units, custom themes (the app reads the shipped ones), a lasso selection.

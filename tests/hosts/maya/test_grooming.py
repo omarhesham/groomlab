@@ -2470,7 +2470,7 @@ class GroomingTest(unittest.TestCase):
         model.insert_before("output", color)
         model.save(self.groom)
         self.assertTrue(gm.linkable(model.param_spec("color", "color")))
-        self.assertFalse(gm.linkable(model.param_spec("color", "mode")))
+        self.assertTrue(gm.value_port(model.param_spec("color", "mode")))  # a choice: one value for the node
         node = groomlab.use_map(self.groom, "color", "color", "tint", kind="vertices", channel="rgb")
         model = gm.GraphModel.from_groom(self.groom)
         self.assertEqual(model.output_of("color", "color"), "rgb")
@@ -3198,7 +3198,35 @@ class ControlsAndExamplesTest(unittest.TestCase):
         folder = tempfile.mkdtemp()
         os.environ["GROOMLAB_USER_THEMES"] = folder
         try:
-            self.assertTrue({"playful", "studio", "polar"} <= set(theme.list_themes()))
+            self.assertTrue({"playful", "studio", "polar", "charcoal"} <= set(theme.list_themes()))
+            # Charcoal's file sets every key Playful's does (nothing falls back to Playful's colors),
+            # and every color in every shipped theme resolves.
+            def keys(data, prefix=""):
+                out = set()
+                for key, value in data.items():
+                    out.add(prefix + key)
+                    if isinstance(value, dict):
+                        out |= keys(value, prefix + key + ".")
+                return out
+
+            def raw(name):
+                with open(os.path.join(theme.SHIPPED_DIR, name + ".json"), encoding="utf-8") as f:
+                    return json.load(f)
+            self.assertEqual(keys(raw("playful")) - keys(raw("charcoal")), set())
+            for name in (f[:-5] for f in os.listdir(theme.SHIPPED_DIR) if f.endswith(".json")):
+                t = theme.Theme(name, theme.load(name))
+                for path in ("ui.background", "ui.panel", "ui.text", "ui.accent", "graph.node", "graph.selected",
+                             "viewport.selected", "viewport.parts", "icons.create"):
+                    self.assertNotEqual(t.color(path), "#FF00FF", "%s: %s" % (name, path))
+                for section in ("graph.categories", "graph.ports"):
+                    for key in t.get(section):
+                        self.assertNotEqual(t.color(section + "." + key), "#FF00FF", "%s: %s.%s" % (name, section, key))
+                self.assertTrue(theme.stylesheet(t))
+            charcoal = theme.Theme("charcoal", theme.load("charcoal"))
+            self.assertIs(charcoal.get("ui.glass"), False)
+            self.assertEqual(charcoal.get("graph.headerStyle"), "tinted")
+            self.assertIs(charcoal.get("graph.shadow"), False)
+            self.assertIn("solid %s" % charcoal.color("ui.outline"), theme.stylesheet(charcoal))
             polar = theme.Theme("polar", theme.load("polar"))
             self.assertEqual(polar.hex("accent"), "#3619CC")          # Ether
             playful = theme.Theme("playful", theme.load("playful"))
@@ -3221,6 +3249,8 @@ class ControlsAndExamplesTest(unittest.TestCase):
             theme.set_theme("studio")
             self.assertEqual(cmds.optionVar(query=theme.THEME_VAR), "studio")
             self.assertIn("border-radius: %dpx" % theme.px(4), theme.stylesheet())  # at Maya's UI scale
+            self.assertEqual([n for n, _, active in theme.menu_entries() if active], ["studio"])
+            self.assertIn(("charcoal", "Charcoal", False), theme.menu_entries())
             theme.set_theme("playful")
             # The viewport colors: the command takes linear RGB.
             cmds.groomLabDisplayTheme(levels="1 0 0 0 1 0", pointSize=3.0, selected="1 1 0")

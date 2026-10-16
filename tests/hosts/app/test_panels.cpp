@@ -958,6 +958,45 @@ TEST(AppPanels, EmptyStateCardAndPillsInEveryMode) {
     EXPECT_FALSE(window.showHelp(QStringLiteral("nothing")));
 }
 
+TEST(AppPanels, ViewThemeSavesTheChoiceForTheNextStart) {
+    // View > Theme lists every embedded theme, the saved one checked; a choice is saved (QSettings:
+    // this run's own ini) and a window built after it wears it: Charcoal's solid panels.
+    const QString saved = theme::savedTheme();
+    struct Restore {
+        QString name;
+        ~Restore() {
+            theme::saveTheme(name);
+            theme::setTheme(QStringLiteral("playful"));
+        }
+    } restore{saved};
+    {
+        MainWindow window;
+        QStringList listed;
+        for (const QAction* a : window.findChildren<QAction*>()) {
+            if (a->objectName().startsWith(QStringLiteral("theme_"))) {
+                listed << a->objectName().mid(6);
+                EXPECT_EQ(a->isChecked(), a->objectName().mid(6) == saved);
+            }
+        }
+        listed.sort();
+        EXPECT_EQ(listed, theme::themeNames());
+        EXPECT_TRUE(listed.contains(QStringLiteral("charcoal")));
+        EXPECT_FALSE(window.chooseTheme(QStringLiteral("no such theme")));
+        EXPECT_EQ(theme::savedTheme(), saved);
+        ASSERT_TRUE(window.chooseTheme(QStringLiteral("charcoal")));
+        EXPECT_EQ(theme::savedTheme(), QStringLiteral("charcoal"));
+        EXPECT_EQ(theme::currentTheme(), QStringLiteral("playful")) << "the open window keeps its colors until the next start";
+        EXPECT_TRUE(window.findChild<QAction*>(QStringLiteral("theme_charcoal"))->isChecked());
+    }
+    ASSERT_TRUE(theme::setTheme(theme::savedTheme()));  // the next start
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    EXPECT_FALSE(theme::glassy());
+    EXPECT_TRUE(window.overlay()->styleSheet().contains(theme::uiColor("panel").name()));
+    EXPECT_EQ(window.overlay()->panel(OverlayHost::Panel::Help)->color(), theme::uiColor("panel"));
+}
+
 TEST(AppPanels, FreeForAnyUseNoWatermarkAndSupportGroomLab) {
     // GroomLab is free: no key, no watermark over the viewport, no Learning mode in the title,
     // every export from the window; Help > Support GroomLab and About link to the donations page.
@@ -1410,6 +1449,39 @@ TEST(AppPanels, ParamPanelShowsCompoundParamsAndTheDescription) {
     EXPECT_NE(panel.editorKind("length"), "");
     EXPECT_EQ(panel.editorKind("definition"), "") << "the definition is not a row (a Compound's params are the exposed ones)";
     EXPECT_FALSE(panel.description().isEmpty());
+}
+
+TEST(AppPanels, AnyParamTakesAValueInput) {
+    // A param no field drives (Scatter's seed) exposed as a Value port: a Value node sets it, a
+    // field node is refused, the row says what sets it and the graph draws the link.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    const std::string scatter = nodeOfType(*doc, "Scatter");
+    NodeGraphView view;
+    view.resize(800, 600);
+    view.setDocument(doc.get());
+    const int wires = view.wireCount();
+    EXPECT_EQ(doc->exposeParam(scatter, "seed", true), "");
+    std::string value, field;
+    EXPECT_EQ(doc->addNode("Value", 0.0f, 0.0f, &value), "");
+    EXPECT_EQ(doc->setParam(value, "kind", "integer"), "");
+    EXPECT_EQ(doc->setParam(value, "integer", 5), "");
+    EXPECT_EQ(doc->connectNodes(value, "", scatter, "seed"), "");
+    EXPECT_EQ(doc->paramInputSource(scatter, "seed"), value);
+    EXPECT_EQ(doc->addNode("FieldNoise", 0.0f, 0.0f, &field), "");
+    EXPECT_NE(doc->connectNodes(field, "", scatter, "seed"), "") << "a value per strand cannot set one value";
+    view.refresh();
+    EXPECT_EQ(view.wireCount(), wires + 1) << "the Value port and its link are drawn";
+    ParamPanel panel;
+    panel.setDocument(doc.get());
+    panel.showNode(scatter);
+    auto* fed = panel.findChild<QLabel*>(QStringLiteral("paramFed_seed"));
+    ASSERT_NE(fed, nullptr);
+    EXPECT_TRUE(fed->text().contains(QString::fromStdString(value)));
+    EXPECT_NE(panel.findChild<QWidget*>(QStringLiteral("paramRow_layout")), nullptr) << "a choice takes a Value port too";
+    EXPECT_EQ(panel.findChild<QWidget*>(QStringLiteral("paramRow_density")), nullptr) << "a mappable param keeps its Field port";
+    EXPECT_EQ(theme::portColor("Value"), theme::portColor("value"));
+    EXPECT_NE(theme::portColor("Value"), theme::portColor("Curves"));
 }
 
 TEST(AppPanels, AttributeParamsSayWritesOrReads) {

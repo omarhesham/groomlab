@@ -16,7 +16,9 @@ SurfacePtr makeCardSurface(const CardMesh& cards, const std::string& previewPng,
     const bool hasNormals = cards.normals.size() == cards.positions.size();
     const bool hasUVs = cards.u.size() == cards.positions.size() && cards.v.size() == cards.positions.size();
     auto corner = [&](std::uint32_t i) {
-        if (hasUVs) uvs.push_back({cards.u[i], 1.0f - cards.v[i]});
+        // As a mesh's UVs are (v up: the atlas's v as it is); the surface shader turns them to the
+        // image's rows (row 0 at v = 1, as the bake writes it).
+        if (hasUVs) uvs.push_back({cards.u[i], cards.v[i]});
         surface->cornerNormals.push_back(hasNormals ? cards.normals[i] : Vec3f{0.0f, 1.0f, 0.0f});
     };
     for (std::size_t q = 0; q + 3 < cards.quads.size(); q += 4) {

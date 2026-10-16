@@ -311,6 +311,11 @@ std::vector<Case> cases() {
          R"({"name": "bell", "type": "Curve", "params": {"curve": [[0, 0], [0.5, 1], [1, 0.3]], "interpolation": "ease"}},
             {"name": "op", "type": "Clump", "params": {"count": 30, "strength": 0.8}, "paramInputs": ["profile"]})",
          link("interp", "op", "strands") + "," + link("bell", "op", "profile")},
+        // A Value node setting a count (a Value port: one value for the whole node).
+        {"ValueCount", "op",
+         R"({"name": "count", "type": "Value", "params": {"kind": "integer", "integer": 24}},
+            {"name": "op", "type": "Clump", "params": {"strength": 0.8}, "paramInputs": ["count"]})",
+         link("interp", "op", "strands") + "," + link("count", "op", "count")},
         {"HairColor", "op",
          R"({"name": "clump", "type": "Clump", "params": {"count": 30, "strength": 0.5}},
             {"name": "op", "type": "HairColor", "params": {"melanin": 0.4, "melaninRandom": 0.2, "greys": 0.1, "seed": 3}})",
@@ -994,6 +999,7 @@ TEST(Golden, EveryOperatorIsCovered) {
         if (type == "ImportCurves") continue;  // Alembic operator: unit-tested in tests/engine/io
         if (type == "Input") continue;         // only inside compounds: covered by the Compound case
         if (type == "Reference") continue;     // another groom file's result: test_reference.cpp, against that groom's
+        if (type == "StrandMesh") continue;    // hands its strands on as they came: its mesh, test_strand_geometry.cpp and test_follow.cpp
         EXPECT_TRUE(covered.count(type)) << type << " has no golden case";
     }
 }

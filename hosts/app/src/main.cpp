@@ -28,6 +28,8 @@
 // open (--ui-node selects a node in the graph, --ui-look-tab picks the look card's tab), grabs
 // it with its floating UI after the first frame and quits (no dialog ever opens). --display
 // sets the display options (strand colors, the map on the scalp, the guides, the card view).
+// --theme picks this run's theme (View > Theme saves one for every start; scripted runs use the
+// default, Playful, unless --theme says otherwise).
 
 #include <algorithm>
 #include <cstdio>
@@ -137,7 +139,7 @@ int main(int argc, char** argv) {
     int benchmarkOrbit = 0;
     bool drawDabs = false;
     int gpuPreview = -1;  // -1: the preference
-    QString uiScreenshot, uiMode, uiPanel, uiLookTab, uiNode, uiHover, uiPreset, uiMenu, uiPaintParam;
+    QString uiScreenshot, uiMode, uiPanel, uiLookTab, uiNode, uiHover, uiPreset, uiMenu, uiPaintParam, themeName;
     bool uiGraph = false;
     QStringList sets, displays;
     // Props (meshes beside the groom) with the preset each is shaded by, and eyes.
@@ -307,6 +309,8 @@ int main(int argc, char** argv) {
             uiMenu = QString::fromLocal8Bit(argv[++i]);
         } else if (std::strcmp(arg, "--ui-paint-param") == 0 && hasValue) {
             uiPaintParam = QString::fromLocal8Bit(argv[++i]);
+        } else if (std::strcmp(arg, "--theme") == 0 && hasValue) {
+            themeName = QString::fromLocal8Bit(argv[++i]);  // this run's theme (the saved choice unchanged)
         } else if (std::strcmp(arg, "--display") == 0 && hasValue) {
             displays << QString::fromLocal8Bit(argv[++i]);
         } else if (std::strcmp(arg, "--time") == 0 && hasValue) {
@@ -369,7 +373,7 @@ int main(int argc, char** argv) {
                         "                [--screenshot out.png [--size WxH] [--frames N]] [--benchmark N]\n"
                         "                [--live-benchmark N [--live-mode orbit|hover|stroke|param|param-commit]]\n"
                         "                [--gpu-preview on|off] [--benchmark-drag node.param=from,to[,steps]]... [--benchmark-orbit N] [--draw-dabs]\n"
-                        "                [--display name=value]...\n"
+                        "                [--display name=value]... [--theme charcoal|playful|polar|studio]\n"
                         "                [--ui-screenshot out.png [--ui-mode groom|look|cards|export] [--ui-graph] [--ui-panel name]\n"
                         "                                         [--ui-look-tab material|lighting|render[,more]] [--ui-node name]\n"
                         "                                         [--ui-hover rail|panels|all] [--ui-preset name] [--ui-menu presets]\n"
@@ -396,6 +400,17 @@ int main(int argc, char** argv) {
                           (writes && uiScreenshot.isEmpty());
     const bool scripted = headless || !uiScreenshot.isEmpty();  // a run no one sits at: errors end it
     if (!scripted && liveBenchmark <= 0) startLog();
+    // The theme, before any widget takes its colors: --theme's, else the saved choice (View >
+    // Theme) for a window someone sits at; scripted runs stay on the default unless asked.
+    if (!themeName.isEmpty()) {
+        if (!groomlab::app::theme::setTheme(themeName)) {
+            std::fprintf(stderr, "GroomLab: no theme named %s (themes: %s)\n", qPrintable(themeName),
+                         qPrintable(groomlab::app::theme::themeNames().join(QStringLiteral(", "))));
+            return 2;
+        }
+    } else if (!scripted && liveBenchmark <= 0) {
+        groomlab::app::theme::setTheme(groomlab::app::theme::savedTheme());
+    }
     QElapsedTimer creation;
     creation.start();
     groomlab::app::MainWindow window;

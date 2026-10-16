@@ -34,16 +34,13 @@ constexpr qreal kNodeWidth = 160.0;
 constexpr qreal kHeader = 28.0;
 constexpr qreal kRow = 18.0;
 constexpr qreal kBodyPadding = 8.0;
-constexpr qreal kRadius = 14.0;  // playful.json's cornerRadius
 constexpr qreal kPortRadius = 5.0;
 constexpr qreal kColumn = 230.0;  // the auto layout's columns and rows
 constexpr qreal kRowGap = 120.0;
 
-// Dark words on a bright header (yellow, white, emerald), white on the others.
-QColor headerText(const QColor& fill) {
-    const qreal luminance = 0.299 * fill.redF() + 0.587 * fill.greenF() + 0.114 * fill.blueF();
-    return luminance > 0.6 ? theme::ink() : Qt::white;
-}
+// Dark words on a bright header (yellow, white, emerald), white on the others; a tinted header
+// (a wash of the category color) takes the theme's text.
+QColor headerText(const QColor& fill) { return theme::tintedHeaders() ? theme::text() : theme::readableOn(fill); }
 
 }  // namespace
 
@@ -81,12 +78,12 @@ NodeGraphView::NodeGraphView(QWidget* parent) : QWidget(parent) {
     promptLayout->setSpacing(8);
     promptTitle_ = new QLabel(prompt_);
     promptTitle_->setFont(theme::uiFont(14, 800));
-    promptTitle_->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    promptTitle_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     promptEdit_ = new QLineEdit(prompt_);
     promptEdit_->setFont(theme::uiFont(14, 600));
     auto* hint = new QLabel(tr("Enter saves, Esc cancels"), prompt_);
     hint->setFont(theme::uiFont(11, 600));
-    hint->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    hint->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     promptLayout->addWidget(promptTitle_);
     promptLayout->addWidget(promptEdit_);
     promptLayout->addWidget(hint);
@@ -168,7 +165,8 @@ void NodeGraphView::rebuild() {
         node.type = info.type;
         node.bypass = info.bypass;
         node.evaluation = info.evaluation;
-        if (const nlohmann::json* spec = document_->spec(info.type)) {
+        // The node's ports as it is set (its exposed params' after its own: Field, Curve or Value).
+        if (const nlohmann::json* spec = document_->nodeSpec(info.name)) {
             node.category = spec->value("category", std::string());
             for (const nlohmann::json& p : spec->value("inputs", nlohmann::json::array())) {
                 node.inputs.push_back({p.value("name", std::string()), p.value("type", std::string()), p.value("optional", false)});
@@ -377,18 +375,35 @@ bool NodeGraphView::bypassButtonAt(const QPointF& scene, int* node) const {
 void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected) {
     const QRectF rect(node.pos, node.size);
     const QColor color = theme::nodeCategoryColor(node.category);
+    const qreal radius = theme::nodeRadius();
     painter.setOpacity(node.bypass ? 0.5 : 1.0);
-    // The body, then the header clipped to the top corners.
+    // The body, then the header clipped to the top corners: filled with the category color, or
+    // (a tinted theme) a wash of it under an accent bar, as the Maya Graph Editor draws it.
     QPainterPath body;
-    body.addRoundedRect(rect, kRadius, kRadius);
+    body.addRoundedRect(rect, radius, radius);
     painter.setPen(Qt::NoPen);
     painter.setBrush(theme::nodeBody());
     painter.drawPath(body);
     painter.save();
     painter.setClipPath(body);
-    painter.setBrush(color);
-    painter.drawRect(QRectF(rect.topLeft(), QSizeF(rect.width(), kHeader)));
+    if (theme::tintedHeaders()) {
+        QColor wash = color;
+        wash.setAlpha(34);
+        painter.setBrush(wash);
+        painter.drawRect(QRectF(rect.topLeft(), QSizeF(rect.width(), kHeader)));
+        painter.setBrush(color);
+        painter.drawRect(QRectF(rect.topLeft(), QSizeF(rect.width(), 3.0)));
+    } else {
+        painter.setBrush(color);
+        painter.drawRect(QRectF(rect.topLeft(), QSizeF(rect.width(), kHeader)));
+    }
     painter.restore();
+    // A thin border where the theme gives the nodes one (its color other than the body's).
+    if (const QColor border = theme::nodeBorder(); border.isValid() && border != theme::nodeBody()) {
+        painter.setPen(QPen(border, 1.0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius - 0.5, radius - 0.5);
+    }
     // The name, with the type after it when the name says something else.
     painter.setFont(theme::uiFont(13, 800));
     painter.setPen(headerText(color));
@@ -453,9 +468,9 @@ void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected)
     }
     painter.setOpacity(1.0);
     if (selected) {
-        painter.setPen(QPen(theme::white(), 2.0));
+        painter.setPen(QPen(theme::nodeSelected(), 2.0));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), kRadius + 1, kRadius + 1);
+        painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), radius + 1, radius + 1);
     }
 }
 
@@ -471,7 +486,7 @@ void NodeGraphView::paintEvent(QPaintEvent* /*event*/) {
         fill.setAlpha(46);
         painter.setPen(QPen(QColor(b.color.red(), b.color.green(), b.color.blue(), 120), 1.5));
         painter.setBrush(fill);
-        painter.drawRoundedRect(b.rect, kRadius, kRadius);
+        painter.drawRoundedRect(b.rect, theme::nodeRadius(), theme::nodeRadius());
         painter.setFont(theme::uiFont(14, 800));
         painter.setPen(theme::textSoft());
         painter.drawText(b.rect.adjusted(14, 8, -14, -8), Qt::AlignTop | Qt::AlignLeft, b.title);
@@ -483,7 +498,7 @@ void NodeGraphView::paintEvent(QPaintEvent* /*event*/) {
         const bool selected = static_cast<int>(i) == selectedWire_;
         QColor color = theme::portColor(nodes_[w.from].outputs[w.output].type);
         color.setAlpha(selected ? 255 : 220);
-        painter.setPen(QPen(selected ? theme::white() : color, selected ? 3.0 : 2.0));
+        painter.setPen(QPen(selected ? theme::nodeSelected() : color, selected ? 3.0 : 2.0));
         painter.setBrush(Qt::NoBrush);
         painter.drawPath(w.path);
     }

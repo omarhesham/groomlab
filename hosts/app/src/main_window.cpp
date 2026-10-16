@@ -206,6 +206,18 @@ void MainWindow::buildMenu() {
     panels->addAction(tr("&Look"), this, [this] { showUiPanel(QStringLiteral("look")); });
     panels->addAction(tr("&Display"), this, [this] { showUiPanel(QStringLiteral("display")); });
     panels->addAction(tr("&Brush Settings"), this, [this] { showUiPanel(QStringLiteral("brush")); });
+    // The themes (the Maya host's files): the choice is saved and the window wears it from the
+    // next start (its widgets take their colors when they are made).
+    QMenu* themes = view->addMenu(tr("&Theme"));
+    themes->setObjectName(QStringLiteral("themeMenu"));
+    auto* themeGroup = new QActionGroup(this);
+    for (const QString& name : theme::themeNames()) {
+        QAction* a = themes->addAction(theme::themeLabel(name), this, [this, name] { chooseTheme(name); });
+        a->setObjectName(QStringLiteral("theme_") + name);
+        a->setCheckable(true);
+        a->setChecked(name == theme::savedTheme());
+        themeGroup->addAction(a);
+    }
 
     // The tools: the viewport's modes (its keys B, S and Escape work when it has the focus).
     QMenu* tools = menu_->addMenu(tr("&Tools"));
@@ -281,6 +293,20 @@ void MainWindow::openDonate() {
         return;
     }
     report(tr("No browser opened: support GroomLab at %1").arg(QString::fromLatin1(kDonateUrl)));
+}
+
+bool MainWindow::chooseTheme(const QString& name) {
+    if (!theme::themeNames().contains(name)) {
+        report(tr("No theme named %1").arg(name));
+        return false;
+    }
+    theme::saveTheme(name);
+    if (menu_) {
+        if (QAction* a = menu_->findChild<QAction*>(QStringLiteral("theme_") + name)) a->setChecked(true);
+    }
+    if (name == theme::currentTheme()) report(tr("Theme: %1").arg(theme::themeLabel(name)), false);
+    else report(tr("Theme: %1 from the next start of GroomLab").arg(theme::themeLabel(name)), false);
+    return true;
 }
 
 void MainWindow::checkForUpdates() {

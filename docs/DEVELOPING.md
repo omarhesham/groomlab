@@ -856,9 +856,12 @@ build/wt/hosts/app/RelWithDebInfo/GroomLab.exe tests/data/strokes/strokes.groom
 **The window.** The whole window is the viewport, edge to edge; everything else floats over it
 as translucent glass (the owner's mockup, "like Plasticity but Pixar": the Playful theme's
 charcoal and primaries, round and friendly). `hosts/app/src/theme.h` holds the colors (the palette,
-the UI tones, the graph's and the icons' read from `hosts/maya/themes/playful.json` itself, embedded
-as a resource at build time, so a theme edit reaches both hosts; the glass and text tones are the
-app's own), the fonts (Figtree for words, JetBrains Mono for numbers, bundled
+the UI tones, the graph's and the icons' read from the Maya host's theme files themselves,
+`hosts/maya/themes/*.json`, every one embedded as a resource at build time, so a theme edit reaches
+both hosts; Playful by default, View > Theme saves another (QSettings `ui/theme`) for the next start,
+`--theme` picks one for a run; a glass theme keeps the app's own glass and text tones, a theme with
+`"glass": false` (Charcoal) gets solid `ui.panel` panels with a thin `ui.outline` edge and its `ui` text
+tones), the fonts (Figtree for words, JetBrains Mono for numbers, bundled
 as resources from google/fonts under the SIL OFL, `THIRD_PARTY_NOTICES.txt`), the brush rail's
 order and categories, the layout of the floating pieces over a view of any size (pure geometry,
 tested without a window) and the style sheet the ordinary widgets inside the panels wear.

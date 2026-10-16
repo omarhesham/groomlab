@@ -124,8 +124,8 @@ ParamPanel::ParamPanel(QWidget* parent) : QWidget(parent) {
     upgrade_->setPadding(10);
     upgrade_->setFontSize(11);
     upgrade_->setFontWeight(700);
-    upgrade_->setFill(theme::yellow(), theme::yellow());
-    upgrade_->setTextColor(theme::ink(), theme::ink());
+    upgrade_->setFill(theme::actionFill(theme::yellow()), theme::actionFill(theme::yellow()));
+    upgrade_->setTextColor(theme::actionText(theme::ink()), theme::actionText(theme::ink()));
     upgrade_->hide();
     connect(upgrade_, &QAbstractButton::clicked, this, [this] { upgrade(); });
     titleRow->addWidget(upgrade_);
@@ -146,7 +146,7 @@ ParamPanel::ParamPanel(QWidget* parent) : QWidget(parent) {
     // The operator's description (what Maya's Attribute Editor shows under the node's name).
     description_ = new QLabel(this);
     description_->setWordWrap(true);
-    description_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    description_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     description_->hide();
     layout->addWidget(description_);
     note_ = new QLabel(this);
@@ -171,7 +171,7 @@ ParamPanel::ParamPanel(QWidget* parent) : QWidget(parent) {
     layout->addWidget(evaluation_);
     empty_ = new QLabel(tr("No node selected: click one in the list or the graph"), this);
     empty_->setWordWrap(true);
-    empty_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    empty_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     layout->addWidget(empty_);
     scroll_ = new QScrollArea(this);
     scroll_->setWidgetResizable(true);
@@ -594,7 +594,7 @@ void ParamPanel::build() {
                                     "each strand (times this color)"));
                 portRow->addWidget(port);
                 auto* fed = new QLabel(fedBy.empty() ? QString() : tr("× %1").arg(QString::fromStdString(fedBy)), host);
-                fed->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+                fed->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
                 portRow->addWidget(fed, 1);
                 column->addLayout(portRow);
                 connect(port, &QCheckBox::toggled, this, [this, name](bool on) {
@@ -650,7 +650,7 @@ void ParamPanel::build() {
             port->setToolTip(tr("Expose the ramp as a Curve input on the node, for a Curve node to feed"));
             portRow->addWidget(port);
             auto* fed = new QLabel(fedBy.empty() ? QString() : tr("fed by %1").arg(QString::fromStdString(fedBy)), host);
-            fed->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+            fed->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
             portRow->addWidget(fed, 1);
             v->addLayout(portRow);
             connect(port, &QCheckBox::toggled, this, [this, name](bool on) {
@@ -693,7 +693,7 @@ void ParamPanel::build() {
         auto* rowHost = new QWidget(formHost_);
         auto* label = new QLabel(prettyName(row.name), rowHost);
         label->setToolTip(description);
-        label->setStyleSheet(QStringLiteral("color: #B8B4AC; font-weight: 600;"));
+        label->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(theme::textDim().name()));
         field->setParent(rowHost);
         if (row.editor == "int" || row.editor == "float") {
             // The slider carries its own caption: the whole width, no label beside it.
@@ -720,8 +720,8 @@ void ParamPanel::build() {
                 paint->setPadding(10);
                 paint->setFontSize(11);
                 paint->setFontWeight(700);
-                paint->setFill(theme::yellow(), theme::yellow());
-                paint->setTextColor(theme::ink(), theme::ink());
+                paint->setFill(theme::actionFill(theme::yellow()), theme::actionFill(theme::yellow()));
+                paint->setTextColor(theme::actionText(theme::ink()), theme::actionText(theme::ink()));
                 paint->setToolTip(tr("Paint this param: a vertex map named after the node and param (white = its value now, black = 0) "
                                      "feeds it, and the Paint brush paints it: strokes lower it, Ctrl raises it (one undo step)"));
                 connect(paint, &QAbstractButton::clicked, this, [this, name] {
@@ -742,6 +742,39 @@ void ParamPanel::build() {
             h->addWidget(label);
             h->addWidget(field, 1);
         }
+        // Any other param takes a Value port (one value for the whole node: a Value node, or an
+        // Expression set to give a value): right-click the row to expose it; while one feeds it,
+        // the row says so and its editor rests.
+        if (p.contains("port") && p["port"].value("type", std::string()) == "Value") {
+            rowHost->setObjectName(QStringLiteral("paramRow_") + QString::fromStdString(name));
+            rowHost->setContextMenuPolicy(Qt::CustomContextMenu);
+            connect(rowHost, &QWidget::customContextMenuRequested, this, [this, name, rowHost](const QPoint& at) {
+                if (!document_ || node_.empty()) return;
+                QMenu menu(this);
+                QAction* expose = menu.addAction(tr("Expose as Input"));
+                expose->setCheckable(true);
+                expose->setChecked(document_->paramExposed(node_, name));
+                expose->setToolTip(tr("A port on the node for a Value node (or an Expression set to give a value) to set this "
+                                      "param for the whole node"));
+                if (menu.exec(rowHost->mapToGlobal(at)) != expose) return;
+                const std::string error = document_->exposeParam(node_, name, expose->isChecked());
+                if (!error.empty()) emit message(QString::fromStdString(error));
+                // Not under the menu's own click: the panel is built again on the next turn of the loop.
+                QTimer::singleShot(0, this, [this] {
+                    refresh();
+                    emit edited();
+                });
+            });
+            if (exposed && !fedBy.empty()) {
+                field->setEnabled(false);
+                auto* fed = new QLabel(tr("← set by %1").arg(QString::fromStdString(fedBy)), rowHost);
+                fed->setObjectName(QStringLiteral("paramFed_") + QString::fromStdString(name));
+                fed->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
+                rowHost->layout()->addWidget(fed);
+            } else if (exposed) {
+                field->setToolTip(field->toolTip() + tr("\nExposed as an input: a Value node linked to it sets it"));
+            }
+        }
         row.host = rowHost;
         rows_.push_back(std::move(row));
     }
@@ -760,8 +793,9 @@ void ParamPanel::build() {
             header->setFlat(true);
             header->setCursor(Qt::PointingHandCursor);
             header->setStyleSheet(QStringLiteral(
-                "QPushButton { background: transparent; border: none; color: #8F8B84; font-size: 11px; font-weight: 700; "
-                "letter-spacing: 1px; text-align: left; padding: 6px 0 0 0; } QPushButton:hover { color: #F3F1EC; }"));
+                "QPushButton { background: transparent; border: none; color: %1; font-size: 11px; font-weight: 700; "
+                "letter-spacing: 1px; text-align: left; padding: 6px 0 0 0; } QPushButton:hover { color: %2; }")
+                                      .arg(theme::textMuted().name(), theme::text().name()));
             header->setChecked(!folded(section));
             titleSection(header, section);
             connect(header, &QAbstractButton::toggled, this, [this, section](bool open) { setFolded(section, !open); });

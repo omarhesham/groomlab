@@ -8,7 +8,8 @@ scales 1.0, 1.25 and 1.5 (theme.scale(), as Maya's dpiScale would answer) and mu
 people run Maya on at that scale, in the physical pixels Maya 2022 lays out in: 1920x1080 at 125%
 and 150%, 1366x768 at 100% (each less a taskbar). Its minimum size fits, its default size is
 fitted within the screen, and the Graph Editor opens docked where a floating one would hide the
-viewport.
+viewport. The Theme menus (GroomLab > Theme, the windows' own) list every theme, and every shipped
+theme restyles the Groom Tools and the Graph Editor.
 
     mayapy tests/hosts/maya/ui_scaling_check.py --core <folder of groomlab_core.pyd> [--dll-dir <dir>]...
 
@@ -85,6 +86,67 @@ def main():
     def settle():
         for _ in range(3):
             application.processEvents()
+
+    # The themes: GroomLab > Theme and the windows' Theme menus list every one, the active one
+    # checked; each restyles the Groom Tools and the Graph Editor.
+    def theme_menus():
+        from groomlab.ui import menu
+        shipped = sorted(f[:-5] for f in os.listdir(theme.SHIPPED_DIR) if f.endswith(".json"))
+        _expect("charcoal" in shipped and set(shipped) <= set(theme.list_themes()), "shipped: %r" % shipped)
+        theme.set_theme("charcoal")
+        items = []
+
+        class Recorder(object):  # GroomLab's menu as Maya would build it
+            def __getattr__(self, name):
+                def call(*args, **kwargs):
+                    items.append((name, kwargs))
+                return call
+
+        real = menu.cmds
+        menu.cmds = Recorder()
+        try:
+            menu._theme_submenu()
+        finally:
+            menu.cmds = real
+        radios = [(kw["label"], kw["radioButton"]) for name, kw in items if name == "menuItem" and "radioButton" in kw]
+        _expect([label for label, _ in radios] == [theme.label(n) for n in theme.list_themes()], "GroomLab > Theme: %r" % radios)
+        _expect([label for label, on in radios if on] == ["Charcoal"], "the active theme checked: %r" % radios)
+        tools = palette.ToolPalette()
+        menu_widget = widgets.theme_menu(tools)
+        menu_widget.aboutToShow.emit()
+        labels = [a.text() for a in menu_widget.actions()]
+        _expect(all(theme.label(n) in labels for n in shipped), "Groom Tools' Theme menu: %r" % labels)
+        _expect([a.text() for a in menu_widget.actions() if a.isChecked()] == ["Charcoal"], "checked: the active theme")
+        widgets.dispose(tools)
+    check.run("the Theme menus list every theme, the active one checked", theme_menus)
+
+    def every_theme_styles_the_windows():
+        catalog = gm.OperatorCatalog.from_json(groomlab_core.operator_specs_json())
+        tools = palette.ToolPalette()
+        editor = graph_editor.GraphEditor()
+        editor.catalog = catalog
+        editor.model = gm.GraphModel(catalog, groomlab_core.default_graph())
+        editor.rebuild()
+        try:
+            for name in sorted(f[:-5] for f in os.listdir(theme.SHIPPED_DIR) if f.endswith(".json")):
+                t = theme.set_theme(name)
+                settle()
+                _expect(t.color("ui.panel") in tools.styleSheet(), "%s: the Groom Tools restyled" % name)
+                _expect(editor.scene.backgroundBrush().color().name().upper() == t.color("graph.canvas").upper(),
+                        "%s: the Graph Editor's canvas" % name)
+                _expect(graph_editor.HEADER_STYLE == t.get("graph.headerStyle"), "%s: the header style" % name)
+            charcoal = theme.set_theme("charcoal")
+            sheet = tools.styleSheet()
+            _expect("solid %s" % charcoal.color("ui.outline") in sheet, "Charcoal: thin outlines")
+            _expect("background: %s; color: %s" % (charcoal.color("ui.selection"), charcoal.color("ui.selectionText")) in sheet,
+                    "Charcoal: a grey selection, not the off-white accent")
+            playful = theme.set_theme("playful")
+            _expect("solid %s" % "#2E2E2E" not in tools.styleSheet() and not playful.get("ui.outline"), "Playful: no outlines")
+        finally:
+            theme.set_theme("playful")
+            widgets.dispose(tools)
+            widgets.dispose(editor)
+    check.run("every shipped theme restyles the Groom Tools and the Graph Editor", every_theme_styles_the_windows)
 
     def fits(widget, screen, label):
         minimum = widget.minimumSizeHint().expandedTo(widget.minimumSize())

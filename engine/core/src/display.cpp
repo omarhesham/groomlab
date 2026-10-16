@@ -1090,6 +1090,114 @@ DisplayGeometry scaleGeometry(const ScaleMesh& scales) {
     return g;
 }
 
+DisplayGeometry strandMeshGeometry(const std::vector<StrandMeshSource>& meshes, const ScalpMesh* scalp,
+                                   const std::array<float, 3>& color) {
+    DisplayGeometry g;
+    g.triangles = true;
+    g.scaleSurface = true;
+    std::size_t total = 0;
+    for (const StrandMeshSource& m : meshes) {
+        if (m.strands) total += strandMeshPointCount(*m.strands, m.options);
+    }
+    if (total == 0) return g;
+    std::vector<Vec3f> points(total);
+    g.positions.resize(total * 3);
+    g.normals.resize(total * 3);
+    g.tangents.resize(total * 3);
+    g.bitangents.resize(total * 3);
+    g.uvs.resize(total * 2);
+    g.colors.resize(total * 4);
+    std::size_t base = 0;
+    for (const StrandMeshSource& m : meshes) {
+        if (!m.strands) continue;
+        const StrandSet& s = *m.strands;
+        const std::size_t count = strandMeshPointCount(s, m.options);
+        strandMeshPoints(s, scalp, m.options, points.data() + base);
+        const bool ribbon = m.options.style == StrandMeshOptions::Style::Ribbon;
+        const std::size_t sides = ribbon ? 2 : static_cast<std::size_t>(std::max(3, m.options.sides));
+        const std::size_t n = s.strandCount();
+        std::vector<std::size_t> first(n + 1, base);
+        for (std::size_t k = 0; k < n; ++k) {
+            const std::size_t c = s.strandPointCount(k);
+            first[k + 1] = first[k] + (c < 2 ? 0 : c * sides + (ribbon ? 0 : 1));
+        }
+        // HairColor's linear RGB, per point or per strand; else the one color.
+        std::array<const std::vector<float>*, 3> perPoint{}, perStrand{};
+        bool pointColors = true, strandColors = true;
+        for (int c = 0; c < 3; ++c) {
+            perPoint[c] = s.pointChannel(kColorChannels[c]);
+            perStrand[c] = s.strandChannel(kColorChannels[c]);
+            pointColors = pointColors && perPoint[c] && perPoint[c]->size() == s.pointCount();
+            strandColors = strandColors && perStrand[c] && perStrand[c]->size() == n;
+        }
+        parallelFor(0, n, [&](std::size_t k) {
+            const std::size_t c = s.strandPointCount(k);
+            if (c < 2) return;
+            const Vec3f* p = s.strandPoints(k);
+            const std::size_t begin = s.strandBegin(k);
+            auto write = [&](std::size_t v, const Vec3f& normal, const Vec3f& tangent, std::size_t point, float along) {
+                const Vec3f& q = points[v];
+                std::array<float, 3> rgb = color;
+                for (int ch = 0; ch < 3; ++ch) {
+                    if (pointColors) rgb[ch] = (*perPoint[ch])[begin + point];
+                    else if (strandColors) rgb[ch] = (*perStrand[ch])[k];
+                }
+                for (int a = 0; a < 3; ++a) {
+                    const auto i = v * 3 + static_cast<std::size_t>(a);
+                    g.positions[i] = (&q.x)[a];
+                    g.normals[i] = g.bitangents[i] = (&normal.x)[a];  // the shading normal (the scales' stream)
+                    g.tangents[i] = (&tangent.x)[a];
+                    g.colors[v * 4 + static_cast<std::size_t>(a)] = rgb[static_cast<std::size_t>(a)];
+                }
+                g.colors[v * 4 + 3] = 1.0f;
+                g.uvs[v * 2] = along;
+                g.uvs[v * 2 + 1] = 0.0f;
+            };
+            Vec3f tangent;
+            for (std::size_t i = 0; i < c; ++i) {
+                tangent = (p[std::min(i + 1, c - 1)] - p[i > 0 ? i - 1 : 0]).normalized();
+                const float along = static_cast<float>(i) / static_cast<float>(c - 1);
+                const std::size_t ring = first[k] + i * sides;
+                if (ribbon) {
+                    const Vec3f across = points[ring] - points[ring + 1];
+                    Vec3f normal = tangent.cross(across);
+                    normal = normal.length() > 1e-12f ? normal.normalized() : anyPerpendicular(tangent);
+                    write(ring, normal, tangent, i, along);
+                    write(ring + 1, normal, tangent, i, along);
+                } else {
+                    for (std::size_t j = 0; j < sides; ++j) {
+                        Vec3f out = points[ring + j] - p[i];
+                        out = out.length() > 1e-12f ? out.normalized() : anyPerpendicular(tangent);
+                        write(ring + j, out, tangent, i, along);
+                    }
+                }
+            }
+            if (!ribbon) write(first[k + 1] - 1, tangent, tangent, c - 1, 1.0f);  // the tip
+        }, 64);
+        // Triangles: two a quad between rings (outward, as buildRachisMesh's), a tube's tip a fan.
+        for (std::size_t k = 0; k < n; ++k) {
+            const std::size_t c = s.strandPointCount(k);
+            if (c < 2) continue;
+            const auto at = [&](std::size_t ring, std::size_t j) {
+                return static_cast<std::uint32_t>(first[k] + ring * sides + (j % sides));
+            };
+            const std::size_t quads = ribbon ? 1 : sides;
+            for (std::size_t r = 0; r + 1 < c; ++r) {
+                for (std::size_t j = 0; j < quads; ++j) {
+                    const std::uint32_t a = at(r, j), b = at(r + 1, j), d = at(r + 1, j + 1), e = at(r, j + 1);
+                    g.indices.insert(g.indices.end(), {a, b, d, a, d, e});
+                }
+            }
+            if (!ribbon) {
+                const auto apex = static_cast<std::uint32_t>(first[k + 1] - 1);
+                for (std::size_t j = 0; j < sides; ++j) g.indices.insert(g.indices.end(), {at(c - 1, j), apex, at(c - 1, j + 1)});
+            }
+        }
+        base += count;
+    }
+    return g;
+}
+
 // ---- Builder ----------------------------------------------------------------------------------
 
 namespace {
@@ -1118,6 +1226,7 @@ constexpr ItemSpec kItems[kDisplayItemCount] = {
     {DisplayItemId::FlowField, DisplayPart::Flow, "flowField", DisplayLayer::ActiveWire},
     {DisplayItemId::Cards, DisplayPart::Cards, "cards", DisplayLayer::DormantFilled},
     {DisplayItemId::ScalpMap, DisplayPart::ScalpMap, "scalpMap", DisplayLayer::DormantFilled},
+    {DisplayItemId::StrandMesh, DisplayPart::StrandMesh, "strandMesh", DisplayLayer::DormantFilled},
 };
 
 std::array<float, 4> rgba(const std::array<float, 3>& c, float scale = 1.0f) {
@@ -1147,6 +1256,8 @@ DisplayInputs DisplayInputs::fromView(const ViewResult& view, bool stroke) {
     in.strandsChanges = view.strandsChanges;
     in.hierarchyVersion = view.versions.hierarchy;
     in.cardsVersion = view.versions.cards;
+    in.strandMeshes = view.strandMeshes;
+    in.strandMeshVersion = view.versions.strandMeshes;
     in.stroke = stroke;
     return in;
 }
@@ -1222,6 +1333,7 @@ const DisplayFrame& DisplayBuilder::update(const DisplayInputs& in, const Displa
     buildSelection(in, s);
     buildOverlays(in, s);
     buildCards(in, s);
+    buildStrandMesh(in, s);
     buildScalpMap(in, s);
     return frame_;
 }
@@ -1238,7 +1350,8 @@ void DisplayBuilder::buildStrands(const DisplayInputs& in, const DisplaySettings
     // Solid color mode draws lit (the look); the color modes are for reading data and stay flat.
     const bool lit = colorMode == kSolidColors && s.lighting;
     const bool rootDots = in.viewedRoots;
-    const bool cardsView = s.cardsView;
+    // The cards, or the StrandMesh nodes' meshes, instead of the strands.
+    const bool cardsView = s.cardsView || (s.strandMeshView && !in.strandMeshes.empty());
     // Strands that only lay scales out (InstanceSet::hidesStrands): the scales draw instead.
     const bool scaleLayout = strands && strands->instances() && strands->instances()->hidesStrands;
     // What the strands' geometry depends on, then what only their colors do (the range and source).
@@ -1624,6 +1737,22 @@ void DisplayBuilder::buildCards(const DisplayInputs& in, const DisplaySettings& 
     DisplayGeometry cards;
     if (in.cards && s.drawCards && sculpt != 2) cards = cardGeometry(*in.cards, textured);
     put(DisplayItemId::Cards, std::move(cards));
+}
+
+void DisplayBuilder::buildStrandMesh(const DisplayInputs& in, const DisplaySettings& s) {
+    // The StrandMesh nodes' meshes, lit in the strands' own colors (hidden for a stroke as the
+    // strands are, sculptDisplay 2).
+    item(DisplayItemId::StrandMesh).color = rgba(s.hairColor);
+    const int sculpt = in.stroke ? s.sculptDisplay : 0;
+    const bool draw = s.strandMeshView && s.drawStrandMesh && sculpt != 2;
+    std::uint64_t key = hashCombine(hash64(in.strandMeshVersion), draw ? 1u : 0u);
+    if (draw && !in.strandMeshes.empty()) {  // (the color of strands without their own: in the vertices)
+        for (const float c : s.hairColor) key = hashFloat(key, c);
+    }
+    if (!rebuild(DisplayPart::StrandMesh, key)) return;
+    DisplayGeometry mesh;
+    if (draw && !in.strandMeshes.empty()) mesh = strandMeshGeometry(in.strandMeshes, in.scalp.get(), s.hairColor);
+    put(DisplayItemId::StrandMesh, std::move(mesh));
 }
 
 void DisplayBuilder::buildScalpMap(const DisplayInputs& in, const DisplaySettings&) {

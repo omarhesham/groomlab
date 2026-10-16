@@ -1,6 +1,6 @@
 ---
 title: Utilities
-description: Converting between guides, strands and Maya curves or meshes, starting from existing curves, transferring a groom to a new scalp, copying graphs between grooms, relinking missing files, and colliders.
+description: Converting between guides, strands and Maya curves or meshes, starting from existing curves, transferring a groom to a new scalp, copying graphs between grooms, relinking missing files, colliders and themes.
 ---
 
 These commands are in **GroomLab > Utilities**. They act on the active groom (Find Missing Files:
@@ -13,11 +13,52 @@ the selected grooms), and each is one undo step.
 | **Guides to Curves** | One NURBS curve per guide, tagged with its guide ID. |
 | **Curves to Guides...** | Tagged curves update their own guide in place; any other curve becomes a new guide. |
 | **Strands to Curves...** | The evaluated strands as plain Maya curves (20,000 by default), with their attributes. |
-| **Strands to Mesh...** | The strands as one mesh of tubes or ribbons, with UVs. |
+| **Strands to Mesh...** | A snapshot of the strands as one mesh of tubes or ribbons, with UVs, for exporting. For a mesh that follows the animation, see [Strands as a mesh](#strands-as-a-mesh). |
 | **Bake Node to Guides...** | The groom's output, or any node's strands or guides, converted to brushable guides. To keep them procedural instead, use a ToGuides followed by a Sculpt node ([Node graph](/docs/node-graph#other-main-nodes)). |
 
 To edit guides with Maya tools: **Guides to Curves**, edit the curves (CVs, lattices, a sculpt
 deformer), then **Curves to Guides...**.
+
+## Strands as a mesh
+
+**Strands to Mesh...** makes a static mesh of the current frame: a tube (`Tube sides` around, the
+tip closed) or a flat ribbon along each strand, as wide as the strand times `Width scale`. UVs
+run across the strand (u) and from root (v 0) to tip (v 1); **Per-strand UVs** adds a second UV
+set, `strandUVs`, with each strand in its own cell of a grid. Beyond **At most** strands, the
+strands are thinned by strand ID, the same ones a lower density keeps.
+
+For a mesh that follows the animation, add a **StrandMesh** node in the Graph Editor. The groom
+draws its mesh in the viewport at once, in place of the strands (**Show mesh** in the node's
+panel, the groom's `displayStrandMesh`, switches back to the strands). The mesh shows the strands
+the node receives, so its position decides what it includes: after a Simulate's Interpolate it
+moves with the simulation, and before a Noise it leaves the frizz out. It follows the scalp (with
+Follow scalp on), Simulate (live or baked), keyed params and graph edits. Its vertices and faces
+stay the same from frame to frame; only the points move. Changing the node's density, strand
+count, style or sides rebuilds it. Each StrandMesh node passes its strands on unchanged, and all
+of them share one mesh.
+
+To cache the animated mesh, click **Mesh in Scene** in the node's panel: it makes a Maya mesh
+connected to the groom's `outStrandMesh` (or selects the one already there). Export it with
+Maya's Alembic export (**Cache > Alembic Cache > Export Selection to Alembic**, or
+`AbcExport -frameRange 1 120 -uvWrite -root |hair_strandMesh -file hair.abc`); it is written as
+one deforming mesh. While that mesh exists, it shows the mesh instead of the groom.
+
+From Python:
+
+```python
+import groomlab
+from groomlab import utils
+utils.strands_to_mesh(groom, sides=4, max_strands=20000)                # a snapshot
+node = groomlab.add_strand_mesh(groom, after="interpolate", style="ribbon")  # live, drawn by the groom
+mesh = groomlab.strand_mesh_shape(groom)                                # Mesh in Scene
+```
+
+<Callout type="warn">
+Tube meshes are heavy: 4 sides make about 4 vertices per strand point, so 20,000 strands of 16
+points are 1.3 million vertices. A mesh of the full groom is meant for renderers and tools without
+curve support, or for a few hero strands. Game engines usually use guide-driven strands (Unreal
+grooms) or hair cards instead ([Game export](/docs/game-export)).
+</Callout>
 
 ## Start from existing curves
 
@@ -102,3 +143,29 @@ exports.
 In the Graph Editor, a **Scalp** or **ColliderMesh** node's panel has a **Mesh** field: a menu of
 the scene's meshes, the same pick button and **Select**. Choosing a mesh there reconnects the
 scalp or that collider, as the Attribute Editor does.
+
+## Themes
+
+A theme sets the colors of the Groom Tools, the Graph Editor, GroomLab's windows and the
+viewport's guides. Pick one in **GroomLab > Theme**, or **Theme** in the Groom Tools' **More**
+menu or the Graph Editor's **Edit** menu. It applies at once and is remembered across sessions.
+
+| Theme | Look |
+| --- | --- |
+| **Playful** (default) | Charcoal with bright primaries, flat and round. |
+| **Charcoal** | Calm neutral greys, an off-white primary button, thin borders, muted color only where it means something. |
+| **Polar** | Near-black and monochrome with one indigo accent. |
+| **Studio** | Low-key greys with one accent. |
+
+To make your own, choose **Theme > New Theme from Current...** in the Groom Tools or the Graph
+Editor: it copies the active theme to a JSON file in your themes folder. Edit its colors, then
+**Theme > Reload Theme**. In Python:
+
+```python
+from groomlab.ui import theme
+path = theme.create_theme("mine", base="charcoal")  # a copy to edit
+theme.set_theme("mine")
+```
+
+A theme can set only some keys; the rest come from the theme it names in `"extends"` (Playful by
+default).

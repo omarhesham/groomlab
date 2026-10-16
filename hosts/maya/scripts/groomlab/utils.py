@@ -193,7 +193,8 @@ def strands_to_mesh(groom, node=None, style="tube", sides=4, width_scale=1.0, ma
     UVs: u across, v root (0) to tip (1); with `strand_uvs` a second UV set "strandUVs" gives
     every strand its own cell of a grid. `node`, `density` and the cap (`max_strands`, thinned
     by strand ID with a warning) as strands_to_curves. The mesh gets the default shader. One
-    undo step.
+    undo step. A snapshot of the current frame: for a mesh that follows the animation, a
+    StrandMesh node (add_strand_mesh) and its mesh in the scene (strand_mesh_shape).
 
     Returns {"mesh": the transform, "strands", "total", "capped", "vertices", "faces"}.
     """
@@ -216,6 +217,77 @@ def strands_to_mesh(groom, node=None, style="tube", sides=4, width_scale=1.0, ma
                      % (made, total, int(max_strands)))
     return {"mesh": root, "strands": made, "total": total, "capped": capped,
             "vertices": cmds.polyEvaluate(mesh, vertex=True), "faces": cmds.polyEvaluate(mesh, face=True)}
+
+
+def strand_mesh_nodes(groom):
+    """The groom's StrandMesh nodes (its own, not those inside compounds), in graph order."""
+    from groomlab import graph as gm
+    model = gm.GraphModel.from_groom(groom)
+    return [n for n in model.order if model.node_type(n) == "StrandMesh"]
+
+
+@groomlab.undoable("add strand mesh")
+def add_strand_mesh(groom, after=None, style="tube", sides=4, width_scale=1.0, density=None,
+                    max_strands=DEFAULT_MAX_STRANDS, strand_uvs=False):
+    """A StrandMesh node: the strands it is handed as a live polygon mesh, drawn by the groom
+    instead of the strands (its displayStrandMesh) and given on its outStrandMesh
+    (strand_mesh_shape connects a Maya mesh to it, for Alembic export). It goes right after node `after` (a
+    node making strands: what it makes is what the mesh shows, e.g. after a Simulate's
+    Interpolate, before Noise) or, by default, just before the output; one already reading that
+    node takes the settings instead. The node hands its strands on as they are. Its settings:
+    `style` "tube" (`sides` around) or "ribbon", `width_scale` times the strands' widths,
+    `density` (0-1) of the strands evaluated, at most `max_strands` (0: all; thinned by strand
+    ID) and `strand_uvs` (a second UV set, "strandUVs"). Every StrandMesh node making the output
+    joins the one mesh. Returns the node's name."""
+    from groomlab import graph as gm
+    if style not in MESH_STYLES:
+        raise ValueError("style is tube or ribbon, not %r" % style)
+    params = {"style": style, "sides": int(sides), "widthScale": float(width_scale),
+              "density": float(1.0 if density is None else density), "maxStrands": int(max_strands),
+              "strandUVs": bool(strand_uvs)}
+    model = gm.GraphModel.from_groom(groom)
+    if after is None:
+        anchor = model.output
+        source = model.source_of(anchor, "strands")
+        if source is not None and model.node_type(source) == "StrandMesh":
+            node = source
+        else:
+            node = model.add_node("StrandMesh", name=model.unique_name("strandMesh"), params=params)
+            model.insert_before(anchor, node)
+    else:
+        if after not in model.nodes:
+            raise ValueError("%s's graph has no node %r" % (groom, after))
+        if model.output_type(after) != "Strands":
+            raise ValueError("%r does not make strands (a StrandMesh node reads strands)" % after)
+        readers = [d for d, i in model.downstream_of(after) if model.node_type(d) == "StrandMesh" and i == "strands"]
+        if readers:
+            node = readers[0]
+        else:
+            node = model.add_node("StrandMesh", name=model.unique_name("strandMesh"), params=params)
+            model.insert_after(after, node)
+    for key, value in params.items():
+        model.set_param(node, key, value)
+    if node not in model.feeding_output():
+        cmds.warning("GroomLab: %s does not make the output (it ends a branch): its strands make no mesh" % node)
+    model.save(groom)
+    return node
+
+
+@groomlab.undoable("strand mesh in scene")
+def strand_mesh_shape(groom, name=None):
+    """The StrandMesh nodes' mesh in the scene: a mesh connected to the groom's outStrandMesh,
+    following the animation with the same vertices and faces on every frame (export it with
+    Alembic), with the default shader; returns its transform. The one already there when there is
+    one. While it exists the groom leaves drawing the meshes to it. One undo step."""
+    existing = cmds.listConnections(groom + ".outStrandMesh", destination=True, source=False, shapes=True) or []
+    if existing:
+        return cmds.listRelatives(existing[0], parent=True, fullPath=True)[0]
+    transform = cmds.listRelatives(groom, parent=True)[0]
+    root = cmds.createNode("transform", name=name or (transform.split(":")[-1] + "_strandMesh"))
+    mesh = cmds.createNode("mesh", name=root.split("|")[-1] + "Shape", parent=root)
+    cmds.connectAttr(groom + ".outStrandMesh", mesh + ".inMesh")
+    cmds.sets(mesh, edit=True, forceElement="initialShadingGroup")
+    return cmds.ls(root, long=True)[0]
 
 
 # ---------------------------------------------------------------------------

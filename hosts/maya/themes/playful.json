@@ -25,7 +25,8 @@
     "driven": "#E4D46C",
     "radius": 12,
     "fontSize": 12,
-    "sliders": ["blue", "yellow", "emerald", "red"]
+    "sliders": ["blue", "yellow", "emerald", "red"],
+    "glass": true
   },
   "graph": {
     "canvas": "#1C1D21",
@@ -59,7 +60,8 @@
       "Mesh": "emerald",
       "Field": "purple",
       "Curve": "red",
-      "Curves": "#D2D6DE"
+      "Curves": "#D2D6DE",
+      "Value": "#7CC8B4"
     }
   },
   "icons": {

@@ -448,6 +448,10 @@ DisplaySettings GroomSubSceneOverride::readSettings() {
     // which shows them itself).
     s.cardsView = shape_->cardsView();
     s.drawCards = s.cardsView && !shape_->cardMeshConnected();
+    // The StrandMesh nodes' meshes instead of the strands (drawn here unless a mesh on
+    // outStrandMesh shows them).
+    s.strandMeshView = displayFlag(GroomShape::aDisplayStrandMesh);
+    s.drawStrandMesh = s.strandMeshView && !shape_->strandMeshConnected();
     s.instances = displayFlag(GroomShape::aDisplayInstances);
     s.guides = displayFlag(GroomShape::aDisplayGuides);
     s.tubes = displayFlag(GroomShape::aDisplayTubes);
@@ -573,6 +577,7 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     in.parts = shape_->evaluatedParts();
     in.flow = shape_->evaluatedFlow();
     in.cards = shape_->evaluatedCards();
+    in.strandMeshes = shape_->evaluatedStrandMeshes();
     // (Strands at rest the GPU carries: the same strands whatever the scalp, written whole when they change.)
     in.strandsVersion = follow_ ? followRestVersion_ : shape_->strandsVersion();
     in.strandsSerial = follow_ ? 0 : shape_->strandsSerial();
@@ -580,6 +585,7 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     in.strandsChanges = follow_ ? nullptr : shape_->strandsChanges();
     in.hierarchyVersion = shape_->hierarchyVersion();
     in.cardsVersion = shape_->cardsVersion();
+    in.strandMeshVersion = shape_->strandMeshVersion();
     in.stroke = stroke;  // sculpting: the strands step back so the guides read
     in.selection = [this] { return shape_->guideSelectionWeights(); };
     in.selectionHash = shape_->selectionHash();

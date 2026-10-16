@@ -71,7 +71,7 @@ private:
 QLabel* captionLabel(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     label->setFont(theme::uiFont(12, 700));
-    label->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    label->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     return label;
 }
 
@@ -108,7 +108,7 @@ ExportPanel::ExportPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     title->addWidget(dot);
     auto* titleLabel = new QLabel(tr("Export"), this);
     titleLabel->setFont(theme::uiFont(15, 800));
-    titleLabel->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    titleLabel->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     title->addWidget(titleLabel, 1);
     layout->addLayout(title);
 
@@ -123,8 +123,8 @@ ExportPanel::ExportPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
         b->setPadding(12);
         b->setFontSize(13);
         b->setFontWeight(700);
-        b->setFill(theme::chip(), theme::emerald());
-        b->setTextColor(theme::textSoft(), theme::ink());
+        b->setFill(theme::chip(), theme::actionFill(theme::emerald()));
+        b->setTextColor(theme::textSoft(), theme::actionText(theme::ink()));
         b->setCheckable(true);
         b->setToolTip(tr(kTargets[i].description));
         connect(b, &QAbstractButton::clicked, this, [this, i] {
@@ -137,7 +137,7 @@ ExportPanel::ExportPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     description_ = new QLabel(this);
     description_->setWordWrap(true);
     description_->setFont(theme::uiFont(12, 500));
-    description_->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+    description_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
     layout->addWidget(description_);
 
     // ---- The frames and the density.
@@ -318,13 +318,13 @@ ExportPanel::ExportPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     export_ = new RoundButton(this);
     export_->setText(tr("Export"));
     export_->setIcon(QStringLiteral(":/groomlab/icons/ui_export.svg"), 16);
-    export_->setIconColor(theme::ink(), theme::ink());
+    export_->setIconColor(theme::actionText(theme::ink()), theme::actionText(theme::ink()));
     export_->setDiameter(38);
     export_->setRadius(13.0);
     export_->setPadding(16);
     export_->setFontSize(14);
-    export_->setFill(theme::emerald(), theme::emerald());
-    export_->setTextColor(theme::ink(), theme::ink());
+    export_->setFill(theme::actionFill(theme::emerald()), theme::actionFill(theme::emerald()));
+    export_->setTextColor(theme::actionText(theme::ink()), theme::actionText(theme::ink()));
     layout->addWidget(export_);
     progressBar_ = new ProgressBar(this);
     progressBar_->hide();
@@ -332,7 +332,7 @@ ExportPanel::ExportPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     status_ = new QLabel(this);
     status_->setWordWrap(true);
     status_->setFont(theme::uiFont(12, 500));
-    status_->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+    status_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
     layout->addWidget(status_);
 
     // ---- Save, as before.
@@ -453,8 +453,10 @@ void ExportPanel::setProgress(std::size_t done, std::size_t count) {
 void ExportPanel::setBusy(bool busy) {
     busy_ = busy;
     export_->setText(busy ? tr("Cancel") : tr("Export"));
-    export_->setFill(busy ? theme::chip() : theme::emerald(), busy ? theme::chip() : theme::emerald());
-    export_->setTextColor(busy ? theme::text() : theme::ink(), busy ? theme::text() : theme::ink());
+    const QColor fill = busy ? theme::chip() : theme::actionFill(theme::emerald());
+    const QColor ink = busy ? theme::text() : theme::actionText(theme::ink());
+    export_->setFill(fill, fill);
+    export_->setTextColor(ink, ink);
     progressBar_->setVisible(busy);
     for (RoundButton* b : targets_) b->setEnabled(!busy);
     if (busy) static_cast<ProgressBar*>(progressBar_)->set(0.0);
@@ -462,7 +464,7 @@ void ExportPanel::setBusy(bool busy) {
 
 void ExportPanel::setStatus(const QString& text, bool error) {
     status_->setText(text);
-    status_->setStyleSheet(error ? QStringLiteral("color: #FF7A7C;") : QStringLiteral("color: #B8B4AC;"));
+    status_->setStyleSheet(error ? QStringLiteral("color: #FF7A7C;") : QStringLiteral("color: %1;").arg(theme::textDim().name()));
 }
 
 void ExportPanel::refresh() {

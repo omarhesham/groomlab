@@ -251,17 +251,28 @@ public:
     std::string typeName() const override { return op::kExpression; }
     std::string category() const override { return "field"; }
     // The scalp, and the host's controls its keyable variables read (their changes re-evaluate it).
+    // (One value: no scalp, so a deforming scalp does not re-evaluate it and all it drives.)
     std::vector<std::string> externalInputs() const override {
-        std::vector<std::string> out{"scalp"};
+        std::vector<std::string> out;
+        if (!givesValue()) out.push_back("scalp");
         for (const auto& [variable, control] : expressionVariableControls(params().getString("variables"))) {
             out.push_back(controlInputName(control));
         }
         return out;
     }
     std::vector<PortSpec> inputs() const override { return {}; }
-    PortSpec output() const override { return {"field", PortType::Field}; }
+    PortSpec output() const override {
+        if (givesValue()) return {"value", PortType::Value, false, ValueKind::Number};
+        return {"field", PortType::Field};
+    }
     std::vector<ParamSpec> paramSpecs() const override {
         return {
+            ParamSpec{"output", std::string("field"),
+                      "field: a value per strand (and per point) for a mappable param; value: one number for the whole node, "
+                      "of the frame, the time and the node's own variables, for any param (a count, a seed, a switch...)",
+                      "",
+                      {"field", "value"}}
+                .noInput(),
             {"expression", std::string("$length / $longest"),
              "Per strand: length, longest, reach, straightness, lift, tipx/y/z, u, v, x, y, z, nx, ny, nz, rand, "
              "index, any strand channel (e.g. clumpId, guideInfluence); per point: t (root 0 to tip 1 by arc "
@@ -282,8 +293,6 @@ public:
         };
     }
     Value evaluate(const EvalContext& ctx, const std::vector<Value>&) const override {
-        MeshPtr scalp;
-        scalpIn(ctx, &scalp);
         MapRef map;
         map.source = MapRef::Source::Expression;
         map.name = params().getString("expression");
@@ -297,16 +306,97 @@ public:
             throw GraphError(std::string("Expression: ") + e.what());
         }
         // Keyable variables: the control's value on this frame, where the host sets one.
-        for (const auto& [variable, control] : expressionVariableControls(variables)) {
+        const auto controls = expressionVariableControls(variables);
+        for (const auto& [variable, control] : controls) {
             const FieldPtr set = valueAs<FieldPtr>(ctx.external(controlInputName(control)));
             if (!set) continue;
             for (auto& [name, value] : map.constants) {
                 if (name == variable) value = set->maximum();
             }
         }
+        if (givesValue()) return uniformValue(map, !controls.empty());
+        MeshPtr scalp;
+        scalpIn(ctx, &scalp);
         ParamSet values;
         values.set("map", map);
         return FieldPtr(std::make_shared<MapFieldValue>(values, scalp, nullptr));
+    }
+
+private:
+    bool givesValue() const { return params().getString("output") == "value"; }
+
+    // The expression as one number: of the frame, the time and the node's own variables only (a
+    // strand's, a point's, a channel, a map or rand() is an error: there is no strand to read).
+    // Changes over time when it reads the time or a keyable variable.
+    static Value uniformValue(const MapRef& map, bool keyable) {
+        Expression expression;
+        try {
+            expression = Expression(map.name, map.constants, ExpressionType::Number);
+        } catch (const ExpressionError& e) {
+            throw GraphError(std::string("Expression: ") + e.what());
+        }
+        const int frame = Expression::variableCode("frame"), time = Expression::variableCode("time");
+        const int perStrand[] = {Expression::functionCode("rand"), Expression::functionCode("rand range"),
+                                 Expression::functionCode("map"), Expression::functionCode("cmap")};
+        for (const Expression::Op& op : expression.program()) {
+            const bool variable = op.kind == Expression::Op::Variable && op.code != frame && op.code != time;
+            const bool call = (op.kind == Expression::Op::Call || op.kind == Expression::Op::VCall) &&
+                              std::find(std::begin(perStrand), std::end(perStrand), static_cast<int>(op.code)) != std::end(perStrand);
+            if (variable || call || op.kind == Expression::Op::Channel) {
+                throw GraphError("Expression: set to give one value, it reads only frame, time and its own variables (no "
+                                 "strand, point, channel, map or rand: those are per strand; set it to give a field)");
+            }
+        }
+        const float v = expression.evaluateAt(StrandRoot{}, nullptr);
+        const double value = static_cast<double>(map.min) + (static_cast<double>(map.max) - map.min) * static_cast<double>(v);
+        return UniformPtr(std::make_shared<const UniformValue>(UniformValue{value, expression.readsTime() || keyable}));
+    }
+};
+
+// One value for a whole node (a Value port): a number, an integer, a switch, a vector, a color or
+// text, plugged into any exposed param that takes no field (a count, a seed, a choice...). Keyed (a
+// keyable param in Maya), it changes over time, which a param that sets how many strands there are
+// refuses.
+class ValueOp : public Operator {
+public:
+    std::string typeName() const override { return op::kValue; }
+    std::string category() const override { return "utility"; }
+    std::vector<PortSpec> inputs() const override { return {}; }
+    PortSpec output() const override { return {"value", PortType::Value, false, kindOf(params().getString("kind"))}; }
+    std::vector<ParamSpec> paramSpecs() const override {
+        return {
+            ParamSpec{"kind", std::string("number"),
+                      "What it gives: a number, an integer, a switch (bool), a vector, a color or text (text also feeds a "
+                      "param's choices: one of them, by name)",
+                      "",
+                      {"number", "integer", "bool", "vector", "color", "text"}}
+                .noInput(),
+            ParamSpec{"number", 0.0, "The number"}.soft(0, 1).when("kind", {"number"}),
+            ParamSpec{"integer", std::int64_t{0}, "The whole number"}.soft(0, 10).when("kind", {"integer"}),
+            ParamSpec{"on", false, "The switch"}.when("kind", {"bool"}),
+            ParamSpec{"vector", Vec3f(0.0f, 1.0f, 0.0f), "The vector"}.when("kind", {"vector"}),
+            ParamSpec{"color", Vec3f(0.5f, 0.5f, 0.5f), "The color (linear RGB)", "color"}.when("kind", {"color"}),
+            ParamSpec{"text", std::string(), "The text: a name, or one of a param's choices"}.when("kind", {"text"}),
+        };
+    }
+    Value evaluate(const EvalContext&, const std::vector<Value>&) const override {
+        const std::string kind = params().getString("kind");
+        ParamValue value = params().getDouble("number");
+        if (kind == "integer") value = params().getInt("integer");
+        else if (kind == "bool") value = params().getBool("on");
+        else if (kind == "vector") value = params().getVec3("vector");
+        else if (kind == "color") value = params().getVec3("color");
+        else if (kind == "text") value = params().getString("text");
+        return UniformPtr(std::make_shared<const UniformValue>(UniformValue{std::move(value), false}));
+    }
+
+private:
+    static ValueKind kindOf(const std::string& kind) {
+        if (kind == "integer") return ValueKind::Integer;
+        if (kind == "bool") return ValueKind::Bool;
+        if (kind == "vector" || kind == "color") return ValueKind::Vec3;
+        if (kind == "text") return ValueKind::Text;
+        return ValueKind::Number;
     }
 };
 
@@ -647,6 +737,7 @@ void registerFieldOperators(OperatorRegistry& registry) {
     registry.registerType(op::kExpression, [] { return std::make_unique<ExpressionOp>(); });
     registry.registerType(op::kMap, [] { return std::make_unique<MapOp>(); });
     registry.registerType(op::kControl, [] { return std::make_unique<ControlOp>(); });
+    registry.registerType(op::kValue, [] { return std::make_unique<ValueOp>(); });
     registry.registerType(op::kFieldNoise, [] { return std::make_unique<FieldNoiseOp>(); });
     registry.registerType(op::kFieldRemap, [] { return std::make_unique<FieldRemapOp>(); });
     registry.registerType(op::kFieldCombine, [] { return std::make_unique<FieldCombineOp>(); });

@@ -38,11 +38,29 @@ namespace groomlab {
 // Curves: strands or guides. A node whose main input and output are Curves
 // (the shaping nodes: Noise, Frizz, Smooth, ...) works on either: its output
 // is whatever feeds it, and guides keep their IDs, roots and painted maps.
-enum class PortType { Strands, Guides, Mesh, Field, Curve, Curves };
+// Value: one value for the whole evaluation (a UniformValue), not one per strand: what a Value
+// node or an Expression set to give a value hands on, plugged into an exposed param that takes no
+// field (a count, a seed, a switch, a choice, a size...). Its ValueKind says what it holds.
+enum class PortType { Strands, Guides, Mesh, Field, Curve, Curves, Value };
+
+// What a Value port holds: a number (float), an integer, a switch, a vector (a color too), one of a
+// param's choices, or text. Any: whatever comes (a compound's Value input, an Input node's output),
+// checked when it is evaluated.
+enum class ValueKind { Any, Number, Integer, Bool, Vec3, Choice, Text };
+const char* valueKindName(ValueKind kind);  // "any", "number", "integer", "bool", "vec3", "choice", "text"
+// The kind of that name; throws GraphError for an unknown one.
+ValueKind valueKindFromName(const std::string& name);
+// Whether a Value output of kind `out` can feed a Value input of kind `in`: numbers, integers and
+// switches feed one another (an integer rounds, a switch is on above 0.5) and vectors (each
+// component the number); a vector feeds only a vector; choices and text feed one another (a choice
+// must be one of the param's when evaluated). Any matches every kind.
+bool valueKindsMatch(ValueKind out, ValueKind in);
 
 // Whether an output of type `out` can feed an input of type `in`: the same
 // type, or Curves on either side with Strands or Guides on the other (an
-// output not yet resolved is checked again when evaluated).
+// output not yet resolved is checked again when evaluated), or a Value into a Field (a number as
+// the same value on every strand; Graph::connect checks it is a number). A Field never feeds a
+// Value: a value per strand cannot set a param that has one value for the whole node.
 bool portTypesMatch(PortType out, PortType in);
 
 const char* portTypeName(PortType type);
@@ -139,9 +157,13 @@ using ScalpHistoryPtr = std::shared_ptr<const ScalpHistory>;
 struct SculptEdits;
 using SculptPtr = std::shared_ptr<const SculptEdits>;
 
+struct UniformValue;  // below, after ParamValue
+using UniformPtr = std::shared_ptr<const UniformValue>;
+
 using Value = std::variant<std::monostate, StrandsPtr, GuidesPtr, MeshPtr, HierarchyPtr, PartsPtr,
                            FieldPtr, CurvePtr, FlowPtr, MapCatalogPtr,
-                           ScalpHistoryPtr, SculptPtr>;  // hierarchy, parts, flow, maps, scalp history, sculpts: external only
+                           ScalpHistoryPtr, SculptPtr,  // hierarchy, parts, flow, maps, scalp history, sculpts: external only
+                           UniformPtr>;
 
 // Typed accessor: the pointer held in v, or null if v holds something else.
 template <class Ptr>
@@ -154,6 +176,7 @@ struct PortSpec {
     std::string name;
     PortType type = PortType::Strands;
     bool optional = false;
+    ValueKind valueKind = ValueKind::Any;  // a Value port's
 };
 
 // ---------------------------------------------------------------------------
@@ -161,6 +184,19 @@ struct PortSpec {
 // ---------------------------------------------------------------------------
 
 using ParamValue = std::variant<bool, std::int64_t, double, std::string, Vec3f, Ramp, MapRef>;
+
+// What a Value port carries: one param value (a bool, an integer, a number, text or a vector) for
+// the whole evaluation. `varies`: it may change from frame to frame (an expression reading the
+// time, a keyed Value node), which a param that must stay the same on every frame refuses.
+struct UniformValue {
+    ParamValue value;
+    bool varies = false;
+};
+// The kind of value a param's value is (a ramp or a map: Any, as no Value port takes one).
+ValueKind valueKindOf(const ParamValue& value, bool choice = false);
+// A number (an integer, a switch as 0 or 1) as a field of that value on every strand, for a Value
+// plugged into a Field port; null for a vector or text.
+FieldPtr uniformField(const UniformValue& value);
 
 // A node's params. The getters return the stored value when it has the type asked for, else the
 // param's spec default (ParamSpec::defaultValue, which Operator::applyDefaults hands every node's
@@ -330,6 +366,12 @@ struct ParamSpec {
     // design (Clump's regionChannel: region, written only with an Interpolate's regionMap): a read
     // of the default that does not reach is no mistake (ChannelRead::optional, attributes.h).
     bool channelOptional = false;
+    // The input port it takes when exposed (paramPortSpec): Auto (a Curve port for a ramp, a Field
+    // port for a mappable number or a colorField color, a Value port for the rest), Value (a Value
+    // port whatever it is: a compound's exposed params), or None: it cannot be an input (it sets the
+    // node's ports: a Value node's kind, an Input's type).
+    enum class Port { Auto, Value, None };
+    Port port = Port::Auto;
 
     // The spec with hard limits (and the slider's range, unless one is set).
     ParamSpec range(double lo, double hi) const {
@@ -408,7 +450,26 @@ struct ParamSpec {
         s.channelOptional = optional;
         return s;
     }
+    // A param that cannot be an input (port None).
+    ParamSpec noInput() const {
+        ParamSpec s = *this;
+        s.port = Port::None;
+        return s;
+    }
 };
+
+// Whether a param is mappable: a number a map, an expression or a field drives per strand (its
+// description says "(mappable").
+bool paramMappable(const ParamSpec& spec);
+// The input port a param takes when exposed (Graph::setParamInputs), named after it and optional:
+// a Curve port for a ramp, a Field port for a mappable number or a colorField color, else a Value
+// port of the param's kind (a text param with choices: Choice). False when it takes none
+// (ParamSpec::port None, or a map param, which no Value holds).
+bool paramPortSpec(const ParamSpec& spec, PortSpec* port);
+// `value` (a Value port's) as the param of spec `spec` takes it: a number rounded for an integer, on
+// above 0.5 for a switch, the same on every component for a vector, text one of the choices for a
+// choice. Throws GraphError (naming the param) for a value of a kind the param cannot take.
+ParamValue uniformAsParam(const ParamValue& value, const ParamSpec& spec);
 
 // A strand channel a node writes as set: its name, and the param naming it ("" for a name the node
 // always writes: Flyaway's flyaway, HairColor's melanin and colors). `extends`: the node adds to a
@@ -435,6 +496,9 @@ class Operator;
 std::vector<ParamSpec> commonParamSpecs(const Operator& op);
 // Its own params, then the common ones: what UIs list, defaults fill and graph files hold.
 std::vector<ParamSpec> allParamSpecs(const Operator& op);
+// Its params as this node is set: allParamSpecs, then the ones its setting adds
+// (Operator::extraParamSpecs: a Compound's exposed params). What exposing a param reads.
+std::vector<ParamSpec> nodeParamSpecs(const Operator& op);
 constexpr const char* kAffectParam = "affect";
 // Whether a node of this kind takes "affect" (commonParamSpecs).
 bool takesAffect(const Operator& op);
@@ -636,6 +700,10 @@ public:
 
     // Parameters with defaults; OperatorRegistry::create applies the defaults.
     virtual std::vector<ParamSpec> paramSpecs() const { return {}; }
+    // Params a node has by how it is set, besides its kind's (paramSpecs and the common ones): a
+    // Compound's exposed params, each its inner param's spec under the exposed name. Not given
+    // defaults (applyDefaults); what such a param can be exposed as an input by (nodeParamSpecs).
+    virtual std::vector<ParamSpec> extraParamSpecs() const { return {}; }
 
     // Names of ExternalInputs entries this operator reads. Their hashes join
     // the operator's cache key.
@@ -768,13 +836,24 @@ public:
     std::size_t outputIndex(NodeId id, const std::string& name) const;
 
     // Exposed params (PG-7): each named param gets an input slot after the
-    // operator's own inputs, so another node can drive it: a Field slot, or a
-    // Curve slot for a ramp param. Params must exist and not share a name
-    // with an input. Replacing the list drops the old param slots' connections.
+    // operator's own inputs, so another node can drive it (paramPortSpec): a Field slot for a
+    // mappable number or a color field, a Curve slot for a ramp param, a Value slot for any other
+    // (a count, a seed, a switch, a choice, a vector...). Params must exist (nodeParamSpecs), take
+    // a port and not share a name with an input. Replacing the list drops the old param slots'
+    // connections.
+    //
+    // A Value plugged into a param sets it for every evaluation (before the node's key is made, so
+    // the node re-evaluates as for an edit of the param, and a GPU preview reads the node's params
+    // as set); the param keeps its own value (storedParams, what a graph's JSON saves) and takes it
+    // back when the link goes. A param that must stay the same on every frame (not animatable)
+    // takes a Value that does not change over time (UniformValue::varies): one that does is the
+    // node's error. A Value plugged into a Field slot is that number on every strand.
     void setParamInputs(NodeId id, std::vector<std::string> params);
     const std::vector<std::string>& paramInputs(NodeId id) const { return nodeRecord(id).paramInputs; }
-    // The operator's inputs followed by one Field (or Curve) port per exposed param.
+    // The operator's inputs followed by one Field, Curve or Value port per exposed param.
     std::vector<PortSpec> inputSpecs(NodeId id) const;
+    // Whether a Value input is plugged into the param (its value then comes from there).
+    bool paramDriven(NodeId id, const std::string& param) const;
 
     // Keyed params: each linked param takes the value of the host's control of that name (the
     // external input controlInputName(name), field.h; a vec3 takes three, x y z or r g b) on
@@ -940,6 +1019,8 @@ private:
             bool hasApplied = false;
         };
         std::map<std::string, Keyed> keyed;  // per linked param
+        std::map<std::string, Keyed> driven;  // per param a Value input sets (applyValueInputs)
+        bool drivenVaries = false;  // a Value setting one of its params changes over time
         bool bypass = false;
         EvaluationMode evaluation = EvaluationMode::Always;
         std::string label;
@@ -985,15 +1066,23 @@ private:
     bool reaches(NodeId from, NodeId target) const;  // is target upstream of or equal to from
     // Sets every linked param from its controls in ctx's externals (its own value without them).
     void applyControls(const EvalContext& ctx);
+    // Puts back the own value of each param no Value input sets any more (its link cut).
+    void releaseDriven(Node& node);
+    // Whether the node's param slot `slot` (after its operator's inputs) takes a Value port.
+    bool valueSlot(const Node& node, std::size_t k) const;
     // Every node's key in one evaluation, and its own key (all but its inputs' keys).
     struct Keys {
         std::map<NodeId, std::uint64_t> full, own;
     };
     std::uint64_t computeKey(NodeId id, const EvalContext& ctx, Keys& memo) const;
+    struct Transient;  // per-evaluation results when not caching
+    // Sets the params of `id` and every node upstream of it that a Value input drives, from those
+    // inputs' values (evaluated here, upstream first, so every node's key is made from its params
+    // as they evaluate). `done`: the nodes already set in this evaluation.
+    void applyValueInputs(NodeId id, const EvalContext& ctx, Keys& keys, Transient* transient, std::set<NodeId>& done);
     // How input `slot` of `node` (reading output `output` of `source`) changed since the value
     // the node's last result was made from (null: unknown).
     ChangesPtr inputChanges(const Node& node, std::size_t slot, const Node& source) const;
-    struct Transient;  // per-evaluation results when not caching
     // Every output of the node (one evaluation).
     std::vector<Value> evaluateWithKeys(NodeId id, const EvalContext& ctx, Keys& keys, Transient* transient);
     // The values a caller is handed of node `id`'s result `values` (EvalContext::keepPreviewCore).

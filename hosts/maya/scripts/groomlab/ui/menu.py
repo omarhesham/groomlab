@@ -939,7 +939,8 @@ def strands_to_curves_dialog(node=None, density=None, max_curves=None, attribute
 
 def strands_to_mesh_dialog(node=None, style=None, sides=None, width_scale=None, max_strands=None, strand_uvs=None,
                            groom=None):
-    """Strands to Mesh: tubes or ribbons along the strands, one mesh."""
+    """Strands to Mesh: tubes or ribbons along the strands, one mesh: a snapshot of this frame (a
+    mesh following the animation: a StrandMesh node's Mesh in Scene)."""
     from groomlab import utils
     groom = groom or _selected_groom()
     if not groom:
@@ -1542,6 +1543,7 @@ def install():
                              "Alembic files and caches to files of the same name in a folder you pick")
     cmds.setParent("..", menu=True)
     cmds.menuItem(divider=True)
+    _theme_submenu()
     cmds.menuItem(label="Install GroomLab Hotkeys", command=_guarded(install_hotkeys),
                   annotation="A GroomLab hotkey set: hold Y + click for the marking menu, Page Up/Down for levels")
     cmds.menuItem(label="Check for Updates...", command=_guarded(lambda *_: open_updates()),
@@ -1571,6 +1573,39 @@ def install():
         theme.apply_viewport()
         theme.on_change(_theme_changed)
     except (ImportError, RuntimeError, ValueError, IOError, OSError) as e:
+        cmds.warning("GroomLab: theme not applied: %s" % e)
+
+
+def _theme_submenu():
+    """GroomLab > Theme: every theme (the active one checked); picking one restyles everything at
+    once (the menu rebuilds itself after, so the switch waits for the click to finish)."""
+    from groomlab.ui import theme
+    from maya import utils
+    cmds.menuItem(label="Theme", subMenu=True,
+                  annotation="GroomLab's colors: the Groom Tools, the Graph Editor and the viewport's guides")
+    cmds.radioMenuItemCollection()
+    try:
+        entries = theme.menu_entries()
+    except (ValueError, IOError, OSError):
+        entries = []
+    for name, label, active in entries:
+        cmds.menuItem(label=label, radioButton=active,
+                      command=_guarded(lambda *_, n=name: utils.executeDeferred(_set_theme, n)),
+                      annotation="Restyle GroomLab with the %s theme (remembered across sessions)" % label)
+    cmds.menuItem(divider=True)
+    cmds.menuItem(label="Reload Theme", command=_guarded(lambda *_: utils.executeDeferred(_set_theme, None)),
+                  annotation="Read the active theme's file again, after editing it")
+    cmds.setParent("..", menu=True)
+
+
+def _set_theme(name):
+    from groomlab.ui import theme
+    try:
+        if name is None:
+            theme.reload()
+        else:
+            theme.set_theme(name)
+    except (ValueError, IOError, OSError) as e:
         cmds.warning("GroomLab: theme not applied: %s" % e)
 
 

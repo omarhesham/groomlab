@@ -40,6 +40,7 @@ inline const MString kPartsItem("groomLabParts");
 inline const MString kFlowItem("groomLabFlowArrows");
 inline const MString kCardsItem("groomLabCards");
 inline const MString kScalpMapItem("groomLabScalpMap");
+inline const MString kStrandMeshItem("groomLabStrandMesh");
 inline const MString kFlowFieldItem("groomLabFlowField");
 inline const MString kSoftSelectedItem("groomLabSoftSelectedGuides");
 // The level of detail's items (updateLod): a class's strands, class 0's blendable segments, the
@@ -53,7 +54,7 @@ inline const MString kLodImpostorsItem("groomLabStrandsLodImpostors");
 inline const MString kItemNames[kDisplayItemCount] = {
     kDimStrandsItem, kStrandsItem,       kColoredStrandsItem, kRibbonsItem, kInstancesItem,
     kInstanceMeshesItem, kScalesItem,    kGuidesItem,         kTubesItem,   kSelectedItem, kSoftSelectedItem,
-    kPartsItem,      kFlowItem,          kFlowFieldItem,      kCardsItem,   kScalpMapItem};
+    kPartsItem,      kFlowItem,          kFlowFieldItem,      kCardsItem,   kScalpMapItem, kStrandMeshItem};
 
 // ---- Shaders (groom_draw_override_fragments.cpp, groom_draw_override_shaders.cpp) ----
 

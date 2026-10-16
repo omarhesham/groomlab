@@ -34,7 +34,7 @@ QLabel* dotLabel(const QColor& color, int size, QWidget* parent) {
 QLabel* captionLabel(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     label->setFont(theme::uiFont(12, 700));
-    label->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    label->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     return label;
 }
 
@@ -62,7 +62,7 @@ CardsPanel::CardsPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     title->addWidget(dotLabel(theme::blue(), 9, this));
     auto* titleLabel = new QLabel(tr("Cards"), this);
     titleLabel->setFont(theme::uiFont(15, 800));
-    titleLabel->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    titleLabel->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     title->addWidget(titleLabel);
     title->addStretch(1);
     nodes_ = new QComboBox(this);
@@ -75,8 +75,8 @@ CardsPanel::CardsPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     add_->setRadius(10.0);
     add_->setPadding(12);
     add_->setFontSize(12);
-    add_->setFill(theme::blue(), theme::blue());
-    add_->setTextColor(Qt::white, Qt::white);
+    add_->setFill(theme::actionFill(theme::blue()), theme::actionFill(theme::blue()));
+    add_->setTextColor(theme::actionText(Qt::white), theme::actionText(Qt::white));
     add_->setToolTip(tr("A Cards node between the groom and its output: the cards are made from every strand"));
     title->addWidget(add_);
     layout->addLayout(title);
@@ -152,7 +152,7 @@ CardsPanel::CardsPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     // ---- The stats and the bake.
     stats_ = new QLabel(this);
     stats_->setFont(theme::uiFont(12, 600));
-    stats_->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+    stats_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
     stats_->setWordWrap(true);
     layout->addWidget(stats_);
     auto* bakeRow = new QHBoxLayout();
@@ -163,8 +163,8 @@ CardsPanel::CardsPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     bake_->setRadius(12.0);
     bake_->setPadding(14);
     bake_->setFontSize(13);
-    bake_->setFill(theme::yellow(), theme::yellow());
-    bake_->setTextColor(theme::ink(), theme::ink());
+    bake_->setFill(theme::actionFill(theme::yellow()), theme::actionFill(theme::yellow()));
+    bake_->setTextColor(theme::actionText(theme::ink()), theme::actionText(theme::ink()));
     bake_->setToolTip(tr("Bake the cards' maps (depth, coverage, tangent, attribute, color, occlusion) as TGA files beside the "
                          "groom, in Unreal's hair card layout; the viewport shows them on the cards"));
     bakeRow->addWidget(bake_, 1);
@@ -176,7 +176,7 @@ CardsPanel::CardsPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     layout->addLayout(bakeRow);
     bakeStatus_ = new QLabel(this);
     bakeStatus_->setFont(theme::uiFont(12, 500));
-    bakeStatus_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    bakeStatus_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     bakeStatus_->setWordWrap(true);
     layout->addWidget(bakeStatus_);
     atlasImage_ = new QLabel(this);

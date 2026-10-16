@@ -790,6 +790,29 @@ class GraphTest(SceneMixin, unittest.TestCase):
         g.disconnect(scatter, "density")
         g.remove_node(field)
         self.assertFalse(g.has_node(field))
+        g.set_bypass(scatter, False)
+        # A Value node sets any other param for the whole node (a Value port): Scatter's seed.
+        value = g.add_node("Value")
+        g.node(value).set_param("kind", "integer")
+        g.node(value).set_param("integer", 3)
+        self.assertEqual(g.output_specs(value)[0].type, gl.PortType.Value)
+        self.assertEqual(g.output_specs(value)[0].value_kind, gl.ValueKind.Integer)
+        self.assertEqual(g.evaluate(value, ctx), 3)
+        g.set_param_inputs(scatter, ["seed"])
+        self.assertEqual(g.input_specs(scatter)[-1].type, gl.PortType.Value)
+        self.assertEqual(g.input_specs(scatter)[-1].value_kind, gl.ValueKind.Integer)
+        g.connect(value, scatter, "seed")
+        self.assertTrue(g.param_driven(scatter, "seed"))
+        g.evaluate_strands(out, ctx)
+        self.assertEqual(g.node(scatter).get_param("seed"), 3)
+        noise = g.add_node("FieldNoise")
+        with self.assertRaises(gl.GraphError):
+            g.connect(noise, scatter, "seed")  # a value per strand cannot set one value
+        g.disconnect(scatter, "seed")
+        self.assertEqual(g.node(scatter).get_param("seed"), 0)  # its own value back
+        g.set_param_inputs(scatter, [])
+        g.remove_node(value)
+        g.remove_node(noise)
         # Named helpers on a document.
         doc2 = gl.load_graph_json("")
         nid = doc2.add_node("wave", "Noise")

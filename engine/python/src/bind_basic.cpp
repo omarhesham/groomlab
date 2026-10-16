@@ -341,6 +341,9 @@ py::object castValue(const Value& v) {
             } else if constexpr (std::is_same_v<T, CurvePtr>) {
                 if (!x) return py::none();
                 return py::cast(*x, py::return_value_policy::copy);
+            } else if constexpr (std::is_same_v<T, UniformPtr>) {
+                if (!x) return py::none();
+                return castParamValue(x->value);  // a Value port's: the number, int, bool, text or vec3
             } else {
                 if (!x) return py::none();
                 using E = std::remove_const_t<typename T::element_type>;

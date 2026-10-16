@@ -99,7 +99,8 @@ BrushRail::BrushRail(QWidget* parent) : GlassPanel(parent, 28.0) {
                       const QString& tip) {
         auto* b = new RoundButton(this);
         b->setIcon(icon, 20);
-        b->setIconColor(tint, fill == theme::white() ? theme::ink() : Qt::white);
+        // The active tool's icon: white on the glass themes' fills (ink on white), whichever reads on a solid theme's.
+        b->setIconColor(tint, theme::glassy() ? (fill == theme::white() ? theme::ink() : QColor(Qt::white)) : theme::readableOn(fill));
         b->setFill(QColor(0, 0, 0, 0), fill);
         b->setCheckable(true);
         b->setToolTip(tip);
@@ -372,7 +373,7 @@ void PanelRail::paintEvent(QPaintEvent* /*event*/) {
         // The hovered row's label lights as its button does.
         QColor glass = static_cast<int>(i) == hovered_ ? theme::glassSolid().lighter(125) : theme::glassSolid();
         glass.setAlphaF(glass.alphaF() * expand_);
-        paintGlass(painter, pill, 10.0, glass);
+        paintGlass(painter, pill, 10.0, glass, theme::glassEdge());
         QColor text = theme::text();
         text.setAlphaF(expand_);
         painter.setPen(text);
@@ -395,7 +396,7 @@ BrushBar::BrushBar(QWidget* parent) : GlassPanel(parent, 28.0) {
     dot_ = dotLabel(theme::blue(), 9, name);
     name_ = new QLabel(tr("Comb"), name);
     name_->setFont(theme::uiFont(14, 800));
-    name_->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    name_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     nameLayout->addWidget(dot_);
     nameLayout->addWidget(name_);
     layout->addWidget(name);
@@ -693,7 +694,7 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
         row->setSpacing(8);
         auto* label = new QLabel(text, host);
         label->setFont(theme::uiFont(13, 600));
-        label->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+        label->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
         label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         label->setMinimumWidth(40);
         row->addWidget(label, 1);
@@ -741,7 +742,7 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
     colorNote_ = new QLabel(materialPage_);
     colorNote_->setWordWrap(true);
     colorNote_->setFont(theme::uiFont(12, 500));
-    colorNote_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    colorNote_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     materialLayout->addWidget(colorNote_);
 
     moreButton_ = new RoundButton(materialPage_);
@@ -776,8 +777,8 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
     // The viewport's own pigment (the "This material" source): a try-on that is never saved.
     {
         QLabel* override = caption(moreLayout, tr("Viewport override"));
-        override->setText(QStringLiteral("%1 <span style=\"color:#8F8B84; font-weight:600; font-size:11px\">%2</span>")
-                              .arg(tr("Viewport override"), tr("viewport only")));
+        override->setText(QStringLiteral("%1 <span style=\"color:%3; font-weight:600; font-size:11px\">%2</span>")
+                              .arg(tr("Viewport override"), tr("viewport only"), theme::textMuted().name()));
         override->setToolTip(tr("A pigment tried in the viewport alone (the pigment source \"This material\"): not the "
                                 "groom's, not saved; the sliders above edit the groom's HairColor node"));
     }
@@ -955,8 +956,8 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
         b->setPadding(9);
         b->setFontSize(11);
         b->setFontWeight(700);
-        b->setFill(theme::chip(), theme::yellow());
-        b->setTextColor(theme::textSoft(), theme::ink());
+        b->setFill(theme::chip(), theme::actionFill(theme::yellow()));
+        b->setTextColor(theme::textSoft(), theme::actionText(theme::ink()));
         b->setCheckable(true);
         const std::string preset = name;
         connect(b, &QAbstractButton::clicked, this, [this, preset] {
@@ -1121,7 +1122,7 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
     auto* note = new QLabel(tr("Render (top right) refines from a clean slate; the line at the bottom right counts the frames."), renderPage_);
     note->setWordWrap(true);
     note->setFont(theme::uiFont(12, 500));
-    note->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    note->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     renderLayout->addWidget(note);
     renderLayout->addStretch(1);
 
@@ -1164,7 +1165,7 @@ ColorEditor* LookCard::color(QBoxLayout* into, const QString& text, std::functio
     row->setSpacing(8);
     auto* label = new QLabel(text, host);
     label->setFont(theme::uiFont(13, 600));
-    label->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+    label->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
     // The label takes what the editor leaves (a long name clips rather than widen the card).
     label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     label->setMinimumWidth(40);
@@ -1187,7 +1188,7 @@ ColorEditor* LookCard::color(QBoxLayout* into, const QString& text, std::functio
 QLabel* LookCard::caption(QBoxLayout* into, const QString& text, int kinds, Target target) {
     auto* label = new QLabel(text, into->parentWidget());
     label->setFont(theme::uiFont(13, 800));
-    label->setStyleSheet(QStringLiteral("color: #F3F1EC; margin-top: 4px;"));
+    label->setStyleSheet(QStringLiteral("color: %1; margin-top: 4px;").arg(theme::text().name()));
     into->addWidget(label);
     if (target == Target::Surface) surfaceRows_.push_back({label, kinds});
     return label;
@@ -1399,9 +1400,9 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
     render_ = new RoundButton(this);
     render_->setText(tr("Render"));
     render_->setIcon(iconPath("play"), 15);
-    render_->setIconColor(Qt::white, Qt::white);
+    render_->setIconColor(theme::readableOn(theme::renderRed()), theme::readableOn(theme::renderRed()));
     render_->setFill(theme::renderRed(), theme::renderRed());
-    render_->setTextColor(Qt::white, Qt::white);
+    render_->setTextColor(theme::readableOn(theme::renderRed()), theme::readableOn(theme::renderRed()));
     render_->setDiameter(44);
     render_->setToolTip(tr("Render: the viewport refines the picture from scratch, accumulating frames until it converges "
                            "(the refine line at the bottom right counts them)"));
@@ -1417,7 +1418,7 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
     labelLayout->setContentsMargins(12, 6, 12, 6);
     toolName_ = new QLabel(toolLabel_);
     toolName_->setFont(theme::uiFont(13, 700));
-    toolName_->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    toolName_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     labelLayout->addWidget(toolName_);
     toolLabel_->hide();
 
@@ -1493,7 +1494,7 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
     toastLayout->setContentsMargins(14, 8, 14, 8);
     toastText_ = new QLabel(toast_);
     toastText_->setFont(theme::uiFont(13, 600));
-    toastText_->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    toastText_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     toastLayout->addWidget(toastText_);
     toast_->hide();
 
@@ -1505,11 +1506,11 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
         card->setSpacing(10);
         auto* title = new QLabel(tr("No groom open"), emptyCard_);
         title->setFont(theme::uiFont(18, 800));
-        title->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+        title->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
         card->addWidget(title);
         auto* hint = new QLabel(tr("Drop a .groom, .obj or .abc file on the window, or"), emptyCard_);
         hint->setFont(theme::uiFont(13, 500));
-        hint->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+        hint->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
         card->addWidget(hint);
         auto action = [this, card](const QString& text, const QString& key, const QColor& fill, const QColor& ink, auto slot) {
             auto* b = new RoundButton(emptyCard_);
@@ -1526,7 +1527,8 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
             card->addWidget(b);
             return b;
         };
-        action(tr("Open groom"), QStringLiteral("Ctrl+O"), theme::yellow(), theme::ink(), [this] { emit openRequested(); });
+        action(tr("Open groom"), QStringLiteral("Ctrl+O"), theme::actionFill(theme::yellow()), theme::actionText(theme::ink()),
+               [this] { emit openRequested(); });
         action(tr("New groom on mesh"), QStringLiteral("Ctrl+N"), theme::chip(), theme::text(), [this] { emit newRequested(); });
         action(tr("Start from a preset"), QString(), theme::chip(), theme::text(), [this] { emit presetsRequested(); });
         auto* recent = new QWidget(emptyCard_);
@@ -1535,7 +1537,7 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
         recentLayout_->setSpacing(4);
         recentCaption_ = new QLabel(tr("Recent"), recent);
         recentCaption_->setFont(theme::uiFont(12, 700));
-        recentCaption_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+        recentCaption_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
         recentCaption_->hide();
         recentLayout_->addWidget(recentCaption_);
         card->addWidget(recent);
@@ -1683,8 +1685,9 @@ void OverlayHost::refreshToolLabel() {
         return;
     }
     // The name and the key that brings the tool back: S for Select, B for the brushes.
-    toolName_->setText(QStringLiteral("%1 <span style=\"color:#8F8B84; font-weight:600\">%2</span>")
-                           .arg(toolSelect_ ? tr("Select") : theme::brushTitle(toolMode_), toolSelect_ ? QStringLiteral("S") : QStringLiteral("B")));
+    toolName_->setText(QStringLiteral("%1 <span style=\"color:%3; font-weight:600\">%2</span>")
+                           .arg(toolSelect_ ? tr("Select") : theme::brushTitle(toolMode_), toolSelect_ ? QStringLiteral("S") : QStringLiteral("B"),
+                                theme::textMuted().name()));
     toolLabel_->adjustSize();
     toolLabel_->move(rail_->geometry().right() + 12, active.center().y() - toolLabel_->height() / 2);
     // Not over the stats and the pills, which sit beside a full-height rail (a short window):

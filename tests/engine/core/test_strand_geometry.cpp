@@ -109,3 +109,38 @@ TEST(StrandGeometry, ShortStrandsAreSkipped) {
     const StrandMesh m = buildStrandMesh(s, nullptr, o);
     EXPECT_EQ(m.mesh.points.size(), 2u * (4 * 3 + 1));
 }
+
+TEST(StrandGeometry, PointsAloneAreTheMeshesPointsAndTheKeyFollowsTheTopology) {
+    const auto plane = test::makePlane(4);
+    StrandSet s = flatStrands(150, 6);  // past a parallel block of strands
+    s.addStrand(9, {Vec3f(0, 0, 0)});   // skipped: no vertices
+    // Bent a little, so the frames turn.
+    for (std::size_t k = 0; k < s.strandCount(); ++k) {
+        Vec3f* p = s.strandPoints(k);
+        for (std::size_t i = 0; i < s.strandPointCount(k); ++i) p[i].y += 0.02f * static_cast<float>(i * i) + 0.001f * k;
+    }
+    for (const auto style : {StrandMeshOptions::Style::Tube, StrandMeshOptions::Style::Ribbon}) {
+        StrandMeshOptions o;
+        o.style = style;
+        o.sides = 5;
+        o.widthScale = 1.5f;
+        const StrandMesh m = buildStrandMesh(s, plane.get(), o);
+        ASSERT_EQ(strandMeshPointCount(s, o), m.mesh.points.size());
+        std::vector<Vec3f> points(m.mesh.points.size());
+        strandMeshPoints(s, plane.get(), o, points.data());
+        EXPECT_TRUE(points == m.mesh.points);  // to the bit
+    }
+    // The key: the same for moved points and widths; another for other sides, strands or point counts.
+    StrandMeshOptions o;
+    const std::uint64_t key = strandMeshTopologyKey(s, o);
+    StrandSet moved = s;
+    for (Vec3f& p : moved.mutablePositions()) p = p + Vec3f(0.3f, 0.1f, 0.0f);
+    EXPECT_EQ(strandMeshTopologyKey(moved, o), key);
+    o.widthScale = 3.0f;
+    EXPECT_EQ(strandMeshTopologyKey(s, o), key);
+    o.sides = 6;
+    EXPECT_NE(strandMeshTopologyKey(s, o), key);
+    o.sides = 4;
+    EXPECT_NE(strandMeshTopologyKey(s.subset({0, 1, 2}), o), key);
+    EXPECT_NE(strandMeshTopologyKey(flatStrands(150, 7), o), strandMeshTopologyKey(flatStrands(150, 6), o));
+}

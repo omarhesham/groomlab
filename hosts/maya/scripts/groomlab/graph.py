@@ -117,21 +117,40 @@ class OperatorCatalog(object):
 CURVE_KINDS = ("Strands", "Guides", "Curves")
 
 
-def types_match(out_type, in_type):
+# Nodes whose output port is set by a param: a Value's kind, an Expression's output (a field or a value).
+VALUE_SETS = {"Value": ("kind",), "Expression": ("output",)}
+
+VALUE_KINDS = {"any": "Any", "number": "Number", "integer": "Integer", "bool": "Bool", "vec3": "Vec3",
+               "choice": "Choice", "text": "Text"}
+
+
+def types_match(out_type, in_type, out_kind=None, in_kind=None):
     """Whether an output of `out_type` can feed an input of `in_type`: the same type, or Curves
-    (strands or guides: the shaping nodes) on either side with Strands or Guides on the other
-    (the core's portTypesMatch)."""
-    if out_type == in_type:
-        return True
+    (strands or guides: the shaping nodes) on either side with Strands or Guides on the other, or a
+    Value into a Field (the core's portTypesMatch); for Values, their kinds (`out_kind`, `in_kind`:
+    "number", "integer", "bool", "vec3", "choice", "text"; None: any) must fit (valueKindsMatch)."""
     try:
-        return groomlab_core.port_types_match(getattr(groomlab_core.PortType, out_type),
-                                              getattr(groomlab_core.PortType, in_type))
-    except (AttributeError, TypeError):  # a name no port type has
-        return False
+        if out_type != in_type and not groomlab_core.port_types_match(getattr(groomlab_core.PortType, out_type),
+                                                                     getattr(groomlab_core.PortType, in_type)):
+            return False
+        if out_type != "Value":
+            return True
+        want = "number" if in_type == "Field" else (in_kind or "any")
+        return groomlab_core.value_kinds_match(getattr(groomlab_core.ValueKind, VALUE_KINDS[out_kind or "any"]),
+                                               getattr(groomlab_core.ValueKind, VALUE_KINDS[want]))
+    except (AttributeError, TypeError, KeyError):  # a name no port type (or kind) has
+        return out_type == in_type
 
 
 def kind_label(port_type):
     return {"Strands": "strands", "Guides": "guides", "Curves": "strands or guides"}.get(port_type, port_type)
+
+
+def port_label(port_type, value_kind=None):
+    """A port's type as a tooltip says it: a Value's with its kind ("number Value")."""
+    if port_type == "Value" and value_kind and value_kind != "any":
+        return "%s Value" % value_kind
+    return kind_label(port_type)
 
 
 def node_fields(node):
@@ -182,9 +201,15 @@ CLIPBOARD_KEY = "groomlabNodes"
 
 
 def linkable(spec):
-    """Whether a param (its spec) can take an input port: a mappable number (a field drives it), a
-    color that takes a color field (colorField: a Map's rgb output), a ramp (a Curve node)."""
-    return bool(spec) and bool(spec.get("mappable") or spec.get("colorField") or spec.get("kind") == "ramp")
+    """Whether a param (its spec) can take an input port (the spec's "port"): every param but the few
+    that set the node's own ports. A mappable number or a color field takes a Field port, a ramp a
+    Curve port, any other param a Value port (a Value node, an Expression set to give a value)."""
+    return bool(spec) and bool(spec.get("port"))
+
+
+def value_port(spec):
+    """Whether a param's input is a Value port (one value for the whole node)."""
+    return bool(spec) and (spec.get("port") or {}).get("type") == "Value"
 
 class GraphModel(object):
     """Nodes, connections and the output node of one groom graph."""
@@ -513,6 +538,10 @@ class GraphModel(object):
         elif node["type"] == "Input":
             key = (node["type"], params.get("type", "Strands"), exposed)
             bare = {"type": node["type"], "params": {"type": params.get("type", "Strands")}}
+        elif node["type"] in VALUE_SETS:  # its output's kind is its param's (a Value's kind)
+            own = {p: params[p] for p in VALUE_SETS[node["type"]] if p in params}
+            key = (node["type"], json.dumps(own, sort_keys=True), exposed)
+            bare = {"type": node["type"], "params": own}
         else:
             self.catalog.spec(node["type"])  # the catalog's error for an unknown type
             key = (node["type"], None, exposed)
@@ -536,10 +565,13 @@ class GraphModel(object):
     def expose_param(self, name, param):
         """Give a param an input port: a mappable param a Field port (Field, FieldNoise, ... drive it),
         a color param that takes a color field (colorField: a Map's rgb output colors it) one too, a
-        ramp param a Curve port (a Curve node drives it)."""
+        ramp param a Curve port (a Curve node drives it), any other a Value port (a Value node, or an
+        Expression set to give a value, sets it for the whole node)."""
         spec = self.param_spec(name, param)
+        if spec is None:
+            raise GraphError("%s has no param %r" % (name, param))
         if not linkable(spec):
-            raise GraphError("%s.%s is neither a mappable, a color nor a ramp param" % (name, param))
+            raise GraphError("%s.%s cannot be an input: it sets the node's own ports" % (name, param))
         if any(p["name"] == param for p in self._base_inputs(name)):
             raise GraphError("%s already has an input named %r" % (name, param))
         exposed = self._node(name).setdefault("paramInputs", [])
@@ -967,11 +999,14 @@ class GraphModel(object):
                 output = self.output_of(name, port["name"])
                 if output not in self.output_names(source):  # e.g. a Compound's definition changed
                     problems.append("%s has no output %r (%s.%s reads it)" % (source, output, name, port["name"]))
-                elif not types_match(self.output_type(source, output, edit), port["type"]):
-                    # e.g. a Noise now fed guides, still linked to a strands-only input
+                elif not types_match(self.output_type(source, output, edit), port["type"],
+                                     self.output_spec(source, output).get("valueKind"), port.get("valueKind")):
+                    # e.g. a Noise now fed guides, still linked to a strands-only input; a Value
+                    # node set to give a vector, still linked to a count
+                    out_spec = self.output_spec(source, output)
                     problems.append("%s gives %s but %s.%s takes %s" % (
-                        source, kind_label(self.output_type(source, output, edit)), name, port["name"],
-                        kind_label(port["type"])))
+                        source, port_label(self.output_type(source, output, edit), out_spec.get("valueKind")), name,
+                        port["name"], port_label(port["type"], port.get("valueKind"))))
             for param, value in self.nodes[name]["params"].items():
                 source = map_source(value)
                 if source is not None and not value[source]:

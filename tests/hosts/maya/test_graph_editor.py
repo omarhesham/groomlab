@@ -640,11 +640,59 @@ class GraphApiTest(unittest.TestCase):
         self.assertNotEqual(cmds.exactWorldBoundingBox(self.groom), before)  # shorter strands
         with self.assertRaises(gm.GraphError):
             model.connect("scatter", "length", "keep")  # strands do not fit a field port
+        # Not mappable: one value for the whole node (a Value port), which a field cannot feed.
+        model.expose_param("length", "trimMin")
+        self.assertEqual(model.input_spec("length", "trimMin")["type"], "Value")
+        self.assertEqual(model.input_spec("length", "trimMin")["valueKind"], "number")
         with self.assertRaises(gm.GraphError):
-            model.expose_param("length", "mode")  # not mappable
+            model.connect(noise, "length", "trimMin")
+        with self.assertRaises(gm.GraphError):
+            model.expose_param("length", "nope")
+        model.unexpose_param("length", "trimMin")
         model.unexpose_param("length", "keep")
         self.assertIsNone(model.source_of("length", "keep"))
         model.save(self.groom)
+        self.assertEqual(cmds.exactWorldBoundingBox(self.groom), before)
+
+    def test_value_nodes_drive_any_param(self):
+        # Every param of every node can be an input, but the few that set a node's own ports.
+        ports = {"Compound.definition", "Expression.output", "Input.name", "Input.type", "Value.kind"}
+        for op_type in self.catalog.types():
+            for spec in self.catalog.spec(op_type)["params"]:
+                self.assertEqual(gm.linkable(spec), "%s.%s" % (op_type, spec["name"]) not in ports,
+                                 "%s.%s" % (op_type, spec["name"]))
+        model = gm.GraphModel.from_groom(self.groom, self.catalog)
+        before = cmds.exactWorldBoundingBox(self.groom)
+        # A Value node sets Scatter's seed (an integer, the same on every frame) for the whole node.
+        model.expose_param("scatter", "seed")
+        self.assertEqual(model.input_spec("scatter", "seed")["type"], "Value")
+        value = model.add_node("Value", params={"kind": "integer", "integer": 11})
+        self.assertEqual(model.output_spec(value)["type"], "Value")
+        self.assertEqual(model.output_spec(value)["valueKind"], "integer")
+        model.connect(value, "scatter", "seed")
+        self.assertEqual(model.driver_of("scatter", "seed"), value)
+        model.save(self.groom)
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertNotEqual(cmds.exactWorldBoundingBox(self.groom), before)  # other roots
+        # Saved, the seed keeps its own value; the link is in the graph.
+        stored = groomlab.get_graph(self.groom)
+        self.assertEqual([n for n in stored["nodes"] if n["name"] == "scatter"][0]["params"]["seed"], 0)
+        self.assertIn({"from": value, "to": "scatter", "input": "seed"}, stored["connections"])
+        # A vector cannot set an integer; an Expression set to give a value of the frame cannot set a
+        # seed (it must stay the same on every frame).
+        vector = model.add_node("Value", params={"kind": "vector"})
+        with self.assertRaises(gm.GraphError):
+            model.connect(vector, "scatter", "seed")
+        frame = model.add_node("Expression", params={"output": "value", "expression": "frame"})
+        model.connect(frame, "scatter", "seed")
+        model.save(self.groom)
+        cmds.exactWorldBoundingBox(self.groom)  # evaluated
+        self.assertTrue(any("changes over time" in e for e in groomlab.errors(self.groom)), groomlab.errors(self.groom))
+        model.unexpose_param("scatter", "seed")
+        for name in (value, vector, frame):
+            model.remove_node(name)
+        model.save(self.groom)
+        self.assertEqual(groomlab.errors(self.groom), [])
         self.assertEqual(cmds.exactWorldBoundingBox(self.groom), before)
 
     def test_view_node_stats_bypass_copy_paste(self):

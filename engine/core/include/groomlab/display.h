@@ -34,6 +34,7 @@
 #include "groomlab/parts.h"
 #include "groomlab/scales.h"
 #include "groomlab/scalp_mesh.h"
+#include "groomlab/strand_geometry.h"
 #include "groomlab/strand_set.h"
 #include "groomlab/texture.h"
 
@@ -263,6 +264,15 @@ void writeOverlayColors(const DisplayGeometry& geometry, const std::vector<float
 // bitangents: the card effect's, which two-sided lighting never turns round) with the atlas uvs
 // when `textured` (else zeros) and each card's tint as colors (RGBA: half the tint, alpha 1).
 DisplayGeometry cardGeometry(const CardMesh& cards, bool textured);
+
+// ---- StrandMesh nodes -------------------------------------------------------------------------
+
+// The StrandMesh nodes' meshes (buildStrandMesh's tubes and ribbons: the same points) as a lit
+// surface, drawn as the scales are (scaleSurface): normals out of each tube (a ribbon's across its
+// plane), tangents along the strand, each point in its strand's own color (HairColor's channels;
+// `color` without them), uvs x root (0) to tip (1).
+DisplayGeometry strandMeshGeometry(const std::vector<StrandMeshSource>& meshes, const ScalpMesh* scalp,
+                                   const std::array<float, 3>& color);
 // The card map: `color` (sRGB) darkened by half of `ao` (when given), the coverage in the
 // alpha; RGBA8 images of one size (as read: the rows' order is kept).
 std::vector<std::uint8_t> combineCardMaps(const std::uint8_t* color, const std::uint8_t* coverage, const std::uint8_t* ao,
@@ -338,6 +348,9 @@ struct DisplaySettings {
     bool flow = true;
     bool drawCards = false;     // the cards draw here (cardsView, and no card mesh draws them)
     bool cardTextures = false;  // ... with their baked maps (loaded by the host)
+    // The StrandMesh nodes' meshes show instead of the strands (when there are any).
+    bool strandMeshView = false;
+    bool drawStrandMesh = false;  // ... and draw here (no mesh of the host's shows them)
     DisplayTheme theme;
 };
 
@@ -353,9 +366,10 @@ struct DisplayInputs {
     PartsPtr parts;
     FlowPtr flow;
     std::shared_ptr<const CardMesh> cards;
-    // Counters that move when the strands, guides or cards changed (ViewResult::versions or the
-    // host's own).
-    std::uint64_t strandsVersion = 0, hierarchyVersion = 0, cardsVersion = 0;
+    std::vector<StrandMeshSource> strandMeshes;  // ViewResult::strandMeshes
+    // Counters that move when the strands, guides, cards or strand meshes changed
+    // (ViewResult::versions or the host's own).
+    std::uint64_t strandsVersion = 0, hierarchyVersion = 0, cardsVersion = 0, strandMeshVersion = 0;
     // Which strands these are and how they differ from earlier ones (ViewResult::strandsSerial,
     // changesBase, strandsChanges): strand lines whose host holds those of serial changesBase are
     // written again only where the strands changed (DisplayItem::updated). 0: not known.
@@ -379,11 +393,11 @@ struct DisplayInputs {
     static DisplayInputs fromView(const ViewResult& view, bool stroke = false);
 };
 
-enum class DisplayPart { Strands, Instances, Guides, Selection, Parts, Flow, Cards, ScalpMap, Count };
+enum class DisplayPart { Strands, Instances, Guides, Selection, Parts, Flow, Cards, ScalpMap, StrandMesh, Count };
 // In drawing (upload) order.
 enum class DisplayItemId {
     DimStrands, Strands, ColoredStrands, Ribbons, InstanceMarkers, InstanceMeshes, Scales, Guides, Tubes, Selected,
-    SoftSelected, Parts, Flow, FlowField, Cards, ScalpMap, Count
+    SoftSelected, Parts, Flow, FlowField, Cards, ScalpMap, StrandMesh, Count
 };
 constexpr std::size_t kDisplayItemCount = static_cast<std::size_t>(DisplayItemId::Count);
 constexpr std::size_t kDisplayPartCount = static_cast<std::size_t>(DisplayPart::Count);
@@ -661,6 +675,7 @@ private:
     void buildSelection(const DisplayInputs& in, const DisplaySettings& s);
     void buildOverlays(const DisplayInputs& in, const DisplaySettings& s);
     void buildCards(const DisplayInputs& in, const DisplaySettings& s);
+    void buildStrandMesh(const DisplayInputs& in, const DisplaySettings& s);
     void buildScalpMap(const DisplayInputs& in, const DisplaySettings& s);
     bool rebuild(DisplayPart part, std::uint64_t key);
     void put(DisplayItemId id, DisplayGeometry&& geometry);

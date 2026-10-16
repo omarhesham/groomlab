@@ -116,6 +116,7 @@ add_library(groomlab_core_objects OBJECT
     src/operators/simulate_op.cpp
     src/operators/sources.cpp
     src/operators/static_op.cpp
+    src/operators/strand_mesh_op.cpp
     src/operators/transform_ops.cpp
     src/operators/tie_op.cpp
     src/operators/wet_op.cpp

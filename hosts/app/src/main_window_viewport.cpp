@@ -99,6 +99,7 @@ void MainWindow::applyProps() {
     std::vector<SurfacePtr> props = props_;
     if (cardSurface_) props.push_back(cardSurface_);
     viewport_->renderer().setProps(props);
+    if (headless_) headless_->renderer.setProps(props);
     // Every prop is a collider by its name (a head loaded beside the scalp): a ColliderMesh node
     // naming it keeps the hair out of it, as Maya's collider inputs do. The groom file's own
     // colliders stay, a prop of the same name in their place.

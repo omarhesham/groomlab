@@ -5,6 +5,7 @@
 // group restriction). A Group node (group_op.cpp) writes named masks for it to read.
 
 #include <algorithm>
+#include <cmath>
 #include <set>
 
 #include "groomlab/field.h"
@@ -36,7 +37,7 @@ bool takesAffect(const Operator& op) {
     // two sets themselves: their result is not the same strands as their input to mix with.
     static const std::set<std::string> kNot = {
         op::kOutput, op::kResample, op::kCull,  op::kMerge,       op::kSwitch,   op::kBlend, op::kMirror,
-        op::kCards,  op::kInstance, op::kScales, op::kSplit, op::kInterpolate, op::kCompound, op::kInput, op::kGroup,
+        op::kCards,  op::kStrandMesh, op::kInstance, op::kScales, op::kSplit, op::kInterpolate, op::kCompound, op::kInput, op::kGroup,
     };
     if (kNot.count(op.typeName())) return false;
     const std::vector<PortSpec> inputs = op.inputs();
@@ -67,6 +68,127 @@ std::vector<ParamSpec> allParamSpecs(const Operator& op) {
         if (!own) specs.push_back(std::move(common));
     }
     return specs;
+}
+
+std::vector<ParamSpec> nodeParamSpecs(const Operator& op) {
+    std::vector<ParamSpec> specs = allParamSpecs(op);
+    for (ParamSpec& extra : op.extraParamSpecs()) {
+        const bool known = std::any_of(specs.begin(), specs.end(), [&](const ParamSpec& s) { return s.name == extra.name; });
+        if (!known) specs.push_back(std::move(extra));
+    }
+    return specs;
+}
+
+// ---- Value ports ----
+
+const char* valueKindName(ValueKind kind) {
+    switch (kind) {
+        case ValueKind::Any: return "any";
+        case ValueKind::Number: return "number";
+        case ValueKind::Integer: return "integer";
+        case ValueKind::Bool: return "bool";
+        case ValueKind::Vec3: return "vec3";
+        case ValueKind::Choice: return "choice";
+        case ValueKind::Text: return "text";
+    }
+    return "any";
+}
+
+ValueKind valueKindFromName(const std::string& name) {
+    for (const ValueKind kind : {ValueKind::Any, ValueKind::Number, ValueKind::Integer, ValueKind::Bool, ValueKind::Vec3,
+                                 ValueKind::Choice, ValueKind::Text}) {
+        if (name == valueKindName(kind)) return kind;
+    }
+    throw GraphError("unknown value kind '" + name + "' (any, number, integer, bool, vec3, choice or text)");
+}
+
+namespace {
+bool numeric(ValueKind k) { return k == ValueKind::Number || k == ValueKind::Integer || k == ValueKind::Bool; }
+bool textual(ValueKind k) { return k == ValueKind::Choice || k == ValueKind::Text; }
+}  // namespace
+
+bool valueKindsMatch(ValueKind out, ValueKind in) {
+    if (out == ValueKind::Any || in == ValueKind::Any || out == in) return true;
+    if (numeric(out)) return numeric(in) || in == ValueKind::Vec3;
+    if (textual(out)) return textual(in);
+    return false;  // a vector feeds only a vector
+}
+
+ValueKind valueKindOf(const ParamValue& value, bool choice) {
+    if (std::holds_alternative<bool>(value)) return ValueKind::Bool;
+    if (std::holds_alternative<std::int64_t>(value)) return ValueKind::Integer;
+    if (std::holds_alternative<double>(value)) return ValueKind::Number;
+    if (std::holds_alternative<std::string>(value)) return choice ? ValueKind::Choice : ValueKind::Text;
+    if (std::holds_alternative<Vec3f>(value)) return ValueKind::Vec3;
+    return ValueKind::Any;
+}
+
+FieldPtr uniformField(const UniformValue& value) {
+    if (const double* d = std::get_if<double>(&value.value)) return constantField(static_cast<float>(*d));
+    if (const std::int64_t* i = std::get_if<std::int64_t>(&value.value)) return constantField(static_cast<float>(*i));
+    if (const bool* b = std::get_if<bool>(&value.value)) return constantField(*b ? 1.0f : 0.0f);
+    return nullptr;
+}
+
+bool paramMappable(const ParamSpec& spec) { return spec.description.find("(mappable") != std::string::npos; }
+
+bool paramPortSpec(const ParamSpec& spec, PortSpec* port) {
+    if (spec.port == ParamSpec::Port::None) return false;
+    PortSpec p;
+    p.name = spec.name;
+    p.optional = true;
+    const ParamValue& d = spec.defaultValue;
+    const bool map = std::holds_alternative<MapRef>(d);
+    const bool ramp = std::holds_alternative<Ramp>(d);
+    if (spec.port == ParamSpec::Port::Auto && ramp) {
+        p.type = PortType::Curve;
+    } else if (spec.port == ParamSpec::Port::Auto && (paramMappable(spec) || spec.colorField || map)) {
+        p.type = PortType::Field;
+    } else if (map || ramp) {
+        return false;  // no Value holds a map or a ramp
+    } else {
+        p.type = PortType::Value;
+        p.valueKind = valueKindOf(d, !spec.choices.empty());
+    }
+    if (port) *port = p;
+    return true;
+}
+
+ParamValue uniformAsParam(const ParamValue& value, const ParamSpec& spec) {
+    const ParamValue& want = spec.defaultValue;
+    double number = 0.0;
+    bool isNumber = true;
+    if (const double* d = std::get_if<double>(&value)) number = *d;
+    else if (const std::int64_t* i = std::get_if<std::int64_t>(&value)) number = static_cast<double>(*i);
+    else if (const bool* b = std::get_if<bool>(&value)) number = *b ? 1.0 : 0.0;
+    else isNumber = false;
+    const std::string what = "param '" + spec.name + "' takes " + valueKindName(valueKindOf(want, !spec.choices.empty()));
+    if (std::holds_alternative<double>(want) && isNumber) return number;
+    if (std::holds_alternative<std::int64_t>(want) && isNumber) {
+        if (!(number >= -9.2233720368547758e18 && number < 9.2233720368547758e18)) {
+            throw GraphError(what + ": " + std::to_string(number) + " is out of range for an integer");
+        }
+        return static_cast<std::int64_t>(std::llround(number));
+    }
+    if (std::holds_alternative<bool>(want) && isNumber) return number > 0.5;
+    if (std::holds_alternative<Vec3f>(want)) {
+        if (const Vec3f* v = std::get_if<Vec3f>(&value)) return *v;
+        if (isNumber) {
+            const auto f = static_cast<float>(number);
+            return Vec3f(f, f, f);
+        }
+    }
+    if (std::holds_alternative<std::string>(want)) {
+        if (const std::string* text = std::get_if<std::string>(&value)) {
+            if (!spec.choices.empty() && std::find(spec.choices.begin(), spec.choices.end(), *text) == spec.choices.end()) {
+                std::string list;
+                for (const std::string& c : spec.choices) list += (list.empty() ? "" : ", ") + c;
+                throw GraphError(what + ": '" + *text + "' is not one of its choices (" + list + ")");
+            }
+            return *text;
+        }
+    }
+    throw GraphError(what + " and cannot take " + valueKindName(valueKindOf(value)));
 }
 
 const char* channelUseName(ChannelUse use) {

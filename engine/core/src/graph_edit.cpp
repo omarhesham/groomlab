@@ -67,8 +67,18 @@ std::string kindLabel(const std::string& type) {
 
 bool typesMatch(const std::string& out, const std::string& in) {
     if (out == in) return true;
-    const auto curve = [](const std::string& t) { return t == "Strands" || t == "Guides" || t == "Curves"; };
-    return (in == "Curves" && curve(out)) || (out == "Curves" && curve(in));
+    try {
+        return portTypesMatch(portTypeFromName(out), portTypeFromName(in));
+    } catch (const GraphError&) {  // a name no port type has
+        return false;
+    }
+}
+
+// A port's type as a message names it: a Value's with its kind ("a number Value").
+std::string portLabel(const json& port, const std::string& type) {
+    if (type != "Value") return kindLabel(type);
+    const std::string kind = port.value("valueKind", std::string("any"));
+    return kind == "any" ? std::string("a Value") : "a " + kind + " Value";
 }
 
 json definitionOf(const json& node) {
@@ -139,19 +149,34 @@ json specOfNode(const json& node) {
     spec["outdated"] = stored < spec.value("version", 1);
     if (!spec.contains("outputs")) spec["outputs"] = json::array({spec["output"]});
     const json params = node.value("params", json::object());
+    // A Value output of a kind no spec can say (any): an Input's, a compound's.
+    auto anyValue = [](json& port) {
+        if (port.value("type", std::string()) == "Value") port["valueKind"] = "any";
+        else port.erase("valueKind");
+    };
     if (type == "Input") {
         spec["output"]["type"] = params.value("type", std::string("Strands"));
+        anyValue(spec["output"]);
+        spec["outputs"] = json::array({spec["output"]});
+    } else if (type == "Value" || type == "Expression") {
+        // Their output as their params set it (ValueOp, ExpressionOp): the node made as they are.
+        const std::unique_ptr<Operator> op = operatorFromJson(type, params.dump());
+        spec["output"] = {{"name", op->output().name}, {"type", portTypeName(op->output().type)}};
+        if (op->output().type == PortType::Value) spec["output"]["valueKind"] = valueKindName(op->output().valueKind);
         spec["outputs"] = json::array({spec["output"]});
     } else if (type == "Compound") {
         const json definition = definitionOf(node);
         json inputs = json::array();
         for (const json& port : definition.value("inputs", json::array())) {
-            inputs.push_back({{"name", port.value("name", std::string())},
-                              {"type", port.value("type", std::string("Strands"))},
-                              {"optional", port.value("optional", false)}});
+            json in = {{"name", port.value("name", std::string())},
+                       {"type", port.value("type", std::string("Strands"))},
+                       {"optional", port.value("optional", false)}};
+            if (in["type"] == "Value") in["valueKind"] = port.value("valueKind", std::string("any"));
+            inputs.push_back(in);
         }
         spec["inputs"] = inputs;
         spec["output"]["type"] = definitionOutputType(definition);
+        anyValue(spec["output"]);
         spec["outputs"] = json::array({spec["output"]});  // a compound gives one output
         // The exposed params, each with its inner param's spec (range, unit, group, advanced...),
         // its default the inner node's value. In the look's order: the inner nodes as the graph
@@ -179,6 +204,17 @@ json specOfNode(const json& node) {
                     exposedSpec["name"] = exposed;
                     exposedSpec["description"] = innerSpec.value("description", std::string()) + " (exposed " + names->first + ")";
                     if (innerParams.is_object() && innerParams.contains(param)) exposedSpec["default"] = innerParams[param];
+                    // As an input of the compound's node: one value (CompoundOp::extraParamSpecs).
+                    if (exposedSpec.contains("port")) {
+                        const std::string kind = exposedSpec.value("kind", std::string());
+                        const json* choices = exposedSpec.contains("choices") ? &exposedSpec["choices"] : nullptr;
+                        const bool choice = choices && choices->is_array() && !choices->empty();
+                        const std::string valueKind = kind == "float" ? "number" : kind == "int" ? "integer"
+                                                    : kind == "bool"  ? "bool"   : kind == "vec3" ? "vec3"
+                                                    : kind == "string" ? (choice ? "choice" : "text") : "";
+                        if (valueKind.empty()) exposedSpec.erase("port");
+                        else exposedSpec["port"] = {{"type", "Value"}, {"valueKind", valueKind}};
+                    }
                     // When it shows: by the compound's param for the inner param it names when that
                     // is exposed too; else always (the compound cannot change what it names).
                     if (exposedSpec.contains("showWhen")) {
@@ -194,14 +230,19 @@ json specOfNode(const json& node) {
     }
     const json exposedInputs = node.value("paramInputs", json::array());
     if (exposedInputs.is_array() && !exposedInputs.empty()) {
-        std::set<std::string> ramps;
+        // Each its param's port (operatorSpecsJson's "port": Field, Curve or a Value of its kind).
+        std::map<std::string, json> ports;
         for (const json& p : spec.value("params", json::array())) {
-            if (p.value("kind", std::string()) == "ramp") ramps.insert(p.value("name", std::string()));
+            if (p.contains("port")) ports[p.value("name", std::string())] = p["port"];
         }
         for (const json& param : exposedInputs) {
             if (!param.is_string()) continue;
             const std::string name = param.get<std::string>();
-            spec["inputs"].push_back({{"name", name}, {"type", ramps.count(name) ? "Curve" : "Field"}, {"optional", true}, {"param", true}});
+            const auto port = ports.find(name);
+            json in = {{"name", name}, {"type", port != ports.end() ? port->second.value("type", std::string("Field")) : "Field"},
+                       {"optional", true}, {"param", true}};
+            if (port != ports.end() && port->second.contains("valueKind")) in["valueKind"] = port->second["valueKind"];
+            spec["inputs"].push_back(in);
         }
     }
     return spec;
@@ -333,10 +374,21 @@ struct GraphEdit::Impl {
         std::set<std::string> seen;
         const std::string outType = outputType(src, output, seen);
         const std::string inType = port.value("type", std::string());
-        if (!typesMatch(outType, inType)) {
-            const std::string named = !output.empty() && outputNames(src).size() > 1 ? src + "." + output : src;
-            throw GraphError("cannot connect " + named + " (it gives " + kindLabel(outType) + ") to " + dst + "." + input +
-                             " (it takes " + kindLabel(inType) + ")");
+        const std::string named = !output.empty() && outputNames(src).size() > 1 ? src + "." + output : src;
+        if (outType == "Field" && inType == "Value") {
+            throw GraphError("cannot connect " + named + " to " + dst + "." + input + ": it gives a value per strand (a " +
+                             "Field), and " + input + " takes one value for the whole node (drive it with a Value node, " +
+                             "or an Expression set to give a value)");
+        }
+        bool match = typesMatch(outType, inType);
+        if (match && outType == "Value") {
+            const ValueKind outKind = valueKindFromName(out.value("valueKind", std::string("any")));
+            const ValueKind inKind = inType == "Field" ? ValueKind::Number : valueKindFromName(port.value("valueKind", std::string("any")));
+            match = valueKindsMatch(outKind, inKind);
+        }
+        if (!match) {
+            throw GraphError("cannot connect " + named + " (it gives " + portLabel(out, outType) + ") to " + dst + "." + input +
+                             " (it takes " + (inType == "Field" ? std::string("a Field or a number") : portLabel(port, inType)) + ")");
         }
         if (src == dst || upstream(src).count(dst)) throw GraphError("connecting " + src + " to " + dst + " would create a cycle");
         disconnect(dst, input);

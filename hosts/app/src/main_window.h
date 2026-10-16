@@ -218,6 +218,9 @@ public:
     void checkForUpdates();
     // Help > Support GroomLab: the donations page (kDonateUrl) in the browser.
     void openDonate();
+    // View > Theme: saves the theme (QSettings ui/theme) for the next start, when the window is
+    // built in its colors; false (nothing saved) for a theme that isn't embedded.
+    bool chooseTheme(const QString& name);
     // "material", "lighting" or "render": the look card's tab (Look mode); "more" after a comma
     // ("material,more") opens the material's full settings. False for another word.
     bool setUiLookTab(const QString& name);
@@ -239,9 +242,12 @@ public:
     OverlayHost* overlay() { return host_; }
     // The window as shown, with the floating UI over the viewport's frame: the viewport's
     // texture with the pieces rendered over it (QWidget::grab cannot see a QRhiWidget's frame).
-    QImage grabUi();
+    // `scene`, when given, stands in for the viewport's frame.
+    QImage grabUi(const QImage& scene = QImage());
     // grabUi after the next frame the viewport draws (and a moment for the layout to settle),
-    // then `done` with it: the scripted --ui-screenshot.
+    // then `done` with it: the scripted --ui-screenshot. Without a window system
+    // (QT_QPA_PLATFORM=offscreen: the viewport never draws) the scene comes from an offscreen
+    // device instead, so the UI can be captured with no window on the desktop.
     void captureUi(const std::function<void(const QImage&)>& done);
     // One step of an interaction (mode: orbit, hover, stroke, param) on every frame the window
     // draws, N frames; reports the time between frames on screen, in the input's handling and

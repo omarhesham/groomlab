@@ -73,6 +73,7 @@ public:
     bool searchOpen() const;
     int nodeCount() const { return static_cast<int>(nodes_.size()); }
     int backdropCount() const { return static_cast<int>(backdrops_.size()); }
+    int wireCount() const { return static_cast<int>(wires_.size()); }  // the links drawn
     // Each node's time in its last run (ms, by name): a badge in its header (Maya's heat badges).
     void setNodeTimes(const std::vector<std::pair<std::string, double>>& times);
     // Each node's note from the last evaluation (it does nothing as set: a Clump with no centers):

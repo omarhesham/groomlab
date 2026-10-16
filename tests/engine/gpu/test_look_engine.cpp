@@ -1228,6 +1228,23 @@ TEST_P(LookEngineTest, APluggedFieldTimesTheDraggedNumber) {
     EXPECT_GPU_MATCHES(g.json(), (gpu::Overrides{{"width", {{"width", 0.035}}}}), c.json());
 }
 
+TEST_P(LookEngineTest, AValueInputSetsAParamTheGpuReads) {
+    // A Value node setting Noise's octaves (a Value port): the GPU reads the node's params as the
+    // CPU set them. A drag of the param it sets is the CPU's (the value wins there).
+    LookGraph g;
+    g.noise = R"("params": {"amplitude": 0.3, "frequency": 1.0, "octaves": 1}, "paramInputs": ["octaves"])";
+    g.nodes = R"(, {"name": "octaves", "type": "Value", "params": {"kind": "integer", "integer": 4}})";
+    g.connections = R"(, {"from": "octaves", "to": "noise", "input": "octaves"})";
+    LookGraph c;
+    c.noise = R"("params": {"amplitude": 0.4, "frequency": 1.0, "octaves": 4})";
+    EXPECT_GPU_MATCHES(g.json(), (gpu::Overrides{{"noise", {{"amplitude", 0.4}}}}), c.json());
+    GroomSession session(groom(g.json()));
+    ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+    std::string why;
+    EXPECT_FALSE(gpu::previewableOverrides(*session.viewDocument(), {{"noise", {{"octaves", 2.0}}}}, &why));
+    EXPECT_NE(why.find("Value input"), std::string::npos) << why;
+}
+
 TEST_P(LookEngineTest, PluggedCurvesAndManyKeys) {
     // A Curve node plugged into Noise's profile, a profile of twelve keys on Curl.
     LookGraph g;

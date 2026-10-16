@@ -471,6 +471,15 @@ class GraphEditorTest(unittest.TestCase):
         self._action("Export for Unity...")  # present only: a click opens a file dialog
         self._action("Export glTF...")
         self._action("Bake Scalp")
+        # StrandMesh: its mesh shows (displayStrandMesh); Mesh in Scene puts a Maya mesh on outStrandMesh.
+        strand_mesh = self.editor.add_node("StrandMesh")
+        self._select_node(strand_mesh)
+        shown = [b for b in self.editor.params.findChildren(_qw.QCheckBox) if b.objectName() == "nodeAction_ShowStrandMesh"]
+        self.assertEqual(len(shown), 1)
+        self.assertTrue(shown[0].isChecked())
+        self._action("Mesh in Scene").click()
+        wait(50)
+        self.assertTrue(cmds.listConnections(self.groom + ".outStrandMesh", destination=True, source=False))
         self._select_node("length")
         from PySide2 import QtWidgets
         self.assertFalse([b for b in self.editor.params.findChildren(QtWidgets.QPushButton)
@@ -638,6 +647,31 @@ class GraphEditorTest(unittest.TestCase):
         self.assertEqual(groomlab.errors(self.groom), [])
         self.assertNotIn("Paint", [a.text() for a in self.editor.params.build_param_menu("output", "strands").actions()]
                          if self.editor.model.param_spec("output", "strands") else ["x"])
+
+    def test_any_param_exposed_and_set_by_a_value(self):
+        from PySide2 import QtWidgets
+        # A seed (no field can drive it) offers Expose as Input too: a Value port a Value node sets.
+        menu = self.editor.params.build_param_menu("scatter", "seed")
+        expose = next((a for a in menu.actions() if a.text() == "Expose as Input"), None)
+        self.assertIsNotNone(expose)
+        expose.trigger()
+        wait(50)
+        self.assertIn("seed", self.editor.model.param_inputs("scatter"))
+        port = self.editor.items["scatter"].inputs["seed"]
+        self.assertEqual((port.port_type, port.value_kind), ("Value", "integer"))
+        value = self.editor.add_node("Value")
+        self.editor.set_param(value, "kind", "integer")
+        self.editor.rebuild()
+        out = self.editor.items[value].output
+        self.assertEqual((out.port_type, out.value_kind), ("Value", "integer"))
+        self.assertTrue(self.editor.scene.compatible(out, port))
+        self.assertFalse(self.editor.scene.compatible(self.editor.items["interpolate"].output, port))
+        self.editor.link(value, "scatter", "seed")
+        self.assertEqual(self.editor.model.driver_of("scatter", "seed"), value)
+        self.editor.params.show_node("scatter")
+        texts = [w.text() for w in self.editor.params.widget().findChildren(QtWidgets.QLabel)]
+        self.assertTrue(any("driven by" in t and value in t for t in texts), texts)
+        self.assertEqual(groomlab.errors(self.groom), [])
 
     def test_real_units(self):
         from PySide2 import QtWidgets
@@ -2678,7 +2712,7 @@ class DockableWindowsTest(unittest.TestCase):
                       if not cmds.menuItem(i, query=True, divider=True)]
             self.assertEqual(labels, ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Guides", "Groom Files",
                                       "Import", "Add", "Simulate (GroomLab)", "nHair (legacy)", "Review", "Export", "Utilities",
-                                      "Install GroomLab Hotkeys", "Check for Updates...", "Help", "Support GroomLab"])
+                                      "Theme", "Install GroomLab Hotkeys", "Check for Updates...", "Help", "Support GroomLab"])
 
             def entries_of(label, tooltips=True):
                 sub = next(menu.MENU + "|" + i for i in cmds.menu(menu.MENU, query=True, itemArray=True)

@@ -44,9 +44,9 @@ follow it.
 | Motion | Wind, Jiggle, Simulate | Procedural motion and guide simulation ([Motion & simulation](/docs/motion-and-simulation)). |
 | Feathers | Propagate, Plume, Split | Feathers grown from shafts and layered over the body ([Fur & feathers](/docs/fur-and-feathers)). |
 | Color | HairColor, Bands, FeatherColor, RenderData | Hair color, banded fur, feather patterns ([Color patterns](/docs/color-patterns)); opacity ([Rendering](/docs/rendering)). |
-| Convert | ToGuides, ToStrands | Convert strands to guides and back. |
+| Convert | ToGuides, ToStrands, StrandMesh | Convert strands to guides and back; strands as a live polygon mesh. |
 | Fields & Curves | Map, Expression, Control, FieldNoise, FieldRemap, FieldCombine, Curve | Drive parameters from maps, images, expressions or sliders. |
-| Utility | Group, Blend, Attribute, Merge, Switch, Output | Strand masks, custom attributes, blending and combining branches, variants. |
+| Utility | Value, Group, Blend, Attribute, Merge, Switch, Output | One value for any param, strand masks, custom attributes, blending and combining branches, variants. |
 | Games | Cards | Game hair cards ([Game export](/docs/game-export)). |
 
 Random values are seeded from each strand's stable ID, so a groom evaluates identically on every
@@ -103,6 +103,7 @@ To keep strand lengths after clumping, add a **RestoreLength** after the Clump w
 | **Static** | Electrostatic repulsion between strands: the outer layer puffs out, tips lift away from the head, and clumps fray into single strands. The charge increases toward the tips (`profile`); `randomness` lets some strands move farther. | `strength`, `randomness`, `profile` |
 | **Sculpt** | Brushable procedural guides: place it after a ToGuides (dense guides interpolated from your sparse ones), select it in the Graph Editor, and the shaping brushes edit its guides. Edits are stored as bends and length changes along each guide, so upstream changes (combing the sparse guides, changing density) are applied under them. **Clear Edits** in its panel removes them. | `strength` |
 | **ToGuides** | Converts strands to guides mid-graph: interpolate dense, even guides from a few hand guides (Scatter + Interpolate, then ToGuides) and feed them to a second Interpolate, to Clump's `centers` or to a Sculpt node. `color` sets their display color while brushing. | `fraction`, `color` |
+| **StrandMesh** | Passes its strands on unchanged and builds a polygon mesh of them, as tubes (`sides` around) or flat ribbons. The mesh follows the animation with a fixed vertex and face count. Its position in the graph decides which strands the mesh shows. The groom draws the mesh in place of the strands (**Show mesh** switches back). **Mesh in Scene** makes a Maya mesh on the groom's `outStrandMesh` for Alembic export or renderers without curves ([Utilities](/docs/utilities#strands-as-a-mesh)). `density` and `maxStrands` keep the mesh light. | `style`, `sides`, `widthScale`, `maxStrands` |
 | **Part** | Opens the hair at parting lines: hair near a part turns away to its side. `partsFrom` `painted` uses lines drawn with the Part tool; `auto` detects parts where the hair splits to both sides of a line (a parting combed into the guides). `splitAngle` sets the minimum split angle; `minLength` discards short ones, such as a whorl's center. | `partsFrom`, `width`, `strength` |
 | **Tie** | Ponytails and hair ties. The affected strands (all, or a Group, map or expression in `affect`) run along the scalp from their roots to a ring at `center`, pass through it in order without crossing, and fan out into a tail along `direction`. Strands keep their length; strands too short to reach the tie lie along the scalp toward it. It writes a per-point `tail` attribute (0 before the tie, 1 after), so a Curl or Noise after it can be limited to the tail. Two Ties with different masks make a double ponytail; a second Tie further down gathers the tail again. In Maya, Pick beside `center` takes the selected vertex, locator or transform position. | `center`, `radius`, `direction`, `tightness`, `spread`, `twist`, `ease` |
 | **MeshCut** | Trims strands where they intersect a mesh (a ColliderMesh): `outside` for an obstacle, `inside` for a haircut hull. | `keep`, `offset` |
@@ -201,6 +202,42 @@ the param > Expose as Input; also Bands' `dye` and `undercoatDye`, FeatherColor'
 param's own color (white: the map as it is). A number param linked to `rgb` reads its luminance.
 **Split** routes
 strands to outputs `a` to `d`, by fraction or by a painted map.
+
+## Exposing parameters
+
+Every parameter can become an input on its node: right-click it > **Expose as Input** (in the app,
+right-click the row). The port it gets depends on the parameter:
+
+- **Field port** (per strand): mappable numbers and colors that take a color map. A field node
+  (Map, Expression, FieldNoise, Control...) gives each strand its own value, times the
+  parameter's own value.
+- **Curve port:** ramps. A Curve node gives the shape.
+- **Value port** (one value for the whole node): everything else, such as counts, seeds,
+  switches, choices, vectors, colors, text and plain numbers like Clump's `size`. The linked value
+  replaces the parameter's own, which the panel shows as "driven by".
+
+A **Value** node (Utility) gives one value: a number, integer, switch, vector, color or text. Text
+feeds a choice by name, for example `guides` for Clump's `centersFrom`. An **Expression** node with
+**output** set to `value` gives one number from `frame`, `time` and its own variables, for example
+`$base + frame * 0.01`. Per-strand variables, channels, maps and `rand()` are errors there,
+because there is no strand to read.
+
+Rules:
+
+- Numbers, integers and switches feed each other. An integer rounds, and a switch is on above 0.5.
+  A number also feeds a vector (every component) and a Field port (the same value on every strand).
+- A vector feeds only a vector or a color. Text feeds only text or a choice, and must be one of the
+  choices.
+- A Field output never feeds a Value port. Per-strand data cannot set a value the whole node shares.
+- A parameter that cannot be keyed (counts, densities, segments, seeds) accepts a Value port, but
+  only if the value is the same on every frame. An expression that reads the frame, or a keyed
+  Value node, makes the node report an error.
+- The parameter keeps its own value in the saved graph. Cutting the link brings it back.
+- A few parameters set the node's own ports and cannot be inputs: a Value node's `kind`, an
+  Expression's `output`, an Input node's `name` and `type`, and a Compound's `definition`.
+
+Inside a compound, an **Input** node of type `Value` makes a Value input on the compound. A
+compound's exposed parameters can also be exposed as inputs on the compound node, as Value ports.
 
 ## Attributes
 

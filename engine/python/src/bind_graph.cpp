@@ -135,17 +135,31 @@ void bindGraph(py::module_& m) {
         .value("Mesh", PortType::Mesh)
         .value("Field", PortType::Field)
         .value("Curve", PortType::Curve)
-        .value("Curves", PortType::Curves);
+        .value("Curves", PortType::Curves)
+        .value("Value", PortType::Value);
     m.def("port_types_match", &portTypesMatch, py::arg("out"), py::arg("in"), "Whether an output type can feed an input type.");
     m.def("port_type_name", &portTypeName, py::arg("type"));
+    py::enum_<ValueKind>(m, "ValueKind", "What a Value port holds.")
+        .value("Any", ValueKind::Any)
+        .value("Number", ValueKind::Number)
+        .value("Integer", ValueKind::Integer)
+        .value("Bool", ValueKind::Bool)
+        .value("Vec3", ValueKind::Vec3)
+        .value("Choice", ValueKind::Choice)
+        .value("Text", ValueKind::Text);
+    m.def("value_kinds_match", &valueKindsMatch, py::arg("out"), py::arg("in"),
+          "Whether a Value output of one kind can feed a Value input of another.");
+    m.def("value_kind_name", &valueKindName, py::arg("kind"));
 
-    py::class_<PortSpec>(m, "PortSpec", "An input or output port: name, type, optional.")
+    py::class_<PortSpec>(m, "PortSpec", "An input or output port: name, type, optional, and a Value port's kind.")
         .def(py::init<>())
         .def_readwrite("name", &PortSpec::name)
         .def_readwrite("type", &PortSpec::type)
         .def_readwrite("optional", &PortSpec::optional)
+        .def_readwrite("value_kind", &PortSpec::valueKind)
         .def("__repr__", [](const PortSpec& p) {
-            return std::string("<PortSpec '") + p.name + "' " + portTypeName(p.type) + (p.optional ? " optional>" : ">");
+            const std::string kind = p.type == PortType::Value ? std::string(" ") + valueKindName(p.valueKind) : std::string();
+            return std::string("<PortSpec '") + p.name + "' " + portTypeName(p.type) + kind + (p.optional ? " optional>" : ">");
         });
 
     py::class_<ParamSpec>(m, "ParamSpec", "A parameter's name, default, description, unit and choices.")
@@ -333,8 +347,10 @@ void bindGraph(py::module_& m) {
         .def("output_specs", &Graph::outputSpecs, py::arg("id"), "The node's output ports, the primary first.")
         .def("output_index", &Graph::outputIndex, py::arg("id"), py::arg("name"))
         .def("set_param_inputs", &Graph::setParamInputs, py::arg("id"), py::arg("params"),
-             "Exposes params as input slots after the operator's own (Field or Curve ports).")
+             "Exposes params as input slots after the operator's own (Field, Curve or Value ports).")
         .def("param_inputs", &Graph::paramInputs, py::arg("id"))
+        .def("param_driven", &Graph::paramDriven, py::arg("id"), py::arg("param"),
+             "Whether a Value input is plugged into the param.")
         .def("input_specs", &Graph::inputSpecs, py::arg("id"), "The operator's inputs followed by one port per exposed param.")
         .def("set_bypass", &Graph::setBypass, py::arg("id"), py::arg("bypass"))
         .def("bypassed", &Graph::bypassed, py::arg("id"))

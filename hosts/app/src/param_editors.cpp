@@ -41,8 +41,8 @@ RoundButton* chipButton(const QString& text, QWidget* parent) {
     b->setPadding(10);
     b->setFontSize(12);
     b->setFontWeight(700);
-    b->setFill(theme::chip(), theme::blue());
-    b->setTextColor(theme::textSoft(), Qt::white);
+    b->setFill(theme::chip(), theme::actionFill(theme::blue()));
+    b->setTextColor(theme::textSoft(), theme::actionText(Qt::white));
     return b;
 }
 
@@ -228,12 +228,13 @@ void RampEditor::paintEvent(QPaintEvent* /*event*/) {
     fill.lineTo(toScreen(1.0f, lo_));
     fill.lineTo(toScreen(0.0f, lo_));
     fill.closeSubpath();
-    QColor under = theme::yellow();
+    const QColor curve = theme::sliderFill(theme::yellow());
+    QColor under = curve;
     under.setAlpha(40);
     painter.setPen(Qt::NoPen);
     painter.setBrush(under);
     painter.drawPath(fill);
-    painter.setPen(QPen(theme::yellow(), 2.0));
+    painter.setPen(QPen(curve, 2.0));
     painter.setBrush(Qt::NoBrush);
     painter.drawPath(path);
     // The keys.
@@ -241,7 +242,7 @@ void RampEditor::paintEvent(QPaintEvent* /*event*/) {
         const QPointF p = toScreen(keys_[i].first, keys_[i].second);
         const bool on = static_cast<int>(i) == selected_;
         painter.setPen(QPen(on ? theme::text() : theme::ink(), on ? 2.0 : 1.5));
-        painter.setBrush(on ? theme::text() : theme::yellow());
+        painter.setBrush(on ? theme::text() : curve);
         painter.drawEllipse(p, kKeyRadius, kKeyRadius);
     }
     // The dragged key's numbers.
@@ -415,7 +416,7 @@ MapSourceEditor::MapSourceEditor(QWidget* constant, QWidget* parent) : QWidget(p
     expression_->setFont(theme::monoFont(12));
     pages_->addWidget(expression_);
     port_ = new QLabel(pages_);
-    port_->setStyleSheet(QStringLiteral("color: #B8B4AC;"));
+    port_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
     // Its sentence must not widen the panel (a stacked page's minimum is every page's): it
     // takes the width the row has and clips.
     port_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -435,7 +436,7 @@ MapSourceEditor::MapSourceEditor(QWidget* constant, QWidget* parent) : QWidget(p
     component_->setToolTip(tr("The channel read of a color map or image"));
     range->addWidget(component_);
     auto* arrow = new QLabel(tr("range"), rangeRow_);
-    arrow->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    arrow->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     range->addWidget(arrow);
     min_ = new QDoubleSpinBox(rangeRow_);
     min_->setRange(-1e6, 1e6);

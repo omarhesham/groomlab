@@ -161,7 +161,9 @@ MObject GroomShape::aDisplayInstances;
 MObject GroomShape::aCardDensity;
 MObject GroomShape::aOutCards;
 MObject GroomShape::aOutRachis;
+MObject GroomShape::aOutStrandMesh;
 MObject GroomShape::aDisplayCards;
+MObject GroomShape::aDisplayStrandMesh;
 MObject GroomShape::aCardMaps;
 MObject GroomShape::aDisplayCardTextures;
 MObject GroomShape::aDisplayOverlaysOnTop;
@@ -885,6 +887,9 @@ MStatus GroomShape::initialize() {
     aDisplayCards = nAttr.create("displayCards", "gldcd", MFnNumericData::kBoolean, false, &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
     nAttr.setStorable(true);
+    aDisplayStrandMesh = nAttr.create("displayStrandMesh", "gldsm", MFnNumericData::kBoolean, true, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    nAttr.setStorable(true);
     aDisplayOverlaysOnTop = nAttr.create("displayOverlaysOnTop", "gloot", MFnNumericData::kBoolean, true, &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
     nAttr.setStorable(true);
@@ -898,6 +903,11 @@ MStatus GroomShape::initialize() {
     tAttr.setStorable(false);
 
     aOutRachis = tAttr.create("outRachis", "glorc", MFnData::kMesh, MObject::kNullObj, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    tAttr.setWritable(false);
+    tAttr.setStorable(false);
+
+    aOutStrandMesh = tAttr.create("outStrandMesh", "glosm", MFnData::kMesh, MObject::kNullObj, &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
     tAttr.setWritable(false);
     tAttr.setStorable(false);
@@ -921,15 +931,16 @@ MStatus GroomShape::initialize() {
 
     for (MObject* attr : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aColliderMeshes, &aExtraScalps, &aRenderDensity, &aRenderWidthScale, &aRenderLengthScale, &aSimGuides, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aTransferMarkers, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aPartData, &aGraphUi, &aViewNode, &aLocked, &aDisplayInstances, &aGuideSelection, &aSoftSelectRadius, &aStrandColorMode, &aStrandColorSource, &aStrandColorMin, &aStrandColorMax, &aDisplayRibbons, &aRibbonWidthScale, &aDisplayWidthCoverage, &aDisplayCoverageDensity, &aDisplayClumpLod, &aClumpLodError, &aDisplayLighting, &aDisplayShadows, &aDisplayHairShading, &aDisplaySelfShadowing, &aDisplayStrandVariation, &aGuideColor, &aGuideWidth, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aDisplayFlow, &aShotSculpt, &aShotLayer, &aLodDistance, &aLodNear, &aLodFar, &aLodMinDensity,
                           &aLodWidthCompensation, &aCameraCull, &aCullMargin, &aBackfaceCull, &aBackfaceAngle, &aDisplayColor, &aUseMaterialColor, &aSculptDisplay, &aSculptDensity, &aDisplayLevel, &aGuideColorMode, &aGuideColorLayer, &aThemeGuideColors, &aGuidePoints, &aGuideSmoothing, &aGuideDisplaySegments, &aHiddenGuideGroups, &aGuideGroupColors, &aRenderMode, &aGroomFile, &aPreviewDensity, &aPreviewPointBudget, &aDisplayGuides,
-                          &aDisplayTubes, &aBrushTick, &aCardDensity, &aOutCards, &aOutRachis, &aDisplayCards, &aDisplayCardTextures, &aDisplayOverlaysOnTop, &aCardMaps, &aScalpMaps, &aScalpMapDisplay, &aScalpMapChannel, &aOutStrandCount, &aLastError, &aOutFrame}) {
+                          &aDisplayTubes, &aBrushTick, &aCardDensity, &aOutCards, &aOutRachis, &aOutStrandMesh, &aDisplayCards, &aDisplayStrandMesh, &aDisplayCardTextures, &aDisplayOverlaysOnTop, &aCardMaps, &aScalpMaps, &aScalpMapDisplay, &aScalpMapChannel, &aOutStrandCount, &aLastError, &aOutFrame}) {
         CHECK_MSTATUS_AND_RETURN_IT(addAttribute(*attr));
     }
     for (MObject* input : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aColliderMeshes, &aColliderMesh, &aColliderName, &aColliderRestMesh,
-                           &aExtraScalps, &aExtraScalpMesh, &aExtraScalpName, &aExtraScalpRestMesh, &aSimGuides, &aSimCurve, &aSimGuideId, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aPartData, &aPreviewDensity, &aPreviewPointBudget, &aSculptDensity, &aViewNode, &aBrushTick, &aCardDensity, &aDisplayCards, &aCardMaps, &aScalpMaps}) {
+                           &aExtraScalps, &aExtraScalpMesh, &aExtraScalpName, &aExtraScalpRestMesh, &aSimGuides, &aSimCurve, &aSimGuideId, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aPartData, &aPreviewDensity, &aPreviewPointBudget, &aSculptDensity, &aViewNode, &aBrushTick, &aCardDensity, &aDisplayCards, &aDisplayStrandMesh, &aCardMaps, &aScalpMaps}) {
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutStrandCount));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aLastError));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutCards));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutRachis));
+        CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutStrandMesh));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutFrame));
     }
     return MS::kSuccess;
@@ -967,7 +978,7 @@ void GroomShape::getCacheSetup(const MEvaluationNode& evalNode, MNodeCacheDisabl
 }
 
 void GroomShape::configCache(const MEvaluationNode& evalNode, MCacheSchema& schema) const {
-    MPxSurfaceShape::configCache(evalNode, schema);  // the meshes: outCards, outRachis
+    MPxSurfaceShape::configCache(evalNode, schema);  // the meshes: outCards, outRachis, outStrandMesh
     // The frame the viewport draws, and what is made with it (or a cached frame would evaluate).
     for (const MObject* attr : {&aOutFrame, &aOutStrandCount, &aLastError}) schema.add(*attr);
 }
@@ -995,7 +1006,8 @@ void GroomShape::report(const std::string& message, bool error) {
 }
 
 MStatus GroomShape::compute(const MPlug& plug, MDataBlock& data) {
-    if (plug != aOutStrandCount && plug != aLastError && plug != aOutFrame && plug != aOutCards && plug != aOutRachis) {
+    if (plug != aOutStrandCount && plug != aLastError && plug != aOutFrame && plug != aOutCards && plug != aOutRachis &&
+        plug != aOutStrandMesh) {
         return MS::kUnknownParameter;
     }
     // Another context (cached playback filling frames in the background, a query at another
@@ -1023,6 +1035,7 @@ MStatus GroomShape::compute(const MPlug& plug, MDataBlock& data) {
     std::string message;
     try {
         if (plug == aOutRachis) return computeRachis(data, lane);
+        if (plug == aOutStrandMesh) return computeStrandMesh(data, lane);
         if (plug == aOutCards) return computeCards(data, lane);
         const auto started = std::chrono::steady_clock::now();
         const MStatus status = evaluate(data, lane);
@@ -1042,6 +1055,7 @@ MStatus GroomShape::compute(const MPlug& plug, MDataBlock& data) {
     }
     data.setClean(aOutCards);
     data.setClean(aOutRachis);
+    data.setClean(aOutStrandMesh);
     return MS::kSuccess;
 }
 
@@ -1392,9 +1406,11 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
     session.setCardMaps(data.inputValue(aCardMaps).asString().asChar());  // the bake the cards keep to
     const bool rachisConnected = links ? links->rachisConnected : MPlug(thisMObject(), aOutRachis).isConnected();
     const bool cardsConnected = links ? links->cardsConnected : MPlug(thisMObject(), aOutCards).isConnected();
+    const bool strandMeshConnected = links ? links->strandMeshConnected : MPlug(thisMObject(), aOutStrandMesh).isConnected();
     if (next) {
         next->rachisConnected = rachisConnected;
         next->cardsConnected = cardsConnected;
+        next->strandMeshConnected = strandMeshConnected;
         std::lock_guard<std::mutex> lock(linksMutex_);
         links_ = std::move(next);
     }
@@ -1403,6 +1419,12 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
         lane.rachisMeshFrom.reset();
         lane.rachisMeshData = MObject::kNullObj;
         lane.rachisMeshMade = false;
+    }
+    if (!strandMeshConnected) {
+        session.releaseStrandMeshes();  // its evaluations' graphs
+        lane.strandMeshFrom.clear();
+        lane.strandMeshData = MObject::kNullObj;
+        lane.strandMeshMade = false;
     }
 
     // Simulate nodes: the scene's frame rate, the bakes, and live the scalp at the frames a
@@ -1433,6 +1455,8 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
     request.wantCards = cardsConnected ||
                         (session.hasCardsNode() && data.inputValue(aDisplayCards).asBool());
     request.cardDensity = data.inputValue(aCardDensity).asFloat();
+    // The StrandMesh nodes' meshes the viewport draws (displayStrandMesh).
+    request.wantStrandMeshes = session.hasStrandMeshNode() && data.inputValue(aDisplayStrandMesh).asBool();
     // A live stroke's dab the GPU preview draws: the guides alone (the hand guides, or a Sculpt
     // node's), unless they are the CPU's.
     if (live) {
@@ -1444,7 +1468,7 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
     // evaluation would need Maya for on the worker (a Simulate node steps through the host's feed,
     // the scalp's history is read live) or the cards (outCards, the cards view: built in compute).
     if (offThread && !meshTouched && request.stopAt.empty() && !session.hasPreview() && historyFrames == 0 &&
-        !request.wantCards && request.density == lastRequest_.density && request.sculptDensity == lastRequest_.sculptDensity &&
+        !request.wantCards && !request.wantStrandMeshes && request.density == lastRequest_.density && request.sculptDensity == lastRequest_.sculptDensity &&
         request.pointBudget == lastRequest_.pointBudget && request.viewNode == lastRequest_.viewNode &&
         request.time == lastRequest_.time && request.hostCarries == lastRequest_.hostCarries &&
         request.cardDensity == lastRequest_.cardDensity && session.simulateNodes().empty() &&
@@ -1666,10 +1690,12 @@ void GroomShape::makeFrame(MDataBlock& data, Lane& lane, const ViewResult* resul
         const bool strandsChanged = !last || result->versions.strands != lane.seen.strands || result->strands != last->view.strands;
         const bool hierarchyChanged = !last || result->versions.hierarchy != lane.seen.hierarchy;
         const bool cardsChanged = !last || result->versions.cards != lane.seen.cards;
+        const bool strandMeshChanged = !last || result->versions.strandMeshes != lane.seen.strandMeshes;
         const bool anyChanged = !last || result->versions.evaluation != lane.seen.evaluation || strandsChanged;
         frame->strandsVersion = strandsChanged ? nextVersion() : last->strandsVersion;
         frame->hierarchyVersion = hierarchyChanged ? nextVersion() : last->hierarchyVersion;
         frame->cardsVersion = cardsChanged ? nextVersion() : last->cardsVersion;
+        frame->strandMeshVersion = strandMeshChanged ? nextVersion() : last->strandMeshVersion;
         frame->version = anyChanged ? nextVersion() : last->version;
         if (strandsChanged || hierarchyChanged) {
             const Bounds& b = result->bounds;
@@ -1688,6 +1714,7 @@ void GroomShape::makeFrame(MDataBlock& data, Lane& lane, const ViewResult* resul
         frame->version = frame->strandsVersion = nextVersion();
         frame->hierarchyVersion = last ? last->hierarchyVersion : nextVersion();
         frame->cardsVersion = last ? last->cardsVersion : nextVersion();
+        frame->strandMeshVersion = last ? last->strandMeshVersion : nextVersion();
     }
     frame->seconds = seconds;
     frame->errors = errors;
@@ -1705,7 +1732,7 @@ MStatus GroomShape::setDependentsDirty(const MPlug& plug, MPlugArray& affected) 
         plug == aGuideColorLayer || plug == aDisplayInstances || plug == aDisplayLighting || plug == aDisplayShadows || plug == aDisplayHairShading || plug == aDisplaySelfShadowing || plug == aDisplayStrandVariation ||
         plug == aGuideColor || plug == aGuideWidth || plug == aThemeGuideColors || plug == aGuidePoints || plug == aGuideSmoothing || plug == aGuideDisplaySegments || plug == aHiddenGuideGroups || plug == aGuideGroupColors ||
         plug == aDisplayFlow || plug == aDisplayColor ||
-        plug == aUseMaterialColor || plug == aDisplayGuides || plug == aDisplayTubes || plug == aDisplayCards ||
+        plug == aUseMaterialColor || plug == aDisplayGuides || plug == aDisplayTubes || plug == aDisplayCards || plug == aDisplayStrandMesh ||
         plug == aDisplayCardTextures || plug == aDisplayOverlaysOnTop || plug == aCardMaps || plug == aScalpMapDisplay || plug == aScalpMapChannel;
     // Inputs: the groom re-evaluates, then redraws.
     const bool input =
@@ -1721,7 +1748,7 @@ MStatus GroomShape::setDependentsDirty(const MPlug& plug, MPlugArray& affected) 
     // Control attributes (dynamic, added per Control node): the groom re-evaluates.
     const bool control = !display && !input && isControlAttribute(plug.attribute());
     if (control) {
-        for (const MObject* out : {&aOutStrandCount, &aLastError, &aOutFrame, &aOutCards, &aOutRachis}) affected.append(MPlug(thisMObject(), *out));
+        for (const MObject* out : {&aOutStrandCount, &aLastError, &aOutFrame, &aOutCards, &aOutRachis, &aOutStrandMesh}) affected.append(MPlug(thisMObject(), *out));
     }
     // The expensive conversions and the stored texts are read again only for inputs that were
     // dirtied (or whose data reads differently; see computeStrands).
@@ -2209,6 +2236,18 @@ bool GroomShape::cardsView() {
     const std::shared_ptr<const CardMesh> cards = evaluatedCards();
     return (cards && !cards->cards.empty()) || cardMeshConnected();
 }
+
+std::vector<StrandMeshSource> GroomShape::evaluatedStrandMeshes() {
+    const FramePtr f = frame();
+    return f ? f->view.strandMeshes : std::vector<StrandMeshSource>{};
+}
+
+std::uint64_t GroomShape::strandMeshVersion() {
+    const FramePtr f = frame();
+    return f ? f->strandMeshVersion : 0;
+}
+
+bool GroomShape::strandMeshConnected() const { return MPlug(thisMObject(), aOutStrandMesh).isConnected(); }
 
 std::shared_ptr<const CardMesh> GroomShape::evaluatedCards() {
     const FramePtr f = frame();

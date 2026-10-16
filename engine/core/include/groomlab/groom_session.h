@@ -37,6 +37,7 @@
 #include "groomlab/scalp_maps.h"
 #include "groomlab/sculpt.h"
 #include "groomlab/simulation.h"
+#include "groomlab/strand_geometry.h"
 
 namespace groomlab {
 
@@ -61,6 +62,8 @@ struct ViewRequest {
     // of the graph of their own, laid out in one atlas (the baked one's cells kept): ViewResult::cards.
     bool wantCards = false;
     float cardDensity = 1.0f;
+    // Also the StrandMesh nodes' strands (evaluateStrandMeshes at the view's time): ViewResult::strandMeshes.
+    bool wantStrandMeshes = false;
     // ViewResult::bounds (a pass over the strands' points when they changed); off, the bounds
     // are left as they were and worked out by the next view that wants them.
     bool wantBounds = true;
@@ -81,6 +84,7 @@ struct ViewVersions {
     std::uint64_t strands = 0;     // the strands (or the node shown)
     std::uint64_t hierarchy = 0;   // the active hierarchy (every evaluation while a guide preview is set)
     std::uint64_t cards = 0;       // the cards
+    std::uint64_t strandMeshes = 0;  // the StrandMesh nodes' strands
 };
 
 struct Bounds {
@@ -134,6 +138,7 @@ struct ViewResult {
     std::shared_ptr<const CardMesh> cards;  // wantCards: the Cards nodes' cards, laid out (null without)
     StrandsPtr cardStrands;                 // what they were built from
     std::vector<CardNodeSummary> cardNodes;
+    std::vector<StrandMeshSource> strandMeshes;  // wantStrandMeshes: the StrandMesh nodes' strands (empty without)
     Bounds bounds;                   // the strands and the active hierarchy's points
     ViewVersions versions;
     std::vector<std::string> errors;         // why the evaluation failed or was partial, line by line
@@ -532,6 +537,16 @@ public:
     // Throws as the graph does; null without a graph.
     StrandsPtr evaluateFullDensity(double seconds);
     void releaseFullDensity();
+    // The StrandMesh nodes making the output (top-level ones, in Graph::forEachActiveUpstream's
+    // order), each with the strands it is handed at `seconds` with the last evaluation's inputs: on a
+    // copy of the graph at the node's density (one per density), thinned to its maxStrands
+    // (thinStrandsById), carried to the scalp now while following. A node whose strands did not
+    // change hands the same pointer again. Hosts make the mesh of them (buildStrandMesh, and
+    // strandMeshPoints while strandMeshTopologyKey stays). Throws as the graph does; empty without a
+    // graph. releaseStrandMeshes drops the copies.
+    using StrandMeshSource = groomlab::StrandMeshSource;
+    std::vector<StrandMeshSource> evaluateStrandMeshes(double seconds);
+    void releaseStrandMeshes();
     // A brush stroke's first dab evaluates the stroke document (the graph at the request's density
     // times its sculptDensity, a cache of its own). Evaluated ahead, with the last evaluation's
     // inputs and no preview (a host's idle time while its brush tool is up), that dab makes again
@@ -600,6 +615,7 @@ public:
     // scalpHistoryLoopFrames): the host samples these too.
     std::vector<double> scalpHistoryLoopFrames(double now, const std::string& viewNode = {}) const;
     bool hasCardsNode() const;  // a Cards node makes the output
+    bool hasStrandMeshNode() const;  // a StrandMesh node makes the output
     bool cardsEvaluated() const { return cardDoc_ != nullptr; }  // the last evaluation wanted cards
     HairLook hairLook() const;
     // The look as JSON for hosts (Maya's groomLabGraphStats -hairLook, Blender's evaluate): the
@@ -714,6 +730,15 @@ private:
     std::size_t releasedEvaluations_ = 0, releasedIncrementals_ = 0;
     std::unique_ptr<GraphDocument> cardDoc_;    // cards at cardDensity
     std::unique_ptr<GraphDocument> fullDoc_;    // full density (rachis)
+    std::map<float, std::unique_ptr<GraphDocument>> meshDocs_;  // the StrandMesh nodes', by density
+    struct MeshMemo {
+        StrandsPtr in;     // what the node was handed
+        MeshPtr from, to;  // the carry's scalps (null: not following)
+        std::size_t maxStrands = 0;
+        StrandsPtr out;
+    };
+    std::map<std::string, MeshMemo> meshMemos_;  // by node
+    double lastStrandMeshMs_ = 0.0;              // the view's last evaluateStrandMeshes
     std::unique_ptr<RestPose> restPose_;        // while an instance is pinned or fitted to rest
     bool graphSet_ = false;
     std::string graphError_;

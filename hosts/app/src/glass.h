@@ -35,7 +35,7 @@ QPixmap tintedIcon(const QString& resource, const QColor& color, int size, qreal
 QPixmap coloredIcon(const QString& resource, int size, qreal devicePixelRatio);
 
 // Fills a rounded rectangle with the glass color (or another).
-void paintGlass(QPainter& painter, const QRectF& rect, qreal radius, const QColor& color);
+void paintGlass(QPainter& painter, const QRectF& rect, qreal radius, const QColor& color, const QColor& edge = QColor());
 
 // ---- GlassPanel -------------------------------------------------------------------------------------
 class GlassPanel : public QWidget {
@@ -44,6 +44,7 @@ public:
     explicit GlassPanel(QWidget* parent = nullptr, qreal radius = 24.0);
     void setRadius(qreal radius);
     void setColor(const QColor& color);  // the glass by default
+    QColor color() const { return color_; }
 
 protected:
     void paintEvent(QPaintEvent* event) override;

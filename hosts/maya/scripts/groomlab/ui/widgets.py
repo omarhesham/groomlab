@@ -447,11 +447,10 @@ def theme_menu(parent):
     def fill():
         menu.clear()
         group = qt.QActionGroup(menu)
-        active = theme.current().key
-        for name in theme.list_themes():
-            action = menu.addAction(name.replace("_", " ").title())
+        for name, label, active in theme.menu_entries():
+            action = menu.addAction(label)
             action.setCheckable(True)
-            action.setChecked(name == active)
+            action.setChecked(active)
             group.addAction(action)
             action.triggered.connect(lambda _=False, n=name: _run(theme.set_theme, n))
         menu.addSeparator()

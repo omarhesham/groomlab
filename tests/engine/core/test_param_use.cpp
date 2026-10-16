@@ -35,6 +35,7 @@
 #include "groomlab/parts.h"
 #include "groomlab/presets.h"
 #include "groomlab/simulation.h"
+#include "groomlab/strand_geometry.h"
 
 namespace groomlab {
 namespace {
@@ -332,6 +333,8 @@ TEST(ParamUse, EveryDeclaredParamIsReadWhereItShows) {
                             (void)op->evaluateOutputs(*c, inputs);
                             (void)op->note(*c);
                         }
+                        // StrandMesh's settings are read by the session and the hosts making its mesh.
+                        if (type == op::kStrandMesh) (void)strandMeshSettings(op->params());
                         // Simulate's settings are read by the session's solver (simulation.h).
                         if (type == op::kSimulate) {
                             (void)SimSettings::fromParams(op->params());

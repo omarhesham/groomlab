@@ -13,6 +13,23 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.12.0 (October 16, 2026)
+
+- **Expose any parameter.** Every parameter can now be exposed as an input (574 of 579; the rest
+  define a node's own ports). Per-strand inputs (maps, fields) work as before; everything else takes
+  a **Value** port, one value for the whole node. A new **Value** node (number, integer, on/off,
+  vector, color, choice or text) can drive many parameters at once, and an Expression can output a
+  single value from the frame or time. Exposed parameters become a compound's inputs. See
+  [Node graph](/docs/node-graph).
+- **Strand Mesh node.** A live tube or ribbon mesh of the strands, drawn in the viewport in place of
+  the strands and following animation, Follow Scalp and Simulate. **Mesh in Scene** connects a Maya
+  mesh to it for animated Alembic export. **Utilities > Strands to Mesh** stays a one-off snapshot.
+- **Charcoal theme.** A calm, monochrome theme, and a theme picker: **GroomLab > Theme** in Maya,
+  **View > Theme** in the app (on the next start).
+- **App fix.** The cards preview showed every card with another card's texture; fixed.
+
+Grooms saved before: nothing changes.
+
 ## 0.11.0 (October 16, 2026)
 
 - **GroomLab is open source.** Apache-2.0, on GitHub at

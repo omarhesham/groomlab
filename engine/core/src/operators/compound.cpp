@@ -62,10 +62,13 @@ public:
         return {"out", type};
     }
     std::vector<ParamSpec> paramSpecs() const override {
-        return {{"name", std::string("strands"),
-                 "Compound input this node stands for; \"iteration\" with type Field: the repeat pass index"},
-                {"type", std::string("Strands"), "Port type: Strands, Guides, Curves, Mesh, Field or Curve", "",
-                 {"Strands", "Guides", "Curves", "Mesh", "Field", "Curve"}}};
+        return {ParamSpec{"name", std::string("strands"),
+                          "Compound input this node stands for; \"iteration\" with type Field: the repeat pass index"}
+                    .noInput(),
+                ParamSpec{"type", std::string("Strands"),
+                          "Port type: Strands, Guides, Curves, Mesh, Field, Curve or Value (one value of any kind)", "",
+                          {"Strands", "Guides", "Curves", "Mesh", "Field", "Curve", "Value"}}
+                    .noInput()};
     }
     std::vector<std::string> externalInputs() const override { return {kInputPrefix + params().getString("name")}; }
     Value evaluate(const EvalContext& ctx, const std::vector<Value>&) const override {
@@ -78,7 +81,7 @@ public:
     std::string typeName() const override { return op::kCompound; }
     std::string category() const override { return "utility"; }
     std::vector<ParamSpec> paramSpecs() const override {
-        return {{"definition", std::string("{}"), "The subgraph, its inputs and exposed params (JSON)"},
+        return {ParamSpec{"definition", std::string("{}"), "The subgraph, its inputs and exposed params (JSON)"}.noInput(),
                 notAnimatable({"repeat", std::int64_t{1},
                                "Passes of the subgraph, each fed the previous pass's output as the first strands "
                                "input (1-64); an inner Input named iteration of type Field gives the pass index"})
@@ -88,6 +91,29 @@ public:
     std::vector<PortSpec> inputs() const override {
         const auto d = definition();
         return d ? d->inputs : std::vector<PortSpec>{};
+    }
+    // The exposed params, each its inner param's spec under its own name: each can be an input of
+    // the compound's node, a Value port (one value, set on the inner param as the compound's own
+    // value is). A field or curve reaches an inner param through an Input node instead.
+    std::vector<ParamSpec> extraParamSpecs() const override {
+        const auto d = definition();
+        if (!d) return {};
+        std::lock_guard<std::mutex> lock(d->mutex);
+        std::vector<ParamSpec> out;
+        for (const auto& [exposed, target] : d->expose) {
+            const Operator& inner = d->doc->graph.node(d->doc->node(target.first));
+            for (const ParamSpec& s : nodeParamSpecs(inner)) {  // (a compound inside: its exposed ones too)
+                if (s.name != target.second) continue;
+                ParamSpec spec = s;
+                spec.name = exposed;
+                spec.showWhen = {};
+                // The value it has where the compound sets none: the inner node's.
+                if (inner.params().has(s.name)) spec.defaultValue = inner.params().get(s.name);
+                if (spec.port != ParamSpec::Port::None) spec.port = ParamSpec::Port::Value;
+                out.push_back(std::move(spec));
+            }
+        }
+        return out;
     }
     PortSpec output() const override {
         const auto d = definition();

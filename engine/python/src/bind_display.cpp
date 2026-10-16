@@ -14,14 +14,14 @@ namespace groomlab::py_bind {
 
 namespace {
 
-const char* const kParts[] = {"strands", "instances", "guides", "selection", "parts", "flow", "cards", "scalpMap"};
+const char* const kParts[] = {"strands", "instances", "guides", "selection", "parts", "flow", "cards", "scalpMap", "strandMesh"};
 const char* const kLayers[] = {"dormantWire", "dormantFilled", "activeWire", "selection"};
 
 DisplayPart partNamed(const std::string& name) {
     for (std::size_t i = 0; i < kDisplayPartCount; ++i) {
         if (name == kParts[i]) return static_cast<DisplayPart>(i);
     }
-    throw py::value_error("no display part '" + name + "' (strands, instances, guides, selection, parts, flow, cards, scalpMap)");
+    throw py::value_error("no display part '" + name + "' (strands, instances, guides, selection, parts, flow, cards, scalpMap, strandMesh)");
 }
 
 // A geometry's stream as a read-only view with `width` floats (or indices) per row.

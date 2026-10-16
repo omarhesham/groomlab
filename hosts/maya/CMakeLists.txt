@@ -87,6 +87,7 @@ maya_add_plugin(GroomLab
     src/groom_draw_override_shaders.cpp
     src/hair_shading.cpp
     src/groom_shape.cpp
+    src/groom_shape_strand_mesh.cpp
     src/guides_cmd.cpp
     src/import_cmd.cpp
     src/marker_set.cpp

@@ -254,12 +254,15 @@ bool MainWindow::ensureHeadless(const QSize& size) {
     renderer.setMaterial(shown.material());
     renderer.setLighting(shown.lighting());
     renderer.setScalpMaterial(shown.scalpMaterial());
-    renderer.setProps(props_);
+    // The props, and the textured cards among them while they show (the cards in place of the strands).
+    std::vector<SurfacePtr> props = props_;
+    if (cardSurface_) props.push_back(cardSurface_);
+    renderer.setProps(props);
     if (document_) {
         document_->display().invalidateAll();
         const ViewResult& view = document_->lastView();
         renderer.setScalp(view.scalp ? view.scalp : document_->file().data.scalp);
-        renderer.setHairStrands(view.strands, view.versions.strands);
+        renderer.setHairStrands(settings_.cardsView ? nullptr : view.strands, view.versions.strands);
         redisplay();
     }
     return true;
@@ -408,7 +411,7 @@ QImage MainWindow::renderOffscreen(const QSize& size, int frames, double* msPerF
         renderer.setFrame(document_->updateDisplay(settings_));
         const ViewResult& view = document_->lastView();
         renderer.setScalp(view.scalp ? view.scalp : document_->file().data.scalp);
-        renderer.setHairStrands(view.strands, view.versions.strands);
+        renderer.setHairStrands(settings_.cardsView ? nullptr : view.strands, view.versions.strands);
         renderer.setHairLook(document_->session().hairLook());
     }
     renderer.setShowScalp(shown.showScalp());
@@ -416,7 +419,10 @@ QImage MainWindow::renderOffscreen(const QSize& size, int frames, double* msPerF
     renderer.setMaterial(shown.material());
     renderer.setLighting(shown.lighting());
     renderer.setScalpMaterial(shown.scalpMaterial());
-    renderer.setProps(props_);
+    // The props, and the textured cards among them while they show (in place of the strands).
+    std::vector<SurfacePtr> props = props_;
+    if (cardSurface_) props.push_back(cardSurface_);
+    renderer.setProps(props);
     renderer.setClumpLod(settings_.clumpLod, settings_.clumpLodError);
     OrbitCamera camera = viewport_->camera();
     const OffscreenResult result = groomlab::app::renderOffscreen(renderer, camera, size, frames);

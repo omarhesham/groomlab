@@ -43,7 +43,7 @@ const categories: { name: string; accent: Accent; nodes: string[] }[] = [
   { name: 'Motion', accent: 'purple', nodes: ['Wind', 'Jiggle', 'Simulate'] },
   { name: 'Feathers', accent: 'blue', nodes: ['Propagate', 'Plume', 'Split'] },
   { name: 'Color', accent: 'red', nodes: ['HairColor', 'Bands', 'FeatherColor', 'RenderData'] },
-  { name: 'Convert', accent: 'emerald', nodes: ['ToGuides', 'ToStrands'] },
+  { name: 'Convert', accent: 'emerald', nodes: ['ToGuides', 'ToStrands', 'StrandMesh'] },
   {
     name: 'Fields & Curves',
     accent: 'yellow',

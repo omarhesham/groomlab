@@ -79,16 +79,17 @@ const char* portTypeName(PortType type) {
         case PortType::Field: return "Field";
         case PortType::Curve: return "Curve";
         case PortType::Curves: return "Curves";
+        case PortType::Value: return "Value";
     }
     return "Unknown";
 }
 
 PortType portTypeFromName(const std::string& name) {
     for (const PortType type : {PortType::Strands, PortType::Guides, PortType::Mesh, PortType::Field, PortType::Curve,
-                                PortType::Curves}) {
+                                PortType::Curves, PortType::Value}) {
         if (name == portTypeName(type)) return type;
     }
-    throw GraphError("unknown port type '" + name + "' (Strands, Guides, Mesh, Field, Curve or Curves)");
+    throw GraphError("unknown port type '" + name + "' (Strands, Guides, Mesh, Field, Curve, Curves or Value)");
 }
 
 std::uint64_t mapParamsKey(const ParamSet& params, const EvalContext& ctx) {
@@ -342,11 +343,14 @@ void Graph::removeNode(NodeId id) {
     nodeRecord(id);  // throws if missing
     nodes_.erase(id);
     for (auto& [otherId, node] : nodes_) {
+        bool fed = false;
         for (std::size_t slot = 0; slot < node.inputs.size(); ++slot) {
             if (node.inputs[slot] != id) continue;
             node.inputs[slot] = kNoNode;
             node.inputOutputs[slot] = 0;
+            fed = true;
         }
+        if (fed) releaseDriven(node);
     }
 }
 
@@ -414,6 +418,7 @@ bool Graph::reaches(NodeId from, NodeId target) const {
 
 bool portTypesMatch(PortType out, PortType in) {
     if (out == in) return true;
+    if (out == PortType::Value && in == PortType::Field) return true;  // a number on every strand
     auto curve = [](PortType t) { return t == PortType::Strands || t == PortType::Guides || t == PortType::Curves; };
     return (in == PortType::Curves && curve(out)) || (out == PortType::Curves && curve(in));
 }
@@ -522,13 +527,35 @@ const char* valueKind(const Value& v) {
 std::vector<PortSpec> Graph::inputSpecs(NodeId id) const {
     const Node& node = nodeRecord(id);
     std::vector<PortSpec> specs = node.op->inputs();
-    const auto params = allParamSpecs(*node.op);
+    if (node.paramInputs.empty()) return specs;
+    const auto params = nodeParamSpecs(*node.op);
     for (const std::string& p : node.paramInputs) {
         const auto it = std::find_if(params.begin(), params.end(), [&](const ParamSpec& s) { return s.name == p; });
-        const bool ramp = it != params.end() && std::holds_alternative<Ramp>(it->defaultValue);
-        specs.push_back({p, ramp ? PortType::Curve : PortType::Field, true});
+        PortSpec port{p, PortType::Field, true};  // a param its node no longer has (a compound's definition changed)
+        if (it != params.end()) paramPortSpec(*it, &port);
+        specs.push_back(port);
     }
     return specs;
+}
+
+bool Graph::valueSlot(const Node& node, std::size_t k) const {
+    if (k >= node.paramInputs.size()) return false;
+    for (const ParamSpec& s : nodeParamSpecs(*node.op)) {
+        PortSpec port;
+        if (s.name == node.paramInputs[k]) return paramPortSpec(s, &port) && port.type == PortType::Value;
+    }
+    return false;
+}
+
+bool Graph::paramDriven(NodeId id, const std::string& param) const {
+    const Node& node = nodeRecord(id);
+    const std::size_t own = node.op->inputs().size();
+    for (std::size_t k = 0; k < node.paramInputs.size(); ++k) {
+        if (node.paramInputs[k] != param) continue;
+        const std::size_t slot = own + k;
+        return slot < node.inputs.size() && node.inputs[slot] != kNoNode && valueSlot(node, k);
+    }
+    return false;
 }
 
 void Graph::setBypass(NodeId id, bool bypass) { nodeRecord(id).bypass = bypass; }
@@ -536,11 +563,14 @@ void Graph::setBypass(NodeId id, bool bypass) { nodeRecord(id).bypass = bypass; 
 void Graph::setParamInputs(NodeId id, std::vector<std::string> params) {
     Node& node = nodeRecord(id);
     const auto ports = node.op->inputs();
-    std::vector<std::string> known;
-    for (const ParamSpec& s : allParamSpecs(*node.op)) known.push_back(s.name);
+    const std::vector<ParamSpec> specs = nodeParamSpecs(*node.op);
     for (const std::string& p : params) {
-        if (std::find(known.begin(), known.end(), p) == known.end()) {
-            throw GraphError(node.op->typeName() + " has no param '" + p + "' to expose");
+        const auto spec = std::find_if(specs.begin(), specs.end(), [&](const ParamSpec& s) { return s.name == p; });
+        if (spec == specs.end()) throw GraphError(node.op->typeName() + " has no param '" + p + "' to expose");
+        if (!paramPortSpec(*spec, nullptr)) {
+            throw GraphError(node.op->typeName() + " param '" + p + "' cannot be an input: " +
+                             (spec->port == ParamSpec::Port::None ? "it sets the node's own ports"
+                                                                  : "no node gives what it holds"));
         }
         for (const PortSpec& port : ports) {
             if (port.name == p) throw GraphError("param '" + p + "' has the name of an input of " + node.op->typeName());
@@ -550,6 +580,7 @@ void Graph::setParamInputs(NodeId id, std::vector<std::string> params) {
     node.resizeInputs(ports.size());  // drop old param slots
     node.paramInputs = std::move(params);
     node.resizeInputs(ports.size() + node.paramInputs.size());
+    releaseDriven(node);
 }
 
 namespace {
@@ -612,10 +643,86 @@ ParamSet Graph::storedParams(NodeId id) const {
     const Node& node = nodeRecord(id);
     ParamSet out = node.op->params();
     out.clearFields();
-    for (const auto& [param, keyed] : node.keyed) {
-        if (keyed.hasApplied && out.has(param) && sameParam(out.get(param), keyed.applied)) out.set(param, keyed.own);
+    for (const auto* set : {&node.keyed, &node.driven}) {
+        for (const auto& [param, keyed] : *set) {
+            if (keyed.hasApplied && out.has(param) && sameParam(out.get(param), keyed.applied)) out.set(param, keyed.own);
+        }
     }
     return out;
+}
+
+void Graph::releaseDriven(Node& node) {
+    if (node.driven.empty()) return;
+    const std::size_t own = node.op->inputs().size();
+    for (auto it = node.driven.begin(); it != node.driven.end();) {
+        const auto at = std::find(node.paramInputs.begin(), node.paramInputs.end(), it->first);
+        const auto k = static_cast<std::size_t>(at - node.paramInputs.begin());
+        const bool linked = at != node.paramInputs.end() && own + k < node.inputs.size() && node.inputs[own + k] != kNoNode &&
+                            valueSlot(node, k);
+        if (linked) {
+            ++it;
+            continue;
+        }
+        // No Value sets it now: back to its own value, if what it holds is what the input set.
+        const Node::Keyed& d = it->second;
+        if (d.hasApplied && node.op->params().has(it->first) && sameParam(node.op->params().get(it->first), d.applied)) {
+            node.op->params().set(it->first, d.own);
+        }
+        it = node.driven.erase(it);
+    }
+}
+
+void Graph::applyValueInputs(NodeId id, const EvalContext& ctx, Keys& keys, Transient* transient, std::set<NodeId>& done) {
+    if (id == kNoNode || !nodes_.count(id) || !done.insert(id).second) return;
+    // Upstream first: a node's key is made from its inputs' keys, so theirs are set before.
+    for (std::size_t slot = 0; slot < nodeRecord(id).inputs.size(); ++slot) {
+        applyValueInputs(nodeRecord(id).inputs[slot], ctx, keys, transient, done);
+    }
+    Node& node = nodeRecord(id);
+    releaseDriven(node);
+    node.drivenVaries = false;
+    if (node.paramInputs.empty()) return;
+    const std::size_t own = node.op->inputs().size();
+    std::vector<ParamSpec> specs;
+    for (std::size_t k = 0; k < node.paramInputs.size(); ++k) {
+        const std::size_t slot = own + k;
+        if (slot >= node.inputs.size() || node.inputs[slot] == kNoNode || !valueSlot(node, k)) continue;
+        const std::string& param = node.paramInputs[k];
+        if (specs.empty()) specs = nodeParamSpecs(*node.op);
+        const auto spec = std::find_if(specs.begin(), specs.end(), [&](const ParamSpec& s) { return s.name == param; });
+        if (spec == specs.end()) continue;
+        auto fail = [&](const std::string& message) {
+            const std::string what = node.op->typeName() + " param '" + param + "' " + message;
+            throw GraphError(node.label.empty() ? what : "node '" + node.label + "': " + what);
+        };
+        const NodeId src = node.inputs[slot];
+        const std::vector<Value> outs = evaluateWithKeys(src, ctx, keys, transient);
+        const std::size_t output = node.inputOutputs[slot];
+        const Value value = output < outs.size() ? outs[output] : Value{};
+        if (std::holds_alternative<std::monostate>(value)) continue;  // nothing (a compound's input left open): its own value
+        const UniformPtr uniform = valueAs<UniformPtr>(value);
+        if (!uniform) fail("takes one value for the whole node, not a value per strand or a curve");
+        const Node& source = nodeRecord(src);
+        const bool varies = uniform->varies || !source.paramControls.empty() || source.drivenVaries;
+        if (varies && !spec->animatable) {
+            fail("cannot take a value that changes over time (an expression of the frame, a keyed value): it sets how "
+                 "many strands, points or cards there are, or where they go, which must stay the same on every frame");
+        }
+        ParamValue set;
+        try {
+            set = uniformAsParam(uniform->value, *spec);
+        } catch (const GraphError& e) {
+            fail(std::string("is fed a value it cannot take: ") + e.what());
+        }
+        Node::Keyed& d = node.driven[param];
+        const ParamValue current = node.op->params().has(param) ? node.op->params().get(param) : spec->defaultValue;
+        // Set since the last evaluation (loaded, edited): its own value.
+        if (!d.hasApplied || !sameParam(current, d.applied)) d.own = current;
+        node.op->params().set(param, set);
+        d.applied = set;
+        d.hasApplied = true;
+        node.drivenVaries = node.drivenVaries || varies;
+    }
 }
 
 std::vector<std::string> Graph::controlInputs() const {
@@ -633,6 +740,7 @@ std::vector<std::string> Graph::controlInputs() const {
 void Graph::applyControls(const EvalContext& ctx) {
     for (auto& [id, node] : nodes_) {
         for (const auto& [param, controls] : node.paramControls) {
+            if (paramDriven(id, param)) continue;  // a Value input sets it (applyValueInputs)
             Operator& op = *node.op;
             const ParamSpec* spec = nullptr;
             const ParamValue* kind = keyedKind(op, param, &spec);
@@ -682,9 +790,21 @@ void Graph::connect(NodeId src, NodeId dst, std::size_t inputSlot, std::size_t o
         throw GraphError(srcNode.op->typeName() + " has no output " + std::to_string(output));
     }
     const PortType outType = outputType(src, output);
-    if (!portTypesMatch(outType, specs[inputSlot].type)) {
-        throw GraphError(std::string("type mismatch: ") + portTypeName(outType) + " -> " +
-                         portTypeName(specs[inputSlot].type));
+    const PortSpec& in = specs[inputSlot];
+    if (outType == PortType::Field && in.type == PortType::Value) {
+        throw GraphError("type mismatch: Field -> Value: '" + in.name + "' takes one value for the whole node, and a " +
+                         "field gives one per strand (drive it with a Value node, or an Expression set to give a value)");
+    }
+    if (!portTypesMatch(outType, in.type)) {
+        throw GraphError(std::string("type mismatch: ") + portTypeName(outType) + " -> " + portTypeName(in.type));
+    }
+    if (outType == PortType::Value) {
+        const ValueKind outKind = srcNode.op->outputs()[output].valueKind;
+        const ValueKind inKind = in.type == PortType::Field ? ValueKind::Number : in.valueKind;
+        if (!valueKindsMatch(outKind, inKind)) {
+            throw GraphError(std::string("type mismatch: a ") + valueKindName(outKind) + " Value cannot feed '" + in.name +
+                             "', which takes " + (in.type == PortType::Field ? "a field or a number" : valueKindName(inKind)));
+        }
     }
     if (reaches(src, dst)) throw GraphError("connection would create a cycle");
 
@@ -700,6 +820,7 @@ void Graph::disconnect(NodeId dst, std::size_t inputSlot) {
         dstNode.inputs[inputSlot] = kNoNode;
         dstNode.inputOutputs[inputSlot] = 0;
     }
+    releaseDriven(dstNode);
 }
 
 bool Graph::inputSource(NodeId dst, std::size_t inputSlot, NodeId* src, std::size_t* output) const {
@@ -1027,6 +1148,12 @@ std::vector<Value> Graph::evaluateWithKeys(NodeId id, const EvalContext& ctx, Ke
         for (std::size_t k = 0; k < node.paramInputs.size(); ++k) {
             if (FieldPtr field = valueAs<FieldPtr>(inputValues[own + k])) params.setField(node.paramInputs[k], field);
             if (CurvePtr curve = valueAs<CurvePtr>(inputValues[own + k])) params.setCurve(node.paramInputs[k], curve);
+            // A Value in a Field slot: its number on every strand (one in a Value slot set the
+            // param already: applyValueInputs).
+            const UniformPtr uniform = valueAs<UniformPtr>(inputValues[own + k]);
+            if (uniform && !node.driven.count(node.paramInputs[k])) {
+                if (const FieldPtr constant = uniformField(*uniform)) params.setField(node.paramInputs[k], constant);
+            }
         }
         // Its affect (commonParamSpecs; a field plugged into it too): all (as ever), none (its input
         // on, as bypassed) or a mask.
@@ -1044,6 +1171,10 @@ std::vector<Value> Graph::evaluateWithKeys(NodeId id, const EvalContext& ctx, Ke
         // Each input gets the kind it takes (a Curves output resolves only now): a clear error otherwise.
         for (std::size_t i = 0; i < ownSpecs.size() && i < inputValues.size(); ++i) {
             const PortType want = ownSpecs[i].type;
+            // A Value in a Field input: its number on every strand.
+            if (want == PortType::Field) {
+                if (const UniformPtr uniform = valueAs<UniformPtr>(inputValues[i])) inputValues[i] = uniformField(*uniform);
+            }
             const bool strands = valueAs<StrandsPtr>(inputValues[i]) != nullptr;
             const bool guides = valueAs<GuidesPtr>(inputValues[i]) != nullptr;
             if ((want == PortType::Strands && guides) || (want == PortType::Guides && strands)) {
@@ -1235,6 +1366,13 @@ std::vector<Value> Graph::evaluateWithKeys(NodeId id, const EvalContext& ctx, Ke
         } else if (!madeIncrementally) {
             lastNotes_.erase(id);
         }
+        // A value from a node keyed or fed a value that changes over time changes over time too.
+        if (!node.paramControls.empty() || node.drivenVaries) {
+            for (Value& v : result) {
+                const UniformPtr uniform = valueAs<UniformPtr>(v);
+                if (uniform && !uniform->varies) v = UniformPtr(std::make_shared<const UniformValue>(UniformValue{uniform->value, true}));
+            }
+        }
         ++evaluationCount_;
     }  // inputs released here
 
@@ -1340,6 +1478,8 @@ Graph Graph::clone() const {
         copy.paramInputs = node.paramInputs;
         copy.paramControls = node.paramControls;
         copy.keyed = node.keyed;
+        copy.driven = node.driven;
+        copy.drivenVaries = node.drivenVaries;
         copy.bypass = node.bypass;
         copy.evaluation = node.evaluation;
         copy.label = node.label;
@@ -1401,6 +1541,7 @@ std::vector<Value> Graph::evaluateOutputs(NodeId id, const EvalContext& ctx) {
     const ExpressionEnvironmentScope expressions(&environment);
     applyControls(ctx);  // keyed params take this evaluation's values (so they key the cache too)
     Keys keys;
+    std::set<NodeId> valuesSet;
     if (cacheIntermediates_) {
         // What matched is cached on the nodes after this; the rest of the old graph's
         // results go now, whether or not the evaluation succeeds (they doubled memory).
@@ -1408,6 +1549,8 @@ std::vector<Value> Graph::evaluateOutputs(NodeId id, const EvalContext& ctx) {
             std::unordered_map<std::uint64_t, Adopted>& adopted;
             ~Release() { adopted.clear(); }
         } release{adopted_};
+        // Params a Value input drives take its value (so they key the cache too).
+        applyValueInputs(id, ctx, keys, nullptr, valuesSet);
         std::vector<Value> result = evaluateWithKeys(id, ctx, keys, nullptr);
         if (!ctx.keepPreviewCore) result = shownValues(id, std::move(result), true);
         if (!adopted_.empty()) {
@@ -1424,6 +1567,10 @@ std::vector<Value> Graph::evaluateOutputs(NodeId id, const EvalContext& ctx) {
         return result;
     }
     adopted_.clear();
+    {
+        Transient values;  // the values' own evaluations, kept for nothing after
+        applyValueInputs(id, ctx, keys, &values, valuesSet);
+    }
 
     // Count each node's consumers among the nodes this evaluation reaches.
     Transient transient;

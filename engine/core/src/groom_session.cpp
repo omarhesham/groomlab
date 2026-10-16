@@ -277,6 +277,7 @@ void GroomSession::setGraphJson(const std::string& graphJson) {
     shown_[0] = shown_[1] = Shown{};  // other graphs: their serials say nothing of these
     if (cardDoc_) adopt(cardDoc_);
     if (fullDoc_) adopt(fullDoc_);
+    for (auto& [density, doc] : meshDocs_) adopt(doc);
     restPose_ = std::move(rest);
     parsed_ = std::move(parsed);
     data_.graphJson = graphJson;
@@ -294,6 +295,8 @@ void GroomSession::dropGraph(const std::string& graphJson, const std::string& er
     shown_[0] = shown_[1] = Shown{};
     cardDoc_.reset();
     fullDoc_.reset();
+    meshDocs_.clear();
+    meshMemos_.clear();
     restPose_.reset();
     data_.graphJson = graphJson;
     graphSet_ = true;
@@ -769,6 +772,7 @@ void GroomSession::setCacheIntermediates(bool enabled) {
     for (auto* doc : {&doc_, &sculptDoc_, &cardDoc_, &fullDoc_}) {
         if (*doc) (*doc)->graph.setCacheIntermediates(enabled);
     }
+    for (auto& [density, doc] : meshDocs_) doc->graph.setCacheIntermediates(enabled);
     if (restPose_) restPose_->setCacheIntermediates(enabled);
 }
 
@@ -1331,6 +1335,7 @@ const ViewResult& GroomSession::evaluate(const ViewRequest& request) {
     const StrandsPtr previousStrands = out.strands;
     const std::uint64_t previousSerial = out.strandsSerial;
     const std::shared_ptr<const CardMesh> previousCards = out.cards;
+    const std::uint64_t previousStrandMeshes = out.versions.strandMeshes;
     const std::string previousView = out.viewedNode;
     const bool previousRoots = out.viewedRoots;
     const std::shared_ptr<const std::vector<Vec3f>> previousCenters = out.clumpCenters;
@@ -1448,6 +1453,21 @@ const ViewResult& GroomSession::evaluate(const ViewRequest& request) {
                 out.cards.reset();
                 out.cardNodes.clear();
             }
+            if (request.wantStrandMeshes) {
+                // Mid-stroke as the cards: while quick enough to follow the brush.
+                if (!hasPreview() || lastStrandMeshMs_ <= kLiveCardBuildBudgetMs) {
+                    const auto started = std::chrono::steady_clock::now();
+                    std::vector<StrandMeshSource> meshes = evaluateStrandMeshes(request.time);
+                    lastStrandMeshMs_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                    if (!sameStrandMeshes(meshes, out.strandMeshes)) {
+                        out.strandMeshes = std::move(meshes);
+                        ++out.versions.strandMeshes;
+                    }
+                }
+            } else if (!out.strandMeshes.empty()) {
+                out.strandMeshes.clear();
+                ++out.versions.strandMeshes;
+            }
         } catch (const std::exception& e) {  // never thrown at the host: said in the errors
             shown_[0] = shown_[1] = Shown{};
             out.strandsSerial = out.changesBase = 0;
@@ -1538,7 +1558,8 @@ const ViewResult& GroomSession::evaluate(const ViewRequest& request) {
         out.bounds.lo = out.bounds.valid ? lo : Vec3f();
         out.bounds.hi = out.bounds.valid ? hi : Vec3f();
     }
-    if (strandsChanged || hierarchyChanged || cardsChanged || overlaysChanged) ++out.versions.evaluation;
+    const bool strandMeshesChanged = out.versions.strandMeshes != previousStrandMeshes;
+    if (strandsChanged || hierarchyChanged || cardsChanged || overlaysChanged || strandMeshesChanged) ++out.versions.evaluation;
 
     out.scalp = scalp_;
     out.cageScalp = cageScalp_;
@@ -1669,6 +1690,80 @@ StrandsPtr GroomSession::evaluateFullDensity(double seconds) {
 
 void GroomSession::releaseFullDensity() { fullDoc_.reset(); }
 
+std::vector<GroomSession::StrandMeshSource> GroomSession::evaluateStrandMeshes(double seconds) {
+    std::vector<StrandMeshSource> out;
+    if (!doc_ || !parsed_) return out;
+    // The nodes making the output (a compound's inner ones are left out: their paths have a '/').
+    std::vector<std::string> names;
+    parsed_->graph.forEachActiveUpstream(parsed_->output, [&](const std::string& path, const Operator& op) {
+        if (op.typeName() == op::kStrandMesh && path.find('/') == std::string::npos &&
+            parsed_->nodesByName.count(path) != 0) {
+            names.push_back(path);
+        }
+        return true;
+    });
+    if (names.empty()) {
+        releaseStrandMeshes();
+        return out;
+    }
+    ExternalInputs externals;
+    fillExternals(externals);
+    EvalContext ctx;
+    ctx.time = seconds;
+    ctx.framesPerSecond = fps_;
+    ctx.externals = &externals;
+    ctx.paths = paths();
+    std::map<float, std::unique_ptr<GraphDocument>> docs;  // the densities still asked for
+    std::map<std::string, MeshMemo> memos;
+    for (const std::string& name : names) {
+        const NodeId id = parsed_->nodesByName.at(name);
+        const StrandMeshSettings settings = strandMeshSettings(parsed_->graph.node(id).params());
+        const float density = settings.density > 0.0f ? settings.density : 1.0f;
+        auto doc = docs.find(density);
+        if (doc == docs.end()) {
+            auto old = meshDocs_.find(density);
+            std::unique_ptr<GraphDocument> made;
+            if (old != meshDocs_.end()) {
+                made = std::move(old->second);
+            } else {
+                made = std::make_unique<GraphDocument>(parsed_->clone());
+                made->graph.setCacheIntermediates(cacheIntermediates_);
+                if (density == 1.0f && fullDoc_) made->graph.adoptCache(fullDoc_->graph);
+            }
+            doc = docs.emplace(density, std::move(made)).first;
+        }
+        ctx.previewDensity = density;
+        const StrandsPtr in = doc->second->graph.evaluateStrands(doc->second->nodesByName.at(name), ctx);
+        // The same strands on the same scalps as last time: the same result (hosts keep their mesh).
+        MeshMemo memo;
+        memo.in = in;
+        memo.from = following_ ? followRest_ : nullptr;
+        memo.to = following_ ? scalp_ : nullptr;
+        memo.maxStrands = settings.maxStrands;
+        const auto was = meshMemos_.find(name);
+        if (was != meshMemos_.end() && was->second.in == memo.in && was->second.from == memo.from &&
+            was->second.to == memo.to && was->second.maxStrands == memo.maxStrands) {
+            memo.out = was->second.out;
+        } else if (in) {
+            StrandsPtr kept = in;
+            if (settings.maxStrands > 0 && in->strandCount() > settings.maxStrands) {
+                kept = std::make_shared<StrandSet>(in->subset(thinStrandsById(*in, settings.maxStrands)));
+            }
+            memo.out = following_ && followRest_ && scalp_ ? carryStrands(kept, *followRest_, *scalp_) : kept;
+        }
+        out.push_back({name, memo.out, settings.options});
+        memos[name] = std::move(memo);
+    }
+    meshDocs_ = std::move(docs);
+    meshMemos_ = std::move(memos);
+    return out;
+}
+
+void GroomSession::releaseStrandMeshes() {
+    meshDocs_.clear();
+    meshMemos_.clear();
+}
+
 bool GroomSession::warmStroke(const ViewRequest& request) {
     const float density = request.density * request.sculptDensity;
     // (Nothing evaluated yet: no inputs bound to warm it with.)
@@ -1755,7 +1850,7 @@ std::shared_ptr<DetachedEvaluation> GroomSession::detachStroke(const ViewRequest
     // (What only the session's own evaluation does: map, part and flow previews (the tool's objects
     // the scalp's binding reads), the Simulate nodes' stepping, cards, a host's stopAt.)
     if (!doc_ || !sculptDoc_ || strokeLent_ || !previewHierarchy_ || liveStroke_ || previewParts_ || previewFlow_ || previewMapValues_ ||
-        previewMapImage_ || !sims_.empty() || request.wantCards || !request.stopAt.empty()) {
+        previewMapImage_ || !sims_.empty() || request.wantCards || request.wantStrandMeshes || !request.stopAt.empty()) {
         return nullptr;
     }
     const float density = request.density * request.sculptDensity;
@@ -1816,7 +1911,9 @@ bool GroomSession::adoptStroke(DetachedEvaluation& run) {
 std::shared_ptr<DetachedEvaluation> GroomSession::detach(const ViewRequest& request, const std::shared_ptr<DetachedEvaluation>& after) {
     // (What only the session's own evaluation does: a preview's stroke document, the Simulate
     // nodes' stepping through the host, the cards' document.)
-    if (!doc_ || hasPreview() || !sims_.empty() || request.wantCards || !request.stopAt.empty()) return nullptr;
+    if (!doc_ || hasPreview() || !sims_.empty() || request.wantCards || request.wantStrandMeshes || !request.stopAt.empty()) {
+        return nullptr;
+    }
     if (after && (after->warm_ || after->basedOn_ != docGeneration_)) return nullptr;
     std::shared_ptr<DetachedEvaluation> job(new DetachedEvaluation);
     // The inputs as evaluate(request) binds them now; what binding them says is said by the
@@ -1961,6 +2058,16 @@ std::string GroomSession::hairLookJson() const {
     out["renderDataParams"] = renderData;
     out["colorNodes"] = colors;
     return out.dump();
+}
+
+bool GroomSession::hasStrandMeshNode() const {
+    if (!doc_) return false;
+    bool found = false;
+    doc_->graph.forEachActiveUpstream(doc_->output, [&](const std::string& path, const Operator& op) {
+        found = op.typeName() == op::kStrandMesh && path.find('/') == std::string::npos;
+        return !found;
+    });
+    return found;
 }
 
 bool GroomSession::hasCardsNode() const {
@@ -2379,7 +2486,12 @@ SimInputs GroomSession::simInputs(const SimRef& ref, const EvalContext& ctx, std
         const std::size_t own = graph.node(ref.id).inputs().size();
         for (std::size_t k = 0; k < exposed.size(); ++k) {
             if (!graph.inputSource(ref.id, own + k, &source, &output)) continue;
-            if (FieldPtr field = valueAs<FieldPtr>(graph.evaluateOutput(source, output, ctx))) params.setField(exposed[k], field);
+            const Value value = graph.evaluateOutput(source, output, ctx);
+            if (FieldPtr field = valueAs<FieldPtr>(value)) params.setField(exposed[k], field);
+            const UniformPtr uniform = valueAs<UniformPtr>(value);  // a number in a Field slot (one in a Value slot is set)
+            if (uniform && !graph.paramDriven(ref.id, exposed[k])) {
+                if (FieldPtr field = uniformField(*uniform)) params.setField(exposed[k], field);
+            }
         }
         in.maps = simulationMaps(params, *in.guides, in.scalp);
     }

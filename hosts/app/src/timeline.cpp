@@ -22,8 +22,8 @@ QString iconPath(const char* name) { return QStringLiteral(":/groomlab/icons/ui_
 RoundButton* transportButton(const char* icon, int size, const QString& tip, QWidget* parent) {
     auto* b = new RoundButton(parent);
     b->setIcon(iconPath(icon), size);
-    b->setIconColor(theme::text(), theme::ink());
-    b->setFill(theme::chip(), theme::yellow());
+    b->setIconColor(theme::text(), theme::actionText(theme::ink()));
+    b->setFill(theme::chip(), theme::actionFill(theme::yellow()));
     b->setDiameter(32);
     b->setToolTip(tip);
     return b;
@@ -162,8 +162,8 @@ Timeline::Timeline(QWidget* parent) : GlassPanel(parent, 24.0) {
     toStart_ = transportButton("skip_back", 16, tr("To the first frame"), this);
     play_ = transportButton("play", 16, tr("Play (the clock skips frames the groom cannot keep up with)"), this);
     play_->setDiameter(36);
-    play_->setFill(theme::yellow(), theme::yellow());
-    play_->setIconColor(theme::ink(), theme::ink());
+    play_->setFill(theme::actionFill(theme::yellow()), theme::actionFill(theme::yellow()));
+    play_->setIconColor(theme::actionText(theme::ink()), theme::actionText(theme::ink()));
     toEnd_ = transportButton("skip_forward", 16, tr("To the last frame"), this);
     layout->addWidget(toStart_);
     layout->addWidget(play_);
@@ -175,7 +175,7 @@ Timeline::Timeline(QWidget* parent) : GlassPanel(parent, 24.0) {
 
     frameLabel_ = new QLabel(this);
     frameLabel_->setFont(theme::monoFont(14, 600));
-    frameLabel_->setStyleSheet(QStringLiteral("color: #F3F1EC;"));
+    frameLabel_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
     frameLabel_->setMinimumWidth(44);
     frameLabel_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     layout->addWidget(frameLabel_);
@@ -196,7 +196,7 @@ Timeline::Timeline(QWidget* parent) : GlassPanel(parent, 24.0) {
     firstBox_ = rangeBox(tr("The first frame of the range"));
     lastBox_ = rangeBox(tr("The last frame of the range"));
     auto* dash = new QLabel(QStringLiteral("–"), range);
-    dash->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    dash->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     rangeLayout->addWidget(firstBox_);
     rangeLayout->addWidget(dash);
     rangeLayout->addWidget(lastBox_);
@@ -204,7 +204,7 @@ Timeline::Timeline(QWidget* parent) : GlassPanel(parent, 24.0) {
 
     fpsLabel_ = new QLabel(this);
     fpsLabel_->setFont(theme::uiFont(12, 600));
-    fpsLabel_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    fpsLabel_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     layout->addWidget(fpsLabel_);
 
     loop_ = chipButton(tr("Loop"), tr("Past the last frame, around to the first"), this);

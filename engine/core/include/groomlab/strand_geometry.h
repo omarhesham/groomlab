@@ -6,6 +6,8 @@
 // groom into curves or a mesh (groomLabConvert).
 
 #include <cstddef>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 #include "groomlab/feathers.h"
@@ -13,7 +15,9 @@
 
 namespace groomlab {
 
+class ParamSet;
 class ScalpMesh;
+using StrandsPtr = std::shared_ptr<const StrandSet>;
 
 // At most `maxCount` strands of `strands`, by ID: the strands whose hashed IDs are lowest,
 // the ones a lower preview density keeps longest (keepAtDensity), so a smaller budget keeps a
@@ -45,5 +49,34 @@ struct StrandMesh {
     std::vector<float> u2, v2;
 };
 StrandMesh buildStrandMesh(const StrandSet& strands, const ScalpMesh* scalp, const StrandMeshOptions& options);
+
+// buildStrandMesh's points alone, for a frame where only the strands' points moved (the same
+// strands, the same point counts: the topology and UVs stay): the very values buildStrandMesh
+// gives mesh.points, in its order, the strands in parallel. `out` holds
+// strandMeshPointCount(strands, options) of them.
+std::size_t strandMeshPointCount(const StrandSet& strands, const StrandMeshOptions& options);
+void strandMeshPoints(const StrandSet& strands, const ScalpMesh* scalp, const StrandMeshOptions& options, Vec3f* out);
+// What makes the mesh's topology and UVs: the style and sides, strandUVs, each strand's ID and point
+// count. Equal keys: strandMeshPoints of the new strands fits the old mesh.
+std::uint64_t strandMeshTopologyKey(const StrandSet& strands, const StrandMeshOptions& options);
+
+// A StrandMesh node's settings (its params, strand_mesh_op.cpp): the mesh options, the preview
+// density its strands are evaluated at (0..1) and at most how many of them make the mesh (0: all).
+struct StrandMeshSettings {
+    StrandMeshOptions options;
+    float density = 1.0f;
+    std::size_t maxStrands = 0;
+};
+StrandMeshSettings strandMeshSettings(const ParamSet& params);
+
+// A StrandMesh node's strands as a session evaluated them (GroomSession::evaluateStrandMeshes) and
+// the options its mesh is made with.
+struct StrandMeshSource {
+    std::string node;
+    StrandsPtr strands;
+    StrandMeshOptions options;
+};
+// Whether two lists of sources make the same mesh (the same strands, by pointer, and options).
+bool sameStrandMeshes(const std::vector<StrandMeshSource>& a, const std::vector<StrandMeshSource>& b);
 
 }  // namespace groomlab

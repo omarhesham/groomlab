@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// The app's look: GroomLab's Playful theme (hosts/maya/themes/playful.json: charcoal and the primaries,
-// round and friendly) as the standalone app wears it, "like Plasticity but Pixar". Everything
-// floats over the viewport as translucent glass; this module holds the colors, the fonts
+// The app's look: GroomLab's themes (hosts/maya/themes/*.json; Playful by default: charcoal and the
+// primaries, round and friendly) as the standalone app wears them, "like Plasticity but Pixar".
+// Everything floats over the viewport as translucent glass (or, for a theme with "glass": false
+// such as Charcoal, solid panels with a thin border); this module holds the colors, the fonts
 // (Figtree for the words, JetBrains Mono for the numbers, bundled as resources), the metrics
 // and the layout of the floating pieces (pure geometry, so the tests check it without a
 // window), the brush rail's order and the Qt style sheet the ordinary widgets inside the
@@ -19,35 +20,65 @@
 #include <QRect>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 
 namespace groomlab::app::theme {
 
-// ---- Colors (the palette, then the mockup's glass and text) --------------------------------------
-// The palette, the UI tones, the graph's and the icons' colors are read from playful.json itself
-// (embedded at build time), so the Maya host and the app share one theme file.
+// ---- The theme ------------------------------------------------------------------------------------
+// The shipped themes are embedded at build time (resources :/groomlab/themes/<name>.json, the
+// Maya host's files); one is current for the whole app. The widgets take their colors when they
+// are made, so a theme is chosen before the window is built: main() sets the saved one (or
+// --theme's), and View > Theme saves a new choice for the next start.
+QStringList themeNames();                  // "charcoal", "playful", "polar", "studio" (sorted)
+QString themeLabel(const QString& name);   // "Charcoal"
+QString currentTheme();                    // "playful" until setTheme
+bool setTheme(const QString& name);        // false (nothing changes) for a theme that isn't embedded
+QString savedTheme();                      // QSettings ui/theme, "playful" when unset or unknown
+void saveTheme(const QString& name);
+bool glassy();  // the theme's ui.glass (default true): translucent panels, else solid ones with an edge
+
+// ---- Colors (the palette, then the glass and text tones) -----------------------------------------
+// The palette, the UI tones, the graph's and the icons' colors are read from the current theme's
+// file, so the Maya host and the app share one theme file. A glass theme keeps the mockup's own
+// glass and text tones (tuned for translucency over the viewport); a solid one takes them from
+// its ui section (panel, border, text, textDim).
 QColor red();
 QColor yellow();
 QColor blue();
 QColor emerald();
 QColor purple();
 QColor white();
-QColor glass();        // the floating panels: rgba(31,32,37,0.72)
-QColor glassSolid();   // small labels that must stay readable: rgba(31,32,37,0.86)
-QColor text();         // #F3F1EC
+QColor glass();        // the floating panels: rgba(31,32,37,0.72); solid: ui.panel
+QColor glassSolid();   // small labels that must stay readable: rgba(31,32,37,0.86); solid: ui.panel
+QColor glassPanel();   // a working panel, a little more opaque: rgba(31,32,37,0.93); solid: ui.panel
+QColor glassEdge();    // the solid panels' thin border (ui.outline, else ui.border); invalid for glass
+QColor text();         // #F3F1EC; solid: ui.text
 QColor textSoft();     // #D9D5CD, the inactive mode names
 QColor textDim();      // #B8B4AC, slider captions
-QColor textMuted();    // #8F8B84, shortcuts and counts
+QColor textMuted();    // #8F8B84, shortcuts and counts; solid: ui.textDim
 QColor track();        // a slider's unfilled track: white at 12%
 QColor chip();         // a small button at rest: white at 8%
 QColor divider();      // white at 12%
-QColor renderRed();    // the Render pill: #E5383B
-QColor backdrop();     // the viewport's default clear color: #17181B
-QColor ink();          // dark text on a yellow fill: #1B1A17
+QColor renderRed();    // the Render pill: #E5383B; solid: the accent (the primary action)
+QColor backdrop();     // the viewport's default clear color: #17181B; solid: ui.background
+QColor ink();          // dark text on a bright fill: #1B1A17
 QColor blueLight();    // icons tinted by category on glass: lighter than the fill colors
 QColor redLight();
 QColor emeraldSoft();  // the Sym X chip's text when on
 QColor emeraldChip();  // ... and its fill
-// playful.json's "ui" color of that key ("panel", "hover", "accent", "accentText"...); invalid for
+QColor readableOn(const QColor& fill);  // ink on a bright fill, white on a dark one
+// A segmented control's chosen item: its own colors on glass; a solid theme's accent pill.
+QColor segmentFill(const QColor& own);
+QColor segmentText(const QColor& own);
+// A slider's fill, as the Maya host's ui.sliders: a theme with one slider color (Charcoal's
+// silver, Polar's and Studio's accent) gives every slider that color; a cycle (Playful's four
+// primaries) keeps the color the slider asks for.
+QColor sliderFill(const QColor& own);
+// A filled action button or a checked chip (chrome, not meaning): its own colors on glass; on a
+// solid theme the accent pill and the accent's text.
+QColor actionFill(const QColor& own);
+QColor actionText(const QColor& own);
+// The theme's "ui" color of that key ("panel", "hover", "accent", "accentText"...); invalid for
 // an unknown one.
 QColor uiColor(const std::string& key);
 
@@ -87,6 +118,10 @@ QColor nodeCategoryColor(const std::string& category);
 // A port's color by its type name ("strands", "guides", "mesh", "field", "curve", "curves").
 QColor portColor(const std::string& type);
 QColor nodeBody();  // #2A2C31 (opaque: the groom shows between nodes, not through them)
+QColor nodeBorder();       // graph.nodeBorder: drawn when it differs from the body
+QColor nodeSelected();     // graph.selected: the selected node's ring and wire
+qreal nodeRadius();        // graph.cornerRadius (14 in Playful)
+bool tintedHeaders();      // graph.headerStyle "tinted": a wash and an accent bar, else filled
 
 // ---- Layout --------------------------------------------------------------------------------------
 // Where the floating pieces go over a view of a size, from the mockup's margins. The rail's

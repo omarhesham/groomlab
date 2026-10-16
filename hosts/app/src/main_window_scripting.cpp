@@ -438,14 +438,14 @@ bool MainWindow::setDisplayText(const QString& text) {
     return true;
 }
 
-QImage MainWindow::grabUi() {
+QImage MainWindow::grabUi(const QImage& scene) {
     // The viewport's frame, then every other child of the host painted over it in stacking
     // order (the glass composes with alpha as on screen).
     // The frame is in device pixels (a 150% screen: 1.5 per logical pixel); the pieces render
     // in logical ones, so the image carries the ratio and the painter scales them to match.
     const qreal ratio = host_->devicePixelRatioF();
     const QSize pixels = host_->size() * ratio;
-    QImage image = viewport_->grabFramebuffer();
+    QImage image = scene.isNull() ? viewport_->grabFramebuffer() : scene;
     if (image.isNull()) {
         image = QImage(pixels, QImage::Format_ARGB32_Premultiplied);
         image.fill(theme::backdrop());
@@ -465,6 +465,13 @@ QImage MainWindow::grabUi() {
 }
 
 void MainWindow::captureUi(const std::function<void(const QImage&)>& done) {
+    if (QGuiApplication::platformName() == QLatin1String("offscreen")) {
+        QTimer::singleShot(500, this, [this, done] {
+            const QImage scene = renderOffscreen(host_->size() * host_->devicePixelRatioF(), 1);
+            done(grabUi(scene));
+        });
+        return;
+    }
     auto* once = new QObject(this);
     connect(viewport_, &Viewport::frameDrawn, once, [this, once, done] {
         once->deleteLater();

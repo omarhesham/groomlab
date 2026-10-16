@@ -407,8 +407,8 @@ def _check_params(node, catalog, label, problems):
             problems.append("%s.%s: %s" % (label, name, problem))
     for name in node.get("paramInputs") or []:
         spec = exposed.get(name) if name in exposed else specs.get(name)
-        if spec is None or not (spec.get("mappable") or spec.get("kind") == "ramp"):
-            problems.append("%s: %r is exposed as an input but is neither mappable nor a ramp" % (label, name))
+        if spec is None or not spec.get("port"):  # every param takes a port but a few (graph.linkable)
+            problems.append("%s: %r is exposed as an input but cannot be one" % (label, name))
     for name, control in (node.get("paramControls") or {}).items():
         spec = exposed.get(name) if name in exposed else specs.get(name)
         if spec is None or spec.get("animatable") is False or spec.get("kind") not in ("float", "int", "bool", "vec3"):

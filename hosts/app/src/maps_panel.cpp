@@ -72,7 +72,7 @@ MapsPanel::MapsPanel(QWidget* parent) : QWidget(parent) {
                           "with Ctrl; a preset makes the maps it reads)"),
                        host);
     hint_->setWordWrap(true);
-    hint_->setStyleSheet(QStringLiteral("color: #8F8B84;"));
+    hint_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     layout->addWidget(hint_);
     connect(list_, &QListWidget::currentItemChanged, this, [this](QListWidgetItem*, QListWidgetItem*) {
         if (updating_) return;
@@ -151,7 +151,7 @@ MapsPanel::MapsPanel(QWidget* parent) : QWidget(parent) {
     newResolution_->setValue(1024);
     newResolution_->setToolTip(tr("A texture map's image size (square)"));
     newForm->addRow(tr("Resolution"), newResolution_);
-    RoundButton* create = actionButton(tr("Create"), theme::yellow(), theme::ink(), newBox);
+    RoundButton* create = actionButton(tr("Create"), theme::actionFill(theme::yellow()), theme::actionText(theme::ink()), newBox);
     newForm->addRow(QString(), create);
     layout->addWidget(newBox);
     connect(newKind_, &QComboBox::currentIndexChanged, this, [this](int) {
@@ -212,7 +212,7 @@ MapsPanel::MapsPanel(QWidget* parent) : QWidget(parent) {
     channelsRow->addStretch(1);
     colorLayout->addLayout(channelsRow);
     paintForm->addRow(tr("Color"), colorRow_);
-    paint_ = actionButton(tr("Paint this map"), theme::yellow(), theme::ink(), paintBox);
+    paint_ = actionButton(tr("Paint this map"), theme::actionFill(theme::yellow()), theme::actionText(theme::ink()), paintBox);
     paint_->setToolTip(tr("The Paint brush on this map, the viewport in brush mode (B): drag to paint, Ctrl the opposite, "
                           "Shift smooths"));
     paintForm->addRow(QString(), paint_);

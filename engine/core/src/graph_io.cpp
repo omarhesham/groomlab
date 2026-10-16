@@ -109,6 +109,14 @@ json paramToJson(const ParamValue& value) {
         value);
 }
 
+// A port as operatorSpecsJson lists it: name, type, optional (inputs), and a Value port's kind.
+json portJson(const PortSpec& p, bool input) {
+    json port = {{"name", p.name}, {"type", portTypeName(p.type)}};
+    if (input) port["optional"] = p.optional;
+    if (p.type == PortType::Value) port["valueKind"] = valueKindName(p.valueKind);
+    return port;
+}
+
 std::size_t inputSlot(const Graph& graph, NodeId id, const std::string& inputName) {
     const auto specs = graph.inputSpecs(id);
     for (std::size_t i = 0; i < specs.size(); ++i) {
@@ -351,12 +359,10 @@ std::string operatorSpecsJson() {
     for (const std::string& type : registry.typeNames()) {
         const std::unique_ptr<Operator> op = registry.create(type);
         json inputs = json::array();
-        for (const PortSpec& p : op->inputs()) {
-            inputs.push_back({{"name", p.name}, {"type", portTypeName(p.type)}, {"optional", p.optional}});
-        }
+        for (const PortSpec& p : op->inputs()) inputs.push_back(portJson(p, true));
         const PortSpec out = op->output();
         json outputs = json::array();
-        for (const PortSpec& p : op->outputs()) outputs.push_back({{"name", p.name}, {"type", portTypeName(p.type)}});
+        for (const PortSpec& p : op->outputs()) outputs.push_back(portJson(p, false));
         json params = json::array();
         for (const ParamSpec& p : allParamSpecs(*op)) {
             json param = {{"name", p.name},
@@ -381,6 +387,12 @@ std::string operatorSpecsJson() {
             if (!p.showWhen.empty()) param["showWhen"] = {{"param", p.showWhen.param}, {"in", p.showWhen.in}};
             if (p.channelOptional) param["channelOptional"] = true;
             if (!p.unitWhen.param.empty()) param["unitWhen"] = {{"param", p.unitWhen.param}, {"in", p.unitWhen.in}};
+            // The input port it takes when exposed (none: it cannot be an input).
+            PortSpec port;
+            if (paramPortSpec(p, &port)) {
+                param["port"] = {{"type", portTypeName(port.type)}};
+                if (port.type == PortType::Value) param["port"]["valueKind"] = valueKindName(port.valueKind);
+            }
             params.push_back(std::move(param));
         }
         // The channels it writes under fixed names, as its defaults set it (not a param's).
@@ -394,7 +406,7 @@ std::string operatorSpecsJson() {
                        {"category", op->category()},
                        {"description", operatorDescription(type)},
                        {"inputs", inputs},
-                       {"output", {{"name", out.name}, {"type", portTypeName(out.type)}}},
+                       {"output", portJson(out, false)},
                        {"outputs", outputs},
                        {"params", params}});
     }
@@ -433,6 +445,7 @@ std::vector<PortSpec> compoundInputs(const std::string& definition) {
                 throw GraphError("compound input '" + port.name + "' has unknown type '" + type + "'");
             }
             port.optional = p.value("optional", false);
+            if (p.contains("valueKind")) port.valueKind = valueKindFromName(p.at("valueKind").get<std::string>());
         } catch (const json::exception&) {
             throw GraphError("a compound input needs a \"name\" (text), and may give a \"type\" (text) and \"optional\" (true or false)");
         }

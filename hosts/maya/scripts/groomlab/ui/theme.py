@@ -2,20 +2,27 @@
 """GroomLab UI themes: colors and shapes for the Groom Tools, the Graph Editor
 and the viewport's guides, from JSON files.
 
-Three ship with GroomLab: "playful" (charcoal and primaries, flat and round;
-the default), "studio" (low-key greys, one accent) and "polar" (near-black
-and monochrome with one indigo accent, after polar.sh). Make your own:
+Four ship with GroomLab: "playful" (charcoal and primaries, flat and round;
+the default), "charcoal" (calm neutral greys, an off-white primary, thin
+borders, muted color only where it means something), "studio" (low-key
+greys, one accent) and "polar" (near-black and monochrome with one indigo
+accent, after polar.sh). Pick one in GroomLab > Theme, or Theme in the Groom
+Tools' More menu or the Graph Editor's Edit menu. Make your own:
 
     from groomlab.ui import theme
     path = theme.create_theme("mine")      # a copy of the current theme, to edit
     theme.set_theme("mine")                # after editing: applies everywhere at once
-    theme.list_themes()                    # ["mine", "playful", "polar", "studio"]
+    theme.list_themes()                    # ["charcoal", "mine", "playful", "polar", "studio"]
 
 Themes are looked up, in order, in every directory on GROOMLAB_THEME_PATH,
 the user's folder (<Maya user app dir>/groomlab/themes) and the shipped
 folder. A theme names colors as hex ("#2F7BF6"), by its palette ("blue"), or
 "accent"; it may set only some keys: the rest come from the theme it
-"extends" (default "playful").
+"extends" (default "playful"). Optional ui keys: "outline" (a thin border
+around buttons, cards, tabs and lists; none by default), "selection" and
+"selectionText" (selected rows and menu items; the accent by default) and
+"glass" (the standalone app's translucent panels, true by default; false:
+solid panels with a thin border).
 """
 
 import copy
@@ -52,6 +59,17 @@ def list_themes():
         if os.path.isdir(d):
             names.update(f[:-5] for f in os.listdir(d) if f.endswith(".json"))
     return sorted(names)
+
+
+def label(name):
+    """A theme's name as menus show it ("my_theme" -> "My Theme")."""
+    return name.replace("_", " ").title()
+
+
+def menu_entries():
+    """(name, label, active) for every theme, as the Theme menus list them."""
+    active = current().key
+    return [(name, label(name), name == active) for name in list_themes()]
 
 
 def theme_path(name):
@@ -338,6 +356,22 @@ def stylesheet(t=None):
     return t._sheet
 
 
+def _outline_rules(t):
+    """With ui.outline, thin borders where the flat themes have none (buttons, cards, tabs, lists)."""
+    if not t.get("ui.outline"):
+        return ""
+    return """
+QPushButton, QToolButton[role="tool"], QToolButton[role="chip"], QTabBar::tab, QFrame[role="card"], QFrame[role="empty"],
+QFrame[role="segments"], QGroupBox, QListWidget, QTreeWidget, QTableWidget, QListView, QTreeView, QLabel[role="status"] {
+    border: {{1}}px solid %(outline)s; }
+QPushButton:hover, QToolButton[role="tool"]:hover, QToolButton[role="chip"]:hover, QTabBar::tab:hover { border-color: %(hover)s; }
+QPushButton:checked, QPushButton:pressed, QPushButton[role="primary"], QToolButton[role="tool"]:checked,
+QTabBar::tab:selected { border-color: %(accent)s; }
+QPushButton[role="step"], QPushButton[role="section"], QPushButton[role="section"]:checked,
+QPushButton[role="section"]:pressed, QFrame[role="segments"] QTabBar::tab { border: none; }
+""" % {"outline": t.hex(t.get("ui.outline")), "accent": t.hex("accent"), "hover": _lighter(t.color("ui.hover"), 0.08)}
+
+
 def _stylesheet(t):
     c = t.color
     r = px(int(t.get("ui.radius", 10)))
@@ -404,23 +438,24 @@ QTabBar::tab:hover { background: %(hover)s; color: %(text)s; }
 QTabBar::tab:selected { background: %(accent)s; color: %(accentText)s; }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {
     background: %(panel)s; border: {{1}}px solid %(border)s; border-radius: %(small)dpx; padding: {{3}}px {{6}}px;
-    selection-background-color: %(accent)s; }
+    selection-background-color: %(selection)s; selection-color: %(selectionText)s; }
 QComboBox { padding-right: {{22}}px; }
 QComboBox:editable { min-height: {{24}}px; }  /* room for its field's text, descenders included */
 QComboBox QLineEdit { padding: 0; border: none; background: transparent; }  /* an editable box's field: the box pads it */
 QComboBox::drop-down { border: none; width: {{18}}px; }
 QComboBox::down-arrow { image: url(%(arrow)s); width: {{10}}px; height: {{10}}px; }
-QComboBox QAbstractItemView { background: %(panel)s; border: {{1}}px solid %(border)s; selection-background-color: %(accent)s; }
+QComboBox QAbstractItemView { background: %(panel)s; border: {{1}}px solid %(border)s; selection-background-color: %(selection)s;
+    selection-color: %(selectionText)s; }
 QListWidget, QTreeWidget, QTableWidget, QListView, QTreeView {
     background: %(panel)s; border: none; border-radius: %(r)dpx; padding: {{4}}px; outline: none; }
 QListWidget::item { border-radius: %(small)dpx; padding: {{3}}px; }
 QTreeWidget::item { border-radius: 0; padding: {{3}}px; }
-QTreeWidget::branch:selected { background: %(accent)s; }
-QListWidget::item:selected, QTreeWidget::item:selected { background: %(accent)s; color: %(accentText)s; }
+QTreeWidget::branch:selected { background: %(selection)s; }
+QListWidget::item:selected, QTreeWidget::item:selected { background: %(selection)s; color: %(selectionText)s; }
 QListWidget::item:hover, QTreeWidget::item:hover { background: %(hover)s; }
 QTreeView { show-decoration-selected: 1; }
 QTreeView::branch { background: transparent; }
-QTreeView::branch:selected { background: %(accent)s; }
+QTreeView::branch:selected { background: %(selection)s; }
 QHeaderView::section { background: %(panel)s; color: %(dim)s; border: none; padding: {{4}}px; }
 QGroupBox { background: %(panel)s; border: none; border-radius: %(r)dpx; margin-top: {{20}}px; padding: {{12}}px {{10}}px {{10}}px {{10}}px; }
 QGroupBox QLineEdit, QGroupBox QSpinBox, QGroupBox QDoubleSpinBox, QGroupBox QComboBox, QGroupBox QListWidget {
@@ -445,16 +480,19 @@ QScrollBar:horizontal { background: transparent; height: {{8}}px; margin: 0; }
 QScrollBar::handle:horizontal { background: %(raised)s; border-radius: {{4}}px; min-width: {{24}}px; }
 QMenu { background: %(panel)s; border: {{1}}px solid %(border)s; border-radius: %(small)dpx; padding: {{4}}px; }
 QMenu::item { padding: {{5}}px {{18}}px; border-radius: %(small)dpx; }
-QMenu::item:selected { background: %(accent)s; color: %(accentText)s; }
+QMenu::item:selected { background: %(selection)s; color: %(selectionText)s; }
 QToolBar { background: %(bg)s; border: none; spacing: {{4}}px; }
 QSplitter::handle { background: %(bg)s; }
 QScrollArea { border: none; }
-""" % {
+%(outline_rules)s""" % {
         "bg": c("ui.background"), "panel": c("ui.panel"), "raised": c("ui.raised"), "hover": c("ui.hover"),
         "border": c("ui.border"), "text": c("ui.text"), "dim": c("ui.textDim"), "accent": t.hex("accent"),
         "accentText": c("ui.accentText"), "warning": t.hex(t.get("ui.warning", "yellow")),
         "white": t.hex("white"), "r": r, "small": small, "check": max(px(3), min(px(8), r // 2)), "fs": fs,
         "fs_small": max(px(9), fs - px(2)), "fs_title": fs + px(3),
-        "accentHover": _lighter(t.hex("accent"), 0.12), "slider_rules": slider_rules, "arrow": _arrow_icon(c("ui.textDim"))}
+        "accentHover": _lighter(t.hex("accent"), 0.12), "slider_rules": slider_rules, "arrow": _arrow_icon(c("ui.textDim")),
+        "selection": t.hex(t.get("ui.selection") or "accent"),
+        "selectionText": c("ui.selectionText") if t.get("ui.selectionText") else c("ui.accentText"),
+        "outline_rules": _outline_rules(t)}
     # Fixed sizes ({{N}}px in the template) at Maya's interface scale.
     return re.sub(r"\{\{(-?\d+(?:\.\d+)?)\}\}px", lambda m: "%dpx" % round(float(m.group(1)) * scale()), sheet)
