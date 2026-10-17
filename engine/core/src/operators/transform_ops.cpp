@@ -480,10 +480,28 @@ private:
 
 }  // namespace
 
-void registerTransformOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kTransform, [] { return std::make_unique<TransformOp>(); });
-    registry.registerType(op::kBend, [] { return std::make_unique<BendOp>(); });
-    registry.registerType(op::kDirection, [] { return std::make_unique<DirectionOp>(); });
+void registerTransformOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kTransform,
+                          {"deform",
+                           "Moves, turns and scales strands about their roots (or the whole set), with randomness.",
+                           "move rotate scale translate"},
+                          [] { return std::make_unique<TransformOp>(); });
+}
+
+void registerBendOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kBend,
+                          {"deform",
+                           "Bends strands toward or away from the scalp, or combs them toward a direction, between a start and an end; start and end 0 stand them up at the root.",
+                           "comb curve lift lay"},
+                          [] { return std::make_unique<BendOp>(); });
+}
+
+void registerDirectionOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kDirection,
+                          {"shape",
+                           "Points strands by inclination from the scalp and roll around its normal, at the root.",
+                           "inclination roll angle orient"},
+                          [] { return std::make_unique<DirectionOp>(); });
 }
 
 }  // namespace groomlab

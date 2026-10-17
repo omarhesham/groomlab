@@ -663,6 +663,43 @@ class GroomingTest(unittest.TestCase):
         self.assertAlmostEqual(painted[1], unpainted[1], places=3)  # bottom unpainted: unchanged
         self.assertEqual(groomlab.paint_scalp_map(self.groom, "mask", paint=False), node)  # reused, not duplicated
 
+    def test_the_sample_head_comes_in_sized_and_selected(self):
+        # Nika: 34.6 cm tall in any scene unit, turned for a z-up scene, selected, a groom grows on her.
+        for unit, axis in (("cm", "y"), ("m", "y"), ("cm", "z")):
+            cmds.file(new=True, force=True)
+            cmds.currentUnit(linear=unit)
+            cmds.upAxis(axis=axis)
+            head = groomlab.add_sample_head()
+            self.assertEqual(cmds.ls(selection=True), [head])
+            bbox = cmds.exactWorldBoundingBox(head)
+            tall = (bbox[5] - bbox[2]) if axis == "z" else (bbox[4] - bbox[1])
+            want = 34.61 if unit == "cm" else 0.3461
+            self.assertAlmostEqual(tall / want, 1.0, delta=0.01, msg="%s %s-up" % (unit, axis))
+        cmds.upAxis(axis="y")
+        cmds.currentUnit(linear="cm")
+        groom = groomlab.create_groom(head, fit=True)
+        self.assertGreater(cmds.getAttr(groom + ".outStrandCount"), 0)
+
+    def test_leaving_the_paint_brush_puts_the_view_back(self):
+        # Painting shows the map on the strands and the scalp; another brush, or another tool
+        # (Q), puts back what showed before, without an undo step of its own.
+        from groomlab import painting
+        from groomlab.brushes import brush_tool
+        def view():
+            return [cmds.getAttr(self.groom + ".strandColorMode"), cmds.getAttr(self.groom + ".scalpMapDisplay") or ""]
+        before = view()
+        name = groomlab.paint_param(self.groom, "scatter", "density", kind="vertices")
+        self.assertEqual(cmds.getAttr(self.groom + ".strandColorMode"), 2)
+        self.assertEqual(cmds.getAttr(self.groom + ".scalpMapDisplay"), name)
+        brush_tool("comb")
+        self.assertEqual(view(), before)
+        groomlab.paint_map(self.groom, name)
+        self.assertEqual(cmds.getAttr(self.groom + ".strandColorMode"), 2)
+        cmds.setToolTo("selectSuperContext")
+        painting._tool_changed()  # Maya's ToolChanged event (not sent without a UI)
+        self.assertEqual(view(), before)
+        self.assertEqual(groomlab.map_kind(self.groom, name), "vertices", "the map itself stays")
+
     def test_paint_param_before_strands_exist(self):
         cmds.setAttr(self.groom + ".previewDensity", 1.0)
         groomlab.set_param(self.groom, "scatter", "density", 200.0)
@@ -4985,12 +5022,12 @@ class SimulateTest(unittest.TestCase):
         self.assertAlmostEqual(param("gravity"), 9.8)
         self.assertEqual(set(fur), set(sim.simulate_preset_params("default")))
         cmds.undo()
-        self.assertIs(param("groomedUnderGravity"), False)
+        self.assertIs(param("groomedUnderGravity"), True)
         self.assertAlmostEqual(param("bend"), 0.5)
         sim.simulate_preset(self.groom, "fur", node=node)
         sim.simulate_preset(self.groom, "default", node=node)
         self.assertAlmostEqual(param("bend"), 0.5)
-        self.assertIs(param("groomedUnderGravity"), False)
+        self.assertIs(param("groomedUnderGravity"), True)
         with self.assertRaises(ValueError):
             sim.simulate_preset(self.groom, "nope")
         self.assertEqual(groomlab.errors(self.groom), [])

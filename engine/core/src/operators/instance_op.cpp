@@ -402,8 +402,17 @@ private:
 }  // namespace
 
 void registerInstanceOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kInstance, [] { return std::make_unique<InstanceOp>(false); });
-    registry.registerType(op::kScales, [] { return std::make_unique<InstanceOp>(true); });
+    registry.registerType(op::kInstance,
+                          {"look", "Copies a mesh (leaves, feathers, beads) along the strands.", "copy mesh leaves beads"},
+                          [] { return std::make_unique<InstanceOp>(false); });
+}
+
+void registerScalesOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kScales,
+                          {"look",
+                           "A scale at each strand's root, lying on the skin along the strand: reptile skin, armor plates.",
+                           "reptile armor plates skin"},
+                          [] { return std::make_unique<InstanceOp>(true); });
 }
 
 }  // namespace groomlab

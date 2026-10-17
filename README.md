@@ -79,7 +79,8 @@ GroomLab is open source under the [Apache License 2.0](LICENSE) ([NOTICE](NOTICE
 https://github.com/thekesslereffect/groomlab. The Blender
 add-on (`hosts/blender/addon/`) is under the GPL-3.0-or-later, as Blender add-ons must be.
 Third-party components and their licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md); adding a node: [docs/EXTENDING.md](docs/EXTENDING.md).
+Security reports: [SECURITY.md](SECURITY.md).
 
 GroomLab is free for any use, commercial included: every feature and every export (Unreal,
 Unity, glTF, Alembic, USD, cards), no watermark, no key, no activation. It is funded by
@@ -93,7 +94,8 @@ The engine (core, Python module, CLI, C API, Blender helper) builds with no prop
 procedural, and the RenderMan procedural build against your own Maya install or devkit, MtoA
 and RenderMan Pro Server (`MAYA_LOCATION`, `MTOA_LOCATION`, `GROOMLAB_RMANTREE`). Their SDKs are
 not redistributable and are never in this repository. Step by step: [BUILDING.md](BUILDING.md).
-The full developer handbook: [docs/DEVELOPING.md](docs/DEVELOPING.md).
+The full developer handbook: [docs/DEVELOPING.md](docs/DEVELOPING.md); adding a node of your own:
+[docs/EXTENDING.md](docs/EXTENDING.md).
 
 ## Layout
 
@@ -116,7 +118,7 @@ The full developer handbook: [docs/DEVELOPING.md](docs/DEVELOPING.md).
 | `tests/` | GoogleTest core, GPU and Alembic tests (`tests/engine`), Python binding tests, mayapy plugin and Arnold tests, GUI-session tests (`tests/hosts/maya/gui_*.py`), the app's tests (`tests/hosts/app`), shared data (`tests/data`). |
 | `tools/` | Packaging (`package_release.py`, `package/`), benchmarks (`bench/`), icon and fixture scripts. |
 | `web/` | The website (Next.js). |
-| `docs/` | The user guide, the developer handbook (`DEVELOPING.md`), the spec summary and the pilot plan. |
+| `docs/` | The user guide, the developer handbook (`DEVELOPING.md`), adding a node (`EXTENDING.md`), the spec summary and the pilot plan. |
 | `third_party/stb/` | `stb_image.h` (public domain or MIT), vendored at the commit in `COMMIT`, for texture maps. |
 | `cmake/` | `FindMaya`, `FindMtoA`, TBB resolution, fetched dependencies (pybind11 2.13.6, GoogleTest 1.15.2, nlohmann/json 3.11.3, Imath 3.1.12, Alembic 1.8.8). |
 
@@ -1814,7 +1816,7 @@ file, as curves, a turntable), **Transfer...** and **Import** (the GroomLab menu
 The **Graph Editor** is a dockable node editor for the selected groom:
 - **Nodes:** each is a card with a category color, its name and type, and ports colored by
   type. The categories follow the order a groom is built in (the Add Node menu, the same in the app
-  and Blender, from the core's `node_catalog.h`): Sources (Scalp, Guides, ColliderMesh, ImportCurves,
+  and Blender, from the core's `node_catalog.h` and each node's own registration): Sources (Scalp, Guides, ColliderMesh, ImportCurves,
   Linked Groom), Grow (Scatter, Interpolate, Cull), Shape (Length, Width, Resample, Direction, Flow,
   Part, Smooth, Mirror, Restore Length, Sculpt), Deform (Bend, Transform, Tie, Blend Neighbors,
   Gravity, Displace), Collide (Collide, Self Collide, Mesh Cut), Look (Clump, Twist, Braid, Noise,

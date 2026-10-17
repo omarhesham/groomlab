@@ -21,7 +21,10 @@ const columns = [
   },
   {
     title: 'Help',
-    links: [{ href: `mailto:${siteConfig.supportEmail}`, label: 'Support' }],
+    links: [
+      { href: `mailto:${siteConfig.supportEmail}`, label: 'Support' },
+      { href: '/press', label: 'Press kit' },
+    ],
   },
   {
     title: 'Legal',

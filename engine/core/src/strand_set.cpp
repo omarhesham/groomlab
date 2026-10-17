@@ -14,12 +14,8 @@ namespace groomlab {
 
 namespace {
 
-// The characters alone, unlike random.h's hashString: contentHash is stored in
-// scenes (a cards bake's "Strands=" stamp), so its values stay as they are.
-std::uint64_t hashChars(std::uint64_t seed, const std::string& s) {
-    for (unsigned char c : s) seed = hashCombine(seed, c);
-    return seed;
-}
+// (contentHash hashes channel names by their characters alone, hashChars, not hashString: it is
+// stored in scenes, a cards bake's "Strands=" stamp, so its values stay as they are.)
 
 }  // namespace
 

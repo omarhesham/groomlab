@@ -1267,11 +1267,6 @@ std::array<float, 4> rgba(const std::array<float, 3>& c, float scale = 1.0f) {
     return {c[0] * scale, c[1] * scale, c[2] * scale, 1.0f};
 }
 
-std::uint64_t hashChars(std::uint64_t h, const std::string& text) {
-    for (const unsigned char c : text) h = hashCombine(h, c);
-    return h;
-}
-
 // The strands of `strands` an instance sits on, in order.
 std::vector<std::size_t> instancedStrands(const StrandSet& strands) {
     std::vector<std::size_t> out;

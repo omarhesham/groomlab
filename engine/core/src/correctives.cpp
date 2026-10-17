@@ -18,10 +18,8 @@ namespace {
 
 constexpr float kMoved = 1e-4f;  // a move that counts as sculpted, as a share of the guide's length
 
-float smoothstep01(double t) {
-    const float x = static_cast<float>(std::clamp(t, 0.0, 1.0));
-    return x * x * (3.0f - 2.0f * x);
-}
+// smoothstep from 0 to 1 of a share of a fade (clamped in double, then a float: the same).
+float smoothstep01(double t) { return smoothstep(0.0f, 1.0f, static_cast<float>(t)); }
 
 // Guides with offsets in any enabled layer weighted at `seconds`, by depth.
 std::map<int, std::vector<GuideId>> correctedByDepth(const GuideHierarchy& h, const std::vector<CorrectiveLayer>& layers,

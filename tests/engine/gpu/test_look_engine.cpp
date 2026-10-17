@@ -1765,6 +1765,48 @@ TEST_P(LookEngineTest, ASeedDragGivesWhatTheCpuDrawsForIt) {
     }
 }
 
+TEST(GpuPreview, StageTableNamesRealTypesAndParams) {
+    // Every row of look_stages.inc names a registered node type, and every param it lists (mapped,
+    // ramp, vector, number) is one of that type's, of the kind it says: a typo there would keep a
+    // stage from running, or let a drag through that the kernel never reads.
+    std::map<std::string, std::map<std::string, std::string>> kinds;  // type -> param -> kind
+    for (const nlohmann::json& s : nlohmann::json::parse(operatorSpecsJson())) {
+        for (const nlohmann::json& p : s["params"]) kinds[s["type"]][p["name"]] = p["kind"];
+    }
+    auto check = [&](const char* type, const char* list, const char* what, std::set<std::string> allowed) {
+        SCOPED_TRACE(std::string(type) + " " + what + " \"" + list + "\" (look_stages.inc)");
+        ASSERT_TRUE(kinds.count(type)) << type << " is not a registered node type";
+        std::istringstream in(list);
+        for (std::string name; in >> name;) {
+            const auto it = kinds[type].find(name);
+            ASSERT_NE(it, kinds[type].end()) << type << " has no param '" << name << "'";
+            if (!allowed.empty()) EXPECT_TRUE(allowed.count(it->second)) << type << "." << name << " is a " << it->second;
+            EXPECT_TRUE(std::string(what) == "mapped" || gpu::previewableParam(type, name)) << type << "." << name;
+        }
+    };
+    const std::set<std::string> numbers = {"float", "int", "bool"};
+#define GROOMLAB_STAGE(Kind, name, mapped0, mapped1, ramps, vectors, nums) \
+    check(#Kind, mapped0 " " mapped1, "mapped", {});                       \
+    check(#Kind, ramps, "ramps", {"ramp"});                                \
+    check(#Kind, vectors, "vectors", {"vec3"});                            \
+    check(#Kind, nums, "numbers", numbers);
+#define GROOMLAB_STAGE_NODE(Type, Kind, ramps, vectors, nums) \
+    check(#Type, ramps, "ramps", {"ramp"});                   \
+    check(#Type, vectors, "vectors", {"vec3"});               \
+    check(#Type, nums, "numbers", numbers);
+#define GROOMLAB_GPU_PARAMS(Type, ramps, vectors, nums) \
+    check(#Type, ramps, "ramps", {"ramp"});             \
+    check(#Type, vectors, "vectors", {"vec3"});         \
+    check(#Type, nums, "numbers", numbers);
+#define GROOMLAB_PASS_THROUGH(Type) check(#Type, "", "pass-through", {});
+#include "groomlab/gpu/look_stages.inc"
+#undef GROOMLAB_STAGE
+#undef GROOMLAB_STAGE_NODE
+#undef GROOMLAB_GPU_PARAMS
+#undef GROOMLAB_PASS_THROUGH
+    EXPECT_STREQ(gpu::stageName(gpu::StageKind::SelfCollide), "selfCollide");
+}
+
 TEST(GpuPreview, RefusesDragsTheKernelsDoNotRead) {
     // A param the kernels do not read (it would show its old value), a ramp for a number or a
     // number for a ramp, and a Clump's seed where it picks its own centers by it: the CPU's.

@@ -35,7 +35,7 @@ public:
 };
 
 const bool kRegistered = [] {
-    OperatorRegistry::instance().registerType("TestCApiLift", [] { return std::make_unique<CApiLiftOp>(); });
+    OperatorRegistry::instance().registerType("TestCApiLift", {}, [] { return std::make_unique<CApiLiftOp>(); });
     return true;
 }();
 

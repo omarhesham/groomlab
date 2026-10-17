@@ -346,72 +346,11 @@ struct Code {
 };
 const Code& codeOf(int kernel) {
     static const std::vector<Code> list = [] {
-        const Code codes[] = {{Kernel::Interpolate, kLookGlslInterpolateCS, "InterpolateCS"},
-                              {Kernel::Clearance, kLookGlslClearanceCS, "ClearanceCS"},
-                              {Kernel::Length, kLookGlslLengthCS, "LengthCS"},
-                              {Kernel::Centers, kLookGlslCentersCS, "CentersCS"},
-                              {Kernel::Clump, kLookGlslClumpCS, "ClumpCS"},
-                              {Kernel::Noise, kLookGlslNoiseCS, "NoiseCS"},
-                              {Kernel::NoisePoints, kLookGlslNoisePointsCS, "NoisePointsCS"},
-                              {Kernel::Curl, kLookGlslCurlCS, "CurlCS"},
-                              {Kernel::Width, kLookGlslWidthCS, "WidthCS"},
-                              {Kernel::Lines, kLookGlslLinesCS, "LinesCS"},
-                              {Kernel::LinesPoints, kLookGlslLinesPointsCS, "LinesPointsCS"},
-                              {Kernel::PointsTexture, kLookGlslPointsTextureCS, "PointsTextureCS"},
-                              {Kernel::PointsTexturePoints, kLookGlslPointsTexturePointsCS, "PointsTexturePointsCS"},
-                              {Kernel::Gather, kLookGlslGatherCS, "GatherCS"},
-                              {Kernel::UvWidths, kLookGlslUvWidthsCS, "UvWidthsCS"},
-                              {Kernel::PointStrands, kLookGlslPointStrandsCS, "PointStrandsCS"},
-                              {Kernel::WidthPoints, kLookGlslWidthPointsCS, "WidthPointsCS"},
-                              {Kernel::Share, kLookGlslShareCS, "ShareCS"},
-                              {Kernel::CurlAxes, kLookGlslCurlAxesCS, "CurlAxesCS"},
-                              {Kernel::Part, kLookGlslPartCS, "PartCS"},
-                              {Kernel::Longest, kLookGlslLongestCS, "LongestCS"},
-                              {Kernel::Field, kLookGlslFieldCS, "FieldCS"},
-                              {Kernel::Gravity, kLookGlslGravityCS, "GravityCS"},
-                              {Kernel::Flyaway, kLookGlslFlyawayCS, "FlyawayCS"},
-                              {Kernel::Collide, kLookGlslCollideCS, "CollideCS"},
-                              {Kernel::Wind, kLookGlslWindCS, "WindCS"},
-                              {Kernel::Blend, kLookGlslBlendCS, "BlendCS"},
-                              {Kernel::BlendPoints, kLookGlslBlendPointsCS, "BlendPointsCS"},
-                              {Kernel::GridClear, kLookGlslGridClearCS, "GridClearCS"},
-                              {Kernel::GridBounds, kLookGlslGridBoundsCS, "GridBoundsCS"},
-                              {Kernel::GridLay, kLookGlslGridLayCS, "GridLayCS"},
-                              {Kernel::GridMark, kLookGlslGridMarkCS, "GridMarkCS"},
-                              {Kernel::GridDilate, kLookGlslGridDilateCS, "GridDilateCS"},
-                              {Kernel::GridCompact, kLookGlslGridCompactCS, "GridCompactCS"},
-                              {Kernel::GridZero, kLookGlslGridZeroCS, "GridZeroCS"},
-                              {Kernel::GridSplat, kLookGlslGridSplatCS, "GridSplatCS"},
-                              {Kernel::GridUnknowns, kLookGlslGridUnknownsCS, "GridUnknownsCS"},
-                              {Kernel::GridSor, kLookGlslGridSorCS, "GridSorCS"},
-                              {Kernel::GridWalk, kLookGlslGridWalkCS, "GridWalkCS"},
-                              {Kernel::SelfCollideNode, kLookGlslSelfCollideNodeCS, "SelfCollideNodeCS"},
-                              {Kernel::SelfCollideGradient, kLookGlslSelfCollideGradientCS, "SelfCollideGradientCS"},
-                              {Kernel::SelfCollidePush, kLookGlslSelfCollidePushCS, "SelfCollidePushCS"},
-                              {Kernel::StaticReach, kLookGlslStaticReachCS, "StaticReachCS"},
-                              {Kernel::StaticMoments, kLookGlslStaticMomentsCS, "StaticMomentsCS"},
-                              {Kernel::StaticNode, kLookGlslStaticNodeCS, "StaticNodeCS"},
-                              {Kernel::StaticField, kLookGlslStaticFieldCS, "StaticFieldCS"},
-                              {Kernel::StaticPush, kLookGlslStaticPushCS, "StaticPushCS"},
-                              {Kernel::TieFrame, kLookGlslTieFrameCS, "TieFrameCS"},
-                              {Kernel::TieRoute, kLookGlslTieRouteCS, "TieRouteCS"},
-                              {Kernel::TieLay, kLookGlslTieLayCS, "TieLayCS"},
-                              {Kernel::Bend, kLookGlslBendCS, "BendCS"},
-                              {Kernel::Direction, kLookGlslDirectionCS, "DirectionCS"},
-                              {Kernel::Transform, kLookGlslTransformCS, "TransformCS"},
-                              {Kernel::Displace, kLookGlslDisplaceCS, "DisplaceCS"},
-                              {Kernel::Twist, kLookGlslTwistCS, "TwistCS"},
-                              {Kernel::TwistAxes, kLookGlslTwistAxesCS, "TwistAxesCS"},
-                              // The shapers reading their neighbours or a reference.
-                              {Kernel::Smooth, kLookGlslSmoothCS, "SmoothCS"},
-                              {Kernel::RestoreLength, kLookGlslRestoreLengthCS, "RestoreLengthCS"},
-                              {Kernel::BlendNeighbors, kLookGlslBlendNeighborsCS, "BlendNeighborsCS"},
-                              {Kernel::Tangle, kLookGlslTangleCS, "TangleCS"},
-                              {Kernel::Flow, kLookGlslFlowCS, "FlowCS"},
-                              // Affect masks, Jiggle, MeshCut.
-                              {Kernel::Affect, kLookGlslAffectCS, "AffectCS"},
-                              {Kernel::Jiggle, kLookGlslJiggleCS, "JiggleCS"},
-                              {Kernel::MeshCut, kLookGlslMeshCutCS, "MeshCutCS"}};
+        const Code codes[] = {
+#define GROOMLAB_KERNEL(Name) {Kernel::Name, kLookGlsl##Name##CS, #Name "CS"},
+#include "groomlab/gpu/look_kernels.inc"
+#undef GROOMLAB_KERNEL
+        };
         std::vector<Code> byKernel(kKernels, Code{Kernel::Count, nullptr, nullptr});
         for (const Code& c : codes) byKernel[static_cast<int>(c.kernel)] = c;
         return byKernel;
@@ -421,7 +360,7 @@ const Code& codeOf(int kernel) {
 
 // The kernels ready in some context, a bit each, and those that did not compile, as the last look at
 // them found them (glLookKernelsReady).
-std::atomic<KernelSet> gReady{0}, gFailed{0};
+KernelSet gReady, gFailed;  // (under gFailedMutex)
 std::mutex gFailedMutex;
 std::string gFailedWhy;  // the first kernel's that did not compile
 
@@ -451,8 +390,9 @@ public:
             gone = std::move(it->second);
             stores().erase(it);
         }
-        gReady = 0;
-        gFailed = 0;
+        std::lock_guard<std::mutex> lock(gFailedMutex);
+        gReady.reset();
+        gFailed.reset();
     }
 
     explicit KernelPrograms(const Gl& gl) : gl_(gl), context_(wglGetCurrentContext()) {
@@ -688,8 +628,8 @@ private:
             state_[k] = State::Failed;
             failed_[k] = why;
             --pending_;
-            gFailed |= KernelSet{1} << k;
             std::lock_guard<std::mutex> lock(gFailedMutex);
+            gFailed.set(static_cast<std::size_t>(k));
             if (gFailedWhy.empty()) gFailedWhy = why;
             return;
         }
@@ -699,7 +639,8 @@ private:
     void markReady(int k) {
         state_[k] = State::Ready;
         --pending_;
-        gReady |= KernelSet{1} << k;
+        std::lock_guard<std::mutex> lock(gFailedMutex);
+        gReady.set(static_cast<std::size_t>(k));
     }
     std::string log(GLuint object, bool shader) {
         GLint length = 0;
@@ -1100,17 +1041,20 @@ bool prepareGLLookKernels() {
 
 bool glLookKernelsReady(const LookRun& run, std::string* why) {
     const KernelSet need = kernelsOf(run);
-    const KernelSet failed = need & gFailed.load(), compiling = need & ~gReady.load() & ~failed;
-    if (why && failed) {
-        std::lock_guard<std::mutex> lock(gFailedMutex);
+    std::lock_guard<std::mutex> lock(gFailedMutex);
+    const KernelSet failed = need & gFailed, compiling = need & ~gReady & ~failed;
+    if (why && failed.any()) {
         *why = "GPU preview: " + gFailedWhy;
-    } else if (why && compiling) {
+    } else if (why && compiling.any()) {
         *why = "the GPU's kernels are compiling (" + kernelNames(compiling) + ")";
     }
-    return !failed && !compiling;
+    return failed.none() && compiling.none();
 }
 
-bool glLookKernelsAllReady() { return gReady.load() == (~KernelSet{0} >> (64 - kKernels)); }
+bool glLookKernelsAllReady() {
+    std::lock_guard<std::mutex> lock(gFailedMutex);
+    return gReady.all();
+}
 
 void forgetGLLookKernels() {
     if (wglGetCurrentContext()) KernelPrograms::forget();

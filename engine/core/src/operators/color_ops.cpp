@@ -1047,10 +1047,28 @@ private:
 
 }  // namespace
 
-void registerColorOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kHairColor, [] { return std::make_unique<HairColorOp>(); });
-    registry.registerType(op::kBands, [] { return std::make_unique<BandsOp>(); });
-    registry.registerType(op::kFeatherColor, [] { return std::make_unique<FeatherColorOp>(); });
+void registerHairColorOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kHairColor,
+                          {"color",
+                           "The hair's look: pigment and dye, a map, greys, randomness, a tip color and the highlight (specular, roughness, tilt).",
+                           "melanin pigment dye shading specular roughness"},
+                          [] { return std::make_unique<HairColorOp>(); });
+}
+
+void registerBandsOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kBands,
+                          {"color",
+                           "Bands of another pigment along each hair, on the guard hairs: agouti, ticked, shaded fur. After HairColor.",
+                           "agouti ticked stripes"},
+                          [] { return std::make_unique<BandsOp>(); });
+}
+
+void registerFeatherColorOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kFeatherColor,
+                          {"color",
+                           "Patterns on feathers (bars, spots, an eye, a painted image), a down color and iridescence. After HairColor.",
+                           "pattern bars spots iridescence"},
+                          [] { return std::make_unique<FeatherColorOp>(); });
 }
 
 }  // namespace groomlab

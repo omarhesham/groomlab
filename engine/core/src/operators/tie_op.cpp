@@ -562,7 +562,11 @@ public:
 }  // namespace
 
 void registerTieOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kTie, [] { return std::make_unique<TieOp>(); });
+    registry.registerType(op::kTie,
+                          {"deform",
+                           "Ponytails and hair ties: strands run along the scalp to a ring, pass through it in order and fan into a tail.",
+                           "ponytail ring hair tie bun"},
+                          [] { return std::make_unique<TieOp>(); });
 }
 
 }  // namespace groomlab

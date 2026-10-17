@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <cstddef>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,9 @@ struct Ramp {
 
     void sort();
     float operator()(float t) const;
+    // The monotone cubic's tangent (slope) at key k: the GPU preview takes them with the keys (0
+    // with fewer than two keys).
+    float tangent(std::size_t k) const;
 
     bool operator==(const Ramp& o) const { return keys == o.keys && straight == o.straight; }
     bool operator!=(const Ramp& o) const { return !(*this == o); }

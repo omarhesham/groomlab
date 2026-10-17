@@ -600,11 +600,30 @@ public:
 
 }  // namespace
 
-void registerExtraOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kToStrands, [] { return std::make_unique<ToStrandsOp>(); });
-    registry.registerType(op::kTwist, [] { return std::make_unique<TwistOp>(); });
-    registry.registerType(op::kSmooth, [] { return std::make_unique<SmoothOp>(); });
-    registry.registerType(op::kCull, [] { return std::make_unique<CullOp>(); });
+void registerToStrandsOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kToStrands,
+                          {"convert", "Guides become strands: render them, or merge them in.", "guides to strands"},
+                          [] { return std::make_unique<ToStrandsOp>(); });
+}
+
+void registerTwistOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kTwist,
+                          {"look", "Twists strands around a lock or clump: ropes, twisted locks.", "rope twisted locks"},
+                          [] { return std::make_unique<TwistOp>(); });
+}
+
+void registerSmoothOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kSmooth,
+                          {"shape",
+                           "Takes out bumps up to a size (a share of the length; 1 straightens), keeping lengths and roots.",
+                           "relax straighten bumps"},
+                          [] { return std::make_unique<SmoothOp>(); });
+}
+
+void registerCullOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kCull,
+                          {"grow", "Thins strands out: bald or thin patches.", "thin bald density remove patches"},
+                          [] { return std::make_unique<CullOp>(); });
 }
 
 }  // namespace groomlab

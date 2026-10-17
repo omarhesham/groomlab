@@ -31,7 +31,7 @@ export function LogoMark({ className, mono = false }: { className?: string; mono
 
 export function Logo({ className, mono = false }: { className?: string; mono?: boolean }) {
   return (
-    <span className={cn('group inline-flex items-center gap-2 font-semibold tracking-tight', className)}>
+    <span className={cn('group inline-flex items-center gap-2 font-bold tracking-tight', className)}>
       <LogoMark mono={mono} />
       <span className="text-[1.05rem]">{siteConfig.name}</span>
     </span>

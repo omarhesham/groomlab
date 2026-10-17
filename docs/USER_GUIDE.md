@@ -8,8 +8,7 @@ command and file format) see the web docs at https://getgroomlab.com/docs and th
 
 **Install.** GroomLab runs in Maya 2022 to 2027 on Windows, with Arnold (MtoA). Maya 2022 is the
 tested version. The builds for 2023 to 2027 are a beta: built for each version, not yet tested
-inside it. Maya 2024 has no Arnold translator yet, so Arnold renders its grooms from groom files
-through the procedural. One download holds every build: unzip it, start Maya and drag
+inside it. One download holds every build: unzip it, start Maya and drag
 `install.mel` onto the viewport (the package's README_INSTALL.txt walks through it). Restart Maya
 once so Arnold finds GroomLab.
 

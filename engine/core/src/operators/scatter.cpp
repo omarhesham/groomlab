@@ -83,12 +83,6 @@ constexpr float kMaxRandomness = 2.0f;
 std::atomic<std::size_t> relaxCount{0};
 std::atomic<std::size_t> relaxIterationCount{0};
 
-std::uint64_t hashDouble(std::uint64_t h, double value) {
-    std::uint64_t bits = 0;
-    std::memcpy(&bits, &value, sizeof bits);
-    return hashCombine(h, bits);
-}
-
 // The scalp's open edges (on one triangle only), each with the direction into
 // the surface, and points along them every `step` to find the nearest within `reach` (binned in
 // cells that wide: a root far from every edge looks through a few empty cells, not the edges).
@@ -802,7 +796,9 @@ std::size_t scatterRelaxCount() { return relaxCount.load(); }
 std::size_t scatterRelaxIterationCount() { return relaxIterationCount.load(); }
 
 void registerScatterOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kScatter, [] { return std::make_unique<ScatterOp>(); });
+    registry.registerType(op::kScatter,
+                          {"grow", "Roots over the scalp: how many hairs, and where.", "density count roots number hairs"},
+                          [] { return std::make_unique<ScatterOp>(); });
 }
 
 }  // namespace groomlab

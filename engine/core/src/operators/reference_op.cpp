@@ -51,12 +51,6 @@ namespace {
 
 namespace fs = std::filesystem;
 
-std::uint64_t hashDouble(std::uint64_t h, double d) {
-    std::uint64_t bits = 0;
-    std::memcpy(&bits, &d, sizeof bits);
-    return hashCombine(h, bits);
-}
-
 float component(const Vec3f& v, int i) { return i == 0 ? v.x : i == 1 ? v.y : v.z; }
 
 // A referenced groom file, loaded: its session (used by one evaluation at a time) and the last
@@ -499,7 +493,12 @@ private:
 }  // namespace
 
 void registerReferenceOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kReference, [] { return std::make_unique<ReferenceOp>(); });
+    registry.registerType(op::kReference,
+                          {"source",
+                           "Another groom file's result (its strands, or its guides): a library look reused or instanced, where the file has it or bound onto this scalp.",
+                           "reference library instance groom file link",
+                           "Linked Groom"},
+                          [] { return std::make_unique<ReferenceOp>(); });
 }
 
 }  // namespace groomlab

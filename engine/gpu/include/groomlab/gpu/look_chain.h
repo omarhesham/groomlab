@@ -118,19 +118,18 @@ struct SculptEdits;
 namespace groomlab::gpu {
 
 // A node the GPU runs: one kernel over the strands.
+// One a GROOMLAB_STAGE row of look_stages.inc (its node type, name, mapped fields and the params a
+// drag may set), in its order.
 enum class StageKind {
-    Interpolate, Length, Clump, Noise, Curl, Width, Part, Gravity, Flyaway, Collide, Wind, Blend, SelfCollide, Static, Tie,
-    // Shapers working on each strand alone (transform_ops.cpp, deform_ops.cpp DisplaceOp, extra_ops.cpp TwistOp).
-    Bend, Direction, Transform, Displace, Twist,
-    // The shapers reading their neighbours or a reference (look_chain.cpp's section of them).
-    Smooth, RestoreLength, BlendNeighbors, Tangle, Flow,
-    // Jiggle with motion (motion_ops.cpp JiggleOp); MeshCut (mesh_cut_op.cpp).
-    Jiggle, MeshCut,
-    // A Merge without a seam to blend (look_ops.cpp MergeOp): the run goes up its input a; b's strands,
-    // as cached, follow a's in the base and are handed on (LookStage::prefix).
-    Merge
+#define GROOMLAB_STAGE(Kind, name, mapped0, mapped1, ramps, vectors, numbers) Kind,
+#include "groomlab/gpu/look_stages.inc"
+#undef GROOMLAB_STAGE
 };
-constexpr int kStageKinds = 28;
+constexpr int kStageKinds = 0
+#define GROOMLAB_STAGE(Kind, name, mapped0, mapped1, ramps, vectors, numbers) +1
+#include "groomlab/gpu/look_stages.inc"
+#undef GROOMLAB_STAGE
+    ;
 const char* stageName(StageKind kind);
 constexpr std::size_t kNoStage = static_cast<std::size_t>(-1);
 

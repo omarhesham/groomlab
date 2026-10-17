@@ -312,9 +312,16 @@ private:
 
 }  // namespace
 
-void registerCompoundOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kInput, [] { return std::make_unique<InputOp>(); });
-    registry.registerType(op::kCompound, [] { return std::make_unique<CompoundOp>(); });
+void registerInputOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kInput,
+                          {"source", "An input of the compound this node lives in.", "compound input", "", true},
+                          [] { return std::make_unique<InputOp>(); });
+}
+
+void registerCompoundOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kCompound,
+                          {"utility", "Nodes grouped into one, with the params that matter exposed.", "group subgraph", "", true},
+                          [] { return std::make_unique<CompoundOp>(); });
 }
 
 }  // namespace groomlab

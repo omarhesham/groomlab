@@ -176,7 +176,7 @@ def main():
             menu.cmds = real
         tree = stack[0]
         top = [label for label, _, _ in tree]
-        _expect(top == ["Groom Tools", "Graph Editor", "Create Groom from Selection",
+        _expect(top == ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Add Sample Head (Nika)",
                         "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate", "Review",
                         "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys", "Help"], "top: %r" % top)
         sub = {label: children for label, children, _ in tree}

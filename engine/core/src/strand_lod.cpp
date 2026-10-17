@@ -40,12 +40,6 @@ std::uint64_t digestOf(const void* data, std::size_t bytes) {
     return hashCombine(bufferDigest(parts.data(), parts.size() * sizeof(std::uint64_t)), bytes);
 }
 
-std::uint64_t floatBits(float v) {
-    std::uint32_t b = 0;
-    std::memcpy(&b, &v, sizeof b);
-    return b;
-}
-
 // Point k of an axis of `axisPoints` points on a strand of n points: the nearest by share of length.
 std::size_t pointAt(std::size_t k, std::size_t axisPoints, std::size_t n) {
     if (axisPoints <= 1 || n <= 1) return 0;

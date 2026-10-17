@@ -48,7 +48,7 @@ public:
 };
 
 struct Registered {
-    Registered() { OperatorRegistry::instance().registerType("TestValueParams", [] { return std::make_unique<ParamsOp>(); }); }
+    Registered() { OperatorRegistry::instance().registerType("TestValueParams", {}, [] { return std::make_unique<ParamsOp>(); }); }
     ~Registered() { OperatorRegistry::instance().unregisterType("TestValueParams"); }
 };
 

@@ -2629,7 +2629,11 @@ std::size_t interpolateStrandBindCount() { return strandBindCount.load(); }
 void setInterpolateReferencePaths(bool reference) { referencePaths = reference; }
 
 void registerInterpolateOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kInterpolate, [] { return std::make_unique<InterpolateOp>(); });
+    registry.registerType(op::kInterpolate,
+                          {"grow",
+                           "Grows each root into a strand shaped like the guides around it.",
+                           "children guides blend strands"},
+                          [] { return std::make_unique<InterpolateOp>(); });
 }
 
 }  // namespace groomlab

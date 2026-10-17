@@ -17,7 +17,14 @@ Thanks for helping. Bug reports, presets, docs fixes and code are all welcome.
    Format C++ with the repository's `.clang-format`. Stored formats change in place, with no
    migrations. Add or update tests with the change. Golden files change only for intended
    output changes.
-3. Keep one topic per pull request. The commit message says what changed and why.
+3. Adding a node: [docs/EXTENDING.md](docs/EXTENDING.md) (`tools/dev/new_node.py` makes it, then
+   params, tests, the GPU preview and the docs).
+4. Keep one topic per pull request. The commit message says what changed and why.
+
+## Math
+
+Where the math lives (one library for the nodes, the expressions and the GPU kernels) and how to
+add a function or an expression builtin: [docs/MATH.md](docs/MATH.md).
 
 ## Licensing of contributions
 

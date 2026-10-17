@@ -4,6 +4,7 @@
 // What the engine's backends share: one dispatch's constants as the kernels lay them out
 // (look.slang's cbuffer Look, and the same rows as GLSL's std140 uniform block).
 
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -42,8 +43,7 @@ static_assert(sizeof(StageConstants) == kConstantSlotBytes, "look.slang's cbuffe
 // The kernels a run of `run` may dispatch, a bit each (LookEngine::Kernel): never fewer than it does
 // (each of its stages' kernels, a Clump's centers' branch's; the lines', gather's, point
 // texture's and fields' always).
-using KernelSet = std::uint64_t;
-static_assert(static_cast<int>(LookEngine::Kernel::Count) <= 64, "a bit a kernel");
+using KernelSet = std::bitset<static_cast<std::size_t>(LookEngine::Kernel::Count)>;
 KernelSet kernelsOf(const LookRun& run);
 // The kernels' names ("Collide, Clearance"), for a host to say what is compiling.
 std::string kernelNames(KernelSet kernels);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// Registration hooks for built-in operators, one per source file, and the
+// Registration hooks for built-in operators, one per type (builtin_operators.inc), and the
 // helpers they share.
 
 #include <algorithm>
@@ -142,29 +142,11 @@ std::vector<float> stableGroupNumbers(const std::vector<std::uint64_t>& keys);
 
 class OperatorRegistry;
 
-void registerSourceOperators(OperatorRegistry& registry);
-void registerScatterOperator(OperatorRegistry& registry);
-void registerInterpolateOperator(OperatorRegistry& registry);
-void registerShapeOperators(OperatorRegistry& registry);
-void registerLookOperators(OperatorRegistry& registry);
-void registerCurlOperator(OperatorRegistry& registry);
-void registerCinematicOperators(OperatorRegistry& registry);
-void registerColorOperators(OperatorRegistry& registry);
-void registerDeformOperators(OperatorRegistry& registry);
-void registerFieldOperators(OperatorRegistry& registry);
-void registerInstanceOperator(OperatorRegistry& registry);
-void registerBraidOperator(OperatorRegistry& registry);
-void registerMirrorOperator(OperatorRegistry& registry);
-void registerExtraOperators(OperatorRegistry& registry);
-void registerNeighborOperators(OperatorRegistry& registry);
-void registerMotionOperators(OperatorRegistry& registry);
-void registerSimulateOperator(OperatorRegistry& registry);
-void registerCompoundOperators(OperatorRegistry& registry);
-void registerFeatherOperators(OperatorRegistry& registry);
-void registerTransformOperators(OperatorRegistry& registry);
-void registerMeshCutOperator(OperatorRegistry& registry);
-void registerRenderDataOperator(OperatorRegistry& registry);
-void registerStrandMeshOperator(OperatorRegistry& registry);
+// Each built-in type's registration (builtin_operators.inc): register<Type>Operator, defined in
+// the type's source file next to its operator, called by registerBuiltinOperators (registry.cpp).
+#define GROOMLAB_OPERATOR(Type) void register##Type##Operator(OperatorRegistry& registry);
+#include "groomlab/builtin_operators.inc"
+#undef GROOMLAB_OPERATOR
 
 // Compound definitions (graph_io.cpp, which owns the JSON): the inner graph
 // as graph JSON, the declared inputs, and exposed name -> "node.param".
@@ -287,14 +269,5 @@ inline float roundToPercentStep(float value, double scale = 1.0) {
 // its centers by size, at its randomness default, every core strand allowed: preview_core.h), in
 // the order picked: Braid's paths without a braids input.
 std::vector<std::size_t> pickSpreadStrands(const StrandSet& in, const ScalpMesh* scalp, float spacing, std::uint64_t seed);
-
-void registerGroupOperator(OperatorRegistry& registry);
-void registerPlumeOperator(OperatorRegistry& registry);
-void registerReferenceOperator(OperatorRegistry& registry);
-void registerWetOperator(OperatorRegistry& registry);
-void registerSelfCollideOperator(OperatorRegistry& registry);
-void registerStaticOperator(OperatorRegistry& registry);
-void registerSculptOperator(OperatorRegistry& registry);
-void registerTieOperator(OperatorRegistry& registry);
 
 }  // namespace groomlab

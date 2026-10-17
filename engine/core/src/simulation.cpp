@@ -48,7 +48,6 @@ Quat normalized(const Quat& q) {
 Vec3f thirdAxis(const Quat& q) {
     return {2.0f * (q.x * q.z + q.w * q.y), 2.0f * (q.y * q.z - q.w * q.x), 1.0f - 2.0f * (q.x * q.x + q.y * q.y)};
 }
-Quat pure(const Vec3f& v) { return {0.0f, v.x, v.y, v.z}; }
 // v turned by unit q (q v q*).
 Vec3f rotate(const Quat& q, const Vec3f& v) {
     const Vec3f u = q.vec();
@@ -130,12 +129,22 @@ RootPose blend(const RootPose& a, const RootPose& b, float t) {
     return {a.origin + (b.origin - a.origin) * t, slerp(a.rot, b.rot, t)};
 }
 
-// The bend-twist constraint's compliance per unit inverse mass at the reference substep (1/96 s):
-// stiffness 1 is rigid (0), toward 0 ever softer; 0 is no constraint at all (not called).
+// The bend-twist rows' compliance per unit of the orientation's inverse mass at the reference
+// substep (1/96 s): stiffness 1 is rigid (0), toward 0 ever softer; 0 is no constraint at all (not
+// called). 0.3 r^2.4 with r = 1/stiffness - 1: with each guide solved whole, this keeps about the
+// scale bend had (the tip of a 10 cm guide held out level drops 1.2 of its length at 0.5, two
+// thirds at 0.7, a quarter at 0.8 and 4% at 0.9; before: 1.3, a half, a seventh, 4%) and the Fur
+// preset's motion (its tips trail a run by half their length and settle within a few frames of a
+// stop, as before).
 float complianceOf(float stiffness) {
     const float k = std::clamp(stiffness, 1e-4f, 1.0f);
-    const float r = 1.0f / k - 1.0f;
-    return 2.0f * r * r;
+    return 0.3f * pm::pow(1.0f / k - 1.0f, 2.4f);
+}
+// The stretch row's compliance per unit of a point's inverse mass at the reference substep:
+// (1 - stretchStiffness) * 2/3 (none at 1: inextensible), so hair hanging under its weight is
+// about as much longer as it was (25 cm at 0.6: 6%, at 0.9: 1%).
+float stretchComplianceOf(float stiffness) {
+    return (2.0f / 3.0f) * (1.0f - std::clamp(stiffness, 0.0f, 1.0f));
 }
 constexpr float kReferenceStep = 1.0f / 96.0f;
 // The frame rootStiffnessProfile's share is taken over (a 24 fps frame): the same pull per second at any
@@ -223,6 +232,273 @@ private:
     std::size_t last_ = kNone;
     Key lastKey_;
 };
+
+// ---- The rods' direct solve (Deul, Kugelstadt, Weiler and Bender 2018, "Direct Position-Based
+// Solver for Stiff Rods") ----------------------------------------------------------------------
+//
+// A guide of n points has n - 1 segments, each a point (its tip) and an orientation, and two
+// constraints of three rows each: stretch-shear (the segment's orientation along its two points)
+// and bend-twist (the turn from the segment before, or from the root's frame, to the groomed
+// one). Segment j's constraints touch only segments j - 1 and j, so the whole guide's linearized
+// system (J M^-1 J^T + compliance) dlambda = -C - compliance lambda is block tridiagonal in 6x6
+// blocks: solved exactly in one sweep down the guide and one back up, every point and orientation
+// moved by its own inverse mass. Nothing is held while its neighbour moves, so the solve adds no
+// energy to the motion, and a stiff guide is held whole in one iteration.
+
+// One segment's settings for a substep (index j: segment j, its tip point j; slot 0 the root's).
+struct RodSegment {
+    float length = 0.0f;   // as groomed (0: too short to have constraints)
+    float w = 0.0f;        // its tip point's inverse mass (0: held)
+    float W = 0.0f;        // its orientation's inverse inertia (per radian)
+    float stretch = 0.0f;  // the stretch row's compliance, along the segment (0: rigid)
+    float bend = -1.0f;    // the bend rows' compliance (negative: none)
+    float twist = -1.0f;   // the twist row's
+};
+
+struct Block6 {
+    float m[6][6];
+};
+
+// a's lower triangle and diagonal replaced by its Cholesky factor L (a = L L^T, a positive
+// definite), the diagonal's inverses in inv.
+void cholesky6(Block6& a, float* inv) {
+    for (int j = 0; j < 6; ++j) {
+        float d = a.m[j][j];
+        for (int k = 0; k < j; ++k) d -= a.m[j][k] * a.m[j][k];
+        d = std::sqrt(std::max(d, 1e-30f));
+        a.m[j][j] = d;
+        inv[j] = 1.0f / d;
+        for (int i = j + 1; i < 6; ++i) {
+            float s = a.m[i][j];
+            for (int k = 0; k < j; ++k) s -= a.m[i][k] * a.m[j][k];
+            a.m[i][j] = s * inv[j];
+        }
+    }
+}
+// x = (L L^T)^-1 x, with the factor from cholesky6.
+void choleskySolve6(const Block6& l, const float* inv, float* x) {
+    for (int i = 0; i < 6; ++i) {
+        float s = x[i];
+        for (int k = 0; k < i; ++k) s -= l.m[i][k] * x[k];
+        x[i] = s * inv[i];
+    }
+    for (int i = 5; i >= 0; --i) {
+        float s = x[i];
+        for (int k = i + 1; k < 6; ++k) s -= l.m[k][i] * x[k];
+        x[i] = s * inv[i];
+    }
+}
+// The same for the six columns of x at once.
+void choleskySolve6(const Block6& l, const float* inv, Block6& x) {
+    for (int i = 0; i < 6; ++i) {
+        for (int k = 0; k < i; ++k) {
+            for (int c = 0; c < 6; ++c) x.m[i][c] -= l.m[i][k] * x.m[k][c];
+        }
+        for (int c = 0; c < 6; ++c) x.m[i][c] *= inv[i];
+    }
+    for (int i = 5; i >= 0; --i) {
+        for (int k = i + 1; k < 6; ++k) {
+            for (int c = 0; c < 6; ++c) x.m[i][c] -= l.m[k][i] * x.m[k][c];
+        }
+        for (int c = 0; c < 6; ++c) x.m[i][c] *= inv[i];
+    }
+}
+
+// A unit quaternion's frame: its rotation matrix's columns.
+struct Axes3 {
+    Vec3f c[3];
+};
+Axes3 axesOf(const Quat& q) {
+    return {{rotate(q, {1.0f, 0.0f, 0.0f}), rotate(q, {0.0f, 1.0f, 0.0f}), rotate(q, {0.0f, 0.0f, 1.0f})}};
+}
+
+// The bend-twist rows' frame of segment j: the orientation before it (the root's frame for the
+// first) times its rest turn, where the groomed shape puts it.
+Quat rodTarget(std::size_t j, const Quat* q, const Quat& rootRot, const Quat* rest) {
+    return normalized((j == 1 ? rootRot : q[j - 1]) * rest[j]);
+}
+
+// A guide's solve (one per thread): its system factored for a substep, solved again each iteration.
+struct RodWork {
+    std::vector<Vec3f> d3;       // each segment's direction, as factored
+    std::vector<Axes3> frame;    // each segment's bend-twist frame, as factored
+    std::vector<float> mask;     // 6 per segment: 1 for a row the solve has, 0 for one it has not
+    std::vector<Block6> factor;  // D_j, Cholesky factored
+    std::vector<float> inv;      // 6 per segment: its factor's diagonal inverses
+    std::vector<Block6> u;       // U_j: segment j's rows against segment j + 1's
+    std::vector<Block6> x;       // D_{j-1}^-1 U_{j-1}
+    std::vector<float> rhs;      // 6 per segment: -C - compliance lambda, then dlambda
+};
+
+// The guide's system for a substep, from its orientations then (the Jacobians depend on nothing
+// else; they turn little over a substep): A = J M^-1 J^T + compliance, factored down the guide
+// (D_j = A_jj - U_{j-1}^T D_{j-1}^-1 U_{j-1}). Orientations q[1..n-1] (segment j's at j).
+void rodFactor(std::size_t n, const Quat* q, const Quat& rootRot, const Quat* rest, const RodSegment* seg,
+               RodWork& work) {
+    work.d3.assign(n, Vec3f{});
+    work.frame.resize(n);
+    work.mask.assign(6 * n, 0.0f);
+    work.factor.resize(n);
+    work.inv.resize(6 * n);
+    work.u.resize(n);
+    work.x.resize(n);
+    work.rhs.assign(6 * n, 0.0f);
+    for (std::size_t j = 1; j < n; ++j) {
+        const RodSegment& s = seg[j];
+        work.frame[j] = Axes3{};
+        if (!(s.length > 1e-8f)) continue;  // no constraints: its rows stay out of the solve
+        work.d3[j] = thirdAxis(q[j]);
+        work.frame[j] = axesOf(rodTarget(j, q, rootRot, rest));
+        float* mask = &work.mask[6 * j];
+        mask[0] = mask[1] = mask[2] = 1.0f;
+        mask[3] = mask[4] = s.bend >= 0.0f ? 1.0f : 0.0f;
+        mask[5] = s.twist >= 0.0f ? 1.0f : 0.0f;
+    }
+    for (std::size_t j = 1; j < n; ++j) {
+        const RodSegment& s = seg[j];
+        const float* mask = &work.mask[6 * j];
+        Block6& d = work.factor[j];
+        // A_jj. Stretch-shear (rows 0-2, world space): through both points and the orientation,
+        // compliant along the segment by `stretch` and all but rigid across it (a trace of
+        // compliance keeps the system positive definite where both points are held). Bend-twist
+        // (rows 3-5, its frame's axes): through this orientation and the one before (the root's
+        // frame holds still). The two coupled through this orientation.
+        const float l = std::max(s.length, 1e-8f);
+        const float wBefore = j > 1 ? seg[j - 1].w : 0.0f;
+        const float WBefore = j > 1 ? seg[j - 1].W : 0.0f;
+        const Vec3f& d3 = work.d3[j];
+        const Axes3& f = work.frame[j];
+        const float across = (s.w + wBefore) / (l * l) + 1e-4f * s.W;
+        const float dd[3] = {d3.x, d3.y, d3.z};
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) d.m[r][c] = (r == c ? across + s.W : 0.0f) + (s.stretch - s.W) * dd[r] * dd[c];
+        }
+        for (int k = 0; k < 3; ++k) {
+            const Vec3f t = d3.cross(f.c[k]) * (0.5f * s.W);
+            d.m[0][3 + k] = d.m[3 + k][0] = t.x;
+            d.m[1][3 + k] = d.m[3 + k][1] = t.y;
+            d.m[2][3 + k] = d.m[3 + k][2] = t.z;
+        }
+        const float turn = 0.25f * (s.W + WBefore);
+        const float comp[3] = {s.bend, s.bend, s.twist};
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 3; ++c) d.m[3 + r][3 + c] = r == c ? turn + std::max(0.0f, comp[r]) : 0.0f;
+        }
+        for (int r = 0; r < 6; ++r) {
+            for (int c = 0; c < 6; ++c) d.m[r][c] *= mask[r] * mask[c];
+            if (mask[r] == 0.0f) d.m[r][r] = 1.0f;
+        }
+        if (j > 1) {
+            // X_j = D_{j-1}^-1 U_{j-1}, and D_j -= U_{j-1}^T X_j.
+            const Block6& u = work.u[j - 1];
+            Block6& x = work.x[j];
+            x = u;
+            choleskySolve6(work.factor[j - 1], &work.inv[6 * (j - 1)], x);
+            for (int k = 0; k < 6; ++k) {
+                for (int r = 0; r < 6; ++r) {
+                    const float ukr = u.m[k][r];
+                    for (int c = 0; c < 6; ++c) d.m[r][c] -= ukr * x.m[k][c];
+                }
+            }
+        }
+        cholesky6(d, &work.inv[6 * j]);
+        if (j + 1 >= n) continue;
+        // U_j: segment j's rows against segment j + 1's, through segment j's point (stretch-shear
+        // with stretch-shear) and orientation (stretch-shear and bend-twist with bend-twist).
+        Block6& u = work.u[j];
+        const RodSegment& b = seg[j + 1];
+        const Axes3& fb = work.frame[j + 1];
+        const float ss = -s.w / (l * std::max(b.length, 1e-8f));
+        for (int r = 0; r < 6; ++r) {
+            for (int c = 0; c < 6; ++c) u.m[r][c] = 0.0f;
+        }
+        for (int r = 0; r < 3; ++r) u.m[r][r] = ss;
+        for (int k = 0; k < 3; ++k) {
+            const Vec3f t = d3.cross(fb.c[k]) * (-0.5f * s.W);
+            u.m[0][3 + k] = t.x;
+            u.m[1][3 + k] = t.y;
+            u.m[2][3 + k] = t.z;
+            for (int r = 0; r < 3; ++r) u.m[3 + r][3 + k] = -0.25f * s.W * f.c[r].dot(fb.c[k]);
+        }
+        const float* next = &work.mask[6 * (j + 1)];
+        for (int r = 0; r < 6; ++r) {
+            for (int c = 0; c < 6; ++c) u.m[r][c] *= mask[r] * next[c];
+        }
+    }
+}
+
+// One iteration of the direct solve over a guide (rodFactor's system): points p[0..n-1] (p[0] the
+// root, pinned), orientations q[1..n-1], the multipliers (6 per segment, at 6 j).
+void rodIteration(std::size_t n, Vec3f* p, Quat* q, const Quat& rootRot, const Quat* rest, const RodSegment* seg,
+                  float* lambda, RodWork& work) {
+    // The errors as they are now. Stretch-shear: (p_j - p_{j-1}) / l - d3. Bend-twist: the exact
+    // turn from the groomed frame to the segment's, as a rotation vector of half its angle in that
+    // frame (x and y bend, z twist), on the shorter arc: exact for a guide pushed far from its
+    // shape. Down the guide with them: g_j = b_j - U_{j-1}^T y_{j-1}, y_j = D_j^-1 g_j (in rhs).
+    for (std::size_t j = 1; j < n; ++j) {
+        const RodSegment& s = seg[j];
+        const float* mask = &work.mask[6 * j];
+        float* g = &work.rhs[6 * j];
+        const float* lam = &lambda[6 * j];
+        if (s.length > 1e-8f) {
+            const float eps = 1e-4f * s.W;  // (the trace of compliance across)
+            const Vec3f gamma = (p[j] - p[j - 1]) / s.length - thirdAxis(q[j]);
+            const Vec3f& d3 = work.d3[j];
+            const float along = s.stretch * (d3.x * lam[0] + d3.y * lam[1] + d3.z * lam[2]);
+            g[0] = -gamma.x - eps * lam[0] - along * d3.x;
+            g[1] = -gamma.y - eps * lam[1] - along * d3.y;
+            g[2] = -gamma.z - eps * lam[2] - along * d3.z;
+            Quat e = conj(rodTarget(j, q, rootRot, rest)) * q[j];
+            if (e.w < 0.0f) e = {-e.w, -e.x, -e.y, -e.z};
+            const Vec3f u = e.vec();
+            const Vec3f c = u * halfAngleOver(u.length(), e.w);
+            g[3] = mask[3] * (-c.x - s.bend * lam[3]);
+            g[4] = mask[4] * (-c.y - s.bend * lam[4]);
+            g[5] = mask[5] * (-c.z - s.twist * lam[5]);
+        } else {
+            for (int k = 0; k < 6; ++k) g[k] = 0.0f;
+        }
+        if (j > 1) {
+            const Block6& u = work.u[j - 1];
+            const float* y = &work.rhs[6 * (j - 1)];
+            for (int k = 0; k < 6; ++k) {
+                for (int r = 0; r < 6; ++r) g[r] -= u.m[k][r] * y[k];
+            }
+        }
+        choleskySolve6(work.factor[j], &work.inv[6 * j], g);
+    }
+    // Back up the guide: dlambda_j = y_j - X_{j+1} dlambda_{j+1}.
+    for (std::size_t j = n - 1; j >= 2; --j) {
+        const float* after = &work.rhs[6 * j];
+        float* y = &work.rhs[6 * (j - 1)];
+        const Block6& x = work.x[j];
+        for (int r = 0; r < 6; ++r) {
+            float sum = 0.0f;
+            for (int c = 0; c < 6; ++c) sum += x.m[r][c] * after[c];
+            y[r] -= sum;
+        }
+    }
+    for (std::size_t k = 6; k < 6 * n; ++k) lambda[k] += work.rhs[k];
+    // The corrections, each point and orientation by its own inverse mass: dp = w J_p^T dlambda,
+    // and a turn in world space of W J_theta^T dlambda.
+    for (std::size_t j = 1; j < n; ++j) {
+        const RodSegment& s = seg[j];
+        const float* dl = &work.rhs[6 * j];
+        const Vec3f ss{dl[0], dl[1], dl[2]};
+        const Axes3& f = work.frame[j];
+        Vec3f dp = ss / std::max(s.length, 1e-8f);
+        Vec3f turn = ss.cross(work.d3[j]) + (f.c[0] * dl[3] + f.c[1] * dl[4] + f.c[2] * dl[5]) * 0.5f;
+        if (j + 1 < n) {
+            const float* dn = &work.rhs[6 * (j + 1)];
+            const Axes3& fn = work.frame[j + 1];
+            dp -= Vec3f{dn[0], dn[1], dn[2]} / std::max(seg[j + 1].length, 1e-8f);
+            turn -= (fn.c[0] * dn[3] + fn.c[1] * dn[4] + fn.c[2] * dn[5]) * 0.5f;
+        }
+        if (s.w > 0.0f) p[j] += dp * s.w;
+        q[j] = normalized(turnOfHalfAngle(turn * (0.5f * s.W)) * q[j]);
+    }
+}
+
 // How fast a point under water soaks up (seconds to 1/e), and the current's gustiness (as Wind's gust).
 constexpr float kSoakTime = 0.25f;
 constexpr float kCurrentGust = 0.3f;
@@ -441,6 +717,7 @@ struct GuideSolver::Impl {
     // for each solve from its inputs; unused (empty) otherwise, the solver then as it was.
     struct PointSettings {
         std::vector<float> stretch;          // the length kept per step (shareOver)
+        std::vector<float> stretchCompliance;  // the stretch row's, per step
         std::vector<float> bend;             // 0-1
         std::vector<float> bendCompliance;   // per step (negative: none)
         std::vector<float> twistCompliance;  // per step (negative: none)
@@ -682,6 +959,7 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
     // Length keeping, friction and repulsion: shares per reference substep (as bend's compliance
     // is), so the look holds at any frame rate and substeps.
     const float stretchShare = shareOver(s.stiffness, h, kReferenceStep);
+    const float stretchCompliance = stretchComplianceOf(s.stiffness) * scale;
     const float frictionShare = shareOver(s.friction, h, kReferenceStep);
     const float repulsionShare = shareOver(s.repulsion, h, kReferenceStep);
     const float twistCompliance = s.twist > 0.0f ? complianceOf(s.twist) * scale : -1.0f;
@@ -718,8 +996,8 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
         const float* mRoot = maps ? mapOf(maps->rootStiffness) : nullptr;
         const float* mMass = maps ? mapOf(maps->mass) : nullptr;
         const float* mStrength = maps ? mapOf(maps->strength) : nullptr;
-        for (std::vector<float>* values : {&ps.stretch, &ps.bend, &ps.bendCompliance, &ps.twistCompliance, &ps.damp, &ps.drag,
-                                           &ps.attract, &ps.invMass, &ps.perMass, &ps.weight}) {
+        for (std::vector<float>* values : {&ps.stretch, &ps.stretchCompliance, &ps.bend, &ps.bendCompliance, &ps.twistCompliance,
+                                           &ps.damp, &ps.drag, &ps.attract, &ps.invMass, &ps.perMass, &ps.weight}) {
             values->resize(points);
         }
         // The pull toward the groomed shape per iteration (as start() spreads it), scaled.
@@ -734,6 +1012,7 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
             const float mass = std::max(1e-3f, mMass ? mMass[i] : s.mass);
             const float weight = std::clamp(mStrength ? mStrength[i] : s.strength, 0.0f, 1.0f);
             ps.stretch[i] = shareOver(stiffness, h, kReferenceStep);
+            ps.stretchCompliance[i] = stretchComplianceOf(stiffness) * scale;
             ps.bend[i] = bend;
             ps.bendCompliance[i] = bend > 0.0f ? complianceOf(bend) * scale : -1.0f;
             ps.twistCompliance[i] = twist > 0.0f ? complianceOf(twist) * scale : -1.0f;
@@ -849,11 +1128,10 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
                 q[i] = nlerp(q[i], turn * q[i], carry);
             }
         }
-        thread_local std::vector<Vec3f> p, tgt, corr, lambda;
+        thread_local std::vector<Vec3f> p, tgt, corr;
         p.resize(n);
         tgt.resize(n);
         corr.assign(n + 1, Vec3f{});
-        lambda.assign(n, Vec3f{});
         for (std::size_t j = 0; j < n; ++j) tgt[j] = target(j, r1, a1);  // the groomed shape on the root now
         const Vec3f rootVelocity = (tgt[0] - x[b]) / h;
         // Gravity as this guide feels it: with groomedUnderGravity only its change in the root's
@@ -919,80 +1197,43 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
             // The segment's orientation starts where the last substep left it: it keeps no spin of
             // its own (see the top of this file).
         }
+        // The rod's segments for this substep: lengths, inverse masses (per point masses; the
+        // orientation weighs as its tip point at the segment's length, and keeps no spin: what it
+        // resists of a substep's turn is the solve's damping of the hair's swing), the stretch
+        // row's compliance (per unit of a point's inverse mass) and the bend-twist rows' (per unit
+        // of the orientation's), per reference step; wet hair bends more easily, up to half its bend
+        // stiffness gone, by wetWeight.
+        thread_local std::vector<RodSegment> rod;
+        thread_local std::vector<float> multipliers;
+        thread_local RodWork work;
+        rod.assign(n, RodSegment{});
+        multipliers.assign(6 * n, 0.0f);
+        const bool bends = custom || bendCompliance >= 0.0f || twistCompliance >= 0.0f;
+        for (std::size_t j = 1; j < n; ++j) {
+            const std::size_t i = b + j;
+            RodSegment& seg = rod[j];
+            seg.length = next.lengths[i];
+            seg.w = custom ? ps.invMass[i] : 1.0f;
+            seg.W = 4.0f * (custom ? next.invMassQ[i] * ps.perMass[i] : next.invMassQ[i]);
+            const float l = std::max(seg.length, 1e-4f);
+            seg.stretch = (custom ? ps.stretchCompliance[i] : stretchCompliance) / (l * l);
+            if (!bends) continue;
+            const float bendHere = custom ? ps.bend[i] : s.bend;
+            const float bendComplianceHere = custom ? ps.bendCompliance[i] : bendCompliance;
+            const float bc = wetting && bendComplianceHere >= 0.0f && wet[i] > 0.0f
+                                 ? complianceOf(bendHere * (1.0f - 0.5f * s.wetWeight * wet[i])) * scale
+                                 : bendComplianceHere;
+            const float tc = custom ? ps.twistCompliance[i] : twistCompliance;
+            seg.bend = bc >= 0.0f ? bc * next.invMassQ[i] : -1.0f;
+            seg.twist = tc >= 0.0f ? tc * next.invMassQ[i] : -1.0f;
+        }
+        // The guide's system, factored once for the substep's iterations (it changes with the
+        // orientations alone, little over a substep: solving it again each iteration gave the same
+        // motion at twice the cost).
+        rodFactor(n, q.data() + b, r1.rot, next.rest.data() + b, rod.data(), work);
         for (int it = 0; it < s.iterations; ++it) {
-            // Stretch and shear: each segment's orientation along its two points (Kugelstadt and
-            // Schoemer's constraint, the points and the orientation moved by their inverse masses).
-            for (std::size_t j = 1; j < n; ++j) {
-                const std::size_t i = b + j;
-                const float l = next.lengths[i];
-                if (!(l > 1e-8f)) continue;
-                // Per point masses: the segment's orientation weighs as its tip point. Above bend
-                // 0.5 the segment hangs more and more from the point before instead of pulling it
-                // back (that point's share falls to none at bend 1: a rigid chain from the root, as
-                // follow the leader holds the point before), so a stiff guide's bend reaches its
-                // points within the iterations: two-sided, a 1 cm guide at bend 1 sagged by its
-                // whole length and an 11 cm one by 1.4 cm (now 0.07 cm both). Bend 0.5 and below
-                // as before.
-                const float bendHere = custom ? ps.bend[i] : s.bend;
-                const float w0 = j == 1 ? 0.0f : (custom ? ps.invMass[i - 1] : 1.0f) * std::min(1.0f, 2.0f * (1.0f - bendHere));
-                const float w1 = custom ? ps.invMass[i] : 1.0f;
-                const float wq = custom ? next.invMassQ[i] * ps.perMass[i] : next.invMassQ[i];
-                const Vec3f d3 = thirdAxis(q[i]);
-                const Vec3f gamma = (p[j] - p[j - 1]) / l - d3;
-                const float denom = w0 + w1 + 4.0f * wq * l * l;
-                p[j - 1] += gamma * (w0 * l / denom);
-                p[j] -= gamma * (w1 * l / denom);
-                const Quat dq = pure(gamma) * Quat{q[i].z, -q[i].y, q[i].x, -q[i].w};  // gamma q e3*
-                const float k = 2.0f * wq * l * l / denom;
-                q[i] = normalized({q[i].w + dq.w * k, q[i].x + dq.x * k, q[i].y + dq.y * k, q[i].z + dq.z * k});
-            }
-            // Bend and twist: the turn between neighbouring segments (the first against the root's
-            // frame) toward the groomed shape's, XPBD with the compliances of `bend` and `twist`.
-            // Swept from the root with the parent's orientation held, as follow the leader holds
-            // the point before: the stiffness reaches the tip in one pass rather than creeping
-            // along the chain over many iterations (a long guide would sag however stiff).
-            if (custom || bendCompliance >= 0.0f || twistCompliance >= 0.0f) {
-                for (std::size_t j = 1; j < n; ++j) {
-                    const std::size_t i = b + j;
-                    if (!(next.lengths[i] > 1e-8f)) continue;
-                    const Quat& qa = j == 1 ? r1.rot : q[i - 1];
-                    Quat& qb = q[i];
-                    const float w = next.invMassQ[i];
-                    if (!(w > 0.0f)) continue;
-                    // The error: the turn from where the groomed shape puts the segment (the parent's
-                    // frame times the rest turn) to where it is, in the segment's own frame (x and y
-                    // bend, z twist), on the shorter arc, as a rotation vector of half its angle (the
-                    // quaternion's vector part for small turns: the compliances' scale). Exact for any
-                    // turn: the linearized quaternion difference this replaces under-corrected large
-                    // ones, so XPBD's multipliers drifted from the corrections made and a stiff guide
-                    // pushed far from its shape (a standing guide under gravity) whipped about.
-                    Quat e = conj(qa * next.rest[i]) * qb;
-                    if (e.w < 0.0f) e = {-e.w, -e.x, -e.y, -e.z};
-                    const Vec3f u = e.vec();
-                    const float sinHalf = u.length();
-                    const Vec3f c = u * halfAngleOver(sinHalf, e.w);
-                    Vec3f& lam = lambda[j];
-                    Vec3f d;
-                    auto solveAxis = [&](float cc, float compliance, float& l) {
-                        if (compliance < 0.0f) return 0.0f;
-                        const float alpha = compliance * w;
-                        const float dl = (-cc - alpha * l) / (w + alpha);
-                        l += dl;
-                        return -dl;
-                    };
-                    // Wet hair bends more easily (up to half its bend stiffness gone, by wetWeight).
-                    const float bendHere = custom ? ps.bend[i] : s.bend;
-                    const float bendComplianceHere = custom ? ps.bendCompliance[i] : bendCompliance;
-                    const float bc = wetting && bendComplianceHere >= 0.0f && wet[i] > 0.0f
-                                         ? complianceOf(bendHere * (1.0f - 0.5f * s.wetWeight * wet[i])) * scale
-                                         : bendComplianceHere;
-                    d.x = solveAxis(c.x, bc, lam.x);
-                    d.y = solveAxis(c.y, bc, lam.y);
-                    d.z = solveAxis(c.z, custom ? ps.twistCompliance[i] : twistCompliance, lam.z);
-                    // Only the child turns, by exactly the half-angle vector -w d in its own frame.
-                    qb = normalized(qb * turnOfHalfAngle(d * -w));
-                }
-            }
+            // Stretch-shear and bend-twist over the whole guide at once (rodIteration).
+            rodIteration(n, p.data(), q.data() + b, r1.rot, next.rest.data() + b, rod.data(), multipliers.data(), work);
             // The pull toward the groomed shape (root stiffness), along the length.
             for (std::size_t j = 1; j < n; ++j) {
                 const float a = custom ? ps.attract[b + j] : attract[b + j];
@@ -1386,7 +1627,7 @@ std::string simulatePresetParamsJson(const std::string& name) {
     };
     if (name == "default") {
         // The Simulate node's defaults (its spec's: a test holds them together).
-        set(false, 0.5, 0.5, 0.1, 0.05, 1.0, Ramp{{0.0f, 1.0f}, {0.2f, 0.0f}}, 1.0, 6);
+        set(true, 0.5, 0.5, 0.1, 0.05, 1.0, Ramp{{0.0f, 1.0f}, {0.2f, 0.0f}}, 1.0, 6);
     } else if (name == "fur") {
         // Tuned on a wolf (centimetres, 30 fps: a fast turn, a run, a hard stop; docs:
         // motion-and-simulation, "Springy fur that holds its groom"). groomedUnderGravity keeps

@@ -13,6 +13,35 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.15.0 (October 17, 2026)
+
+- **Simulated hair no longer flips at the ends.** In fast head motion the ends of simulated guides
+  no longer flip or jitter, at any substeps (more substeps used to make it worse). The Simulate
+  node now solves each guide's stretch and bend as a whole, so stiff guides still hold their shape.
+- **Simulated hair keeps its groom by default.** **Groomed Under Gravity** is now on for new
+  Simulate nodes (and the Default preset): the groomed shape is taken as how the hair rests under
+  gravity, so pressing play no longer drops the groom; only motion moves it. Turn it off to let
+  gravity pull on the groomed shape.
+- **Nika, a sample head to start from.** **GroomLab > Add Sample Head (Nika)** (and a button in
+  Groom Tools' empty state) adds a head and shoulders at the origin, sized for the scene's units and
+  selected: Create Groom from Selection grows hair on her. Free to use, commercially too, with
+  credit: "Nika head by Nick Rutlinh (GroomLab), CC BY 4.0".
+- **Arnold in Maya 2024.** The Maya 2024 build now renders grooms in Arnold like every other
+  version.
+- **Painting no longer leaves the map showing.** After the Paint chip (or + New Map) starts the
+  Paint brush, choosing another brush or tool (Q) puts the groom's look back.
+- **For developers.** Adding a node is one command (`tools/dev/new_node.py`, see
+  [docs/EXTENDING.md](https://github.com/thekesslereffect/groomlab/blob/main/docs/EXTENDING.md));
+  the noise, hash and ramp math is one source shared by the CPU and the GPU preview, and an
+  expression function is one table row
+  ([docs/MATH.md](https://github.com/thekesslereffect/groomlab/blob/main/docs/MATH.md)). A
+  skinned, animated test scene builds from `samples/skinned_bust`.
+
+Grooms saved before: simulations look slightly different; the same `bend` keeps about the same
+stiffness, and baked simulation caches still play as they were baked. A Simulate node saved with
+Groomed Under Gravity off keeps it off; one saved at the old default now keeps its groom (turn it
+off for the old sag).
+
 ## 0.14.0 (October 17, 2026)
 
 - **Each branch sets its own strand resolution.** A Scatter now grows its strands with the most

@@ -457,9 +457,18 @@ bool blendNeighborsState(const Operator& op, const StrandsPtr& output,
     return blend && blend->keptState(output, state);
 }
 
-void registerNeighborOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kBlendNeighbors, [] { return std::make_unique<BlendNeighborsOp>(); });
-    registry.registerType(op::kRestoreLength, [] { return std::make_unique<RestoreLengthOp>(); });
+void registerBlendNeighborsOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kBlendNeighbors,
+                          {"deform",
+                           "Pulls each strand toward its neighbours' shape for a coherent flow.",
+                           "coherent flow neighbours"},
+                          [] { return std::make_unique<BlendNeighborsOp>(); });
+}
+
+void registerRestoreLengthOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kRestoreLength,
+                          {"shape", "Gives strands their length back after deformers.", "preserve length stretch"},
+                          [] { return std::make_unique<RestoreLengthOp>(); });
 }
 
 }  // namespace groomlab

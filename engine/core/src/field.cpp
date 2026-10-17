@@ -411,12 +411,6 @@ bool carriesLayer(const GuideSet& set, const std::string& name) {
     return false;
 }
 
-std::uint64_t hashDoubleBits(std::uint64_t h, double d) {
-    std::uint64_t bits = 0;
-    std::memcpy(&bits, &d, sizeof bits);
-    return hashCombine(h, bits);
-}
-
 // What reading map `name` adds to a key, as the Map node's own key has it: the catalog and the
 // scalp, then the texture's stamp, the vertex map's color set or the guides' layers.
 std::uint64_t mapSalt(const EvalContext& ctx, const std::string& name) {
@@ -512,7 +506,7 @@ std::uint64_t expressionSalt(const std::string& text, const EvalContext& ctx) {
     const ExpressionDependencies deps = scanExpression(text);
     if (!deps.time && deps.maps.empty()) return 0;
     std::uint64_t salt = hash64(0xE59A);
-    if (deps.time) salt = hashDoubleBits(hashDoubleBits(salt, ctx.time), ctx.framesPerSecond);
+    if (deps.time) salt = hashDouble(hashDouble(salt, ctx.time), ctx.framesPerSecond);
     for (const std::string& name : deps.maps) salt = hashCombine(salt, mapSalt(ctx, name));
     return salt;
 }

@@ -541,11 +541,28 @@ public:
 
 }  // namespace
 
-void registerShapeOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kLength, [] { return std::make_unique<LengthOp>(); });
-    registry.registerType(op::kWidth, [] { return std::make_unique<WidthOp>(); });
-    registry.registerType(op::kResample, [] { return std::make_unique<ResampleOp>(); });
-    registry.registerType(op::kOutput, [] { return std::make_unique<OutputOp>(); });
+void registerLengthOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kLength,
+                          {"shape", "Trims strands to a share of their length.", "trim cut shorten haircut"},
+                          [] { return std::make_unique<LengthOp>(); });
+}
+
+void registerWidthOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kWidth,
+                          {"shape", "Strand thickness, root to tip.", "thickness radius taper"},
+                          [] { return std::make_unique<WidthOp>(); });
+}
+
+void registerResampleOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kResample,
+                          {"shape", "Evens out the points along each strand.", "points segments cvs even"},
+                          [] { return std::make_unique<ResampleOp>(); });
+}
+
+void registerOutputOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kOutput,
+                          {"utility", "What the groom shows and renders.", "result render final"},
+                          [] { return std::make_unique<OutputOp>(); });
 }
 
 }  // namespace groomlab

@@ -64,11 +64,6 @@ constexpr std::size_t kProfileKeys = 32;  // the profile's keys, evenly along it
 // The clump channels' base when clumpChannel is empty: the levels need them to nest, removed after.
 constexpr const char* kHiddenChannel = "__wetClump";
 
-float smoothstep01(float x) {
-    x = std::clamp(x, 0.0f, 1.0f);
-    return x * x * (3.0f - 2.0f * x);
-}
-
 // Level k's (0 the smallest) of `levels`: the Clump's profile at `wetness`.
 Ramp levelProfile(std::int64_t k, std::int64_t levels, float wetness) {
     const float a = pm::pow(2.0f, 0.5f * static_cast<float>(k - (levels - 1)));
@@ -76,7 +71,7 @@ Ramp levelProfile(std::int64_t k, std::int64_t levels, float wetness) {
     const float width = kBlend * start;
     const float tight = wetness * (2.0f - wetness);
     auto at = [&](float t) {
-        return tight * (kRootTight + (kTipTight - kRootTight) * t) * smoothstep01((t - start) / width);
+        return tight * (kRootTight + (kTipTight - kRootTight) * t) * smoothstep(0.0f, 1.0f, (t - start) / width);
     };
     std::vector<float> ts;
     for (std::size_t i = 0; i < kProfileKeys; ++i) ts.push_back(static_cast<float>(i) / static_cast<float>(kProfileKeys - 1));
@@ -254,7 +249,11 @@ std::int64_t wetLevelCount(const ParamSet& wet) { return std::clamp<std::int64_t
 Ramp wetLevelProfile(std::int64_t j, std::int64_t levels, float wetness) { return levelProfile(levels - 1 - j, levels, wetness); }
 
 void registerWetOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kWet, [] { return std::make_unique<WetOp>(); });
+    registry.registerType(op::kWet,
+                          {"look",
+                           "Wet hair: small clumps near the root merging into bigger ones toward the tip, from one wetness slider.",
+                           "water damp clumps"},
+                          [] { return std::make_unique<WetOp>(); });
 }
 
 }  // namespace groomlab

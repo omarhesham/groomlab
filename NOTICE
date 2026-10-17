@@ -11,7 +11,8 @@ GroomLab includes or builds against third-party software, each under its own lic
 THIRD_PARTY_NOTICES.md (the source tree) and THIRD_PARTY_NOTICES.txt (the notices shipped with
 GroomLab's binaries).
 
-Trademarks: Autodesk, Maya and Arnold are trademarks of Autodesk, Inc. RenderMan is a trademark
+Trademarks: GroomLab and the GroomLab logo are trademarks of Nick Rutlinh; the Apache License does
+not grant permission to use them (see its section 6 and https://getgroomlab.com/press). Autodesk, Maya and Arnold are trademarks of Autodesk, Inc. RenderMan is a trademark
 of Pixar. Unreal Engine is a trademark of Epic Games, Inc. Blender is a trademark of the Blender
 Foundation. Unity is a trademark of Unity Technologies. The Arnold and RenderMan logos on
 GroomLab's website belong to their owners and are used only to say that GroomLab works with those

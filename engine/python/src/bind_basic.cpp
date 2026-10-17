@@ -8,6 +8,7 @@
 #include <limits>
 #include <sstream>
 
+#include "groomlab/expression.h"
 #include "groomlab/frames.h"
 #include "groomlab/graph.h"
 #include "groomlab/groom_file.h"
@@ -562,6 +563,25 @@ void bindBasic(py::module_& m) {
     m.def("rotate_axis_angle", &rotateAxisAngle, py::arg("v"), py::arg("axis"), py::arg("angle"),
           "v rotated by angle radians about the unit vector axis (right-handed).");
     m.def("smoothstep", &smoothstep, py::arg("e0"), py::arg("e1"), py::arg("x"), "GLSL smoothstep.");
+    // The expression language's builtins (expression.cpp kFns): what the editors' completion and help list.
+    m.def(
+        "expression_functions",
+        [] {
+            py::list out;
+            for (const ExpressionFunction& f : Expression::functions()) {
+                py::dict d;
+                d["name"] = f.name;
+                d["arguments"] = f.arguments;
+                d["about"] = f.about;
+                d["min_args"] = f.minArgs;
+                d["max_args"] = f.maxArgs;
+                d["vector"] = f.vector;
+                d["gpu"] = f.gpu;
+                out.append(d);
+            }
+            return out;
+        },
+        "Every expression builtin written by name, in the editors' order: {name, arguments, about, min_args, max_args, vector, gpu}.");
 
     py::class_<StrandRoot>(m, "StrandRoot",
                            "Where a strand is rooted on the scalp: triangle index plus barycentric (u, v); "

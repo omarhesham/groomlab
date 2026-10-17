@@ -24,13 +24,6 @@ const std::vector<float>* sized(const StrandSet& s, const char* name) {
     return c && c->size() == s.strandCount() ? c : nullptr;
 }
 
-float smoothstep(float a, float b, float x) {
-    const float t = std::clamp((x - a) / (b - a), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
-float fract(float x) { return x - std::floor(x); }
-
 // A shape's weight at d (0 its center .. 1 its edge): the profile across it, cut at its edge as
 // sharply as asked.
 float shape(const VanePatternParams& p, float d) {

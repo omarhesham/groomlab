@@ -732,15 +732,58 @@ public:
 
 FieldPtr constantField(float value) { return std::make_shared<ConstantFieldValue>(value); }
 
-void registerFieldOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kCurve, [] { return std::make_unique<CurveOp>(); });
-    registry.registerType(op::kExpression, [] { return std::make_unique<ExpressionOp>(); });
-    registry.registerType(op::kMap, [] { return std::make_unique<MapOp>(); });
-    registry.registerType(op::kControl, [] { return std::make_unique<ControlOp>(); });
-    registry.registerType(op::kValue, [] { return std::make_unique<ValueOp>(); });
-    registry.registerType(op::kFieldNoise, [] { return std::make_unique<FieldNoiseOp>(); });
-    registry.registerType(op::kFieldRemap, [] { return std::make_unique<FieldRemapOp>(); });
-    registry.registerType(op::kFieldCombine, [] { return std::make_unique<FieldCombineOp>(); });
+void registerCurveOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kCurve,
+                          {"field", "A ramp shared by several params.", "ramp shared"},
+                          [] { return std::make_unique<CurveOp>(); });
+}
+
+void registerExpressionOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kExpression,
+                          {"field",
+                           "A value per strand from a formula, feeding any param (or one value, of the frame and its variables).",
+                           "formula code script"},
+                          [] { return std::make_unique<ExpressionOp>(); });
+}
+
+void registerMapOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kMap,
+                          {"field",
+                           "A map painted in Groom Tools > Paint (or an image), feeding any param.",
+                           "paint texture image weight"},
+                          [] { return std::make_unique<MapOp>(); });
+}
+
+void registerControlOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kControl,
+                          {"field", "A keyable slider on the groom (channel box) driving a param.", "slider channel box key"},
+                          [] { return std::make_unique<ControlOp>(); });
+}
+
+void registerValueOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kValue,
+                          {"utility",
+                           "One value for a whole node: a number, integer, switch, vector, color or text that drives any exposed param.",
+                           "number constant parameter"},
+                          [] { return std::make_unique<ValueOp>(); });
+}
+
+void registerFieldNoiseOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kFieldNoise,
+                          {"field", "Smooth noise over the scalp, feeding any param.", "noise texture variation"},
+                          [] { return std::make_unique<FieldNoiseOp>(); });
+}
+
+void registerFieldRemapOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kFieldRemap,
+                          {"field", "Reshapes a field through a curve.", "remap curve ramp"},
+                          [] { return std::make_unique<FieldRemapOp>(); });
+}
+
+void registerFieldCombineOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kFieldCombine,
+                          {"field", "Two fields multiplied, added, mixed...", "multiply add mix"},
+                          [] { return std::make_unique<FieldCombineOp>(); });
 }
 
 }  // namespace groomlab

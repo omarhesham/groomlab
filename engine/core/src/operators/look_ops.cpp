@@ -2668,14 +2668,52 @@ bool clumpState(const Operator& op, const StrandsPtr& output, ClumpState* state)
     return clump && clump->state(output, state);
 }
 
-void registerLookOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kClump, [] { return std::make_unique<ClumpOp>(); });
-    registry.registerType(op::kToGuides, [] { return std::make_unique<ToGuidesOp>(); });
-    registry.registerType(op::kNoise, [] { return std::make_unique<NoiseOp>(); });
-    registry.registerType(op::kAttribute, [] { return std::make_unique<AttributeOp>(); });
-    registry.registerType(op::kMerge, [] { return std::make_unique<MergeOp>(); });
-    registry.registerType(op::kSwitch, [] { return std::make_unique<SwitchOp>(); });
-    registry.registerType(op::kBlend, [] { return std::make_unique<BlendOp>(); });
+void registerClumpOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kClump,
+                          {"look",
+                           "Pulls strands toward their clump's center (or into round locks; Twist after it for ropes).",
+                           "clumps groups locks"},
+                          [] { return std::make_unique<ClumpOp>(); });
+}
+
+void registerToGuidesOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kToGuides,
+                          {"convert", "Strands become guides, for nodes that follow guides.", "strands to guides"},
+                          [] { return std::make_unique<ToGuidesOp>(); });
+}
+
+void registerNoiseOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kNoise,
+                          {"look",
+                           "Random displacement; on a fraction of the strands at a high frequency, frizz.",
+                           "frizz random jitter"},
+                          [] { return std::make_unique<NoiseOp>(); });
+}
+
+void registerAttributeOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kAttribute,
+                          {"utility",
+                           "Writes a per-strand channel for later nodes or the shader: a number, a map or an expression.",
+                           "channel primvar data"},
+                          [] { return std::make_unique<AttributeOp>(); });
+}
+
+void registerMergeOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kMerge,
+                          {"utility", "Combines two sets of strands.", "combine join"},
+                          [] { return std::make_unique<MergeOp>(); });
+}
+
+void registerSwitchOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kSwitch,
+                          {"utility", "Picks one of several inputs: look variants.", "variant choose pick"},
+                          [] { return std::make_unique<SwitchOp>(); });
+}
+
+void registerBlendOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kBlend,
+                          {"utility", "Mixes two looks of the same strands (dry to wet).", "mix looks wet dry"},
+                          [] { return std::make_unique<BlendOp>(); });
 }
 
 }  // namespace groomlab

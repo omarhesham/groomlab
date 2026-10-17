@@ -1978,7 +1978,7 @@ TEST(AppPanels, BrushPanelCurvesSymmetryAndAWidthMap) {
 
 TEST(AppPanels, ParamPanelGroupsFoldsShowWhenUnitsAndUpgrade) {
     // Registered before the document reads the specs (and unregistered at the end).
-    OperatorRegistry::instance().registerType("TestPanelVersioned", [] { return std::make_unique<VersionedPanelOp>(); });
+    OperatorRegistry::instance().registerType("TestPanelVersioned", {}, [] { return std::make_unique<VersionedPanelOp>(); });
     struct Unregister {
         ~Unregister() { OperatorRegistry::instance().unregisterType("TestPanelVersioned"); }
     } unregister;

@@ -142,7 +142,11 @@ private:
 }  // namespace
 
 void registerMeshCutOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kMeshCut, [] { return std::make_unique<MeshCutOp>(); });
+    registry.registerType(op::kMeshCut,
+                          {"collide",
+                           "Cuts strands where they cross a mesh: an obstacle, or a haircut's hull.",
+                           "cut hull obstacle trim"},
+                          [] { return std::make_unique<MeshCutOp>(); });
 }
 
 }  // namespace groomlab

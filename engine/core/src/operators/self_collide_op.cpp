@@ -405,7 +405,11 @@ public:
 }  // namespace
 
 void registerSelfCollideOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kSelfCollide, [] { return std::make_unique<SelfCollideOp>(); });
+    registry.registerType(op::kSelfCollide,
+                          {"collide",
+                           "Hair no longer passes through itself: where it is packed tighter than it can be, it is pushed apart, so layers rest on one another.",
+                           "self collision layers packed intersect"},
+                          [] { return std::make_unique<SelfCollideOp>(); });
 }
 
 }  // namespace groomlab

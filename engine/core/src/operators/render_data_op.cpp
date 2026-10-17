@@ -107,7 +107,9 @@ private:
 }  // namespace
 
 void registerRenderDataOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kRenderData, [] { return std::make_unique<RenderDataOp>(); });
+    registry.registerType(op::kRenderData,
+                          {"color", "Render controls per strand for the shader: opacity along the strands.", "opacity shader"},
+                          [] { return std::make_unique<RenderDataOp>(); });
 }
 
 }  // namespace groomlab

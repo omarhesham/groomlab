@@ -8,6 +8,8 @@
 #include <fstream>
 #include <functional>
 #include <memory>
+#include <set>
+#include <sstream>
 
 #if GROOMLAB_HAS_TBB
 #include <tbb/global_control.h>
@@ -1147,6 +1149,55 @@ TEST(Expression, NewFunctionsMakeTheSameOnAnyThreadCount) {
     }
 }
 #endif
+
+// Every builtin the editors list is named in the docs page's Functions section (in a `code` span,
+// alone or among others: `sin cos tan`) and described, and the GPU's codes (look.slang fieldCall's
+// cases) are one function's each.
+TEST(Expression, EveryBuiltinIsDocumentedAndHasItsOwnGpuCode) {
+    std::ifstream in(std::filesystem::path(GROOMLAB_TEST_DATA) / ".." / ".." / "web" / "content" / "docs" / "expressions.mdx");
+    ASSERT_TRUE(in) << "web/content/docs/expressions.mdx";
+    std::stringstream text;
+    text << in.rdbuf();
+    const std::string page = text.str();
+    const std::size_t from = page.find("\n## Functions");
+    ASSERT_NE(from, std::string::npos);
+    const std::size_t to = page.find("\n## ", from + 1);
+    const std::string section = page.substr(from, to == std::string::npos ? std::string::npos : to - from);
+    std::set<std::string> named;  // the words inside the section's code spans
+    for (std::size_t open = section.find('`'); open != std::string::npos;) {
+        const std::size_t close = section.find('`', open + 1);
+        if (close == std::string::npos) break;
+        std::string word;
+        for (std::size_t i = open + 1; i <= close; ++i) {
+            const char c = section[i];
+            if (std::isalnum(static_cast<unsigned char>(c)) || c == '_') {
+                word += c;
+            } else if (!word.empty()) {
+                named.insert(word);
+                word.clear();
+            }
+        }
+        open = section.find('`', close + 1);
+    }
+    const std::vector<ExpressionFunction>& functions = Expression::functions();
+    EXPECT_GT(functions.size(), 100u);
+    for (const ExpressionFunction& f : functions) {
+        EXPECT_TRUE(named.count(f.name)) << f.name << " is not in expressions.mdx's Functions section";
+        EXPECT_FALSE(f.arguments.empty() && f.maxArgs > 0) << f.name;
+        EXPECT_FALSE(f.about.empty()) << f.name;
+    }
+    std::set<int> gpu;
+    for (const char* name : {"sin", "smoothstep", "fit", "bias", "gain", "linearstep", "lerp", "mod"}) {
+        const int code = Expression::gpuFunction(Expression::functionCode(name));
+        EXPECT_GE(code, 0) << name;
+    }
+    for (int code = 0; code < 256; ++code) {
+        const int g = Expression::gpuFunction(code);
+        if (g >= 0) EXPECT_TRUE(gpu.insert(g).second) << "GPU code " << g << " is two functions'";
+    }
+    EXPECT_EQ(Expression::gpuFunction(Expression::functionCode("voronoi")), -1);
+    EXPECT_EQ(Expression::gpuFunction(-1), -1);
+}
 
 }  // namespace
 }  // namespace groomlab

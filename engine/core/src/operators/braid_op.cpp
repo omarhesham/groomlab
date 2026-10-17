@@ -642,7 +642,11 @@ private:
 }  // namespace
 
 void registerBraidOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kBraid, [] { return std::make_unique<BraidOp>(); });
+    registry.registerType(op::kBraid,
+                          {"look",
+                           "Braids strands along paths: three-strand, fishtail, rope, cornrows.",
+                           "plait cornrow fishtail rope"},
+                          [] { return std::make_unique<BraidOp>(); });
 }
 
 }  // namespace groomlab

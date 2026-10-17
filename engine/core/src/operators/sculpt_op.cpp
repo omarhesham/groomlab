@@ -50,7 +50,11 @@ public:
 }  // namespace
 
 void registerSculptOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kSculpt, [] { return std::make_unique<SculptOp>(); });
+    registry.registerType(op::kSculpt,
+                          {"shape",
+                           "Brush the guides the graph made (ToGuides): the strokes are kept in the node and follow the guides when what feeds it changes.",
+                           "brush correctives strokes edit guides"},
+                          [] { return std::make_unique<SculptOp>(); });
 }
 
 }  // namespace groomlab

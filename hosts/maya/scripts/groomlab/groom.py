@@ -2,6 +2,8 @@
 """The groom node: creating one, its scalp and rest mesh, its inputs, the active groom, locking, the
 GPU look preview and its errors."""
 
+import os
+
 from maya import cmds
 
 from groomlab.base import GROOM_TYPE, ensure_plugin, undo_chunk, _original_shape, _scalp_shape, _shape_of
@@ -48,6 +50,45 @@ def create_groom(scalp=None, guides=None, name="groomLab1", fit=False):
     if guides:
         add_guides(shape, guides)
     return shape
+
+
+# Nika, the sample head and shoulders shipped with GroomLab (CC BY 4.0, Nick Rutlinh): centimetres,
+# y up, facing +z, 34.6 cm from the shoulders to the top of the head.
+SAMPLE_HEAD = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "meshes", "nika_head.obj"))
+SAMPLE_HEAD_HEIGHT_CM = 34.61
+
+
+def add_sample_head(name="nika_head"):
+    """Add Nika, the sample head and shoulders, to the scene at the origin (sized for the scene's
+    units, turned for a z-up scene) and select her: Create Groom from Selection grows hair on her.
+    One undo step. Returns the mesh's transform."""
+    if not os.path.isfile(SAMPLE_HEAD):
+        raise RuntimeError("the sample head is missing from the GroomLab install (%s)" % SAMPLE_HEAD)
+    if not cmds.pluginInfo("objExport", query=True, loaded=True):
+        cmds.loadPlugin("objExport", quiet=True)
+    with undo_chunk("add sample head"):
+        before = set(cmds.ls(type="transform", long=True))
+        cmds.file(SAMPLE_HEAD, i=True, type="OBJ", options="mo=0", ignoreVersion=True, mergeNamespacesOnClash=False,
+                  namespace="groomlab_sample")
+        made = [t for t in cmds.ls(type="transform", long=True) if t not in before and cmds.listRelatives(t, shapes=True)]
+        if not made:
+            raise RuntimeError("the sample head did not import")
+        head = cmds.rename(made[0], name)
+        cmds.namespace(removeNamespace="groomlab_sample", mergeNamespaceWithRoot=True)
+        # Sized in the scene's own units: whatever unit the import read the numbers in, she ends
+        # up 34.6 cm tall.
+        bbox = cmds.exactWorldBoundingBox(head)
+        height = max(bbox[4] - bbox[1], bbox[5] - bbox[2])
+        unit = cmds.currentUnit(query=True, linear=True)
+        want = float(cmds.convertUnit(SAMPLE_HEAD_HEIGHT_CM, fromUnit="cm", toUnit=unit).rstrip("abcdefghijklmnopqrstuvwxyz"))
+        if height > 0 and abs(height / want - 1.0) > 1e-3:
+            cmds.setAttr(head + ".scale", want / height, want / height, want / height)
+        if cmds.upAxis(query=True, axis=True) == "z":
+            cmds.setAttr(head + ".rotateX", 90)
+        cmds.makeIdentity(head, apply=True, translate=True, rotate=True, scale=True)
+        cmds.delete(head, constructionHistory=True)
+        cmds.select(head, replace=True)
+    return head
 
 
 def set_follow_scalp(groom, on=True):

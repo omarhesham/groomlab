@@ -277,13 +277,62 @@ def paint_map(groom, name, value=1.0, strength=0.5, color=None, channels="rgba",
     kind = map_kind(groom, name)
     if not kind:
         raise ValueError("no map named %r" % name)
+    _remember_view(groom)
     view_map(groom, name)
     show_map_on_scalp(groom, name if kind != "guides" else None)
     texture = next((m["texture"] for m in maps(groom) if m["name"] == name), "") if kind == "texture" else ""
     if map_channels(groom, name) == 4 and color is None:
         color = (1.0, 1.0, 1.0, 1.0)
-    return brush_tool("paint", attribute=name, value=value, strength=strength, paint_kind=kind,
-                      paint_texture=texture, paint_color=color, paint_channels=channels, **brush_options)
+    ctx = brush_tool("paint", attribute=name, value=value, strength=strength, paint_kind=kind,
+                     paint_texture=texture, paint_color=color, paint_channels=channels, **brush_options)
+    _watch_paint_tool()
+    return ctx
+
+
+# What the groom showed before painting showed a map: put back when the Paint brush ends (another
+# tool, Q, or another brush), so painting never leaves the strands colored by the map.
+_VIEW_ATTRS = (("strandColorMode", None), ("strandColorSource", "string"), ("strandColorMin", None),
+               ("strandColorMax", None), ("scalpMapDisplay", "string"))
+_painting = {"groom": None, "view": None, "job": None}
+
+
+def _remember_view(groom):
+    if _painting["groom"] == groom and _painting["view"] is not None:
+        return  # painting already: keep what showed before the first map
+    end_paint_view()
+    _painting["groom"] = groom
+    _painting["view"] = [(a, t, cmds.getAttr(groom + "." + a)) for a, t in _VIEW_ATTRS]
+
+
+def _watch_paint_tool():
+    if _painting["job"] is None or not cmds.scriptJob(exists=_painting["job"]):
+        _painting["job"] = cmds.scriptJob(event=["ToolChanged", _tool_changed])
+
+
+def _tool_changed():
+    from groomlab.brushes import BRUSH_CONTEXT
+    if cmds.currentCtx() != BRUSH_CONTEXT:
+        end_paint_view()
+
+
+def end_paint_view():
+    """Put back what the groom showed before painting showed a map (on the strands and the
+    scalp). Runs by itself when the Paint brush ends: another tool, Q, or another brush."""
+    groom, view, job = _painting["groom"], _painting["view"], _painting["job"]
+    _painting.update(groom=None, view=None, job=None)
+    if job is not None and cmds.scriptJob(exists=job):
+        cmds.scriptJob(kill=job, force=True)
+    if not view or not groom or not cmds.objExists(groom):
+        return
+    cmds.undoInfo(stateWithoutFlush=False)  # a display, not an edit: no undo step of its own
+    try:
+        for attr, kind, value in view:
+            if kind == "string":
+                cmds.setAttr(groom + "." + attr, value or "", type="string")
+            else:
+                cmds.setAttr(groom + "." + attr, value)
+    finally:
+        cmds.undoInfo(stateWithoutFlush=True)
 
 
 def view_map(groom, name=None):

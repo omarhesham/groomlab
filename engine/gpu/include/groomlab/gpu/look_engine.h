@@ -173,21 +173,11 @@ public:
     std::vector<float> readWidths();
     void readFrames(std::vector<Vec3f>* normals, std::vector<Vec3f>* tangents, std::vector<Vec3f>* bitangents);
 
-    // The kernels.
+    // The kernels: one a line of look_kernels.inc (its entry point NameCS in shaders/look.slang).
     enum class Kernel {
-        Interpolate, Clearance, Length, Centers, Clump, Noise, NoisePoints, Curl, Width, Lines, LinesPoints, PointsTexture, PointsTexturePoints,
-        Gather, UvWidths, PointStrands, WidthPoints, Share, CurlAxes, Part, Longest, Field, Gravity, Flyaway, Collide, Wind, Blend, BlendPoints,
-        // The hair grid (SelfCollide and Static), then each node's own.
-        GridClear, GridBounds, GridLay, GridMark, GridDilate, GridCompact, GridZero, GridSplat, GridUnknowns, GridSor, GridWalk,
-        SelfCollideNode, SelfCollideGradient, SelfCollidePush, StaticReach, StaticMoments, StaticNode, StaticField, StaticPush,
-        // Tie: its frame and ring's bins, each strand's route, the strands laid.
-        TieFrame, TieRoute, TieLay,
-        // The shapers working on each strand alone (TwistAxes: a Twist's clumps' middles).
-        Bend, Direction, Transform, Displace, Twist, TwistAxes,
-        // The shapers reading their neighbours or a reference.
-        Smooth, RestoreLength, BlendNeighbors, Tangle, Flow,
-        // A masked node's result mixed back by its affect; Jiggle with motion; MeshCut.
-        Affect, Jiggle, MeshCut,
+#define GROOMLAB_KERNEL(Name) Name,
+#include "groomlab/gpu/look_kernels.inc"
+#undef GROOMLAB_KERNEL
         Count
     };
     // Buffers by number. kOut0-3: a run's positions and frames, the targets where the kernels write

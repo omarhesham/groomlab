@@ -461,16 +461,16 @@ installed, and ship as a beta (build-verified) until someone tests them inside t
 | --- | --- | --- | --- | --- | --- |
 | `ninja-maya2022` | the Maya 2022 install | 3.7 (mayapy) | Qt 5.15, PySide2 | TBB 2020 | MtoA 5.0 / Arnold 7.0 (install) |
 | `ninja-maya2023` | `maya-devkit-2023` | 3.9 | Qt 5.15, PySide2 | TBB 2020 | MtoA 5.2.1 / Arnold 7.1.3 |
-| `ninja-maya2024` | `maya-devkit-2024` | 3.10 | Qt 5.15, PySide2 | TBB 2020 | none: no translator |
+| `ninja-maya2024` | `maya-devkit-2024` | 3.10 | Qt 5.15, PySide2 | TBB 2020 | MtoA 5.3.0 / Arnold 7.2.0 |
 | `ninja-maya2025` | `maya-devkit-2025` | 3.11 | Qt 6.5, PySide6 | TBB 2020 | MtoA 5.4.0 / Arnold 7.3.0 |
 | `ninja-maya2026` | `maya-devkit-2026` | 3.11 | Qt 6.5, PySide6 | oneTBB (`tbb12`) | MtoA 5.6.1.1 / Arnold 7.5.1 |
 | `ninja-maya2027` | `maya-devkit-2027` | 3.13 | Qt 6.8, PySide6 | oneTBB (`tbb12`) | MtoA 5.6.1.1 / Arnold 7.5.1 |
 
 Every devkit asks for C++17; Visual Studio 2022 builds them all. Each translator builds against
-the oldest MtoA SDK for its Maya, so it loads in that MtoA and every later one; Maya 2024 has none
-(no MtoA SDK for Maya 2024 is at hand: the 5.2.1 SDK's `mtoa_api.lib` is Maya 2023's, its imports
-in the `OpenMaya20230000` namespace), so its translator is off and Arnold renders its grooms from
-groom files. The Arnold procedural needs Arnold alone: built once, by `ninja-maya2022` against
+the oldest MtoA SDK for its Maya at hand, so it loads in that MtoA and every later one. Check an
+SDK's `mtoa_api.lib` names that Maya (its imports are in the `OpenMaya2024xxxx`-style namespace of the
+Maya it was built for: an installer named for one Maya can hold another's: "MtoA-5.2.1-2024" is
+Maya 2023's). Maya 2024's is MtoA 5.3.0, the one Maya 2024 shipped with. The Arnold procedural needs Arnold alone: built once, by `ninja-maya2022` against
 Arnold 7.0, it loads in every Arnold 7 and ships with every version (`GROOMLAB_BUILD_PROCEDURAL`
 is off in the devkit presets, as are the tests, the CLI, the C API and the Blender helper, which
 do not depend on the Maya version).
@@ -3245,6 +3245,14 @@ handling (`groomlab.units`). The UI modules under `groomlab.ui` open with `palet
   them) updates `THIRD_PARTY_NOTICES.txt` at the repository root: its version, what uses it and its
   license text in full. It installs with the module and goes in every package. Build- and
   test-only tools (GoogleTest) and what the host provides (Maya, Arnold, Qt, Python) stay out.
+
+**Node types: one line each.** `engine/core/include/groomlab/builtin_operators.inc` lists every
+built-in type in the add-node menu's order (`op::k*`, the register functions and their calls come
+from it), and each operator registers with its menu info (`NodeInfo`: category, description, search
+words) next to its class; `node_catalog.cpp` keeps only the categories. The GPU preview has the same
+for its kernels (`look_kernels.inc`: the enum, both backends' tables, the CMake build) and stages
+(`look_stages.inc`: kind, name, mapped fields, the params a drag may set, the pass-through types).
+`tools/dev/new_node.py` adds a node; [EXTENDING.md](EXTENDING.md) is the walk-through.
 
 **The brush catalog and presets inserted.** `brush_catalog.h` is the one list of tools both
 palettes are built from (id, label, category in order, icon, default strength, signed, a hint,

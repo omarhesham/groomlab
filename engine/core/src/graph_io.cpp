@@ -430,34 +430,26 @@ std::string operatorSpecsJson() {
         for (const ChannelWrite& w : op->channelWrites()) {
             if (w.param.empty()) fixedChannels.push_back(w.name);
         }
-        // The add-node menu's category and label (node_catalog.h); the operator's own category
-        // is its role in a chain (presets: where a look starts).
-        const NodeCatalogEntry* entry = nodeCatalogEntry(type);
-        const std::string category = entry ? entry->category : op->category();
-        std::string categoryTitle = category;
-        int categoryOrder = static_cast<int>(nodeCategories().size());
-        for (std::size_t i = 0; i < nodeCategories().size(); ++i) {
-            if (nodeCategories()[i].id == category) {
-                categoryTitle = nodeCategories()[i].title;
-                categoryOrder = static_cast<int>(i);
-            }
-        }
-        int order = static_cast<int>(nodeCatalog().size());
-        for (std::size_t i = 0; i < nodeCatalog().size(); ++i) {
-            if (nodeCatalog()[i].type == type) order = static_cast<int>(i);
-        }
+        // The add-node menu's category and label (node_catalog.h: the info the type registered
+        // with); the operator's own category is its role in a chain (presets: where a look starts).
+        const NodeInfo* info = nodeInfo(type);
+        const std::string category = info && !info->category.empty() ? info->category : op->category();
+        const int categoryOrder = nodeCategoryOrder(category);
+        const std::string categoryTitle = categoryOrder < static_cast<int>(nodeCategories().size())
+                                              ? nodeCategories()[static_cast<std::size_t>(categoryOrder)].title
+                                              : category;
         ops.push_back({{"type", type},
                        {"fixedChannels", fixedChannels},
                        {"version", op->version()},
                        {"category", category},
                        {"categoryTitle", categoryTitle},
                        {"categoryOrder", categoryOrder},
-                       {"order", order},
+                       {"order", nodeMenuOrder(type)},
                        {"role", op->category()},
                        {"label", nodeLabel(type)},
-                       {"keywords", entry ? entry->keywords : std::string()},
-                       {"hidden", entry ? entry->hidden : false},
-                       {"description", operatorDescription(type)},
+                       {"keywords", info ? info->keywords : std::string()},
+                       {"hidden", info ? info->hidden : false},
+                       {"description", info ? info->description : std::string()},
                        {"inputs", inputs},
                        {"output", portJson(out, false)},
                        {"outputs", outputs},

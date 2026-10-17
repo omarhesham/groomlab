@@ -353,10 +353,26 @@ private:
 
 }  // namespace
 
-void registerSourceOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kScalp, [] { return std::make_unique<ScalpOp>(); });
-    registry.registerType(op::kColliderMesh, [] { return std::make_unique<ColliderMeshOp>(); });
-    registry.registerType(op::kGuides, [] { return std::make_unique<GuidesOp>(); });
+void registerScalpOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kScalp,
+                          {"source", "The mesh the hair grows on.", "mesh skin body surface"},
+                          [] { return std::make_unique<ScalpOp>(); });
+}
+
+void registerColliderMeshOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kColliderMesh,
+                          {"source",
+                           "Another mesh (a body, a collar) for Collide to keep strands out of.",
+                           "body collar obstacle mesh"},
+                          [] { return std::make_unique<ColliderMeshOp>(); });
+}
+
+void registerGuidesOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kGuides,
+                          {"source",
+                           "The groom's guides, by group: what Interpolate, Clump and friends follow.",
+                           "guide curves groups"},
+                          [] { return std::make_unique<GuidesOp>(); });
 }
 
 }  // namespace groomlab

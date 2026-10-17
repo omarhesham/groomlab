@@ -51,8 +51,9 @@
 //   number on either side applied to every component; c ? a : b picks between vectors. Built-in
 //   vectors: P (the root's position: x, y, z), N (the root's normal), Pref, tip (tipx, tipy, tipz),
 //   pointP (px, py, pz, per point). A node's own vector variable reads as a whole: $center.
-// Functions: SeExpr's builtins as SeExpr defines them (kFns in expression.cpp lists every one;
-//   web/content/docs/expressions.mdx describes each): noise() 0 to 1, snoise() -1 to 1, fbm()
+// Functions: SeExpr's builtins as SeExpr defines them (kFns in expression.cpp lists every one,
+//   Expression::functions() the ones written by name; web/content/docs/expressions.mdx describes
+//   each, and a test checks it names them all): noise() 0 to 1, snoise() -1 to 1, fbm()
 //   0.5 + 0.5 * an unnormalized sum, smoothstep(x, a, b), remap(x, source, range, falloff, interp),
 //   voronoi(p, type 1-5, jitter 0.5, ...), curve(t, p0, v0, i0, ...), spline(t, y1, ..., yn) (y1
 //   and yn end controls), rand() / rand(min, max[, seed]) per strand. A number argument where a
@@ -169,6 +170,16 @@ std::vector<std::pair<std::string, float>> parseExpressionVariables(const std::s
 // The keyable variables of that JSON: (variable, control name) pairs.
 std::vector<std::pair<std::string, std::string>> expressionVariableControls(const std::string& json);
 
+// A builtin function as the editors list it (Expression::functions).
+struct ExpressionFunction {
+    std::string name;
+    std::string arguments;  // as the editors show them: "x, a, b"
+    std::string about;      // what it does, one line
+    int minArgs = 0, maxArgs = 0;
+    bool vector = false;    // its value is a vector
+    bool gpu = false;       // the GPU preview runs it (else a field reading it runs on the CPU)
+};
+
 class Expression {
 public:
     Expression() = default;
@@ -230,6 +241,11 @@ public:
     std::size_t stackDepth() const { return stackDepth_; }
     static int variableCode(const std::string& name);
     static int functionCode(const std::string& name);
+    // FieldCS's code for function code `code` (shared/groom_math.h kField*: look.slang fieldCall's
+    // case), -1 for a function the GPU does not run.
+    static int gpuFunction(int code);
+    // Every builtin written by name, in the editors' order (forms a call picks itself left out).
+    static const std::vector<ExpressionFunction>& functions();
     static int binaryCode(const std::string& op);  // "+", "-", "*", "/", "^", "<", "<=", ">", ">=", "==", "!=", "%"
     // Strand s's variables as an evaluation of it sets them, kVariables floats by Op::code (the
     // strand's own: point variables at its root, as evaluate() reads them).

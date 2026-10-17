@@ -100,7 +100,7 @@ TEST(Compound, TheInnerGraphCachesWhatAnExposedParamTweakDoesNotReach) {
     // in -> counting -> noise(amount exposed) -> curl: a tweak of `amount` runs noise and curl
     // again, not the counting node before them (the inner graph keeps its own cache); other
     // strands fed in run everything.
-    OperatorRegistry::instance().registerType("TestCounting", [] { return std::make_unique<CountingOp>(); });
+    OperatorRegistry::instance().registerType("TestCounting", {}, [] { return std::make_unique<CountingOp>(); });
     json definition = frizzyDefinition();
     definition["graph"]["nodes"].push_back({{"name", "count"}, {"type", "TestCounting"}});
     definition["graph"]["connections"] = json::array({

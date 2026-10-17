@@ -302,26 +302,31 @@ OperatorRegistry& OperatorRegistry::instance() {
     return registry;
 }
 
-void OperatorRegistry::registerType(const std::string& typeName, Factory factory) {
-    factories_[typeName] = std::move(factory);
+void OperatorRegistry::registerType(const std::string& typeName, NodeInfo info, Factory factory) {
+    types_[typeName] = {std::move(factory), std::move(info)};
 }
 
 bool OperatorRegistry::contains(const std::string& typeName) const {
-    return factories_.count(typeName) != 0;
+    return types_.count(typeName) != 0;
 }
 
 std::unique_ptr<Operator> OperatorRegistry::create(const std::string& typeName) const {
-    auto it = factories_.find(typeName);
-    if (it == factories_.end()) throw GraphError("unknown operator type '" + typeName + "'");
-    std::unique_ptr<Operator> op = it->second();
+    auto it = types_.find(typeName);
+    if (it == types_.end()) throw GraphError("unknown operator type '" + typeName + "'");
+    std::unique_ptr<Operator> op = it->second.factory();
     op->applyDefaults();
     return op;
 }
 
 std::vector<std::string> OperatorRegistry::typeNames() const {
     std::vector<std::string> names;
-    for (const auto& [name, factory] : factories_) names.push_back(name);
+    for (const auto& [name, type] : types_) names.push_back(name);
     return names;
+}
+
+const NodeInfo* OperatorRegistry::info(const std::string& typeName) const {
+    const auto it = types_.find(typeName);
+    return it == types_.end() ? nullptr : &it->second.info;
 }
 
 // ---------------------------------------------------------------------------

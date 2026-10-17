@@ -119,7 +119,11 @@ public:
 }  // namespace
 
 void registerMirrorOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kMirror, [] { return std::make_unique<MirrorOp>(); });
+    registry.registerType(op::kMirror,
+                          {"shape",
+                           "Mirrors guides or strands across a plane: groom one half, get both.",
+                           "symmetry symmetric flip half"},
+                          [] { return std::make_unique<MirrorOp>(); });
 }
 
 }  // namespace groomlab

@@ -39,6 +39,7 @@ SimSettings unitSettings() {
     SimSettings s;
     s.gravity = 9.8f;
     s.collisionOffset = 0.02f;
+    s.groomedUnderGravity = false;  // gravity on the groomed shape itself: what these tests measure
     return s;
 }
 
@@ -242,7 +243,8 @@ TEST(Simulation, DryDefaultsAreTheSolverBeforeWater) {
     // the bit (made again when the orientations stopped keeping a spin and pushed points kept the
     // leader's correction, so hair comes to rest; and again when the bend constraint's correction
     // became the exact turn and the lengths were kept again after collisions; and again for the
-    // core's portable math, the same bits on every platform).
+    // core's portable math, the same bits on every platform; and again when each guide's rod was
+    // solved whole, so hair ends stopped flipping).
     const auto sphere = test::makeSphere(16, 32);
     const GuidesPtr guides = guidesOnSphere(*sphere, 200, 12, 0.8f);
     SimSettings s = unitSettings();
@@ -250,10 +252,10 @@ TEST(Simulation, DryDefaultsAreTheSolverBeforeWater) {
     s.repulsion = 0.5f;
     s.repulsionRadius = 0.05f;
     if constexpr (test::kRecordedMath) {  // (the frames' bits follow sin and exp: portable_math.h)
-        EXPECT_EQ(bitsHash(simulatePoints(s, guides, sphere, 20)), 0x98de4968340f0919ull);
-        EXPECT_EQ(bitsHash(simulatePoints(unitSettings(), guides, sphere, 20)), 0xb5385252d51047aaull);
+        EXPECT_EQ(bitsHash(simulatePoints(s, guides, sphere, 20)), 0xcf93dfcbd12007d9ull);
+        EXPECT_EQ(bitsHash(simulatePoints(unitSettings(), guides, sphere, 20)), 0x448a7ce0b65a1e96ull);
     }
-    EXPECT_EQ(SimSettings{}.hash(), 0xeae35b9424b3800eull);
+    EXPECT_EQ(SimSettings{}.hash(), 0x72b2bbc817a8716aull);  // groomedUnderGravity on by default since 0.15.0
     EXPECT_EQ(s.hash(), 0xa179909d7d9cee95ull);
     // Water params set while water is off change nothing, the stamp included.
     SimSettings off = s;
@@ -294,7 +296,10 @@ TEST(Water, UnderwaterHairRisesWithBuoyancy) {
     SimCache floating, sinking;
     const std::vector<Vec3f> up = stepGuide(floating, underwater(2.0f), guides, 240);
     const std::vector<Vec3f> down = stepGuide(sinking, underwater(0.5f), guides, 240);
-    EXPECT_GT(up.back().y, 0.8f) << "the tip did not float up";
+    // (The tip rises to 0.79, 0.84 before each guide was solved whole: the exact solve gives the
+    // orientations' resistance to each substep's turn in full, slowing heavily damped limp hair a
+    // little. Still clearly floated up, from 0.95 below its root.)
+    EXPECT_GT(up.back().y, 0.75f) << "the tip did not float up";
     EXPECT_LT(down.back().y, -0.8f) << "less than gravity's pull: it still hangs";
     for (std::size_t j = 1; j < up.size(); ++j) EXPECT_NEAR(segment(up, j), 0.1f, 1e-3f);  // lengths kept
 }
@@ -862,18 +867,49 @@ float largestApart(const std::vector<Vec3f>& a, const std::vector<Vec3f>& b) {
     return most;
 }
 
+// How much longer than groomed (a share) a 25 cm guide (15 segments, centimetres) hangs after
+// `seconds` of falling from level at `fps` with `substeps` and `stiffness`.
+float hangingStretch(double fps, int substeps, float stiffness, double seconds = 3.0) {
+    auto guides = std::make_shared<GuideSet>();
+    guides->add(1, test::straightCurve({0.0f, 0.0f, 0.0f}, {25.0f, 0.0f, 0.0f}, 15));
+    SimSettings s;
+    s.groomedUnderGravity = false;  // a horizontal groom that gravity pulls down and stretches
+    s.substeps = substeps;
+    s.stiffness = stiffness;
+    s.damping = 0.3f;
+    s.rootStiffnessProfile = Ramp::constant(0.0f);
+    SimCache cache;
+    cache.configure(s, fps);
+    cache.start({guides, nullptr, {}}, 1);
+    const int frames = static_cast<int>(std::lround(seconds * fps));
+    for (int f = 0; f < frames; ++f) cache.step({guides, nullptr, {}}, 1);
+    const std::vector<Vec3f>& p = cache.frame(cache.lastFrame())->guides()[0].points;
+    float length = 0.0f;
+    for (std::size_t j = 1; j < p.size(); ++j) length += segment(p, j);
+    return length / 25.0f - 1.0f;
+}
+
 TEST(Simulation, TheLookHoldsAtAnyFrameRateAndSubsteps) {
     // Root stiffness, stretch, friction and repulsion are shares per reference step (bend's
     // compliance already was): 24 and 48 fps, 4 and 8 substeps settle the same, within what the
     // solver itself gives at another step (its iterations per substep: an inextensible strand
-    // without friction or repulsion), while a soft stretch alone moves the tips more than that.
+    // without friction or repulsion).
     const std::vector<Vec3f> base = tipsAfter(24.0, 4, 3.0, 0.6f, 0.5f);
     ASSERT_EQ(base.size(), 12u);
     const float solver = largestApart(tipsAfter(24.0, 4, 3.0, 1.0f, 0.0f), tipsAfter(48.0, 4, 3.0, 1.0f, 0.0f));
     EXPECT_LT(solver, 0.08f);  // of guides 0.8 long
     EXPECT_LT(largestApart(base, tipsAfter(48.0, 4, 3.0, 0.6f, 0.5f)), solver + 0.01f);
     EXPECT_LT(largestApart(base, tipsAfter(24.0, 8, 3.0, 0.6f, 0.5f)), solver + 0.01f);
-    EXPECT_GT(largestApart(base, tipsAfter(24.0, 4, 3.0, 1.0f, 0.5f)), solver + 0.03f);
+    // A soft stretch shows, the same at every rate: hanging hair at stretchStiffness 0.6 is
+    // measurably longer than at 1. (This once checked that a soft stretch moved the tips of the
+    // guides above more than the solver's own spread, which held only because of a bug: the
+    // one-sided solver made soft-stretch hair shorter and stand 5 cm taller. Solved whole, the
+    // stretch is a compliance and those tips move 0.02.)
+    const float soft = hangingStretch(24.0, 4, 0.6f);
+    EXPECT_GT(soft, 0.03f);
+    EXPECT_LT(std::abs(hangingStretch(24.0, 4, 1.0f)), 0.002f);
+    EXPECT_NEAR(hangingStretch(48.0, 4, 0.6f), soft, 0.01f);
+    EXPECT_NEAR(hangingStretch(24.0, 8, 0.6f), soft, 0.01f);
 }
 
 // The most any point moved in a frame over the last `last` of `frames` frames on still inputs.
@@ -1096,6 +1132,126 @@ TEST(Simulation, StiffStandingGuidesHoldTheirShapeAndComeToRest) {
     EXPECT_LT(stiff.endShape, 0.1f);
 }
 
+// Bob-like guides on a 10 cm head: off the scalp along its normal, curving over to hang down, 14 cm
+// in 17 points, on the head's upper half.
+GuidesPtr bobGuides(const ScalpMesh& head) {
+    auto guides = std::make_shared<GuideSet>();
+    std::size_t made = 0;
+    for (std::size_t f = 0; f < head.triangleCount() && made < 120; f += 5) {
+        const StrandRoot root{static_cast<std::int32_t>(f), 0.3f, 0.3f};
+        const Vec3f at = head.position(root), n = head.normal(root);
+        if (n.y < 0.3f) continue;
+        std::vector<Vec3f> pts{at};
+        Vec3f p = at;
+        for (int k = 1; k < 17; ++k) {
+            const float t = static_cast<float>(k) / 16.0f;
+            const Vec3f d = (n * (1.0f - t) + Vec3f{n.x, 0.0f, n.z} * 0.3f + Vec3f{0.0f, -1.0f, 0.0f} * t).normalized();
+            p = p + d * (14.0f / 16.0f);
+            if (p.length() < 10.5f) p = p.normalized() * 10.5f;  // out of the head by half a centimetre
+            pts.push_back(p);
+        }
+        Guide& g = guides->add(static_cast<std::uint64_t>(made + 1), std::move(pts));
+        g.root = root;
+        ++made;
+    }
+    return guides;
+}
+
+// How far each guide's end (its last two segments' direction) turns from one frame to the next,
+// in degrees, in the head's frame, through a head's motion (a yaw about y), as a playblast shows
+// it: the 99th percentile and the share past 30 degrees from frame `from` on.
+struct EndTurns {
+    float p99 = 0.0f;
+    float over30 = 0.0f;
+};
+EndTurns endTurns(const SimSettings& s, const GuidesPtr& guides, const MeshPtr& scalp, const std::function<float(int)>& yawAt,
+                  int from, int frames) {
+    auto turned = [](float yaw, const Vec3f& v) {
+        const float c = std::cos(yaw), sn = std::sin(yaw);
+        return Vec3f{c * v.x + sn * v.z, v.y, -sn * v.x + c * v.z};
+    };
+    auto inputsAt = [&](int frame) {
+        const float yaw = yawAt(frame);
+        auto g = std::make_shared<GuideSet>(*guides);
+        for (Guide& guide : g->guides()) {
+            for (Vec3f& p : guide.points) p = turned(yaw, p);
+        }
+        std::vector<Vec3f> points = scalp->points();
+        for (Vec3f& p : points) p = turned(yaw, p);
+        auto m = std::make_shared<ScalpMesh>(scalp->withPoints(std::move(points)));
+        m->setRestPoints(scalp->points());
+        return SimInputs{GuidesPtr(g), MeshPtr(m), {}};
+    };
+    GuideSolver solver;
+    solver.start(s, kFps, 1, inputsAt(1));
+    std::vector<Vec3f> before;
+    std::vector<float> turns;
+    for (int f = 2; f <= frames; ++f) {
+        solver.step(inputsAt(f), 1);
+        std::vector<Vec3f> x = solver.points();
+        for (Vec3f& p : x) p = turned(-yawAt(f), p);
+        std::vector<Vec3f> ends;
+        for (std::size_t g = 0, k = 0; g < guides->size(); ++g) {
+            k += guides->guides()[g].points.size();
+            ends.push_back((x[k - 1] - x[k - 3]).normalized());
+        }
+        if (f > from && !before.empty()) {
+            for (std::size_t g = 0; g < ends.size(); ++g) {
+                turns.push_back(std::acos(std::clamp(ends[g].dot(before[g]), -1.0f, 1.0f)) * 57.29578f);
+            }
+        }
+        before = std::move(ends);
+    }
+    EndTurns r;
+    std::sort(turns.begin(), turns.end());
+    r.p99 = turns[static_cast<std::size_t>(0.99 * static_cast<double>(turns.size() - 1))];
+    r.over30 = static_cast<float>(std::count_if(turns.begin(), turns.end(), [](float t) { return t > 30.0f; })) /
+               static_cast<float>(turns.size());
+    return r;
+}
+
+TEST(Simulation, HairEndsDoNotFlipInAHeadShake) {
+    // The rod constraints were projected one-sided (the bend turning only the child segment, the
+    // stretch moving the point before less and less above bend 0.5): a moving root pumped energy
+    // into the chain, the tip's speed doubling every substep, and a bob's ends flipped about in a
+    // gentle head shake (at bend 0.78, 3.4% of the ends turned over 30 degrees in a frame at 4
+    // substeps, 10.6% at 10: more substeps made it worse). Each guide's chain is solved as a whole
+    // now: the ends follow the head smoothly at any substeps.
+    const auto head = test::makeSphere(32, 64, 10.0f);
+    const GuidesPtr bob = bobGuides(*head);
+    // A head shake: 14 degrees each way, four swings a second, for 20 frames, then still.
+    auto shake = [](int f) { return f < 30 || f > 50 ? 0.0f : 0.245f * std::sin(6.2832f * static_cast<float>(f - 30) / 6.0f); };
+    for (const float bend : {0.4f, 0.6f, 0.78f, 0.9f}) {
+        EndTurns coarse;
+        for (const auto& [substeps, iterations] : std::vector<std::pair<int, int>>{{4, 6}, {10, 12}}) {
+            SimSettings s;
+            s.groomedUnderGravity = true;
+            s.bend = bend;
+            s.twist = 0.6f;
+            s.damping = 0.35f;
+            s.drag = 0.4f;
+            s.inertia = 0.75f;
+            s.rootStiffnessProfile = Ramp{{0.0f, 1.0f}, {0.25f, 0.4f}, {0.55f, 0.05f}, {1.0f, 0.0f}};
+            s.substeps = substeps;
+            s.iterations = iterations;
+            const EndTurns r = endTurns(s, bob, head, shake, 30, 72);
+            char what[96];
+            std::snprintf(what, sizeof what, "bend %.2f, %d substeps: p99 %.1f deg, %.2f%% over 30", bend, substeps, r.p99,
+                          100.0f * r.over30);
+            char key[32];
+            std::snprintf(key, sizeof key, "bend%.2f_substeps%d", bend, substeps);
+            ::testing::Test::RecordProperty(key, what);
+            EXPECT_LT(r.over30, 0.005f) << what;
+            EXPECT_LT(r.p99, 20.0f) << what;
+            if (substeps == 4) {
+                coarse = r;
+            } else {
+                EXPECT_LE(r.over30, coarse.over30 + 0.001f) << what << ": more substeps flipped more ends";
+            }
+        }
+    }
+}
+
 TEST(Simulation, GroomedUnderGravityKeepsAStillGroomAndStillMoves) {
     // Soft guides held near the root only: gravity bends them down from the groomed shape.
     // groomedUnderGravity takes the groomed shape as how they rest under gravity: still, they
@@ -1103,6 +1259,7 @@ TEST(Simulation, GroomedUnderGravityKeepsAStillGroomAndStillMoves) {
     const auto head = test::makeSphere(32, 64, 10.0f);
     const GuidesPtr guides = guidesOnSphere(*head, 60, 12, 8.0f);
     SimSettings s;
+    s.groomedUnderGravity = false;  // first gravity on the groomed shape itself
     s.bend = 0.6f;
     auto still = [](int) { return 0.0f; };
     auto turn = [](int f) { return 1.5708f * std::clamp((f - 30) / 4.0f, 0.0f, 1.0f); };
@@ -1117,11 +1274,11 @@ TEST(Simulation, GroomedUnderGravityKeepsAStillGroomAndStillMoves) {
     EXPECT_LT(turned.endShape, 0.05f);
     EXPECT_LT(turned.endMotion, 0.02f);
     EXPECT_GT(turnedRun(s, guides, head, turn, 34).endShape, 1.0f) << "the turn should swing the guides";  // as it ends
-    // Off by default, and the stamps made before it are kept.
-    EXPECT_FALSE(SimSettings{}.groomedUnderGravity);
-    SimSettings on;
-    on.groomedUnderGravity = true;
-    EXPECT_NE(on.hash(), SimSettings{}.hash());
+    // On by default; off is a different stamp.
+    EXPECT_TRUE(SimSettings{}.groomedUnderGravity);
+    SimSettings off;
+    off.groomedUnderGravity = false;
+    EXPECT_NE(off.hash(), SimSettings{}.hash());
 }
 
 TEST(Simulation, SimulatePresetsSetTheSameParamsAndDefaultIsTheNodes) {

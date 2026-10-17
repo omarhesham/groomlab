@@ -156,6 +156,9 @@ def brush_tool(mode="comb", radius=60, strength=1.0, level=0, group="", propagat
     """
     _check_mode(mode)
     ensure_plugin()
+    if mode != "paint":
+        from groomlab.painting import end_paint_view
+        end_paint_view()  # leaving the Paint brush: the groom shows what it showed before
     if not cmds.contextInfo(BRUSH_CONTEXT, exists=True):
         cmds.groomLabBrushCtx(BRUSH_CONTEXT)
     kwargs = {"paintKind": paint_kind, "paintTexture": paint_texture or "", "paintResolution": int(paint_resolution),

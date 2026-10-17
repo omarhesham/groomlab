@@ -18,6 +18,14 @@ precedence = "closest"
 SPDX-FileCopyrightText = "2026 Nick Rutlinh"
 SPDX-License-Identifier = "Apache-2.0"
 
+# Nika, the sample head shipped with the Maya plugin: CC BY 4.0 (credit "Nika head by Nick Rutlinh
+# (GroomLab), CC BY 4.0"), separate from the code's Apache-2.0.
+[[annotations]]
+path = ["hosts/maya/meshes/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Nick Rutlinh"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # The Blender add-on: GPL-3.0-or-later (it imports bpy).
 [[annotations]]
 path = ["hosts/blender/addon/**"]
@@ -64,6 +72,13 @@ SPDX-License-Identifier = "LicenseRef-Verbatim"
 path = ["web/public/renderers/**"]
 precedence = "override"
 SPDX-FileCopyrightText = ["Autodesk, Inc.", "Pixar"]
+SPDX-License-Identifier = "LicenseRef-Trademark"
+
+# The GroomLab name and logo in the press kit: trademarks, not under the software's licenses.
+[[annotations]]
+path = ["web/public/press/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Nick Rutlinh"
 SPDX-License-Identifier = "LicenseRef-Trademark"
 
 # The wolf sample groom (model, maps, groom), when its files land: CC BY 4.0.

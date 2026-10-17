@@ -93,13 +93,12 @@
         },
         {
             "name": "ninja-maya2024",
-            "displayName": "Windows, Maya 2024 plugin from its devkit (Python 3.10, no Arnold translator: no MtoA SDK for Maya 2024)",
+            "displayName": "Windows, Maya 2024 plugin from its devkit (Python 3.10, MtoA 5.3.0 / Arnold 7.2.0)",
             "inherits": "maya-devkit",
             "cacheVariables": {
                 "MAYA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/maya-devkit-2024",
                 "GROOMLAB_PYTHON_ROOT": "$env{USERPROFILE}/groomlab-deps/sdks/python-3.10.8/tools",
-                "GROOMLAB_BUILD_ARNOLD": "OFF",
-                "MTOA_LOCATION": ""
+                "MTOA_LOCATION": "$env{USERPROFILE}/groomlab-deps/sdks/mtoa-5.3.0-maya2024"
             }
         },
         {

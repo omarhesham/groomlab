@@ -17,17 +17,11 @@ const char* apiName(GpuApi api) { return api == GpuApi::D3D11 ? "DirectX11" : "O
 LookEngine::~LookEngine() = default;
 
 const char* kernelName(LookEngine::Kernel kernel) {
-    static const char* const names[] = {"Interpolate", "Clearance", "Length", "Centers", "Clump", "Noise", "NoisePoints",
-                                        "Curl", "Width", "Lines", "LinesPoints", "PointsTexture", "PointsTexturePoints",
-                                        "Gather", "UvWidths", "PointStrands", "WidthPoints", "Share", "CurlAxes", "Part",
-                                        "Longest", "Field", "Gravity", "Flyaway", "Collide", "Wind", "Blend", "BlendPoints",
-                                        "GridClear", "GridBounds", "GridLay", "GridMark", "GridDilate", "GridCompact", "GridZero",
-                                        "GridSplat", "GridUnknowns", "GridSor", "GridWalk", "SelfCollideNode", "SelfCollideGradient", "SelfCollidePush",
-                                        "StaticReach", "StaticMoments", "StaticNode", "StaticField", "StaticPush",
-                                        "TieFrame", "TieRoute", "TieLay", "Bend", "Direction",
-                                        "Transform", "Displace", "Twist", "TwistAxes", "Smooth",
-                                        "RestoreLength", "BlendNeighbors", "Tangle", "Flow",
-                                        "Affect", "Jiggle", "MeshCut"};
+    static const char* const names[] = {
+#define GROOMLAB_KERNEL(Name) #Name,
+#include "groomlab/gpu/look_kernels.inc"
+#undef GROOMLAB_KERNEL
+    };
     static_assert(sizeof names / sizeof names[0] == static_cast<std::size_t>(LookEngine::Kernel::Count), "a name a kernel");
     const auto k = static_cast<std::size_t>(kernel);
     return k < static_cast<std::size_t>(LookEngine::Kernel::Count) ? names[k] : "?";
@@ -36,15 +30,15 @@ const char* kernelName(LookEngine::Kernel kernel) {
 std::string kernelNames(KernelSet kernels) {
     std::string names;
     for (int k = 0; k < static_cast<int>(LookEngine::Kernel::Count); ++k) {
-        if (kernels >> k & 1u) names += std::string(names.empty() ? "" : ", ") + kernelName(static_cast<LookEngine::Kernel>(k));
+        if (kernels.test(static_cast<std::size_t>(k))) names += std::string(names.empty() ? "" : ", ") + kernelName(static_cast<LookEngine::Kernel>(k));
     }
     return names;
 }
 
 KernelSet kernelsOf(const LookRun& run) {
     using K = LookEngine::Kernel;
-    auto bit = [](K k) { return KernelSet{1} << static_cast<int>(k); };
-    KernelSet set = 0;
+    auto bit = [](K k) { return KernelSet().set(static_cast<std::size_t>(k)); };
+    KernelSet set;
     for (K k : {K::Lines, K::LinesPoints, K::Gather, K::UvWidths, K::PointStrands, K::PointsTexture, K::PointsTexturePoints, K::Field,
                 K::Longest, K::Width, K::WidthPoints}) {
         set |= bit(k);
@@ -103,7 +97,7 @@ KernelSet kernelsOf(const LookRun& run) {
             case StageKind::Jiggle: set |= bit(K::Jiggle); break;
             case StageKind::MeshCut: set |= bit(K::MeshCut); break;
             case StageKind::Merge: break;  // (copies)
-            default: set = ~KernelSet{0} >> (64 - static_cast<int>(K::Count)); break;  // (a stage this does not know: every kernel)
+            default: set.set(); break;  // (a stage this does not know: every kernel)
         }
         if (stages[k].masked) set |= bit(K::Affect);  // (affect masks)
     }
@@ -112,12 +106,12 @@ KernelSet kernelsOf(const LookRun& run) {
 
 bool LookEngine::kernelsReady(const LookRun& run, std::string* why) {
     const KernelSet need = kernelsOf(run);
-    KernelSet compiling = 0;
+    KernelSet compiling;
     for (int k = 0; k < static_cast<int>(Kernel::Count); ++k) {
-        if ((need >> k & 1u) && !kernelReady(static_cast<Kernel>(k), false)) compiling |= KernelSet{1} << k;
+        if (need.test(static_cast<std::size_t>(k)) && !kernelReady(static_cast<Kernel>(k), false)) compiling.set(static_cast<std::size_t>(k));
     }
-    if (compiling && why) *why = "the GPU's kernels are compiling (" + kernelNames(compiling) + ")";
-    return compiling == 0;
+    if (compiling.any() && why) *why = "the GPU's kernels are compiling (" + kernelNames(compiling) + ")";
+    return compiling.none();
 }
 
 namespace {
@@ -151,22 +145,6 @@ StrandChanges diffStrands(const StrandSet& before, const StrandSet& after) {
         if (moved[s]) list.push_back(static_cast<std::uint32_t>(s));
     }
     return StrandChanges::listed(std::move(list));
-}
-
-// Ramp::operator()'s tangent at key k (ramp.cpp: monotone cubic Hermite).
-float rampTangent(const Ramp& ramp, std::size_t k) {
-    const auto& keys = ramp.keys;
-    auto secant = [&](std::size_t i) {
-        const float h = keys[i + 1].first - keys[i].first;
-        return h > 0.0f ? (keys[i + 1].second - keys[i].second) / h : 0.0f;
-    };
-    if (keys.size() < 2) return 0.0f;
-    if (k == 0) return secant(0);
-    if (k + 1 == keys.size()) return secant(k - 1);
-    const float d0 = secant(k - 1), d1 = secant(k);
-    if (d0 * d1 <= 0.0f) return 0.0f;
-    const float h0 = keys[k].first - keys[k - 1].first, h1 = keys[k + 1].first - keys[k].first;
-    return 3.0f * (h0 + h1) / ((2.0f * h1 + h0) / d0 + (h1 + 2.0f * h0) / d1);
 }
 
 // internal.h paramAt.
@@ -1316,7 +1294,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
     // The kernels it may dispatch, waited for where they compile (a host asks kernelsReady first).
     const KernelSet need = kernelsOf(r);
     for (int k = 0; k < static_cast<int>(Kernel::Count); ++k) {
-        if (need >> k & 1u) kernelReady(static_cast<Kernel>(k), true);
+        if (need.test(static_cast<std::size_t>(k))) kernelReady(static_cast<Kernel>(k), true);
     }
     prepare(r);
     const std::vector<StageParams>& stages = r.params.stages;
@@ -1345,7 +1323,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
         for (std::size_t i = 0; i < ramp.keys.size(); ++i) {
             ramps_.push_back(ramp.keys[i].first);
             ramps_.push_back(ramp.keys[i].second);
-            ramps_.push_back(rampTangent(ramp, i));
+            ramps_.push_back(ramp.tangent(i));
         }
         if (tabled && uniformCount_ > 0) {
             at.tableCount = static_cast<std::uint32_t>(uniformCount_);

@@ -33,6 +33,7 @@ SimSettings unitSettings() {
     SimSettings s;
     s.gravity = 9.8f;
     s.collisionOffset = 0.02f;
+    s.groomedUnderGravity = false;  // gravity on the groomed shape itself: what these tests measure
     return s;
 }
 
@@ -297,7 +298,11 @@ TEST(SimVolume, KeepsACollapsingTuftApartAndIsOffByDefault) {
     full.volumeCellSize = 0.1f;
     const std::vector<Vec3f> kept = run(full, {guides, nullptr, {}}, 48);
     const float before = meanTipDistance(collapsed, 25, 13), after = meanTipDistance(kept, 25, 13);
-    EXPECT_GT(after, before * 1.3f) << "volume kept the tips " << after << " apart against " << before;
+    // 1.13x (0.76 against 0.67) since each guide is solved whole, 1.54x before (0.81 against 0.53):
+    // the exact solve gives the orientations' resistance to each substep's turn in full, so the
+    // heavily damped tuft falls together more slowly (0.27 apart at frame 96, 0.15 before) and the
+    // volume's pushes move it a little less. With volume the tips hold 0.75 apart throughout.
+    EXPECT_GT(after, before * 1.1f) << "volume kept the tips " << after << " apart against " << before;
     EXPECT_NE(full.hash(), s.hash());
     EXPECT_TRUE(sameBits(kept, runOnOneThread(full, {guides, nullptr, {}}, 48))) << "volume: one thread and many differ";
     EXPECT_TRUE(sameBits(kept, run(full, {guides, nullptr, {}}, 48))) << "volume: two runs differ";

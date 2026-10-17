@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "groomlab/color.h"
 #include "groomlab/noise.h"
 #include "groomlab/random.h"
 
@@ -88,26 +89,27 @@ const Alias kUnsupportedVariables[] = {
     {"DESC", "${DESC} means something only inside an XGen map path, map('${DESC}/paintmaps/name/')"},
 };
 
+// The builtin functions' codes. Adding one: its code here (anywhere after kNoise), its row in kFns
+// below, and its case in scalarFn (kind Math or Scalar) or vectorFn (Vector); docs/MATH.md has the
+// rest (the docs page, the GPU). The codes up to kNoise are inlined into the interpreter's loop
+// (classicFn), and so come first; past them the order means nothing.
 enum Fn : std::uint8_t {
     // Numbers, component by component on vectors; inlined into the interpreter's loop (classicFn).
     kSin, kCos, kTan, kAsin, kAcos, kAtan, kAbs, kSqrt, kFloor, kCeil, kFract, kExp, kLog, kSign,
     kPow, kAtan2, kMin, kMax, kMod, kStep, kRandFn,
     kClamp, kMix, kSmoothstep, kNoise,
-    // Numbers, component by component on vectors (scalarFn).
+    // The rest.
     kRound, kTrunc, kRadians, kDegrees, kGamma, kBias, kGain, kLerp, kLinearstep, kFit, kRemap,
     kSinh, kCosh, kTanh, kAsinh, kAcosh, kAtanh, kCbrt, kLog10, kFmod, kHypot, kInvert,
     kCosd, kSind, kTand, kAcosd, kAsind, kAtand, kAtan2d,
     kCompress, kExpand, kContrast, kBoxstep, kGaussstep,
     kChoose, kWChoose, kSpline,
-    // Numbers only.
     kHash, kPick, kCycle, kRandRange, kNoise4,
-    // Vectors, points and numbers by a signature (vectorFn), from kDot on.
     kDot, kCross, kLengthFn, kNormalize, kDistance, kRotate, kAngle, kOrtho, kUp, kIndexFn,
     kRgbToHsl, kHslToRgb, kSaturate, kHsi, kMidHsi,
     kNoiseP, kSNoise, kVNoise, kCNoise, kSNoise4, kVNoise4, kCNoise4,
     kFbm, kVFbm, kCFbm, kTurbulence, kVTurbulence, kCTurbulence, kFbm4, kVFbm4, kCFbm4,
     kCellnoise, kCCellnoise, kPNoise, kVoronoi, kCVoronoi, kPVoronoi,
-    // Curves (keys fixed when compiled), maps.
     kCurve, kCCurve, kRampCurve, kLinearCurve, kMap, kCMap,
     kFnCount
 };
@@ -119,83 +121,156 @@ enum class FnKind : std::uint8_t {
     Curve,   // t and constant keys
     Map,     // a map's name
 };
+// A function's row: everything the language, the editors' help (Expression::functions), the docs
+// check and the GPU preview know of it. Rows go in any order (the editors list them in this one);
+// two rows may share a name, the first being the one the parser finds (its other forms, below, it
+// picks itself: a name with a space in it can't be written).
 struct FnInfo {
-    const char* name;  // a name with a space in it can't be written: one the parser picks itself
+    Fn code;
+    const char* name;
+    const char* arguments;  // as the editors show them ("" for a form the parser picks itself: unlisted)
+    const char* about;      // what it does, one line
     int minArgs, maxArgs;
     FnKind kind;
+    int gpu = -1;           // FieldCS's code (shared/groom_math.h kField*, look.slang fieldCall); kCpu: CPU only
     const char* signature = "";
     int results = 1;
     std::array<float, 7> defaults{};  // Vector: each optional argument's (by its place)
 };
 constexpr float kOff = 0.0f;
-const FnInfo kFns[] = {
-    {"sin", 1, 1, FnKind::Math},        {"cos", 1, 1, FnKind::Math},         {"tan", 1, 1, FnKind::Math},
-    {"asin", 1, 1, FnKind::Math},       {"acos", 1, 1, FnKind::Math},        {"atan", 1, 1, FnKind::Math},
-    {"abs", 1, 1, FnKind::Math},        {"sqrt", 1, 1, FnKind::Math},        {"floor", 1, 1, FnKind::Math},
-    {"ceil", 1, 1, FnKind::Math},       {"fract", 1, 1, FnKind::Math},       {"exp", 1, 1, FnKind::Math},
-    {"log", 1, 1, FnKind::Math},        {"sign", 1, 1, FnKind::Math},        {"pow", 2, 2, FnKind::Math},
-    {"atan2", 2, 2, FnKind::Math},      {"min", 2, 2, FnKind::Math},         {"max", 2, 2, FnKind::Math},
-    {"mod", 2, 2, FnKind::Math},        {"step", 2, 2, FnKind::Math},        {"rand", 0, 3, FnKind::Scalar},
-    {"clamp", 3, 3, FnKind::Math},      {"mix", 3, 3, FnKind::Math},         {"smoothstep", 3, 3, FnKind::Math},
-    {"noise", 1, 4, FnKind::Scalar},
-    {"round", 1, 1, FnKind::Math},      {"trunc", 1, 1, FnKind::Math},       {"radians", 1, 1, FnKind::Math},
-    {"degrees", 1, 1, FnKind::Math},    {"gamma", 2, 2, FnKind::Math},       {"bias", 2, 2, FnKind::Math},
-    {"gain", 2, 2, FnKind::Math},       {"lerp", 3, 3, FnKind::Math},        {"linearstep", 3, 3, FnKind::Math},
-    {"fit", 5, 5, FnKind::Math},        {"remap", 5, 5, FnKind::Math},
-    {"sinh", 1, 1, FnKind::Math},       {"cosh", 1, 1, FnKind::Math},        {"tanh", 1, 1, FnKind::Math},
-    {"asinh", 1, 1, FnKind::Math},      {"acosh", 1, 1, FnKind::Math},       {"atanh", 1, 1, FnKind::Math},
-    {"cbrt", 1, 1, FnKind::Math},       {"log10", 1, 1, FnKind::Math},       {"fmod", 2, 2, FnKind::Math},
-    {"hypot", 2, 2, FnKind::Math},      {"invert", 1, 1, FnKind::Math},
-    {"cosd", 1, 1, FnKind::Math},       {"sind", 1, 1, FnKind::Math},        {"tand", 1, 1, FnKind::Math},
-    {"acosd", 1, 1, FnKind::Math},      {"asind", 1, 1, FnKind::Math},       {"atand", 1, 1, FnKind::Math},
-    {"atan2d", 2, 2, FnKind::Math},
-    {"compress", 3, 3, FnKind::Math},   {"expand", 3, 3, FnKind::Math},      {"contrast", 2, 2, FnKind::Math},
-    {"boxstep", 2, 2, FnKind::Math},    {"gaussstep", 3, 3, FnKind::Math},
-    {"choose", 2, 64, FnKind::Math},    {"wchoose", 3, 63, FnKind::Math},    {"spline", 5, 64, FnKind::Math},
-    {"hash", 1, 64, FnKind::Scalar},    {"pick", 3, 64, FnKind::Scalar},     {"cycle", 3, 3, FnKind::Scalar},
-    {"rand range", 2, 3, FnKind::Scalar}, {"noise 4", 4, 4, FnKind::Scalar},
-    {"dot", 2, 2, FnKind::Vector, "vv"},
-    {"cross", 2, 2, FnKind::Vector, "vv", 3},
-    {"length", 1, 1, FnKind::Vector, "v"},
-    {"normalize", 1, 1, FnKind::Vector, "v", 3},
-    {"distance", 2, 2, FnKind::Vector, "vv"},
-    {"rotate", 3, 3, FnKind::Vector, "vvs", 3},
-    {"angle", 2, 2, FnKind::Vector, "vv"},
-    {"ortho", 2, 2, FnKind::Vector, "vv", 3},
-    {"up", 2, 2, FnKind::Vector, "vv", 3},
-    {"index of", 2, 2, FnKind::Vector, "vs"},
-    {"rgbtohsl", 1, 1, FnKind::Vector, "v", 3},
-    {"hsltorgb", 1, 1, FnKind::Vector, "v", 3},
-    {"saturate", 2, 2, FnKind::Vector, "vs", 3},
-    {"hsi", 4, 5, FnKind::Vector, "vssss", 3, {kOff, kOff, kOff, kOff, 1.0f}},
-    {"midhsi", 5, 7, FnKind::Vector, "vssssss", 3, {kOff, kOff, kOff, kOff, kOff, 1.0f, 0.0f}},
-    {"noise", 1, 1, FnKind::Vector, "p"},
-    {"snoise", 1, 1, FnKind::Vector, "p"},
-    {"vnoise", 1, 1, FnKind::Vector, "p", 3},
-    {"cnoise", 1, 1, FnKind::Vector, "p", 3},
-    {"snoise4", 2, 2, FnKind::Vector, "ps"},
-    {"vnoise4", 2, 2, FnKind::Vector, "ps", 3},
-    {"cnoise4", 2, 2, FnKind::Vector, "ps", 3},
-    {"fbm", 1, 4, FnKind::Vector, "psss", 1, {kOff, 6.0f, 2.0f, 0.5f}},
-    {"vfbm", 1, 4, FnKind::Vector, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
-    {"cfbm", 1, 4, FnKind::Vector, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
-    {"turbulence", 1, 4, FnKind::Vector, "psss", 1, {kOff, 6.0f, 2.0f, 0.5f}},
-    {"vturbulence", 1, 4, FnKind::Vector, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
-    {"cturbulence", 1, 4, FnKind::Vector, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
-    {"fbm4", 2, 5, FnKind::Vector, "pssss", 1, {kOff, kOff, 6.0f, 2.0f, 0.5f}},
-    {"vfbm4", 2, 5, FnKind::Vector, "pssss", 3, {kOff, kOff, 6.0f, 2.0f, 0.5f}},
-    {"cfbm4", 2, 5, FnKind::Vector, "pssss", 3, {kOff, kOff, 6.0f, 2.0f, 0.5f}},
-    {"cellnoise", 1, 1, FnKind::Vector, "p"},
-    {"ccellnoise", 1, 1, FnKind::Vector, "p", 3},
-    {"pnoise", 2, 2, FnKind::Vector, "pv"},
-    {"voronoi", 1, 7, FnKind::Vector, "pssssss", 1, {kOff, 1.0f, 0.5f, 0.0f, 4.0f, 2.0f, 0.5f}},
-    {"cvoronoi", 1, 7, FnKind::Vector, "pssssss", 3, {kOff, 1.0f, 0.5f, 0.0f, 4.0f, 2.0f, 0.5f}},
-    {"pvoronoi", 1, 6, FnKind::Vector, "psssss", 3, {kOff, 0.5f, 0.0f, 4.0f, 2.0f, 0.5f}},
-    {"curve", 1, 64, FnKind::Curve},    {"ccurve", 1, 64, FnKind::Curve, "", 3},
-    {"curve pairs", 3, 64, FnKind::Curve}, {"linearcurve", 3, 64, FnKind::Curve},
-    {"map", 1, 2, FnKind::Map},         {"cmap", 1, 1, FnKind::Map, "", 3},
+constexpr int kCpu = -1;
+constexpr FnInfo kFns[] = {
+    {kSin, "sin", "x", "Sine (radians)", 1, 1, FnKind::Math, shared::kFieldSin},
+    {kCos, "cos", "x", "Cosine (radians)", 1, 1, FnKind::Math, shared::kFieldCos},
+    {kTan, "tan", "x", "Tangent (radians)", 1, 1, FnKind::Math, shared::kFieldTan},
+    {kAsin, "asin", "x", "Arc sine", 1, 1, FnKind::Math, shared::kFieldAsin},
+    {kAcos, "acos", "x", "Arc cosine", 1, 1, FnKind::Math, shared::kFieldAcos},
+    {kAtan, "atan", "x", "Arc tangent", 1, 1, FnKind::Math, shared::kFieldAtan},
+    {kAtan2, "atan2", "y, x", "Angle of (x, y)", 2, 2, FnKind::Math, shared::kFieldAtan2},
+    {kSind, "sind", "x", "Sine (degrees)", 1, 1, FnKind::Math},
+    {kCosd, "cosd", "x", "Cosine (degrees)", 1, 1, FnKind::Math},
+    {kTand, "tand", "x", "Tangent (degrees)", 1, 1, FnKind::Math},
+    {kAsind, "asind", "x", "Arc sine, in degrees", 1, 1, FnKind::Math},
+    {kAcosd, "acosd", "x", "Arc cosine, in degrees", 1, 1, FnKind::Math},
+    {kAtand, "atand", "x", "Arc tangent, in degrees", 1, 1, FnKind::Math},
+    {kAtan2d, "atan2d", "y, x", "Angle of (x, y), in degrees", 2, 2, FnKind::Math},
+    {kSinh, "sinh", "x", "Hyperbolic sine", 1, 1, FnKind::Math},
+    {kCosh, "cosh", "x", "Hyperbolic cosine", 1, 1, FnKind::Math},
+    {kTanh, "tanh", "x", "Hyperbolic tangent", 1, 1, FnKind::Math},
+    {kAsinh, "asinh", "x", "Inverse hyperbolic sine", 1, 1, FnKind::Math},
+    {kAcosh, "acosh", "x", "Inverse hyperbolic cosine", 1, 1, FnKind::Math},
+    {kAtanh, "atanh", "x", "Inverse hyperbolic tangent", 1, 1, FnKind::Math},
+    {kAbs, "abs", "x", "Absolute value", 1, 1, FnKind::Math, shared::kFieldAbs},
+    {kSqrt, "sqrt", "x", "Square root", 1, 1, FnKind::Math, shared::kFieldSqrt},
+    {kCbrt, "cbrt", "x", "Cube root", 1, 1, FnKind::Math},
+    {kPow, "pow", "a, b", "a to the power b (also a ^ b)", 2, 2, FnKind::Math, shared::kFieldPow},
+    {kExp, "exp", "x", "e to the power x", 1, 1, FnKind::Math, shared::kFieldExp},
+    {kLog, "log", "x", "Natural logarithm", 1, 1, FnKind::Math, shared::kFieldLog},
+    {kLog10, "log10", "x", "Base-10 logarithm", 1, 1, FnKind::Math},
+    {kHypot, "hypot", "x, y", "sqrt(x*x + y*y)", 2, 2, FnKind::Math},
+    {kFloor, "floor", "x", "Round down", 1, 1, FnKind::Math, shared::kFieldFloor},
+    {kCeil, "ceil", "x", "Round up", 1, 1, FnKind::Math, shared::kFieldCeil},
+    {kRound, "round", "x", "The nearest whole number", 1, 1, FnKind::Math, shared::kFieldRound},
+    {kTrunc, "trunc", "x", "The whole part", 1, 1, FnKind::Math, shared::kFieldTrunc},
+    {kFract, "fract", "x", "The part after the point", 1, 1, FnKind::Math, shared::kFieldFract},
+    {kSign, "sign", "x", "-1, 0 or 1", 1, 1, FnKind::Math, shared::kFieldSign},
+    {kMin, "min", "a, b", "The smaller", 2, 2, FnKind::Math, shared::kFieldMin},
+    {kMax, "max", "a, b", "The larger", 2, 2, FnKind::Math, shared::kFieldMax},
+    {kMod, "mod", "a, b", "Remainder, always positive (GroomLab's)", 2, 2, FnKind::Math, shared::kFieldMod},
+    {kFmod, "fmod", "a, b", "Remainder with a's sign (also a % b)", 2, 2, FnKind::Math},
+    {kRadians, "radians", "deg", "Degrees to radians (also rad)", 1, 1, FnKind::Math, shared::kFieldRadians},
+    {kDegrees, "degrees", "rad", "Radians to degrees (also deg)", 1, 1, FnKind::Math, shared::kFieldDegrees},
+    {kInvert, "invert", "x", "1 - x (also ~x)", 1, 1, FnKind::Math},
+    {kClamp, "clamp", "x, lo, hi", "x kept between lo and hi", 3, 3, FnKind::Math, shared::kFieldClamp},
+    {kMix, "mix", "a, b, t", "a to b as t goes 0 to 1", 3, 3, FnKind::Math, shared::kFieldMix},
+    {kLerp, "lerp", "a, b, t", "a to b as t goes 0 to 1 (as mix)", 3, 3, FnKind::Math, shared::kFieldLerp},
+    {kStep, "step", "edge, x", "0 below edge, 1 from it on", 2, 2, FnKind::Math, shared::kFieldStep},
+    {kBoxstep, "boxstep", "x, a", "0 below a, 1 from it on", 2, 2, FnKind::Math},
+    {kLinearstep, "linearstep", "x, a, b", "0 below a, 1 above b, a straight line in between", 3, 3, FnKind::Math, shared::kFieldLinearstep},
+    {kSmoothstep, "smoothstep", "x, a, b", "0 below a, 1 above b, smooth in between", 3, 3, FnKind::Math, shared::kFieldSmoothstep},
+    {kGaussstep, "gaussstep", "x, a, b", "0 below a, 1 above b, a bell-shaped rise in between", 3, 3, FnKind::Math},
+    {kFit, "fit", "x, a1, b1, a2, b2", "x from a1..b1 onto a2..b2 (not clamped)", 5, 5, FnKind::Math, shared::kFieldFit},
+    {kRemap, "remap", "x, source, range, falloff, interp", "1 within range of source, falling to 0 over the falloff", 5, 5, FnKind::Math},
+    {kCompress, "compress", "x, lo, hi", "0-1 onto lo..hi", 3, 3, FnKind::Math},
+    {kExpand, "expand", "x, lo, hi", "lo..hi onto 0-1", 3, 3, FnKind::Math},
+    {kGamma, "gamma", "x, g", "x to the power 1/g", 2, 2, FnKind::Math, shared::kFieldGamma},
+    {kBias, "bias", "x, b", "Pushes 0-1 values up (b > 0.5) or down", 2, 2, FnKind::Math, shared::kFieldBias},
+    {kGain, "gain", "x, g", "Pushes 0-1 values toward the ends (g > 0.5) or the middle", 2, 2, FnKind::Math, shared::kFieldGain},
+    {kContrast, "contrast", "x, c", "More contrast around 0.5 (c > 0.5) or less", 2, 2, FnKind::Math},
+    {kRandFn, "rand", "[min, max[, seed]]", "A stable random number per strand: 0-1, or min to max (rand(seed): 0-1 per seed)", 0, 3, FnKind::Scalar},
+    {kHash, "hash", "a, b, ...", "A random 0-1 value from the numbers alone", 1, 64, FnKind::Scalar},
+    {kNoise, "noise", "p", "Smooth noise, 0 to 1 (also noise(x, y), noise(x, y, z), noise(x, y, z, w))", 1, 4, FnKind::Scalar},
+    {kSNoise, "snoise", "p", "Smooth noise, -1 to 1", 1, 1, FnKind::Vector, kCpu, "p"},
+    {kVNoise, "vnoise", "p", "Vector noise, each -1 to 1", 1, 1, FnKind::Vector, kCpu, "p", 3},
+    {kCNoise, "cnoise", "p", "Vector noise, each 0 to 1", 1, 1, FnKind::Vector, kCpu, "p", 3},
+    {kSNoise4, "snoise4", "p, t", "4D noise, -1 to 1", 2, 2, FnKind::Vector, kCpu, "ps"},
+    {kVNoise4, "vnoise4", "p, t", "4D vector noise, -1 to 1", 2, 2, FnKind::Vector, kCpu, "ps", 3},
+    {kCNoise4, "cnoise4", "p, t", "4D vector noise, 0 to 1", 2, 2, FnKind::Vector, kCpu, "ps", 3},
+    {kPNoise, "pnoise", "p, period", "Noise repeating every period cells, -1 to 1", 2, 2, FnKind::Vector, kCpu, "pv"},
+    {kFbm, "fbm", "p, octaves, lacunarity, gain", "Fractal noise around 0.5 (6, 2, 0.5 when left out)", 1, 4, FnKind::Vector, kCpu, "psss", 1, {kOff, 6.0f, 2.0f, 0.5f}},
+    {kVFbm, "vfbm", "p, octaves, lacunarity, gain", "Fractal vector noise around 0", 1, 4, FnKind::Vector, kCpu, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
+    {kCFbm, "cfbm", "p, octaves, lacunarity, gain", "Fractal vector noise around 0.5", 1, 4, FnKind::Vector, kCpu, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
+    {kTurbulence, "turbulence", "p, octaves, lacunarity, gain", "Fractal |noise|, 0.5 and up: creased", 1, 4, FnKind::Vector, kCpu, "psss", 1, {kOff, 6.0f, 2.0f, 0.5f}},
+    {kVTurbulence, "vturbulence", "p, octaves, lacunarity, gain", "Fractal |vector noise|", 1, 4, FnKind::Vector, kCpu, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
+    {kCTurbulence, "cturbulence", "p, octaves, lacunarity, gain", "Fractal |vector noise|, 0.5 and up", 1, 4, FnKind::Vector, kCpu, "psss", 3, {kOff, 6.0f, 2.0f, 0.5f}},
+    {kFbm4, "fbm4", "p, t, octaves, lacunarity, gain", "4D fractal noise around 0.5", 2, 5, FnKind::Vector, kCpu, "pssss", 1, {kOff, kOff, 6.0f, 2.0f, 0.5f}},
+    {kVFbm4, "vfbm4", "p, t, octaves, lacunarity, gain", "4D fractal vector noise around 0", 2, 5, FnKind::Vector, kCpu, "pssss", 3, {kOff, kOff, 6.0f, 2.0f, 0.5f}},
+    {kCFbm4, "cfbm4", "p, t, octaves, lacunarity, gain", "4D fractal vector noise around 0.5", 2, 5, FnKind::Vector, kCpu, "pssss", 3, {kOff, kOff, 6.0f, 2.0f, 0.5f}},
+    {kCellnoise, "cellnoise", "p", "One random 0-1 value per unit cell", 1, 1, FnKind::Vector, kCpu, "p"},
+    {kCCellnoise, "ccellnoise", "p", "One random 0-1 vector per unit cell", 1, 1, FnKind::Vector, kCpu, "p", 3},
+    {kVoronoi, "voronoi", "p, type, jitter, fbmScale, fbmOctaves, fbmLacunarity, fbmGain", "Cells: type 1 a value per cell, 2 nearest distance, 3 second nearest, 4 their gap, 5 edges", 1, 7, FnKind::Vector, kCpu, "pssssss", 1, {kOff, 1.0f, 0.5f, 0.0f, 4.0f, 2.0f, 0.5f}},
+    {kCVoronoi, "cvoronoi", "p, type, jitter, fbmScale, fbmOctaves, fbmLacunarity, fbmGain", "voronoi with a random color per cell", 1, 7, FnKind::Vector, kCpu, "pssssss", 3, {kOff, 1.0f, 0.5f, 0.0f, 4.0f, 2.0f, 0.5f}},
+    {kPVoronoi, "pvoronoi", "p, jitter, fbmScale, fbmOctaves, fbmLacunarity, fbmGain", "The nearest cell point", 1, 6, FnKind::Vector, kCpu, "psssss", 3, {kOff, 0.5f, 0.0f, 4.0f, 2.0f, 0.5f}},
+    {kDot, "dot", "a, b", "Dot product of two vectors", 2, 2, FnKind::Vector, kCpu, "vv"},
+    {kCross, "cross", "a, b", "Cross product: a vector", 2, 2, FnKind::Vector, kCpu, "vv", 3},
+    {kLengthFn, "length", "v", "A vector's length", 1, 1, FnKind::Vector, kCpu, "v"},
+    {kNormalize, "normalize", "v", "The vector at length 1 (also norm)", 1, 1, FnKind::Vector, kCpu, "v", 3},
+    {kDistance, "distance", "a, b", "Distance between two points (also dist)", 2, 2, FnKind::Vector, kCpu, "vv"},
+    {kAngle, "angle", "a, b", "The angle between two vectors (radians)", 2, 2, FnKind::Vector, kCpu, "vv"},
+    {kOrtho, "ortho", "a, b", "The unit vector at right angles to both", 2, 2, FnKind::Vector, kCpu, "vv", 3},
+    {kRotate, "rotate", "v, axis, angle", "v turned around an axis (radians)", 3, 3, FnKind::Vector, kCpu, "vvs", 3},
+    {kUp, "up", "v, upvec", "v turned so that +Y points along upvec", 2, 2, FnKind::Vector, kCpu, "vv", 3},
+    {kRgbToHsl, "rgbtohsl", "c", "RGB to hue (0-1), saturation, lightness", 1, 1, FnKind::Vector, kCpu, "v", 3},
+    {kHslToRgb, "hsltorgb", "c", "Hue, saturation, lightness to RGB", 1, 1, FnKind::Vector, kCpu, "v", 3},
+    {kHsi, "hsi", "c, h, s, i, mask", "Hue shift (degrees), saturation and intensity scale", 4, 5, FnKind::Vector, kCpu, "vssss", 3, {kOff, kOff, kOff, kOff, 1.0f}},
+    {kMidHsi, "midhsi", "c, h, s, i, mask, falloff, interp", "hsi weighted toward the mask's ends", 5, 7, FnKind::Vector, kCpu, "vssssss", 3, {kOff, kOff, kOff, kOff, kOff, 1.0f, 0.0f}},
+    {kSaturate, "saturate", "c, amount", "Saturation scale", 2, 2, FnKind::Vector, kCpu, "vs", 3},
+    {kCurve, "curve", "t, p0, v0, i0, p1, v1, i1, ...", "A curve through keys (position, value, interpolation 0 none, 1 linear, 2 smooth, 3 spline, 4 monotone)", 1, 64, FnKind::Curve},
+    {kCCurve, "ccurve", "t, p0, c0, i0, ...", "curve with colors", 1, 64, FnKind::Curve, kCpu, "", 3},
+    {kLinearCurve, "linearcurve", "t, p0, v0, p1, v1, ...", "Straight segments through keys (position, value)", 3, 64, FnKind::Curve},
+    {kSpline, "spline", "t, y1, y2, y3, y4, ...", "A smooth curve through y2..y(n-1), y1 and yn its end controls", 5, 64, FnKind::Math},
+    {kPick, "pick", "index, lo, hi, weights...", "A whole number lo to hi from a hash of index", 3, 64, FnKind::Scalar},
+    {kChoose, "choose", "t, a, b, ...", "The argument t (0 to 1) falls on", 2, 64, FnKind::Math},
+    {kWChoose, "wchoose", "t, a, wa, b, wb, ...", "choose, by weights", 3, 63, FnKind::Math},
+    {kCycle, "cycle", "index, lo, hi", "lo + index, wrapped into lo to hi", 3, 3, FnKind::Scalar},
+    {kMap, "map", "\"name\", \"channel\"", "The groom's map of that name at the root (luminance, or r g b a)", 1, 2, FnKind::Map},
+    {kCMap, "cmap", "\"name\"", "The map's color as a vector (also vmap)", 1, 1, FnKind::Map, kCpu, "", 3},
+    {kRandRange, "rand range", "", "", 2, 3, FnKind::Scalar},
+    {kNoise4, "noise 4", "", "", 4, 4, FnKind::Scalar},
+    {kIndexFn, "index of", "", "", 2, 2, FnKind::Vector, kCpu, "vs"},
+    {kNoiseP, "noise", "", "", 1, 1, FnKind::Vector, kCpu, "p"},
+    {kRampCurve, "curve pairs", "", "", 3, 64, FnKind::Curve},
 };
 static_assert(sizeof(kFns) / sizeof(kFns[0]) == kFnCount, "every function has an entry");
+
+// Each code's row in kFns, checked when compiled: every code has one row of its own.
+struct FnRows {
+    std::array<std::uint8_t, kFnCount> row{};
+    bool complete = true;
+};
+constexpr FnRows fnRows() {
+    FnRows r;
+    std::array<int, kFnCount> seen{};
+    for (std::size_t i = 0; i < kFnCount; ++i) {
+        r.row[kFns[i].code] = static_cast<std::uint8_t>(i);
+        ++seen[kFns[i].code];
+    }
+    for (int n : seen) r.complete = r.complete && n == 1;
+    return r;
+}
+constexpr FnRows kFnRows = fnRows();
+static_assert(kFnRows.complete, "every function code has one row in kFns");
+constexpr const FnInfo& fnInfo(std::uint8_t code) { return kFns[kFnRows.row[code]]; }
 
 // Other names for functions: SeExpr's short ones, XGen's vmap.
 const Alias kFunctionAliases[] = {{"deg", "degrees"}, {"rad", "radians"}, {"norm", "normalize"},
@@ -263,74 +338,7 @@ struct Tables {
 constexpr float kDegToRad = 3.14159265f / 180.0f;
 constexpr float kRadToDeg = 180.0f / 3.14159265f;
 
-std::uint32_t floatBits(float f) {
-    if (f == 0.0f) f = 0.0f;  // -0 and 0 hash alike
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &f, sizeof bits);
-    return bits;
-}
-
-// A whole number from a float as C's (int) cast makes one (toward zero; NaN: 0), kept within a
-// range a loop can walk.
-std::int64_t intOf(float f) {
-    if (!(f == f)) return 0;
-    return static_cast<std::int64_t>(std::trunc(std::clamp(f, -1.0e9f, 1.0e9f)));
-}
-
-float biasOf(float x, float b) {
-    if (!(x > 0.0f)) return 0.0f;
-    if (!(b > 0.0f)) return 0.0f;
-    if (b >= 1.0f) return 1.0f;
-    return pm::pow(x, pm::log(b) / pm::log(0.5f));
-}
-
-// SeExpr's steps, in its (x, a, b) order; a > b runs the other way.
-float linearstepX(float x, float a, float b) {
-    if (a == b) return x < a ? 0.0f : 1.0f;
-    return std::clamp((x - a) / (b - a), 0.0f, 1.0f);
-}
-float smoothstepX(float x, float a, float b) { return smoothstep(a, b, x); }
-float gaussstepX(float x, float a, float b) {
-    if (a == b) return x < a ? 0.0f : 1.0f;
-    float t = 0.0f;
-    if (a < b) {
-        if (x < a) return 0.0f;
-        if (x >= b) return 1.0f;
-        t = 1.0f - (x - a) / (b - a);
-    } else {
-        if (x <= b) return 1.0f;
-        if (x > a) return 0.0f;
-        t = (x - b) / (a - b);
-    }
-    return pm::pow(2.0f, -8.0f * t * t);
-}
-// SeExpr's remap: 1 within `range` of `source`, falling to 0 over `falloff` beyond it.
-float remapX(float x, float source, float range, float falloff, float interp) {
-    range = std::abs(range);
-    falloff = std::abs(falloff);
-    if (falloff == 0.0f) return std::abs(x - source) < range ? 1.0f : 0.0f;
-    float a = 0.0f, b = 0.0f;
-    if (x > source) {
-        a = source + range;
-        b = a + falloff;
-    } else {
-        a = source - range;
-        b = a - falloff;
-    }
-    switch (intOf(interp)) {
-        case 0: return linearstepX(x, b, a);
-        case 1: return smoothstepX(x, b, a);
-        default: return gaussstepX(x, b, a);
-    }
-}
-
-std::uint64_t seededRandom(float seed, float strandRandom) {
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &seed, sizeof bits);
-    std::uint32_t var = 0;
-    std::memcpy(&var, &strandRandom, sizeof var);
-    return hashCombine(hash64(var), bits);
-}
+std::uint64_t seededRandom(float seed, float strandRandom) { return hashCombine(hash64(floatBits(strandRandom)), floatBits(seed)); }
 
 // The first functions (sin to noise, codes up to kNoise): small, inlined into the interpreter's
 // loop as they always were. The rest are called (scalarFn), keeping the loop's frame small.
@@ -346,7 +354,7 @@ GROOMLAB_EXPRESSION_INLINE float classicFn(std::uint8_t code, const float* a, co
         case kSqrt: return std::sqrt(std::max(a[0], 0.0f));
         case kFloor: return std::floor(a[0]);
         case kCeil: return std::ceil(a[0]);
-        case kFract: return a[0] - std::floor(a[0]);
+        case kFract: return fract(a[0]);
         case kExp: return pm::exp(a[0]);
         case kLog: return a[0] > 0.0f ? pm::log(a[0]) : 0.0f;
         case kSign: return a[0] > 0.0f ? 1.0f : (a[0] < 0.0f ? -1.0f : 0.0f);
@@ -358,7 +366,7 @@ GROOMLAB_EXPRESSION_INLINE float classicFn(std::uint8_t code, const float* a, co
         case kStep: return a[1] < a[0] ? 0.0f : 1.0f;
         case kRandFn: return unitFloat(seededRandom(a[0], env.vars[kRand]));
         case kClamp: return std::clamp(a[0], std::min(a[1], a[2]), std::max(a[1], a[2]));
-        case kMix: return a[0] + (a[1] - a[0]) * a[2];
+        case kMix: return mix1(a[0], a[1], a[2]);
         case kSmoothstep: return smoothstep(a[0], a[1], a[2]);  // edges first (the parser orders them)
         case kNoise: return 0.5f + 0.5f * gradientNoise({a[0], a[1], a[2]}, 0x6E01);
         default: return 0.0f;
@@ -390,12 +398,11 @@ GROOMLAB_EXPRESSION_NOINLINE float scalarFn(std::uint8_t code, const float* a, s
         case kDegrees: return a[0] * kRadToDeg;
         case kGamma: return a[1] > 0.0f && a[0] > 0.0f ? pm::pow(a[0], 1.0f / a[1]) : 0.0f;
         case kBias: return biasOf(a[0], a[1]);
-        case kGain:
-            return a[0] < 0.5f ? 0.5f * biasOf(2.0f * a[0], 1.0f - a[1]) : 1.0f - 0.5f * biasOf(2.0f - 2.0f * a[0], 1.0f - a[1]);
-        case kLerp: return a[0] + (a[1] - a[0]) * a[2];
-        case kLinearstep: return linearstepX(a[2], a[0], a[1]);  // edges first (the parser orders them)
-        case kFit: return a[2] != a[1] ? a[3] + (a[0] - a[1]) / (a[2] - a[1]) * (a[4] - a[3]) : a[3];
-        case kRemap: return remapX(a[0], a[1], a[2], a[3], a[4]);
+        case kGain: return gainOf(a[0], a[1]);
+        case kLerp: return mix1(a[0], a[1], a[2]);
+        case kLinearstep: return linearstep(a[0], a[1], a[2]);  // edges first (the parser orders them)
+        case kFit: return fitOf(a[0], a[1], a[2], a[3], a[4]);
+        case kRemap: return remapFalloff(a[0], a[1], a[2], a[3], static_cast<int>(truncToInt(a[4])));
         case kSinh: return pm::sinh(a[0]);
         case kCosh: return pm::cosh(a[0]);
         case kTanh: return pm::tanh(a[0]);
@@ -421,7 +428,7 @@ GROOMLAB_EXPRESSION_NOINLINE float scalarFn(std::uint8_t code, const float* a, s
         case kContrast:
             return a[0] < 0.5f ? 0.5f * biasOf(1.0f - a[1], 2.0f * a[0]) : 1.0f - 0.5f * biasOf(1.0f - a[1], 2.0f - 2.0f * a[0]);
         case kBoxstep: return a[0] < a[1] ? 0.0f : 1.0f;
-        case kGaussstep: return gaussstepX(a[0], a[1], a[2]);
+        case kGaussstep: return gaussstep(a[1], a[2], a[0]);
         case kChoose: {
             if (!(a[0] == a[0])) return 0.0f;
             const std::size_t choices = n - 1;
@@ -449,14 +456,14 @@ GROOMLAB_EXPRESSION_NOINLINE float scalarFn(std::uint8_t code, const float* a, s
         case kSpline: return splineOf(a[0], a + 1, n - 1);
         case kHash: {
             std::uint64_t h = hash64(0x4A54);
-            for (std::size_t i = 0; i < n; ++i) h = hashCombine(h, floatBits(a[i]));
+            for (std::size_t i = 0; i < n; ++i) h = hashCombine(h, floatBitsZero(a[i]));
             return unitFloat(h);
         }
         case kPick: {
-            const std::int64_t lo = intOf(a[1]), hi = intOf(a[2]);
+            const std::int64_t lo = truncToInt(a[1]), hi = truncToInt(a[2]);
             const std::int64_t count = hi - lo + 1;
             if (count <= 0) return static_cast<float>(lo);
-            const float h = unitFloat(hashCombine(hash64(0x91C4), floatBits(a[0])));
+            const float h = unitFloat(hashCombine(hash64(0x91C4), floatBitsZero(a[0])));
             const std::size_t weights = n > 3 ? n - 3 : 0;
             if (weights == 0) return static_cast<float>(lo + std::min<std::int64_t>(static_cast<std::int64_t>(h * static_cast<float>(count)), count - 1));
             // A weight per number from lo (missing: 1).
@@ -475,116 +482,32 @@ GROOMLAB_EXPRESSION_NOINLINE float scalarFn(std::uint8_t code, const float* a, s
             return static_cast<float>(lo + static_cast<std::int64_t>(weights) + std::min<std::int64_t>(static_cast<std::int64_t>(r), rest - 1));
         }
         case kCycle: {
-            const std::int64_t lo = intOf(a[1]), hi = intOf(a[2]);
+            const std::int64_t lo = truncToInt(a[1]), hi = truncToInt(a[2]);
             const std::int64_t span = hi - lo + 1;
             if (span <= 0) return static_cast<float>(lo);
-            std::int64_t r = intOf(a[0]) % span;
+            std::int64_t r = truncToInt(a[0]) % span;
             if (r < 0) r += span;
             return static_cast<float>(lo + r);
         }
         case kRandRange: {
             const float u = n > 2 ? unitFloat(seededRandom(a[2], env.vars[kRand])) : env.vars[kRand];
-            return a[0] + (a[1] - a[0]) * u;
+            return mix1(a[0], a[1], u);
         }
         case kNoise4: return 0.5f + 0.5f * fractalNoise4({a[0], a[1], a[2]}, a[3], 0x6E04, 1);
         default: return 0.0f;
     }
 }
 
-std::uint64_t cellHash(float fx, float fy, float fz, std::uint64_t seed) {
-    const auto ix = static_cast<std::int64_t>(fx), iy = static_cast<std::int64_t>(fy), iz = static_cast<std::int64_t>(fz);
-    std::uint64_t h = hashCombine(seed, static_cast<std::uint64_t>(ix));
-    h = hashCombine(h, static_cast<std::uint64_t>(iy));
-    return hashCombine(h, static_cast<std::uint64_t>(iz));
-}
-
-// Lattice coordinates kept where a float holds whole numbers exactly (and an int64 holds them).
-float latticeFloor(float v) { return std::floor(std::clamp(v, -1.0e7f, 1.0e7f)); }
+// The expressions' FBM seeds (noise.h fbmNoise): octave 0's, and the base of the others'.
+constexpr FbmSeeds kFbmSeeds{0x6E01u, 0xFB00u}, kVFbmSeeds{0x6E02u, 0xFC00u};
+constexpr FbmSeeds kFbm4Seeds{0x6E04u, 0xFD00u}, kVFbm4Seeds{0x6E05u, 0xFE00u};
 
 Vec3f cellVector(float cx, float cy, float cz, std::uint64_t seed) {
     const std::uint64_t h = cellHash(cx, cy, cz, seed);
     return {unitFloat(hash64(h + 1)), unitFloat(hash64(h + 2)), unitFloat(hash64(h + 3))};
 }
 
-int octavesOf(float octaves) { return static_cast<int>(std::clamp(octaves, 1.0f, 8.0f)); }
-
-// SeExpr's FBM: a sum of octaves, each `lacunarity` times the frequency and `gain` times the
-// amplitude of the one before, not normalized (|noise| for turbulence).
-float fractalSum(const Vec3f& p, float octaves, float lacunarity, float gain, bool turbulent) {
-    const int count = octavesOf(octaves);
-    float frequency = 1.0f, amplitude = 1.0f, sum = 0.0f;
-    for (int i = 0; i < count; ++i) {
-        const float n = gradientNoise(p * frequency, i == 0 ? 0x6E01u : 0xFB00u + static_cast<std::uint64_t>(i));
-        sum += amplitude * (turbulent ? std::abs(n) : n);
-        amplitude *= gain;
-        frequency *= lacunarity;
-    }
-    return sum;
-}
-
-Vec3f vectorFractalSum(const Vec3f& p, float octaves, float lacunarity, float gain, bool turbulent) {
-    const int count = octavesOf(octaves);
-    float frequency = 1.0f, amplitude = 1.0f;
-    Vec3f sum{};
-    for (int i = 0; i < count; ++i) {
-        Vec3f n = vectorNoise(p * frequency, i == 0 ? 0x6E02u : 0xFC00u + static_cast<std::uint64_t>(i), 1);
-        if (turbulent) n = {std::abs(n.x), std::abs(n.y), std::abs(n.z)};
-        sum += n * amplitude;
-        amplitude *= gain;
-        frequency *= lacunarity;
-    }
-    return sum;
-}
-
-float fractalSum4(const Vec3f& p, float w, float octaves, float lacunarity, float gain) {
-    const int count = octavesOf(octaves);
-    float frequency = 1.0f, amplitude = 1.0f, sum = 0.0f;
-    for (int i = 0; i < count; ++i) {
-        sum += amplitude * fractalNoise4(p * frequency, w * frequency, i == 0 ? 0x6E04u : 0xFD00u + static_cast<std::uint64_t>(i), 1);
-        amplitude *= gain;
-        frequency *= lacunarity;
-    }
-    return sum;
-}
-
-Vec3f vectorFractalSum4(const Vec3f& p, float w, float octaves, float lacunarity, float gain) {
-    const int count = octavesOf(octaves);
-    float frequency = 1.0f, amplitude = 1.0f;
-    Vec3f sum{};
-    for (int i = 0; i < count; ++i) {
-        sum += vectorNoise4(p * frequency, w * frequency, i == 0 ? 0x6E05u : 0xFE00u + static_cast<std::uint64_t>(i), 1) * amplitude;
-        amplitude *= gain;
-        frequency *= lacunarity;
-    }
-    return sum;
-}
-
 Vec3f half(const Vec3f& v) { return v * 0.5f + Vec3f{0.5f, 0.5f, 0.5f}; }
-
-// Gradient noise repeating every `period` cells along each axis (pnoise), about -1 to 1.
-float periodicNoise(const Vec3f& p, const Vec3f& period) {
-    static constexpr float kGradients[12][3] = {{1, 1, 0}, {-1, 1, 0}, {1, -1, 0}, {-1, -1, 0}, {1, 0, 1}, {-1, 0, 1},
-                                                {1, 0, -1}, {-1, 0, -1}, {0, 1, 1}, {0, -1, 1}, {0, 1, -1}, {0, -1, -1}};
-    const std::int64_t px = std::max<std::int64_t>(1, intOf(period.x)), py = std::max<std::int64_t>(1, intOf(period.y)),
-                       pz = std::max<std::int64_t>(1, intOf(period.z));
-    const float fx = latticeFloor(p.x), fy = latticeFloor(p.y), fz = latticeFloor(p.z);
-    const auto ix = static_cast<std::int64_t>(fx), iy = static_cast<std::int64_t>(fy), iz = static_cast<std::int64_t>(fz);
-    const float dx = p.x - fx, dy = p.y - fy, dz = p.z - fz;
-    auto fade = [](float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); };
-    auto wrap = [](std::int64_t i, std::int64_t n) { return ((i % n) + n) % n; };
-    float corner[8];
-    for (int c = 0; c < 8; ++c) {
-        const int ox = c & 1, oy = (c >> 1) & 1, oz = (c >> 2) & 1;
-        const std::uint64_t h = cellHash(static_cast<float>(wrap(ix + ox, px)), static_cast<float>(wrap(iy + oy, py)),
-                                         static_cast<float>(wrap(iz + oz, pz)), 0x9E01);
-        const float* g = kGradients[h % 12u];
-        corner[c] = g[0] * (dx - static_cast<float>(ox)) + g[1] * (dy - static_cast<float>(oy)) + g[2] * (dz - static_cast<float>(oz));
-    }
-    const float u = fade(dx), v = fade(dy), w = fade(dz);
-    auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
-    return lerp(lerp(lerp(corner[0], corner[1], u), lerp(corner[2], corner[3], u), v),
-                lerp(lerp(corner[4], corner[5], u), lerp(corner[6], corner[7], u), v), w);
-}
 
 // SeExpr's voronoi search: a feature point per unit cell, its middle moved by up to `jitter` / 2;
 // the nearest two to p.
@@ -628,7 +551,7 @@ VoronoiHit voronoiSearch(const Vec3f& p, float jitter) {
 
 // voronoi's point after its optional fbm warp (arguments 3-6 of voronoi and cvoronoi).
 Vec3f voronoiPoint(const Vec3f& p, float scale, float octaves, float lacunarity, float gain) {
-    return scale > 0.0f ? p + vectorFractalSum(p, octaves, lacunarity, gain, false) * scale : p;
+    return scale > 0.0f ? p + vectorFbmNoise(p, octaves, lacunarity, gain, false, kVFbmSeeds) * scale : p;
 }
 
 float voronoiValue(const VoronoiHit& hit, const Vec3f& p, int type) {
@@ -640,44 +563,12 @@ float voronoiValue(const VoronoiHit& hit, const Vec3f& p, int type) {
         case 5: {
             const float spread = (hit.pos1 - p).length() + (hit.pos2 - p).length();
             const float sf = spread > 1e-12f ? (hit.pos2 - hit.pos1).length() / spread : 0.0f;
-            return smoothstepX(hit.f2 - hit.f1, 0.0f, 0.1f * sf);
+            return smoothstep(0.0f, 0.1f * sf, hit.f2 - hit.f1);
         }
         default: return 0.0f;
     }
 }
 
-// SeExpr's hue, saturation, lightness (hue 0-1).
-Vec3f rgbToHsl(const Vec3f& c) {
-    const float mn = std::min({c.x, c.y, c.z}), mx = std::max({c.x, c.y, c.z});
-    const float sum = mn + mx, diff = mx - mn, l = sum * 0.5f;
-    if (diff < 1e-6f) return {0.0f, 0.0f, l};
-    float s = 0.0f;
-    if (l <= 0.5f) s = mn < 0.0f ? 1.0f - mn : diff / sum;
-    else s = mx > 1.0f ? mx : diff / (2.0f - sum);
-    float h = 0.0f;
-    if (c.x == mx) h = (c.y - c.z) / diff;
-    else if (c.y == mx) h = (c.z - c.x) / diff + 2.0f;
-    else h = (c.x - c.y) / diff + 4.0f;
-    h /= 6.0f;
-    h -= std::floor(h);
-    return {h, s, l};
-}
-float hslValue(float x, float y, float h) {
-    h -= std::floor(h);
-    if (h < 1.0f / 6.0f) return x + (y - x) * h * 6.0f;
-    if (h < 3.0f / 6.0f) return y;
-    if (h < 4.0f / 6.0f) return x + (y - x) * (4.0f / 6.0f - h) * 6.0f;
-    return x;
-}
-Vec3f hslToRgb(const Vec3f& hsl) {
-    const float h = hsl.x, s = hsl.y, l = hsl.z;
-    if (s <= 0.0f) return {l, l, l};
-    float y = 0.0f;
-    if (l < 0.5f) y = s > 1.0f ? 2.0f * l + s - 1.0f : l + l * s;
-    else y = s > 1.0f ? s : l + s - l * s;
-    const float x = 2.0f * l - y;
-    return {hslValue(x, y, h + 1.0f / 3.0f), hslValue(x, y, h), hslValue(x, y, h - 1.0f / 3.0f)};
-}
 Vec3f hsiAdjust(const Vec3f& rgb, float h, float s, float i) {
     Vec3f hsl = rgbToHsl(rgb);
     hsl.x += h / 360.0f;
@@ -685,19 +576,11 @@ Vec3f hsiAdjust(const Vec3f& rgb, float h, float s, float i) {
     return hslToRgb(hsl) * i;
 }
 
-// Rodrigues: v turned by `angle` (radians) around the unit `axis`.
-Vec3f rotated(const Vec3f& v, const Vec3f& axis, float angle) {
-    const float c = pm::cos(angle), s = pm::sin(angle);
-    return v * c + axis.cross(v) * s + axis * (axis.dot(v) * (1.0f - c));
-}
 float angleOf(const Vec3f& a, const Vec3f& b) {
     const float l = a.length() * b.length();
     return l > 0.0f ? pm::acos(std::clamp(a.dot(b) / l, -1.0f, 1.0f)) : 0.0f;
 }
-Vec3f unit(const Vec3f& v) {
-    const float l = v.length();
-    return l > 1e-12f ? v * (1.0f / l) : Vec3f{};
-}
+Vec3f unitOf(const Vec3f& v) { return normalizedRecip(v, 1e-12f); }
 
 // A function of vectors, a point's noise, a curve or a map (Call ops of those codes): reads its
 // arguments from `a` and writes its results there. Returns the slots it wrote.
@@ -717,24 +600,24 @@ GROOMLAB_EXPRESSION_NOINLINE std::size_t vectorFn(const Op& op, float* a, const 
         case kDot: return one(vec(0).dot(vec(3)));
         case kCross: return put(vec(0).cross(vec(3)));
         case kLengthFn: return one(vec(0).length());
-        case kNormalize: return put(unit(vec(0)));
+        case kNormalize: return put(unitOf(vec(0)));
         case kDistance: return one((vec(0) - vec(3)).length());
         case kRotate: {
             const Vec3f v = vec(0), k = vec(3);
             if (!(k.length() > 1e-12f)) return put(v);
-            return put(rotated(v, unit(k), a[6]));
+            return put(rotateAxisAngle(v, unitOf(k), a[6]));
         }
         case kAngle: return one(angleOf(vec(0), vec(3)));
-        case kOrtho: return put(unit(vec(0).cross(vec(3))));
+        case kOrtho: return put(unitOf(vec(0).cross(vec(3))));
         case kUp: {  // P turned so that +Y points along upvec
             const Vec3f p = vec(0), up = vec(3), y{0.0f, 1.0f, 0.0f};
             if (!(up.length() > 1e-12f)) return put(p);
             const Vec3f axis = y.cross(up);
             if (!(axis.length() > 1e-6f * up.length())) return put(up.y >= 0.0f ? p : Vec3f{p.x, -p.y, -p.z});
-            return put(rotated(p, unit(axis), angleOf(y, up)));
+            return put(rotateAxisAngle(p, unitOf(axis), angleOf(y, up)));
         }
         case kIndexFn: {
-            const std::int64_t i = intOf(a[3]);
+            const std::int64_t i = truncToInt(a[3]);
             return one(i >= 0 && i < 3 ? a[i] : 0.0f);
         }
         case kRgbToHsl: return put(rgbToHsl(vec(0)));
@@ -752,7 +635,8 @@ GROOMLAB_EXPRESSION_NOINLINE std::size_t vectorFn(const Op& op, float* a, const 
         }
         case kMidHsi: {
             float m = 2.0f * a[6] - 1.0f;
-            m = m < 0.0f ? -remapX(-m, 1.0f, 0.0f, a[7], a[8]) : remapX(m, 1.0f, 0.0f, a[7], a[8]);
+            const int interp = static_cast<int>(truncToInt(a[8]));
+            m = m < 0.0f ? -remapFalloff(-m, 1.0f, 0.0f, a[7], interp) : remapFalloff(m, 1.0f, 0.0f, a[7], interp);
             const float h = a[3] * m, w = std::abs(m);
             float s = a[4] * w + 1.0f - w, i = a[5] * w + 1.0f - w;
             if (m < 0.0f) {
@@ -768,23 +652,23 @@ GROOMLAB_EXPRESSION_NOINLINE std::size_t vectorFn(const Op& op, float* a, const 
         case kSNoise4: return one(fractalNoise4(vec(0), a[3], 0x6E04, 1));
         case kVNoise4: return put(vectorNoise4(vec(0), a[3], 0x6E05, 1));
         case kCNoise4: return put(half(vectorNoise4(vec(0), a[3], 0x6E05, 1)));
-        case kFbm: return one(0.5f + 0.5f * fractalSum(vec(0), a[3], a[4], a[5], false));
-        case kVFbm: return put(vectorFractalSum(vec(0), a[3], a[4], a[5], false));
-        case kCFbm: return put(half(vectorFractalSum(vec(0), a[3], a[4], a[5], false)));
-        case kTurbulence: return one(0.5f + 0.5f * fractalSum(vec(0), a[3], a[4], a[5], true));
-        case kVTurbulence: return put(vectorFractalSum(vec(0), a[3], a[4], a[5], true));
-        case kCTurbulence: return put(half(vectorFractalSum(vec(0), a[3], a[4], a[5], true)));
-        case kFbm4: return one(0.5f + 0.5f * fractalSum4(vec(0), a[3], a[4], a[5], a[6]));
-        case kVFbm4: return put(vectorFractalSum4(vec(0), a[3], a[4], a[5], a[6]));
-        case kCFbm4: return put(half(vectorFractalSum4(vec(0), a[3], a[4], a[5], a[6])));
+        case kFbm: return one(0.5f + 0.5f * fbmNoise(vec(0), a[3], a[4], a[5], false, kFbmSeeds));
+        case kVFbm: return put(vectorFbmNoise(vec(0), a[3], a[4], a[5], false, kVFbmSeeds));
+        case kCFbm: return put(half(vectorFbmNoise(vec(0), a[3], a[4], a[5], false, kVFbmSeeds)));
+        case kTurbulence: return one(0.5f + 0.5f * fbmNoise(vec(0), a[3], a[4], a[5], true, kFbmSeeds));
+        case kVTurbulence: return put(vectorFbmNoise(vec(0), a[3], a[4], a[5], true, kVFbmSeeds));
+        case kCTurbulence: return put(half(vectorFbmNoise(vec(0), a[3], a[4], a[5], true, kVFbmSeeds)));
+        case kFbm4: return one(0.5f + 0.5f * fbmNoise4(vec(0), a[3], a[4], a[5], a[6], kFbm4Seeds));
+        case kVFbm4: return put(vectorFbmNoise4(vec(0), a[3], a[4], a[5], a[6], kVFbm4Seeds));
+        case kCFbm4: return put(half(vectorFbmNoise4(vec(0), a[3], a[4], a[5], a[6], kVFbm4Seeds)));
         case kCellnoise: return one(unitFloat(cellHash(latticeFloor(a[0]), latticeFloor(a[1]), latticeFloor(a[2]), 0xCE11)));
         case kCCellnoise: return put(cellVector(latticeFloor(a[0]), latticeFloor(a[1]), latticeFloor(a[2]), 0xCE21));
-        case kPNoise: return one(periodicNoise(vec(0), vec(3)));
+        case kPNoise: return one(periodicNoise(vec(0), vec(3), 0x9E01));
         case kVoronoi:
         case kCVoronoi: {
             const Vec3f p = voronoiPoint(vec(0), a[5], a[6], a[7], a[8]);
             const VoronoiHit hit = voronoiSearch(p, a[4]);
-            const int type = static_cast<int>(intOf(a[3]));
+            const int type = static_cast<int>(truncToInt(a[3]));
             const float value = voronoiValue(hit, p, type);
             if (op.code == kVoronoi) return one(value);
             const Vec3f color = cellVector(hit.cell1.x, hit.cell1.y, hit.cell1.z, 0xC0C1);
@@ -812,7 +696,10 @@ GROOMLAB_EXPRESSION_NOINLINE std::size_t vectorFn(const Op& op, float* a, const 
     }
 }
 
-bool isScalarFn(std::uint8_t code) { return code < kDot; }
+bool isScalarFn(std::uint8_t code) {
+    const FnKind kind = fnInfo(code).kind;
+    return kind == FnKind::Math || kind == FnKind::Scalar;
+}
 
 float finite(float v) { return std::isfinite(v) ? v : 0.0f; }
 
@@ -1666,7 +1553,7 @@ private:
         }
         Op op = makeOp(Op::Call, fn, static_cast<float>(component));
         op.args = 0;
-        op.results = kFns[fn].results == 3 ? 3 : 1;
+        op.results = fnInfo(fn).results == 3 ? 3 : 1;
         op.channel = static_cast<std::uint16_t>(it - mapNames_.begin());
         emit(op);
         return op.results == 3 ? kVector : kNumber;
@@ -1679,7 +1566,7 @@ private:
             const Op& op = (*out_)[i];
             if (op.kind == Op::Variable || op.kind == Op::Channel) return false;
             if ((op.kind == Op::Call || op.kind == Op::VCall) &&
-                (op.code == kRandFn || op.code == kRandRange || op.code == kMap || op.code == kCMap || op.code >= kCurve)) {
+                (op.code == kRandFn || op.code == kRandRange || fnInfo(op.code).kind == FnKind::Map || fnInfo(op.code).kind == FnKind::Curve)) {
                 return false;
             }
         }
@@ -1812,14 +1699,14 @@ private:
         const std::string name = canonicalFunction(written);
         if (const char* why = aliasOf(kUnsupportedFunctions, name)) fail(why);
         Fn fn = kFnCount;
-        for (std::uint8_t f = 0; f < kFnCount; ++f) {
-            if (name == kFns[f].name) {
-                fn = static_cast<Fn>(f);
+        for (const FnInfo& f : kFns) {
+            if (name == f.name) {
+                fn = f.code;
                 break;
             }
         }
         if (fn == kFnCount) fail("unknown function '" + written + "'");
-        if (kFns[fn].kind == FnKind::Map) {
+        if (fnInfo(fn).kind == FnKind::Map) {
             if (applied) fail(written + " takes a map's name in quotes; -> can't give it one");
             return mapCall(fn, written);
         }
@@ -1873,7 +1760,7 @@ private:
             }
         }
         if (fn == kWChoose && count % 2 == 0) fail("wchoose takes (t, value, weight, value, weight, ...)");
-        const FnInfo& used = kFns[fn];
+        const FnInfo& used = fnInfo(fn);
         if (count < used.minArgs || count > used.maxArgs) {
             const std::string takes = used.minArgs == used.maxArgs ? std::to_string(used.minArgs)
                                                                    : std::to_string(used.minArgs) + " to " + std::to_string(used.maxArgs);
@@ -2310,11 +2197,25 @@ int Expression::variableCode(const std::string& name) {
 
 int Expression::functionCode(const std::string& name) {
     const std::string canonical = canonicalFunction(name);
-    for (std::uint8_t f = 0; f < kFnCount; ++f) {
-        if (canonical == kFns[f].name) return f;
+    for (const FnInfo& f : kFns) {
+        if (canonical == f.name) return f.code;
     }
     return -1;
 }
+
+const std::vector<ExpressionFunction>& Expression::functions() {
+    static const std::vector<ExpressionFunction> listed = [] {
+        std::vector<ExpressionFunction> out;
+        for (const FnInfo& f : kFns) {
+            if (f.about[0] == 0) continue;  // a form the parser picks itself
+            out.push_back({f.name, f.arguments, f.about, f.minArgs, f.maxArgs, f.results == 3, f.gpu >= 0});
+        }
+        return out;
+    }();
+    return listed;
+}
+
+int Expression::gpuFunction(int code) { return code >= 0 && code < kFnCount ? fnInfo(static_cast<std::uint8_t>(code)).gpu : -1; }
 
 int Expression::binaryCode(const std::string& op) {
     static const char* const kOps[] = {"+", "-", "*", "/", "^", "<", "<=", ">", ">=", "==", "!=", "%"};
@@ -2434,12 +2335,8 @@ Vec3f Expression::evaluatePointVector(const StrandSet& strands, std::size_t s, s
 
 void Expression::rootEnv(Env& env, const StrandRoot& root, const ScalpMesh* scalp) const {
     rootVariables(env.vars, root, scalp, Vec3f{}, readsRef_);
-    std::uint64_t h = hash64(static_cast<std::uint64_t>(static_cast<std::int64_t>(root.face)));
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &root.u, sizeof bits);
-    h = hashCombine(h, bits);
-    std::memcpy(&bits, &root.v, sizeof bits);
-    h = hashCombine(h, bits);
+    const std::uint64_t h =
+        hashFloat(hashFloat(hash64(static_cast<std::uint64_t>(static_cast<std::int64_t>(root.face))), root.u), root.v);
     env.vars[kRand] = unitFloat(h);
     env.vars[kFaceId] = static_cast<float>(root.face);
     if (readsTime_) {

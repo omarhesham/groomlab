@@ -781,11 +781,30 @@ bool tangleState(const Operator& op, const StrandsPtr& output, std::shared_ptr<c
     return tangle && tangle->keptState(output, state);
 }
 
-void registerCinematicOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kCards, [] { return std::make_unique<CardsOp>(); });
-    registry.registerType(op::kFlow, [] { return std::make_unique<FlowOp>(); });
-    registry.registerType(op::kFlyaway, [] { return std::make_unique<FlyawayOp>(); });
-    registry.registerType(op::kTangle, [] { return std::make_unique<TangleOp>(); });
+void registerCardsOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kCards,
+                          {"games", "Hair cards for game engines, with baked maps and LODs.", "game unreal unity cards lod"},
+                          [] { return std::make_unique<CardsOp>(); });
+}
+
+void registerFlowOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kFlow,
+                          {"shape",
+                           "Lays short hair along the flow arrows painted on the scalp.",
+                           "arrows comb short hair direction"},
+                          [] { return std::make_unique<FlowOp>(); });
+}
+
+void registerFlyawayOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kFlyaway,
+                          {"look", "Stray hairs leaving the flow. After Clump.", "strays frizz loose"},
+                          [] { return std::make_unique<FlyawayOp>(); });
+}
+
+void registerTangleOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kTangle,
+                          {"look", "Strands stuck together: mats and wet hair.", "mats matted stuck"},
+                          [] { return std::make_unique<TangleOp>(); });
 }
 
 }  // namespace groomlab

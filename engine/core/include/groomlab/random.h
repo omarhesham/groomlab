@@ -64,10 +64,25 @@ inline Vec3f randomOffsetZYX(Rng& rng) {
     return Vec3f(x, y, z);
 }
 
-// Mixes a float's bits into a hash.
-inline std::uint64_t hashFloat(std::uint64_t h, float f) {
+// A float's bits, as they are (-0 and 0 differ).
+inline std::uint32_t floatBits(float f) {
     std::uint32_t bits = 0;
     std::memcpy(&bits, &f, sizeof bits);
+    return bits;
+}
+// A float's bits with -0 taken as 0: a value's key, where -0 and 0 are the same number.
+inline std::uint32_t floatBitsZero(float f) {
+    if (f == 0.0f) f = 0.0f;
+    return floatBits(f);
+}
+
+// Mixes a float's bits into a hash.
+inline std::uint64_t hashFloat(std::uint64_t h, float f) { return hashCombine(h, floatBits(f)); }
+
+// Mixes a double's bits into a hash.
+inline std::uint64_t hashDouble(std::uint64_t h, double d) {
+    std::uint64_t bits = 0;
+    std::memcpy(&bits, &d, sizeof bits);
     return hashCombine(h, bits);
 }
 
@@ -75,6 +90,13 @@ inline std::uint64_t hashFloat(std::uint64_t h, float f) {
 // run together ("ab" + "c" hashes differently from "a" + "bc").
 inline std::uint64_t hashString(std::uint64_t h, const std::string& s) {
     h = hashCombine(h, s.size());
+    for (const unsigned char c : s) h = hashCombine(h, c);
+    return h;
+}
+
+// A string's characters alone, without hashString's length: for keys stored as they are (a
+// cards bake's "Strands=" stamp) or always followed by something else.
+inline std::uint64_t hashChars(std::uint64_t h, const std::string& s) {
     for (const unsigned char c : s) h = hashCombine(h, c);
     return h;
 }

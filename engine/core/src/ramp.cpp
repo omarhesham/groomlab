@@ -3,6 +3,8 @@
 
 #include <algorithm>
 
+#include "groomlab/shared/groom_math.h"
+
 namespace groomlab {
 
 void Ramp::sort() {
@@ -22,22 +24,19 @@ float Ramp::operator()(float t) const {
 
     // Monotone cubic Hermite: tangents from the neighboring secants.
     const std::size_t i = static_cast<std::size_t>(lo - keys.begin());
-    auto secant = [&](std::size_t k) {  // slope of span k (keys k to k + 1)
-        const float h = keys[k + 1].first - keys[k].first;
-        return h > 0.0f ? (keys[k + 1].second - keys[k].second) / h : 0.0f;
-    };
-    auto tangent = [&](std::size_t k) {
-        if (k == 0) return secant(0);
-        if (k + 1 == keys.size()) return secant(k - 1);
-        const float d0 = secant(k - 1), d1 = secant(k);
-        if (d0 * d1 <= 0.0f) return 0.0f;  // a peak or valley: flat
-        const float h0 = keys[k].first - keys[k - 1].first, h1 = keys[k + 1].first - keys[k].first;
-        return 3.0f * (h0 + h1) / ((2.0f * h1 + h0) / d0 + (h1 + 2.0f * h0) / d1);
-    };
     const float m0 = tangent(i) * span, m1 = tangent(i + 1) * span;
-    const float f2 = f * f, f3 = f2 * f;
-    return (2.0f * f3 - 3.0f * f2 + 1.0f) * lo->second + (f3 - 2.0f * f2 + f) * m0 +
-           (-2.0f * f3 + 3.0f * f2) * hi->second + (f3 - f2) * m1;
+    return shared::rampHermite(f, lo->second, m0, hi->second, m1);
+}
+
+float Ramp::tangent(std::size_t k) const {
+    auto secant = [&](std::size_t s) {  // slope of span s (keys s to s + 1)
+        return shared::rampSecant(keys[s].first, keys[s].second, keys[s + 1].first, keys[s + 1].second);
+    };
+    if (keys.size() < 2) return 0.0f;
+    if (k == 0) return secant(0);
+    if (k + 1 == keys.size()) return secant(k - 1);
+    const float h0 = keys[k].first - keys[k - 1].first, h1 = keys[k + 1].first - keys[k].first;
+    return shared::rampInnerTangent(h0, h1, secant(k - 1), secant(k));
 }
 
 }  // namespace groomlab

@@ -50,6 +50,8 @@ RULES = [
     ("tests/engine/capi/", {"core"}),
     ("web/content/docs/c-api.mdx", {"core"}),  # capi.reference_docs checks it against the header
     ("tools/dev/capi_reference.py", {"core"}),
+    ("web/content/docs/node-graph.mdx", {"core"}),  # Docs.NodeGraphListsEveryNode checks it against the registry
+    ("tools/dev/new_node", {"core"}),  # its template is built into the core tests; tools.new_node_dry_run
     ("engine/io/", {"io", "python", "blender"}),
     ("tests/engine/io/", {"io"}),
     ("engine/gpu/", {"gpu"}),
@@ -79,7 +81,7 @@ def changed_files(base):
 def labels_for(files):
     labels = set()
     for name in files:
-        if name.startswith(IGNORED) and name != "web/content/docs/c-api.mdx":
+        if name.startswith(IGNORED) and name not in ("web/content/docs/c-api.mdx", "web/content/docs/node-graph.mdx"):
             continue
         for prefix, found in RULES:
             if name == prefix or name.startswith(prefix) or (prefix.endswith(".txt") and name.endswith("/" + prefix)):

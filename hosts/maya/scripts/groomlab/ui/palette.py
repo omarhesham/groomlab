@@ -282,6 +282,10 @@ class ToolPalette(QtWidgets.QWidget):
         make.setToolTip("Select the scalp mesh (and any guide curves), then click: a new groom on it")
         make.clicked.connect(self.create_groom)
         column.addWidget(make)
+        sample = QtWidgets.QPushButton("Add Sample Head (Nika)")
+        sample.setToolTip("No scalp yet? Nika, a head and shoulders to start from, added at the origin and selected")
+        sample.clicked.connect(self.add_sample_head)
+        column.addWidget(sample)
         # Or bring one in from XGen, Yeti, Alembic curves or a groom file.
         self.empty_import = self.menu_chip("Import", "import", "Bring a groom in: XGen, Yeti, Alembic curves (on the "
                                                                "selected mesh) or a groom file")
@@ -973,6 +977,16 @@ class ToolPalette(QtWidgets.QWidget):
         self.fill_levels(groom, select=group)
         self.guides_tab.refresh()
         self.status.setText("New guides go into %s." % group)
+
+    def add_sample_head(self):
+        import groomlab
+        try:
+            head = groomlab.add_sample_head()
+        except Exception as e:  # noqa: BLE001 (a button never ends in a bare traceback)
+            from groomlab.ui import messages
+            self.status.setText("The sample head wasn't added: %s" % messages.error("Add Sample Head", e))
+            return
+        self.status.setText("Added %s: click Create Groom from Selection." % head)
 
     def create_groom(self):
         from maya import cmds

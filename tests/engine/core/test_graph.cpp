@@ -367,32 +367,54 @@ TEST(GraphJson, ConnectionsNameTheOutputTheyRead) {
 }
 
 TEST(Graph, NodeCatalogIsEveryHostsAddNodeMenu) {
-    // Every built-in type is in the catalog (its category, label and search words come from
-    // there, not from a host's own list), each category is one the menu lists, and the specs
-    // carry them.
+    // Every built-in type gives its menu category, a description and search words where it
+    // registers (NodeInfo; not a host's own list), has its line in builtin_operators.inc, whose
+    // sections follow the menu's categories, and the specs carry them.
     std::set<std::string> ids;
     for (const NodeCategory& c : nodeCategories()) ids.insert(c.id);
-    std::set<std::string> catalogued;
-    for (const NodeCatalogEntry& e : nodeCatalog()) {
-        EXPECT_TRUE(ids.count(e.category)) << e.type << ": " << e.category;
-        EXPECT_TRUE(catalogued.insert(e.type).second) << e.type << " listed twice";
+    const std::set<std::string> listed(builtinNodeTypes().begin(), builtinNodeTypes().end());
+    EXPECT_EQ(listed.size(), builtinNodeTypes().size()) << "a type listed twice in builtin_operators.inc";
+    for (const std::string& type : OperatorRegistry::instance().typeNames()) {
+        if (type.rfind("Test", 0) == 0) continue;  // registered by these tests
+        EXPECT_TRUE(listed.count(type)) << type << " has no line in engine/core/include/groomlab/builtin_operators.inc";
+        const NodeInfo* info = nodeInfo(type);
+        ASSERT_NE(info, nullptr) << type;
+        EXPECT_TRUE(ids.count(info->category))
+            << type << ": its NodeInfo (registerType, in its source file) names category '" << info->category
+            << "', not one of nodeCategories() (node_catalog.cpp)";
+        EXPECT_FALSE(info->description.empty()) << type << ": its NodeInfo (registerType) has no description";
+    }
+    // The list's order is the menu's: its types' categories in nodeCategories()' order.
+    int last = 0;
+    std::string lastType;
+    for (const std::string& type : builtinNodeTypes()) {
+        const NodeInfo* info = nodeInfo(type);
+        if (!info) continue;  // registered outside the core (ImportCurves)
+        const int order = nodeCategoryOrder(info->category);
+        EXPECT_GE(order, last) << type << " (" << info->category << ") is listed after " << lastType
+                               << " in builtin_operators.inc: move it to its category's section";
+        last = order;
+        lastType = type;
     }
     for (const nlohmann::json& s : nlohmann::json::parse(operatorSpecsJson())) {
         const std::string type = s["type"].get<std::string>();
-        if (type.rfind("Test", 0) == 0) continue;  // registered by these tests
-        EXPECT_TRUE(catalogued.count(type)) << type << " is not in node_catalog.cpp";
+        if (type.rfind("Test", 0) == 0) continue;
         EXPECT_TRUE(ids.count(s["category"].get<std::string>())) << type;
         EXPECT_FALSE(s["label"].get<std::string>().empty()) << type;
         EXPECT_FALSE(s["categoryTitle"].get<std::string>().empty()) << type;
+        EXPECT_FALSE(s["description"].get<std::string>().empty()) << type;
+        EXPECT_EQ(s["order"].get<int>(), nodeMenuOrder(type)) << type;
     }
     EXPECT_EQ(nodeLabel("Reference"), "Linked Groom");  // the type stays "Reference" in files
     EXPECT_EQ(nodeLabel("BlendNeighbors"), "Blend Neighbors");
     EXPECT_EQ(nodeLabel("HairColor"), "Hair Color");
-    EXPECT_NE(nodeCatalogEntry("Mirror")->keywords.find("symmetry"), std::string::npos);
-    EXPECT_EQ(nodeCatalogEntry("Cards")->category, "games");
-    EXPECT_EQ(nodeCatalogEntry("Twist")->category, "look");
-    EXPECT_EQ(nodeCatalogEntry("ToGuides")->category, "convert");
-    EXPECT_TRUE(nodeCatalogEntry("Compound")->hidden);
+    EXPECT_NE(nodeInfo("Mirror")->keywords.find("symmetry"), std::string::npos);
+    EXPECT_EQ(nodeInfo("Cards")->category, "games");
+    EXPECT_EQ(nodeInfo("Twist")->category, "look");
+    EXPECT_EQ(nodeInfo("ToGuides")->category, "convert");
+    EXPECT_TRUE(nodeInfo("Compound")->hidden);
+    EXPECT_LT(nodeMenuOrder("Scalp"), nodeMenuOrder("ImportCurves"));  // its place, though the hosts register it
+    EXPECT_LT(nodeMenuOrder("ImportCurves"), nodeMenuOrder("Reference"));
     // Decimals: none for counts, one for degrees, by the slider's span otherwise.
     for (const nlohmann::json& s : nlohmann::json::parse(operatorSpecsJson())) {
         if (s["type"] != "Scatter" && s["type"] != "Direction") continue;
@@ -404,8 +426,55 @@ TEST(Graph, NodeCatalogIsEveryHostsAddNodeMenu) {
     }
 }
 
+TEST(Docs, NodeGraphListsEveryNode) {
+    // The website's Node categories table (web/content/docs/node-graph.mdx) names every node of the
+    // add-node menu in its category's row, by its label or its type, and nothing that is no node.
+    const std::filesystem::path page = std::filesystem::path(GROOMLAB_TEST_DATA) / ".." / ".." / "web" / "content" / "docs" / "node-graph.mdx";
+    std::ifstream in(page);
+    if (!in) GTEST_SKIP() << "no " << page.generic_string();
+    std::map<std::string, std::set<std::string>> rows;  // category title -> names listed
+    bool inTable = false;
+    for (std::string line; std::getline(in, line);) {
+        if (line.rfind("## Node categories", 0) == 0) inTable = true;
+        else if (inTable && line.rfind("## ", 0) == 0) break;
+        if (!inTable || line.rfind("| ", 0) != 0 || line.rfind("| ---", 0) == 0 || line.rfind("| Category", 0) == 0) continue;
+        std::vector<std::string> cells;
+        std::stringstream cellText(line.substr(1));
+        for (std::string cell; std::getline(cellText, cell, '|');) cells.push_back(cell);
+        if (cells.size() < 2) continue;
+        auto trim = [](std::string s) {
+            s.erase(0, s.find_first_not_of(' '));
+            s.erase(s.find_last_not_of(' ') + 1);
+            return s;
+        };
+        std::stringstream names(cells[1]);
+        for (std::string name; std::getline(names, name, ',');) rows[trim(cells[0])].insert(trim(name));
+    }
+    ASSERT_FALSE(rows.empty()) << page.generic_string() << " has no Node categories table";
+    std::set<std::string> known(builtinNodeTypes().begin(), builtinNodeTypes().end());
+    for (const std::string& type : OperatorRegistry::instance().typeNames()) {
+        if (type.rfind("Test", 0) == 0) continue;
+        const NodeInfo* info = nodeInfo(type);
+        known.insert(nodeLabel(type));
+        if (info->hidden) continue;  // not in the menu (Compound, Input)
+        const int order = nodeCategoryOrder(info->category);
+        ASSERT_LT(order, static_cast<int>(nodeCategories().size())) << type;
+        const std::string title = nodeCategories()[static_cast<std::size_t>(order)].title;
+        const std::set<std::string>& listed = rows[title];
+        EXPECT_TRUE(listed.count(type) || listed.count(nodeLabel(type)))
+            << type << " is missing from web/content/docs/node-graph.mdx's Node categories table: add \"" << nodeLabel(type)
+            << "\" to its " << title << " row (and a line on it where the page says more)";
+    }
+    for (const auto& [title, names] : rows) {
+        for (const std::string& name : names) {
+            EXPECT_TRUE(known.count(name)) << "web/content/docs/node-graph.mdx's Node categories table lists \"" << name << "\" under "
+                                           << title << ", which is no node type or label";
+        }
+    }
+}
+
 TEST(Graph, RegistryCreatesByName) {
-    OperatorRegistry::instance().registerType("TestLines", [] { return std::make_unique<LinesOp>(); });
+    OperatorRegistry::instance().registerType("TestLines", {}, [] { return std::make_unique<LinesOp>(); });
     Graph g;
     const NodeId id = g.addNode("TestLines");
     EXPECT_EQ(g.node(id).typeName(), "TestLines");
@@ -734,7 +803,7 @@ public:
 // Registers an operator for one test.
 struct TestOperator {
     TestOperator(const std::string& type, OperatorRegistry::Factory factory) : type_(type) {
-        OperatorRegistry::instance().registerType(type, std::move(factory));
+        OperatorRegistry::instance().registerType(type, {}, std::move(factory));
     }
     ~TestOperator() { OperatorRegistry::instance().unregisterType(type_); }
     std::string type_;

@@ -2790,7 +2790,7 @@ class DockableWindowsTest(unittest.TestCase):
         try:
             labels = [cmds.menuItem(i, query=True, label=True) for i in cmds.menu(menu.MENU, query=True, itemArray=True)
                       if not cmds.menuItem(i, query=True, divider=True)]
-            self.assertEqual(labels, ["Groom Tools", "Graph Editor", "Create Groom from Selection",
+            self.assertEqual(labels, ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Add Sample Head (Nika)",
                                       "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate",
                                       "Review", "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys",
                                       "Help"])

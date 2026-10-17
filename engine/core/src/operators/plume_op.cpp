@@ -74,11 +74,7 @@ const char* kIsShaft = "isShaft";
 const char* kShaftU = "shaftU";
 
 // The smooth ramp a bend rises by from the root to a contact at 1 (and stays at past it).
-float ramp(float x) {
-    if (x >= 1.0f) return 1.0f;
-    if (x <= 0.0f) return 0.0f;
-    return x * x * (3.0f - 2.0f * x);
-}
+float ramp(float x) { return smoothstep(0.0f, 1.0f, x); }
 
 // The strongly connected parts of a graph (node b's edges: each of edges[b]): each node's part
 // number (*count of them). Tarjan's, without recursion.
@@ -826,7 +822,11 @@ private:
 }  // namespace
 
 void registerPlumeOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kPlume, [] { return std::make_unique<PlumeOp>(); });
+    registry.registerType(op::kPlume,
+                          {"feathers",
+                           "Lays feathers over one another (by a rank) and off the body: no vane through another.",
+                           "feather layers overlap"},
+                          [] { return std::make_unique<PlumeOp>(); });
 }
 
 }  // namespace groomlab

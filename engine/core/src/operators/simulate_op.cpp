@@ -57,7 +57,7 @@ public:
             notAnimatable({"gravity", 980.0, "Gravity's pull, scene units per second squared (980 in centimeters)", "length"})
                 .soft(0, 2000),
             notAnimatable({"gravityDirection", Vec3f{0.0f, -1.0f, 0.0f}, "Gravity's direction (world space)"}).world(),
-            notAnimatable({"groomedUnderGravity", false,
+            notAnimatable({"groomedUnderGravity", true,
                            "The groomed shape is how the hair rests under gravity at the start frame: it keeps that shape "
                            "while still, and only the head's motion (and gravity's change as the head tilts or turns over) "
                            "moves it. Off: gravity pulls on the groomed shape"}),
@@ -198,7 +198,11 @@ public:
 }  // namespace
 
 void registerSimulateOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kSimulate, [] { return std::make_unique<SimulateOp>(); });
+    registry.registerType(op::kSimulate,
+                          {"motion",
+                           "Hair dynamics on the guides: gravity, wind, the head's motion, collisions. Play, or Simulate Range; bake for renders.",
+                           "simulation dynamics physics"},
+                          [] { return std::make_unique<SimulateOp>(); });
 }
 
 }  // namespace groomlab

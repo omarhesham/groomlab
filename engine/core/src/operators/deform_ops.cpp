@@ -850,11 +850,34 @@ bool autoPartState(const Operator& op, const StrandsPtr& output, PartsPtr* lines
     return part && part->autoLines(output, lines);
 }
 
-void registerDeformOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kPart, [] { return std::make_unique<PartOp>(); });
-    registry.registerType(op::kCollide, [] { return std::make_unique<CollideOp>(); });
-    registry.registerType(op::kGravity, [] { return std::make_unique<GravityOp>(); });
-    registry.registerType(op::kDisplace, [] { return std::make_unique<DisplaceOp>(); });
+void registerPartOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kPart,
+                          {"shape", "Opens a gap along the parts drawn on the scalp.", "parting gap line"},
+                          [] { return std::make_unique<PartOp>(); });
+}
+
+void registerCollideOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kCollide,
+                          {"collide",
+                           "Pushes strands out of the scalp and any collider. Best last.",
+                           "collision penetration body scalp"},
+                          [] { return std::make_unique<CollideOp>(); });
+}
+
+void registerGravityOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kGravity,
+                          {"deform",
+                           "Bends strands from the root under their weight; stiff at the root (a Collide after it keeps them off the scalp).",
+                           "weight droop sag fall"},
+                          [] { return std::make_unique<GravityOp>(); });
+}
+
+void registerDisplaceOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kDisplace,
+                          {"deform",
+                           "Moves strands along the scalp's normal (or a direction): volume off the scalp.",
+                           "volume push offset normal"},
+                          [] { return std::make_unique<DisplaceOp>(); });
 }
 
 void setCollideStrandBounds(bool on) { collideStrandBounds = on; }

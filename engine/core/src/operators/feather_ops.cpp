@@ -997,9 +997,20 @@ private:
 
 }  // namespace
 
-void registerFeatherOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kPropagate, [] { return std::make_unique<PropagateOp>(); });
-    registry.registerType(op::kSplit, [] { return std::make_unique<SplitOp>(); });
+void registerPropagateOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kPropagate,
+                          {"feathers",
+                           "Grows barbs off every strand it is fed (the shafts): feathers, ferns, plumes.",
+                           "barbs fern feather"},
+                          [] { return std::make_unique<PropagateOp>(); });
+}
+
+void registerSplitOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kSplit,
+                          {"feathers",
+                           "Sends each strand to one of four outputs by share or by a map: several designs on one set.",
+                           "outputs share designs"},
+                          [] { return std::make_unique<SplitOp>(); });
 }
 
 }  // namespace groomlab

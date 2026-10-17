@@ -49,19 +49,19 @@ endif()
 set(GROOMLAB_KERNEL_CACHE "${_kernel_cache_default}" CACHE PATH
     "Shared folder of compiled GPU kernels, keyed by their HLSL (empty: no cache)")
 set(_source "${CMAKE_CURRENT_SOURCE_DIR}/shaders/look.slang")
+# The math look.slang shares with the core (it includes it): an edit there recompiles every kernel.
+set(_shared_math "${CMAKE_CURRENT_SOURCE_DIR}/../core/include/groomlab/shared/groom_math.h")
 set(_gen "${CMAKE_CURRENT_BINARY_DIR}/generated")
-# (PointsTextureCS and PointsTexturePointsCS write the standalone app's point texture: look_engine.h
-# LookTargets::pointTexture.)
-set(_kernels InterpolateCS ClearanceCS LengthCS CentersCS ClumpCS NoiseCS NoisePointsCS CurlCS WidthCS LinesCS LinesPointsCS
-             PointsTextureCS PointsTexturePointsCS GatherCS UvWidthsCS PointStrandsCS WidthPointsCS ShareCS CurlAxesCS PartCS
-             LongestCS FieldCS GravityCS FlyawayCS CollideCS WindCS BlendCS BlendPointsCS
-             GridClearCS GridBoundsCS GridLayCS GridMarkCS GridDilateCS GridCompactCS GridZeroCS GridSplatCS GridUnknownsCS GridSorCS GridWalkCS
-             SelfCollideNodeCS SelfCollideGradientCS SelfCollidePushCS StaticReachCS StaticMomentsCS StaticNodeCS StaticFieldCS
-             StaticPushCS TieFrameCS TieRouteCS TieLayCS BendCS DirectionCS TransformCS DisplaceCS TwistCS TwistAxesCS
-             # The shapers reading their neighbours or a reference.
-             SmoothCS RestoreLengthCS BlendNeighborsCS TangleCS FlowCS
-             # Affect masks, Jiggle with motion, MeshCut.
-             AffectCS JiggleCS MeshCutCS)
+# Its kernels: one a line of include/groomlab/gpu/look_kernels.inc, which makes the engine's Kernel
+# enum and the backends' tables too ("GROOMLAB_KERNEL(Name)": the entry point NameCS).
+set(_kernel_list "${CMAKE_CURRENT_SOURCE_DIR}/include/groomlab/gpu/look_kernels.inc")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_kernel_list}")
+file(STRINGS "${_kernel_list}" _kernel_lines REGEX "^GROOMLAB_KERNEL\\(")
+set(_kernels "")
+foreach(_line IN LISTS _kernel_lines)
+    string(REGEX REPLACE "^GROOMLAB_KERNEL\\(([A-Za-z0-9_]+)\\).*" "\\1CS" _k "${_line}")
+    list(APPEND _kernels "${_k}")
+endforeach()
 set(_kernel_headers "")
 foreach(_target dxbc glsl)
     set(_includes "")
@@ -70,7 +70,7 @@ foreach(_target dxbc glsl)
         add_custom_command(OUTPUT "${_h}"
             COMMAND "${CMAKE_COMMAND}" -DSLANGC=${_slangc} -DSOURCE=${_source} -DENTRY=${_k} -DFORMAT=${_target} -DCACHE=${GROOMLAB_KERNEL_CACHE}
                     -DOUT=${_gen}/look_${_k}.${_target} -DHEADER=${_h} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
-            DEPENDS "${_source}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
+            DEPENDS "${_source}" "${_shared_math}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
             COMMENT "slangc: ${_k} (${_target})"
             VERBATIM)
         list(APPEND _kernel_headers "${_h}")
@@ -91,7 +91,7 @@ foreach(_target dxbc glsl)
         add_custom_command(OUTPUT "${_h}"
             COMMAND "${CMAKE_COMMAND}" -DSLANGC=${_slangc} -DSOURCE=${_lines_source} -DENTRY=${_k} -DFORMAT=${_target} -DCACHE=${GROOMLAB_KERNEL_CACHE}
                     -DOUT=${_gen}/lines_${_k}.${_target} -DHEADER=${_h} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
-            DEPENDS "${_lines_source}" "${_source}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
+            DEPENDS "${_lines_source}" "${_source}" "${_shared_math}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
             COMMENT "slangc: ${_k} (${_target})"
             VERBATIM)
         list(APPEND _kernel_headers "${_h}")
@@ -113,7 +113,7 @@ foreach(_target dxbc glsl)
         add_custom_command(OUTPUT "${_h}"
             COMMAND "${CMAKE_COMMAND}" -DSLANGC=${_slangc} -DSOURCE=${_follow_source} -DENTRY=${_k} -DFORMAT=${_target} -DCACHE=${GROOMLAB_KERNEL_CACHE}
                     -DOUT=${_gen}/follow_${_k}.${_target} -DHEADER=${_h} -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
-            DEPENDS "${_follow_source}" "${_lines_source}" "${_source}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
+            DEPENDS "${_follow_source}" "${_lines_source}" "${_source}" "${_shared_math}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_kernel.cmake"
             COMMENT "slangc: ${_k} (${_target})"
             VERBATIM)
         list(APPEND _kernel_headers "${_h}")

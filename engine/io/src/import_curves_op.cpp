@@ -77,7 +77,9 @@ public:
 }  // namespace
 
 void registerAlembicOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kImportCurves, [] { return std::make_unique<ImportCurvesOp>(); });
+    registry.registerType(op::kImportCurves,
+                          {"source", "Curves from an Alembic file, as strands or guides.", "alembic abc curves file"},
+                          [] { return std::make_unique<ImportCurvesOp>(); });
 }
 
 }  // namespace groomlab

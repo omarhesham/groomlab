@@ -514,9 +514,7 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
     // Trilinear: along x, then y, then z. (Over or under a faceted surface the height kinks where
     // the closest triangle changes, which the blend rounds off: cellSizeFor.)
     const float fx = f.x, fy = f.y, fz = f.z;
-    auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
-    auto lerpV = [](const Vec3f& a, const Vec3f& b, float t) { return a + (b - a) * t; };
-    *height = lerp(lerp(lerp(h[0], h[1], fx), lerp(h[2], h[3], fx), fy), lerp(lerp(h[4], h[5], fx), lerp(h[6], h[7], fx), fy), fz);
+    *height = mix1(mix1(mix1(h[0], h[1], fx), mix1(h[2], h[3], fx), fy), mix1(mix1(h[4], h[5], fx), mix1(h[6], h[7], fx), fy), fz);
     if (probe) probe->heightLow = *height;
     if (*height >= offset) {
         *clear = true;
@@ -527,7 +525,7 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
         float d[8];
         for (int k = 0; k < 8; ++k) d[k] = fromHalf(n[k].distance);
         const float distance =
-            lerp(lerp(lerp(d[0], d[1], fx), lerp(d[2], d[3], fx), fy), lerp(lerp(d[4], d[5], fx), lerp(d[6], d[7], fx), fy), fz);
+            mix1(mix1(mix1(d[0], d[1], fx), mix1(d[2], d[3], fx), fy), mix1(mix1(d[4], d[5], fx), mix1(d[6], d[7], fx), fy), fz);
         if (probe->besideAt(*height, distance)) {
             *clear = true;
             return true;
@@ -543,8 +541,8 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
         const float d = nv[0].dot(nv[k]);
         if (d <= 0.0f || d * d < crease2 * first * nv[k].dot(nv[k])) return false;
     }
-    *normal = lerpV(lerpV(lerpV(nv[0], nv[1], fx), lerpV(nv[2], nv[3], fx), fy),
-                    lerpV(lerpV(nv[4], nv[5], fx), lerpV(nv[6], nv[7], fx), fy), fz)
+    *normal = mix1(mix1(mix1(nv[0], nv[1], fx), mix1(nv[2], nv[3], fx), fy),
+                    mix1(mix1(nv[4], nv[5], fx), mix1(nv[6], nv[7], fx), fy), fz)
                   .normalized();
     return true;
 }

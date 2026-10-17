@@ -14,17 +14,28 @@
 // The solver is position based (Mueller et al. 2007, "Position Based Dynamics"; Macklin et al.
 // 2016, "XPBD"). Each guide is a rod of points with an orientation on every segment, after
 // Kugelstadt and Schoemer 2016, "Position and Orientation Based Cosserat Rods": a stretch-shear
-// constraint ties a segment's orientation to its two points, a bend-twist constraint (XPBD,
-// compliance from `bend` and `twist`) keeps the turn between neighbouring segments at the
-// groomed shape's (its rest Darboux vector), the first segment's against its root's frame on the
-// scalp: its error is the exact turn from the groomed one (a rotation vector) and its correction
-// an exact turn, so the multipliers stay true for a guide pushed far from its shape. Above bend
-// 0.5 the stretch-shear correction is taken more and more by the segment's tip point alone (none
-// by the point before at bend 1: a rigid chain hanging from its root), so a stiff guide holds its
-// shape under gravity. The orientations keep no spin from one substep to the next (a hair's cross-section has
-// next to no inertia; carried over, their spin fed the pull toward the groomed shape back into the
-// motion and the hair never came to rest): each substep starts them where the last left them.
-// After the iterations each point is put back at its segment's length from the one
+// constraint ties a segment's orientation to its two points (rigid across the segment, compliant
+// along it by `stretchStiffness`), a bend-twist constraint (compliance from `bend` and `twist`)
+// keeps the turn between neighbouring segments at the groomed shape's (its rest Darboux vector),
+// the first segment's against its root's frame on the scalp: its error is the exact turn from the
+// groomed one (a rotation vector), so the multipliers stay true for a guide pushed far from its
+// shape. Each iteration solves all of a guide's constraints together, exactly (Deul, Kugelstadt,
+// Weiler and Bender 2018, "Direct Position-Based Solver for Stiff Rods"): segment j's constraints
+// touch only segments j - 1 and j, so the guide's system is block tridiagonal (6x6 blocks), solved
+// in one pass down the guide and one back up, every point and orientation moved by its own inverse
+// mass. A stiff guide is held whole within one iteration (it keeps its shape under gravity), and
+// nothing is held still while its neighbour moves, so the solve adds no energy to the motion. (The
+// constraints were once projected one at a time from the root, each turning only the segment after
+// it and, above bend 0.5, moving the point before less and less: a moving root pumped energy into
+// the chain, the tip's speed doubling every substep, and the ends of a bob flipped about in a head
+// shake, more so at more substeps.) The system changes with the orientations alone, little over a
+// substep: it is factored once a substep and solved again each iteration. Bend's compliance is
+// 0.3 r^2.4 (r = 1/bend - 1) per unit of the orientation's inverse mass: 0.7 is clearly loose,
+// 0.9 nearly rigid. The orientations keep no spin from one substep to the next (a hair's
+// cross-section has next to no inertia; carried over, their spin fed the pull toward the groomed
+// shape back into the motion and the hair never came to rest): each substep starts them where the
+// last left them, each weighing as its tip point at the segment's length, so what one resists of
+// a substep's turn damps the swing. After the iterations each point is put back at its segment's length from the one
 // before (follow the leader with its velocity correction, Mueller et al. 2012, "Fast Simulation
 // of Inextensible Hair and Fur"; the points pushed out of a surface keep it too, or hair resting
 // on the scalp bounces), then pushed out of the scalp and the colliders through their
@@ -40,9 +51,10 @@
 // in its root's frame since then. Guides are independent (TBB over
 // guides); the guide-guide repulsion, when on, reads the points as they were before its pass,
 // so results never depend on how threads met them, and moves a point at most half its radius a pass.
-// Every share is per a reference time step, not per step (bend and twist's compliance, stiffness,
-// friction and repulsion per 1/96 s, rootStiffnessProfile per 24 fps frame): the look holds at any
-// frame rate and substeps (finer steps only follow the motion more closely).
+// Every share is per a reference time step, not per step (bend, twist and stretch's compliance,
+// the length kept after the iterations, friction and repulsion per 1/96 s, rootStiffnessProfile
+// per 24 fps frame): the look holds at any frame rate and substeps (finer steps only follow the
+// motion more closely).
 //
 // Water (`water` on): points below the surface (the plane y = waterLevel, or the water mesh on
 // the node's `water` input: below its surface along the closest point's normal) feel buoyancy
@@ -110,7 +122,7 @@ struct SimSettings {
     // The groomed shape is how the hair rests under gravity at the start frame: each guide feels
     // only how gravity's pull in its root's frame changed since then (the head turned over or
     // tilted), not gravity itself, so a still groom keeps its shape however soft it is.
-    bool groomedUnderGravity = false;
+    bool groomedUnderGravity = true;
     float windSpeed = 0.0f;  // the air's speed, scene units per second (0: still air)
     Vec3f windDirection{1.0f, 0.0f, 0.0f};
     float windGust = 0.5f;        // how much the wind varies, 0-1 (as Wind's gust)

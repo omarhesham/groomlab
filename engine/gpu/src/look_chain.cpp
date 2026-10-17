@@ -12,6 +12,7 @@
 #include <limits>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 #include <variant>
 
@@ -102,36 +103,52 @@ ParamSet evaluatedParams(const Graph& graph, NodeId id) {
 
 StrandsPtr cachedStrands(const Graph& graph, NodeId id) { return id ? valueAs<StrandsPtr>(graph.cachedValue(id)) : nullptr; }
 
+// What the GPU knows of a node type (look_stages.inc): the stage it runs as, the params a drag
+// may set while it previews, whether its points go through as they came.
+struct GpuNode {
+    bool staged = false;
+    StageKind kind = StageKind::Noise;
+    std::set<std::string> ramps, vectors, numbers;
+    bool passThrough = false;
+};
+
+std::set<std::string> words(const char* text) {
+    std::set<std::string> out;
+    std::istringstream in(text);
+    for (std::string w; in >> w;) out.insert(w);
+    return out;
+}
+
+const GpuNode* gpuNode(const std::string& type) {
+    static const std::unordered_map<std::string, GpuNode> nodes = [] {
+        std::unordered_map<std::string, GpuNode> out;
+        auto row = [&](const char* type, bool staged, StageKind kind, const char* ramps, const char* vectors, const char* numbers) {
+            GpuNode& n = out[type];
+            n.staged = staged;
+            n.kind = kind;
+            n.ramps = words(ramps);
+            n.vectors = words(vectors);
+            n.numbers = words(numbers);
+        };
+#define GROOMLAB_STAGE(Kind, name, mapped0, mapped1, ramps, vectors, numbers) row(#Kind, true, StageKind::Kind, ramps, vectors, numbers);
+#define GROOMLAB_STAGE_NODE(Type, Kind, ramps, vectors, numbers) row(#Type, true, StageKind::Kind, ramps, vectors, numbers);
+#define GROOMLAB_GPU_PARAMS(Type, ramps, vectors, numbers) row(#Type, false, StageKind::Noise, ramps, vectors, numbers);
+#define GROOMLAB_PASS_THROUGH(Type) out[#Type].passThrough = true;
+#include "groomlab/gpu/look_stages.inc"
+#undef GROOMLAB_STAGE
+#undef GROOMLAB_STAGE_NODE
+#undef GROOMLAB_GPU_PARAMS
+#undef GROOMLAB_PASS_THROUGH
+        return out;
+    }();
+    const auto it = nodes.find(type);
+    return it == nodes.end() ? nullptr : &it->second;
+}
+
 bool stageOf(const std::string& type, StageKind* kind) {
-    if (type == op::kInterpolate) *kind = StageKind::Interpolate;
-    else if (type == op::kLength) *kind = StageKind::Length;
-    else if (type == op::kClump || type == op::kWet) *kind = StageKind::Clump;  // (a Wet: a Clump stage a level)
-    else if (type == op::kNoise) *kind = StageKind::Noise;
-    else if (type == op::kCurl) *kind = StageKind::Curl;
-    else if (type == op::kWidth) *kind = StageKind::Width;
-    else if (type == op::kPart) *kind = StageKind::Part;
-    else if (type == op::kGravity) *kind = StageKind::Gravity;
-    else if (type == op::kFlyaway) *kind = StageKind::Flyaway;
-    else if (type == op::kCollide) *kind = StageKind::Collide;
-    else if (type == op::kWind) *kind = StageKind::Wind;
-    else if (type == op::kBlend) *kind = StageKind::Blend;
-    else if (type == op::kSelfCollide) *kind = StageKind::SelfCollide;
-    else if (type == op::kStatic) *kind = StageKind::Static;
-    else if (type == op::kTie) *kind = StageKind::Tie;
-    else if (type == op::kBend) *kind = StageKind::Bend;
-    else if (type == op::kDirection) *kind = StageKind::Direction;
-    else if (type == op::kTransform) *kind = StageKind::Transform;
-    else if (type == op::kDisplace) *kind = StageKind::Displace;
-    else if (type == op::kTwist) *kind = StageKind::Twist;
-    else if (type == op::kSmooth) *kind = StageKind::Smooth;
-    else if (type == op::kRestoreLength) *kind = StageKind::RestoreLength;
-    else if (type == op::kBlendNeighbors) *kind = StageKind::BlendNeighbors;
-    else if (type == op::kTangle) *kind = StageKind::Tangle;
-    else if (type == op::kFlow) *kind = StageKind::Flow;
-    else if (type == op::kJiggle) *kind = StageKind::Jiggle;
-    else if (type == op::kMeshCut) *kind = StageKind::MeshCut;
-    else if (type == op::kMerge) *kind = StageKind::Merge;
-    else return false;
+    const GpuNode* node = gpuNode(type);
+    if (!node || !node->staged) return false;
+    *kind = node->kind;
     return true;
 }
 
@@ -171,17 +188,13 @@ bool jiggleHandsOn(const Graph& graph, NodeId id) {
 }
 
 // Nodes that add channels and leave the points as they came (their strands share the points of
-// those they take): the GPU's points go through them. (What they write shows, in a color mode or
-// as the lit strands' own colors, as the CPU's last evaluation wrote it: the item's colors stream
-// stays bound through the drag, as the colors of any drag do.) RenderData (the shader's channels)
-// and Cards (its card layer, made from the strands it takes, or nothing where no cards are wanted)
-// too: their channels and cards stay as the last evaluation made them while the GPU previews, and
-// the commit makes them again from the committed strands. StrandMesh hands its strands on as they
-// are (hosts make its mesh). Instance too: its instances (where each sits on its strand) stay as the
-// last evaluation placed them while the GPU previews the strands, and the commit places them again.
+// those they take): the GPU's points go through them (look_stages.inc GROOMLAB_PASS_THROUGH, which
+// says why each). (What they write shows, in a color mode or as the lit strands' own colors, as
+// the CPU's last evaluation wrote it: the item's colors stream stays bound through the drag, as the
+// colors of any drag do.)
 bool channelsOnly(const std::string& type) {
-    return type == op::kHairColor || type == op::kBands || type == op::kFeatherColor || type == op::kAttribute ||
-           type == op::kRenderData || type == op::kCards || type == op::kStrandMesh || type == op::kInstance;
+    const GpuNode* node = gpuNode(type);
+    return node && node->passThrough;
 }
 
 // A Bands node whose colors depend on the strands' shapes: guard hairs picked as the longest (its
@@ -231,37 +244,13 @@ void pushStages(const Graph& graph, NodeId id, StageKind kind, std::vector<LookS
 }  // namespace
 
 const char* stageName(StageKind kind) {
-    switch (kind) {
-        case StageKind::Interpolate: return "interpolate";
-        case StageKind::Length: return "length";
-        case StageKind::Clump: return "clump";
-        case StageKind::Noise: return "noise";
-        case StageKind::Curl: return "curl";
-        case StageKind::Width: return "width";
-        case StageKind::Part: return "part";
-        case StageKind::Gravity: return "gravity";
-        case StageKind::Flyaway: return "flyaway";
-        case StageKind::Collide: return "collide";
-        case StageKind::Wind: return "wind";
-        case StageKind::Blend: return "blend";
-        case StageKind::SelfCollide: return "selfCollide";
-        case StageKind::Static: return "static";
-        case StageKind::Tie: return "tie";
-        case StageKind::Bend: return "bend";
-        case StageKind::Direction: return "direction";
-        case StageKind::Transform: return "transform";
-        case StageKind::Displace: return "displace";
-        case StageKind::Twist: return "twist";
-        case StageKind::Smooth: return "smooth";
-        case StageKind::RestoreLength: return "restoreLength";
-        case StageKind::BlendNeighbors: return "blendNeighbors";
-        case StageKind::Tangle: return "tangle";
-        case StageKind::Flow: return "flow";
-        case StageKind::Jiggle: return "jiggle";
-        case StageKind::MeshCut: return "meshCut";
-        case StageKind::Merge: return "merge";
-    }
-    return "?";
+    static const char* const names[] = {
+#define GROOMLAB_STAGE(Kind, name, mapped0, mapped1, ramps, vectors, numbers) name,
+#include "groomlab/gpu/look_stages.inc"
+#undef GROOMLAB_STAGE
+    };
+    const auto k = static_cast<std::size_t>(kind);
+    return k < static_cast<std::size_t>(kStageKinds) ? names[k] : "?";
 }
 
 std::size_t LookChain::indexOf(NodeId id) const {
@@ -300,94 +289,23 @@ bool LookFields::any() const {
 
 namespace {
 
-// The ramp params a stage reads (rampParam: an override of it is a ramp, not a number).
+// The ramp params a stage reads (look_stages.inc: an override of it is a ramp, not a number).
 bool rampParam(const std::string& type, const std::string& param) {
-    if (type == op::kInterpolate) return param == "falloff";
-    if (type == op::kClump && param == "volumizeProfile") return true;
-    if (type == op::kGravity) return param == "stiffnessProfile";
-    if (type == op::kCurl && param == "frequencyProfile") return true;
-    if (type == op::kJiggle) return param == "profile";
-    return (type == op::kNoise || type == op::kCurl || type == op::kWidth || type == op::kClump || type == op::kPart ||
-            type == op::kWind || type == op::kBlend || type == op::kSelfCollide || type == op::kStatic || type == op::kDisplace ||
-            type == op::kTwist || type == op::kSmooth || type == op::kBlendNeighbors) &&
-           param == "profile";
+    const GpuNode* node = gpuNode(type);
+    return node && node->ramps.count(param);
 }
 // The vector params a stage reads (an override of it is a Vec3f).
 bool vectorParam(const std::string& type, const std::string& param) {
-    if (type == op::kTransform) {
-        return param == "translate" || param == "rotate" || param == "pivot" || param == "translateRandom" || param == "rotateRandom";
-    }
-    if (type == op::kBend || type == op::kDirection || type == op::kDisplace) return param == "direction";
-    return (type == op::kCurl && param == "weightDirection") || (type == op::kTie && (param == "center" || param == "direction"));
+    const GpuNode* node = gpuNode(type);
+    return node && node->vectors.count(param);
 }
 
 }  // namespace
 
 bool previewableParam(const std::string& type, const std::string& param) {
-    if (rampParam(type, param) || vectorParam(type, param)) return true;
-    // A stage's affect (its result mixed back by it: StageParams::masked; Interpolate and Blend take none).
-    StageKind kind;
-    if (param == kAffectParam && stageOf(type, &kind)) return kind != StageKind::Interpolate && kind != StageKind::Blend;
-    // The shapers working on each strand alone: their numbers, their randoms' seeds.
-    if (type == op::kBend) return param == "angle" || param == "start" || param == "end" || param == "randomness" || param == "seed";
-    if (type == op::kDirection) {
-        return param == "inclination" || param == "roll" || param == "strength" || param == "inclinationRandom" || param == "rollRandom" ||
-               param == "seed";
-    }
-    if (type == op::kTransform) return param == "scale" || param == "scaleRandom" || param == "seed";
-    if (type == op::kDisplace) return param == "distance";
-    if (type == op::kTwist) return param == "turns";
-    // (Jiggle's history: the frames the host sampled for it read again, more refused: readLookParams.)
-    if (type == op::kJiggle) return param == "strength" || param == "frequency" || param == "damping" || param == "history";
-    if (type == op::kMeshCut) return param == "offset";
-    // (Wet's other params pick its levels' centers: the CPU's.)
-    if (type == op::kWet) return param == "wetness";
-    if (param == "seed") {
-        return type == op::kNoise || type == op::kCurl || type == op::kWidth || type == op::kClump || type == op::kLength ||
-               type == op::kFlyaway || type == op::kWind || type == op::kFlow;
-    }
-    if (type == op::kNoise) return param == "amplitude" || param == "frequency" || param == "fraction" || param == "octaves";
-    if (type == op::kCurl) {
-        return param == "radius" || param == "frequency" || param == "randomness" || param == "phase" || param == "phaseRandom" ||
-               param == "coilWidths" || param == "spacingRandom" || param == "weight" || param == "weightDirection";
-    }
-    if (type == op::kGravity) return param == "strength" || param == "stiffness";
-    if (type == op::kWind) {
-        return param == "strength" || param == "gust" || param == "frequency" || param == "speed" || param == "turbulence";
-    }
-    if (type == op::kBlend) return param == "mix";
-    // (The hair grid's layout is the core strands' and the scalp's: none of these change it.)
-    if (type == op::kSelfCollide) return param == "strength" || param == "packing";
-    if (type == op::kStatic) return param == "strength" || param == "randomness";
-    // (Flyaway's strays are drawn on the GPU by ID: a fraction or seed dragged picks others.)
-    if (type == op::kFlyaway) {
-        return param == "stray" || param == "fraction" || param == "frequency" || param == "start" || param == "standOut" ||
-               param == "lengthen";
-    }
-    // (Collide's offset and depth make its fields' tables: the CPU's.)
-    if (type == op::kWidth) return param == "width" || param == "randomness";
-    if (type == op::kClump) {
-        return param == "strength" || param == "lockRadius" || param == "repelRadius" || param == "volumize" ||
-               param == "flatness" || param == "strengthRandom" || param == "lockRadiusRandom";
-    }
-    // (An auto Part's splitAngle and minLength pick which lines it finds: the CPU's.)
-    if (type == op::kPart) return param == "strength" || param == "width";
-    if (type == op::kLength) return param == "keep" || param == "fraction" || param == "trimMin" || param == "trimMax";
-    if (type == op::kInterpolate) return param == "limitDistance";
-    // (The guides it hands on made on the CPU at the dragged strength: sculptedGuides.)
-    if (type == op::kSculpt) return param == "strength";
-    // (Its ring's bins are made on the GPU from the core strands: a center dragged too.)
-    if (type == op::kTie) {
-        return param == "center" || param == "radius" || param == "direction" || param == "tightness" || param == "spread" ||
-               param == "twist" || param == "ease";
-    }
-    // The shapers reading their neighbours or a reference. (BlendNeighbors' neighbors, Tangle's
-    // fraction, radius and seed pick whom a strand reads: the CPU's.)
-    if (type == op::kSmooth) return param == "strength" || param == "scale";
-    if (type == op::kBlendNeighbors) return param == "strength";
-    if (type == op::kTangle) return param == "strength" || param == "start" || param == "span" || param == "reach";
-    if (type == op::kFlow) return param == "lift" || param == "bend" || param == "rollRandom";
-    return false;
+    // look_stages.inc: its ramps, vectors and numbers (its seed, its affect where it is masked).
+    const GpuNode* node = gpuNode(type);
+    return node && (node->ramps.count(param) || node->vectors.count(param) || node->numbers.count(param));
 }
 
 bool previewableOverrides(const GraphDocument& doc, const Overrides& overrides, std::string* why) {
@@ -1491,14 +1409,9 @@ FieldRead whatItReads(const Graph& graph, const LookChain& chain, std::size_t k,
 
 // The GPU's ops (look.slang FieldCS): kind, code, a value's bits, a slot.
 enum FieldOp : std::uint32_t { kOpNumber, kOpShape, kOpStatic, kOpInfluence, kOpNegate, kOpBinary, kOpSelect, kOpCall };
-// The functions FieldCS runs (look.slang fieldCall), by their name in expressions; any other runs on
-// the CPU. smoothstep and linearstep reach the GPU edges first, whichever order they were written
-// in (expression.cpp orders them). fieldCall's case 33, GroomLab's old clamped remap, is no
-// expression's: remap is SeExpr's now, CPU only.
-const char* const kGpuFunctions[] = {"sin",   "cos",    "tan",   "asin",   "acos",    "atan",    "abs",        "sqrt",  "floor",
-                                     "ceil",  "fract",  "exp",   "log",    "sign",    "pow",     "atan2",      "min",   "max",
-                                     "mod",   "step",   "clamp", "mix",    "smoothstep", "round", "trunc",     "radians",
-                                     "degrees", "gamma", "bias", "gain",   "lerp",    "linearstep", "fit"};
+// The functions FieldCS runs (look.slang fieldCall) are those whose row in expression.cpp's kFns
+// names a GPU code (Expression::gpuFunction); any other runs on the CPU. smoothstep and linearstep
+// reach the GPU edges first, whichever order they were written in (expression.cpp orders them).
 const char* const kGpuOperators[] = {"+", "-", "*", "/", "^", "<", "<=", ">", ">=", "==", "!="};
 // The strand's shape variables FieldCS makes from the run's points, by their name.
 const char* const kGpuShape[] = {"length", "longest", "reach", "straightness", "lift", "tipx", "tipy", "tipz"};
@@ -1534,8 +1447,7 @@ std::shared_ptr<const FieldProgram> fieldProgram(const FieldRead& r, const Stran
         return nullptr;
     }
     // Function, operator and shape codes by name (the expression's own codes may move).
-    std::map<int, std::uint32_t> functions, operators, shapes;
-    for (std::uint32_t f = 0; f < sizeof kGpuFunctions / sizeof kGpuFunctions[0]; ++f) functions[Expression::functionCode(kGpuFunctions[f])] = f;
+    std::map<int, std::uint32_t> operators, shapes;
     for (std::uint32_t b = 0; b < sizeof kGpuOperators / sizeof kGpuOperators[0]; ++b) operators[Expression::binaryCode(kGpuOperators[b])] = b;
     for (std::uint32_t v = 0; v < sizeof kGpuShape / sizeof kGpuShape[0]; ++v) shapes[Expression::variableCode(kGpuShape[v])] = v;
     const int lift = Expression::variableCode("lift"), longest = Expression::variableCode("longest");
@@ -1597,12 +1509,12 @@ std::shared_ptr<const FieldProgram> fieldProgram(const FieldRead& r, const Stran
             }
             case Expression::Op::Select: push(kOpSelect, 0, 0.0f, 0); break;
             case Expression::Op::Call: {
-                const auto it = functions.find(op.code);
-                if (it == functions.end() || op.results != 1) {
+                const int gpu = Expression::gpuFunction(op.code);
+                if (gpu < 0 || op.results != 1) {
                     *why = "a function the GPU does not run";
                     return nullptr;
                 }
-                push(kOpCall, it->second, 0.0f, op.args);
+                push(kOpCall, static_cast<std::uint32_t>(gpu), 0.0f, op.args);
                 break;
             }
             default:
@@ -1806,18 +1718,12 @@ bool lookFieldsHold(const GraphDocument& doc, const LookChain& chain, const Look
         *why = "the mapped params were read for another chain";
         return false;
     }
-    static const char* const kNames[kStageKinds][2] = {{"", ""},           {"keep", "fraction"},   {"strength", "volumize"},
-                                                       {"amplitude", "fraction"}, {"radius", ""}, {"width", ""},
-                                                       {"strength", ""}, {"strength", ""}, {"stray", "fraction"}, {"", ""},
-                                                       {"strength", ""},     {"mix", ""},      {"strength", ""},
-                                                       {"strength", ""},     {"affect", ""},
-                                                       // Bend, Direction (its mapped ones: directionMapped), Transform, Displace, Twist
-                                                       {"angle", ""}, {"", ""}, {"scale", ""}, {"distance", ""}, {"turns", ""},
-                                                       // The shapers reading their neighbours or a reference.
-                                                       {"strength", ""}, {"", ""}, {"strength", ""},
-                                                       {"strength", ""}, {"lift", ""},
-                                                       // Jiggle, MeshCut, Merge
-                                                       {"strength", ""}, {"", ""}, {"", ""}};
+    // Each stage's mapped params (look_stages.inc).
+    static const char* const kNames[kStageKinds][2] = {
+#define GROOMLAB_STAGE(Kind, name, mapped0, mapped1, ramps, vectors, numbers) {mapped0, mapped1},
+#include "groomlab/gpu/look_stages.inc"
+#undef GROOMLAB_STAGE
+    };
     bool interpolateBefore = false, widthBefore = false, channelsBefore = false;
     for (std::size_t k = 0; k < chain.stages.size(); ++k) {
         const LookStage& stage = chain.stages[k];

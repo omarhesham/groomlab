@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 #include "groomlab/math.h"
@@ -36,6 +38,32 @@ void octaveWeights(float spacing, int octaves, float* out);
 // stays normalized by the unscaled amplitudes: a strand with fewer points gets the same noise
 // less its finer octaves, not other noise.
 Vec3f vectorNoise(const Vec3f& p, std::uint64_t seed, int octaves, const float* weights = nullptr);
+
+// SeExpr's FBM (the expressions' fbm, vfbm, turbulence...): `octaves` gradient noises (1 to 8,
+// truncated), each `lacunarity` times the frequency and `gain` times the amplitude of the one
+// before, summed and not normalized (fractalNoise is); turbulent, their absolute values. Octave 0
+// is hashed with `first`, octave i with `base` + i.
+struct FbmSeeds {
+    std::uint64_t first, base;
+};
+float fbmNoise(const Vec3f& p, float octaves, float lacunarity, float gain, bool turbulent, FbmSeeds seeds);
+Vec3f vectorFbmNoise(const Vec3f& p, float octaves, float lacunarity, float gain, bool turbulent, FbmSeeds seeds);
+// In four dimensions (p, w), not turbulent.
+float fbmNoise4(const Vec3f& p, float w, float octaves, float lacunarity, float gain, FbmSeeds seeds);
+Vec3f vectorFbmNoise4(const Vec3f& p, float w, float octaves, float lacunarity, float gain, FbmSeeds seeds);
+
+// A float floored to a lattice coordinate, kept within ±1e7 (where a float, and an int64, hold
+// whole numbers exactly).
+inline float latticeFloor(float v) { return std::floor(std::clamp(v, -1.0e7f, 1.0e7f)); }
+
+// A lattice cell's hash from its corner (whole numbers, as floats): hashCombine of the three, not
+// the gradient noises' corner hash. SeExpr's cell functions (the expressions' cellnoise, voronoi,
+// pnoise) are keyed by it.
+std::uint64_t cellHash(float fx, float fy, float fz, std::uint64_t seed);
+
+// Gradient noise repeating every `period` cells along each axis (each component's whole part, 1
+// at least), about -1 to 1: the corners hashed by cellHash, their gradient its value mod 12.
+float periodicNoise(const Vec3f& p, const Vec3f& period, std::uint64_t seed);
 
 // vectorNoise for a run of nearby points (a strand's, root to tip): the same values, bit for
 // bit, with each octave's lattice corners hashed and their gradients looked up once per cell

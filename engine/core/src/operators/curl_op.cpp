@@ -81,10 +81,7 @@ constexpr float kWeightTurns = 10.0f;
 // segmentArc)
 
 // v over its length (by its reciprocal: one division), or zero.
-Vec3f unit(const Vec3f& v) {
-    const float l = v.length();
-    return l > 0.0f ? v * (1.0f / l) : Vec3f{};
-}
+Vec3f unit(const Vec3f& v) { return normalizedRecip(v); }
 
 // The unit direction from a to b, its length into h (zero: none).
 Vec3f secantOf(const Vec3f& a, const Vec3f& b, float* h) {
@@ -1087,7 +1084,9 @@ bool CurlOp::run(const EvalContext& ctx, const std::vector<Value>& inputs, const
 }
 
 void registerCurlOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kCurl, [] { return std::make_unique<CurlOp>(); });
+    registry.registerType(op::kCurl,
+                          {"look", "Helical curls around each strand.", "coil wave helix kinky afro"},
+                          [] { return std::make_unique<CurlOp>(); });
 }
 
 }  // namespace groomlab

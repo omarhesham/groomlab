@@ -421,7 +421,11 @@ public:
 }  // namespace
 
 void registerStaticOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kStatic, [] { return std::make_unique<StaticOp>(); });
+    registry.registerType(op::kStatic,
+                          {"look",
+                           "Hair charged with static repels itself, like dry winter hair: strands spread, the outer layer puffs out, tips lift and locks fray.",
+                           "charged puff repel"},
+                          [] { return std::make_unique<StaticOp>(); });
 }
 
 }  // namespace groomlab

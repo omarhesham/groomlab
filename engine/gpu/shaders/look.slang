@@ -22,7 +22,7 @@
 // here). The per-strand random numbers (Rng from
 // the strand ID), the root normals, Interpolate's binding (each strand's guides and weights) and
 // guide shapes, and Clump's center choice come from the CPU; the lattice hashes of the noise are
-// 64-bit (cornerHash), done here in 32-bit halves since cs_5_0 has no 64-bit integers. Mapped
+// 64-bit (cornerHash, shared/groom_math.h: in 32-bit halves here, as cs_5_0 has none). Mapped
 // params (a texture, a color set, a channel, an expression, a plugged field) come as the CPU's
 // ScalarField values, per strand or per point (gFields), the dragged number multiplying a plugged
 // field as the CPU does; the profiles as the CPU's own table per point index where every strand
@@ -47,6 +47,12 @@
 #define POINT_GROUP_SIZE 256
 #define CENTER_SAMPLES 32  // Clump's centers (operator_state.h kClumpCenterSamples)
 #define MAX_SAMPLES 64     // Interpolate's guide samples at most (more: the CPU's)
+
+// The math the CPU shares with these kernels (blends and steps, the ramps' cubic, the noise's lattice
+// hash and gradients, the curl's spacing noise; the 64-bit hash arithmetic in 32-bit halves, mul64
+// and the rest), from the core's own header: one source for both. (A relative path: slangc needs no
+// include folder, so the kernel cache's key, the HLSL, holds no path of this checkout.)
+#include "../../core/include/groomlab/shared/groom_math.h"
 
 // Small constant loops unrolled by Slang itself (ForceUnroll), so no target's compiler is asked
 // to (OpenGL drivers take no unroll attribute).
@@ -192,8 +198,7 @@ float rampAtOf(uint4 r, float t) {
     const float f = (t - p0) / span;
     if (r.z != 0) return v0 + (v1 - v0) * f;
     const float m0 = rampKeyOf(r, 2, lo) * span, m1 = rampKeyOf(r, 2, hi) * span;
-    const float f2 = f * f, f3 = f2 * f;
-    return (2.0f * f3 - 3.0f * f2 + 1.0f) * v0 + (f3 - 2.0f * f2 + f) * m0 + (-2.0f * f3 + 3.0f * f2) * v1 + (f3 - f2) * m1;
+    return rampHermite(f, v0, m0, v1, m1);
 }
 float rampKey(uint what, uint k) { return rampKeyOf(gRamp, what, k); }
 float rampAt(float t) { return rampAtOf(gRamp, t); }
@@ -1919,80 +1924,11 @@ void ClumpCS(uint3 id : SV_DispatchThreadID) {
     }
 }
 
-// ---- 64-bit hashing in 32-bit halves (x: low, y: high) ----------------------------------------
-
-uint mulHi(uint a, uint b) {
-    const uint a0 = a & 0xffff, a1 = a >> 16, b0 = b & 0xffff, b1 = b >> 16;
-    const uint p00 = a0 * b0, p01 = a0 * b1, p10 = a1 * b0, p11 = a1 * b1;
-    const uint mid = (p00 >> 16) + (p01 & 0xffff) + (p10 & 0xffff);
-    return p11 + (p01 >> 16) + (p10 >> 16) + (mid >> 16);
-}
-uint2 mul64(uint2 a, uint2 b) { return uint2(a.x * b.x, mulHi(a.x, b.x) + a.x * b.y + a.y * b.x); }
-uint2 shr64(uint2 a, uint n) {  // 0 < n < 64
-    return n < 32 ? uint2((a.x >> n) | (a.y << (32 - n)), a.y >> n) : uint2(a.y >> (n - 32), 0);
-}
-uint2 fromInt(int i) { return uint2(asuint(i), i < 0 ? 0xffffffffu : 0u); }
-
-static const uint2 kHashX = uint2(0x85EBCA87u, 0x9E3779B1u);
-static const uint2 kHashY = uint2(0x27D4EB4Fu, 0xC2B2AE3Du);
-static const uint2 kHashZ = uint2(0x9E3779F9u, 0x165667B1u);
-static const uint2 kMix = uint2(0x1CE4E5B9u, 0xBF58476Du);
-
-// noise.cpp cornerHash: seed ^ ix * C1 ^ iy * C2 ^ iz * C3, then mixed. `xy` holds the first three
-// terms (the same for every point of a strand at an octave: strand-space noise walks z alone).
-uint2 cornerHash(uint2 xy, int iz) {
-    uint2 h = xy ^ mul64(fromInt(iz), kHashZ);
-    h ^= shr64(h, 29);
-    h = mul64(h, kMix);
-    h ^= shr64(h, 32);
-    return h;
-}
-
-static const float3 kGradients[12] = {float3(1, 1, 0), float3(-1, 1, 0), float3(1, -1, 0), float3(-1, -1, 0),
-                                      float3(1, 0, 1), float3(-1, 0, 1), float3(1, 0, -1), float3(-1, 0, -1),
-                                      float3(0, 1, 1), float3(0, -1, 1), float3(0, 1, -1), float3(0, -1, -1)};
-
-// Channel k's gradient of a corner: hash bits [16k, 16k + 16) mod 12.
-float3 gradientOf(uint2 h, uint k) {
-    const uint bits = (k == 0 ? h.x : k == 1 ? (h.x >> 16) : h.y) & 0xffff;
-    return kGradients[bits % 12];
-}
-
-float fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
-float mix1(float a, float b, float t) { return a + (b - a) * t; }
+// ---- Gradient noise (shared/groom_math.h latticeNoise: noise.cpp's lattice and gradients) -------
 
 uint2 octaveSeed(uint o) {
     const uint4 v = gOctaveSeeds[o >> 1];
     return (o & 1u) != 0u ? v.zw : v.xy;
-}
-
-// noise.cpp noiseChannels<3>: three gradient noises at q from one lattice cell's corners, hashed
-// with `seed` (channel 0 alone is gradientNoise).
-float3 latticeNoise(float3 q, uint2 seed) {
-    const float fx = floor(q.x), fy = floor(q.y), fz = floor(q.z);
-    const int ix = int(fx), iy = int(fy), iz = int(fz);
-    const float dx = q.x - fx, dy = q.y - fy, dz = q.z - fz;
-    const float u = fade(dx), v = fade(dy), w = fade(dz);
-    const float dz1 = dz - 1.0f;
-    float corner[3][8];
-    [ForceUnroll] for (uint c = 0; c < 8; ++c) {
-        const int ox = int(c & 1), oy = int((c >> 1) & 1), oz = int((c >> 2) & 1);
-        const uint2 xy = seed ^ mul64(fromInt(ix + ox), kHashX) ^ mul64(fromInt(iy + oy), kHashY);
-        const uint2 h = cornerHash(xy, iz + oz);
-        [ForceUnroll] for (uint k = 0; k < 3; ++k) {
-            const float3 g = gradientOf(h, k);
-            corner[k][c] = (g.x * (dx - float(ox)) + g.y * (dy - float(oy))) + g.z * (oz == 0 ? dz : dz1);
-        }
-    }
-    float3 n;
-    [ForceUnroll] for (uint k = 0; k < 3; ++k) {
-        const float x00 = mix1(corner[k][0], corner[k][1], u);
-        const float x10 = mix1(corner[k][2], corner[k][3], u);
-        const float x01 = mix1(corner[k][4], corner[k][5], u);
-        const float x11 = mix1(corner[k][6], corner[k][7], u);
-        n[k] = mix1(mix1(x00, x10, v), mix1(x01, x11, v), w);
-    }
-    return n;
 }
 
 // noise.cpp VectorNoise: the fractal sum of three gradient noises at q, octave by octave; each
@@ -2005,7 +1941,7 @@ float3 vectorNoise(float3 p, float spacing) {
     float cells = spacing;
     float3 q = p;
     for (uint o = 0; o < gFlag.x; ++o) {
-        const float weight = spacing > 0.0f ? 1.0f - smoothstep(0.5f, 1.0f, cells) : 1.0f;
+        const float weight = spacing > 0.0f ? octaveWeightAt(cells) : 1.0f;
         cells *= 2.0f;
         if (weight == 0.0f) {  // faded out: adds nothing
             norm += amplitude;
@@ -2013,7 +1949,7 @@ float3 vectorNoise(float3 p, float spacing) {
             q = q * 2.0f;
             continue;
         }
-        const float3 n = latticeNoise(q, octaveSeed(o));
+        const float3 n = latticeNoise(q, octaveSeed(o), 3u);
         sum += n * (amplitude * weight);
         norm += amplitude;
         amplitude *= 0.5f;
@@ -2022,53 +1958,8 @@ float3 vectorNoise(float3 p, float spacing) {
     return sum / norm;
 }
 
-// noise.cpp noiseChannels4<3>: three four-dimensional gradient noises at q (Perlin's 32 edge
-// gradients: axis (bits % 32) >> 3 at 0, the others -1 where bits 0, 1, 2 are set), from one
-// lattice cell's 16 corners, blended along x, then y, z and w.
-static const uint2 kHashW = uint2(0x6659FD93u, 0xD6E8FEB8u);
-float gradient4(uint2 h, uint k, float4 d) {
-    const uint i = (k == 0 ? h.x : k == 1 ? (h.x >> 16) : h.y) & 31u, zero = i >> 3;
-    float g[4];
-    uint bit = 0;
-    [ForceUnroll] for (uint a = 0; a < 4; ++a) {
-        if (a == zero) {
-            g[a] = 0.0f;
-        } else {
-            g[a] = ((i >> bit) & 1u) != 0u ? -1.0f : 1.0f;
-            ++bit;
-        }
-    }
-    return ((g[0] * d.x + g[1] * d.y) + g[2] * d.z) + g[3] * d.w;
-}
-float3 latticeNoise4(float4 q, uint2 seed) {
-    const float4 f = floor(q);
-    const int4 c0 = int4(f);
-    const float4 d = q - f;
-    const float4 t = float4(fade(d.x), fade(d.y), fade(d.z), fade(d.w));
-    float corner[3][16];
-    [ForceUnroll] for (uint c = 0; c < 16; ++c) {
-        const int4 o = int4(int(c & 1), int((c >> 1) & 1), int((c >> 2) & 1), int((c >> 3) & 1));
-        const uint2 xyw = seed ^ mul64(fromInt(c0.x + o.x), kHashX) ^ mul64(fromInt(c0.y + o.y), kHashY) ^
-                          mul64(fromInt(c0.w + o.w), kHashW);
-        const uint2 h = cornerHash(xyw, c0.z + o.z);
-        const float4 at = d - float4(o);
-        [ForceUnroll] for (uint k = 0; k < 3; ++k) corner[k][c] = gradient4(h, k, at);
-    }
-    float3 n;
-    [ForceUnroll] for (uint k = 0; k < 3; ++k) {
-        float atW[2];
-        [ForceUnroll] for (uint b = 0; b < 2; ++b) {
-            const uint o = b * 8;
-            const float x00 = mix1(corner[k][o], corner[k][o + 1], t.x);
-            const float x10 = mix1(corner[k][o + 2], corner[k][o + 3], t.x);
-            const float x01 = mix1(corner[k][o + 4], corner[k][o + 5], t.x);
-            const float x11 = mix1(corner[k][o + 6], corner[k][o + 7], t.x);
-            atW[b] = mix1(mix1(x00, x10, t.y), mix1(x01, x11, t.y), t.z);
-        }
-        n[k] = mix1(atW[0], atW[1], t.w);
-    }
-    return n;
-}
+// shared/groom_math.h latticeNoise4 at a float4.
+float3 latticeNoise4(float4 q, uint2 seed, uint channels) { return latticeNoise4(q.xyz, q.w, seed, channels); }
 
 // ---- Noise (NoiseOp::run, `shape`) -------------------------------------------------------------
 //
@@ -2339,85 +2230,16 @@ float curlEase(float arc, float t, float frequency) {
     return x * x * (3.0f - 2.0f * x);
 }
 
-// The phase of the curl's turns (curl_phase.h): its angle at the profiled arc w (the arc length
-// weighted by frequencyProfile, gRamp2 with gFlag2.x; else the arc), with the spacing noise
-// (gValue2.x: spacingRandom) of key `key` (from the strand's or clump's four draws).
-uint curlHash(uint x) {
-    x ^= x >> 16;
-    x *= 0x7feb352du;
-    x ^= x >> 15;
-    x *= 0x846ca68bu;
-    x ^= x >> 16;
-    return x;
-}
-uint curlSpacingKey(float4 r) {
-    return curlHash(asuint(r.x) ^ curlHash(asuint(r.y) ^ curlHash(asuint(r.z) ^ curlHash(asuint(r.w) ^ 0x5BAC1E5u))));
-}
-float curlSpacingLattice(uint key, uint i) { return float(curlHash(key ^ curlHash(i)) >> 8) * (2.0f / 16777216.0f) - 1.0f; }
-// A layer's integral from 0 to x (its cells): (4/15) (v0 + (v1 - v0) S5(u) - v(0)).
-float curlSpacingIntegral(uint key, float x) {
-    const float cell = floor(x);
-    const float u = x - cell;
-    const uint i = uint(cell);
-    const float v0 = curlSpacingLattice(key, i), v1 = curlSpacingLattice(key, i + 1u);
-    const float dv = v1 - v0;
-    return (4.0f / 15.0f) * (v0 + dv * (u * u * u * (u * (u * 6.0f - 15.0f) + 10.0f)) - curlSpacingLattice(key, 0u));
-}
-// curlSpacingTurns: the turns the noise adds by `turns` (its layers: cells of 2 turns, weight
-// 0.6; of 1.25, 0.4).
-float curlSpacingTurns(uint key, float turns) {
-    float total = 0.0f;
-    total += 0.6f * 2.0f * curlSpacingIntegral(key ^ 0x9E3779B9u, turns / 2.0f);
-    total += 0.4f * 1.25f * curlSpacingIntegral(key ^ 0x85EBCA6Bu, turns / 1.25f);
-    return total;
-}
-float curlAngle(float frequency, float w, float phase, uint key) {
-    float angle = kTwoPi * frequency * w + phase;
-    const float spacingRandom = gValue2.x;
-    if (spacingRandom > 0.0f) {
-        const float extra = spacingRandom * curlSpacingTurns(key, abs(frequency) * w);
-        angle += kTwoPi * (frequency < 0.0f ? -extra : extra);
-    }
-    return angle;
-}
-// curl_phase.h curlTurns: the turns from the start to profiled arc w.
-float curlTurns(float frequency, float w, uint key) {
-    float turns = frequency * w;
-    const float spacingRandom = gValue2.x;
-    if (spacingRandom > 0.0f) {
-        const float extra = spacingRandom * curlSpacingTurns(key, abs(frequency) * w);
-        turns += frequency < 0.0f ? -extra : extra;
-    }
-    return turns;
-}
-// curl_phase.h curlSpacingLayer's value, curlSpacingRate: the spacing noise n at `turns`.
-float curlSpacingValue(uint key, float x) {
-    const float cell = floor(x);
-    const float u = x - cell;
-    const uint i = uint(cell);
-    const float dv = curlSpacingLattice(key, i + 1u) - curlSpacingLattice(key, i);
-    const float w = u * (1.0f - u);
-    return 8.0f * dv * w * w;
-}
-float curlSpacingRate(uint key, float turns) {
-    float n = 0.0f;
-    n += 0.6f * curlSpacingValue(key ^ 0x9E3779B9u, turns / 2.0f);
-    n += 0.4f * curlSpacingValue(key ^ 0x85EBCA6Bu, turns / 1.25f);
-    return n;
-}
+// The phase of the curl's turns (curl_phase.h; shared/groom_math.h curlAngle, curlTurns and
+// curlLocalFrequency): its angle at the profiled arc w (the arc length weighted by
+// frequencyProfile, gRamp2 with gFlag2.x; else the arc), with the spacing noise (gValue2.x:
+// spacingRandom) of key `key` (from the strand's or clump's four draws).
+uint curlSpacingKey(float4 r) { return curlSpacingKey(r.x, r.y, r.z, r.w); }
 bool curlProfiled() { return gFlag2.x != 0u; }
 // Weighted curls (gValue2.y: the weight over kWeightTurns; 0: none).
 bool curlWeighed() { return gValue2.y > 0.0f; }
 // Whether the profiled arc is other than the arc (curl_op.cpp Axis::spaced).
 bool curlSpaced() { return curlProfiled() || curlWeighed(); }
-// curl_phase.h curlLocalFrequency: the local frequency where frequencyProfile is `profileValue`
-// and the profiled arc is w.
-float curlLocalFrequency(float frequency, float profileValue, float w, uint key) {
-    const float p = profileValue > 0.0f ? profileValue : 0.0f;
-    const float spacingRandom = gValue2.x;
-    const float n = spacingRandom > 0.0f ? curlSpacingRate(key, abs(frequency) * w) : 0.0f;
-    return frequency * p * (1.0f + spacingRandom * n);
-}
 // curl_op.cpp stretchedShare: the share of its radius r a curl keeps where its pitch stretches
 // q-fold at local frequency f, keeping a turn's wire length (eased to 0 below u = 1/4).
 float curlStretchedShare(float r, float q, float f) {
@@ -2659,7 +2481,7 @@ void CurlAxesCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID) 
         gOut.Store((parcs + j) * 4, asuint(curlProfiled() ? parc : arc));
         if (weighed) {
             stretch[j] = max(0.0f, exactDot(f.t, down));
-            turns[j] = curlTurns(frequency, curlProfiled() ? parc : arc, key);
+            turns[j] = curlTurns(frequency, curlProfiled() ? parc : arc, gValue2.x, key);
         }
     }
     if (!weighed) return;
@@ -2723,10 +2545,10 @@ float3 curlOffset(uint s, uint begin, uint i, uint n, Frame fr, float w, float p
     float r = base * vary * rampAlong(i, n) * curlEase(w, t, frequency);
     if (stretch > 0.0f) {
         // Weighted: the share of the curl's own radius a turn's wire keeps at the stretched pitch.
-        const float local = curlLocalFrequency(frequency, curlProfiled() ? rampAtOf(gRamp2, t) : 1.0f, w, key);
+        const float local = curlLocalFrequency(frequency, curlProfiled() ? rampAtOf(gRamp2, t) : 1.0f, w, gValue2.x, key);
         r *= curlStretchedShare(base * vary, stretch, local);
     }
-    const float angle = curlAngle(frequency, w, phase, key);
+    const float angle = curlAngle(frequency, w, phase, gValue2.x, key);
     if (gFlag.x == 0u || gFlag.x == 3u) return fr.n * (r * cos(angle)) + fr.b * (r * sin(angle));
     // A wave or zigzag in the plane at the strand's angle about it (CurlOp::offsetAt).
     const float3 across = fr.n * cos(plane) + fr.b * sin(plane);
@@ -2783,7 +2605,7 @@ void CurlCS(uint3 id : SV_DispatchThreadID) {
         for (uint k = 0; k < v.samples; ++k) {
             if (k > 0u) v = ownAxisStep(v, begin, n, kNoStretch);
             stretch[k] = max(0.0f, exactDot(v.f.t, down));
-            turns[k] = curlTurns(frequency, curlProfiled() ? v.parc : v.arc, key);
+            turns[k] = curlTurns(frequency, curlProfiled() ? v.parc : v.arc, gValue2.x, key);
         }
         curlStretchOf(stretch, turns, v.samples);
     }
@@ -2940,75 +2762,47 @@ void LongestCS(uint3 local : SV_GroupThreadID) {
 bool finiteFloat(float v) { return (asuint(v) & 0x7f800000u) != 0x7f800000u; }
 float finiteOr0(float v) { return finiteFloat(v) ? v : 0.0f; }
 
-// std::pow: a negative base to a whole power, 0 to 0 is 1.
-float powStd(float a, float b) {
-    if (b == 0.0f) return 1.0f;
-    if (a == 0.0f) return b > 0.0f ? 0.0f : asfloat(0x7f800000u);
-    if (a < 0.0f) {
-        if (floor(b) != b) return asfloat(0x7fc00000u);
-        const float m = pow(-a, b);
-        return fmod(abs(b), 2.0f) == 1.0f ? -m : m;
-    }
-    return pow(a, b);
-}
-float biasOf(float x, float b) {
-    if (!(x > 0.0f)) return 0.0f;
-    if (!(b > 0.0f)) return 0.0f;
-    if (b >= 1.0f) return 1.0f;
-    return powStd(x, log(b) / log(0.5f));
-}
-float smoothstepStd(float e0, float e1, float x) {
-    if (e1 == e0) return x < e0 ? 0.0f : 1.0f;
-    const float t = clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
 float roundStd(float x) {  // half away from zero
     const float r = floor(abs(x) + 0.5f);
     return x < 0.0f ? -r : r;
 }
 
-// expression.cpp classicFn and scalarFn, by look_chain.cpp kGpuFunctions' order.
+// expression.cpp classicFn and scalarFn: the functions whose kFns row names a GPU code (shared/groom_math.h kField*).
 float fieldCall(uint fn, float a0, float a1, float a2, float a3, float a4) {
     switch (fn) {
-        case 0: return sin(a0);
-        case 1: return cos(a0);
-        case 2: return tan(a0);
-        case 3: return asin(clamp(a0, -1.0f, 1.0f));
-        case 4: return acos(clamp(a0, -1.0f, 1.0f));
-        case 5: return atan(a0);
-        case 6: return abs(a0);
-        case 7: return sqrt(max(a0, 0.0f));
-        case 8: return floor(a0);
-        case 9: return ceil(a0);
-        case 10: return a0 - floor(a0);
-        case 11: return exp(a0);
-        case 12: return a0 > 0.0f ? log(a0) : 0.0f;
-        case 13: return a0 > 0.0f ? 1.0f : (a0 < 0.0f ? -1.0f : 0.0f);
-        case 14: return powStd(a0, a1);
-        case 15: return atan2(a0, a1);
-        case 16: return a1 < a0 ? a1 : a0;  // std::min
-        case 17: return a0 < a1 ? a1 : a0;  // std::max
-        case 18: return a1 != 0.0f ? a0 - a1 * floor(a0 / a1) : 0.0f;
-        case 19: return a1 < a0 ? 0.0f : 1.0f;
-        case 20: return clamp(a0, min(a1, a2), max(a1, a2));
-        case 21: return a0 + (a1 - a0) * a2;
-        case 22: return smoothstepStd(a0, a1, a2);
-        case 23: return roundStd(a0);
-        case 24: return trunc(a0);
-        case 25: return a0 * (3.14159265f / 180.0f);
-        case 26: return a0 * (180.0f / 3.14159265f);
-        case 27: return a1 > 0.0f && a0 > 0.0f ? powStd(a0, 1.0f / a1) : 0.0f;
-        case 28: return biasOf(a0, a1);
-        case 29: return a0 < 0.5f ? 0.5f * biasOf(2.0f * a0, 1.0f - a1) : 1.0f - 0.5f * biasOf(2.0f - 2.0f * a0, 1.0f - a1);
-        case 30: return a0 + (a1 - a0) * a2;
-        case 31:
-            if (a1 == a0) return a2 < a0 ? 0.0f : 1.0f;
-            return clamp((a2 - a0) / (a1 - a0), 0.0f, 1.0f);
-        case 32:
-        case 33: {
-            const float r = a2 != a1 ? a3 + (a0 - a1) / (a2 - a1) * (a4 - a3) : a3;
-            return fn == 33 ? clamp(r, min(a3, a4), max(a3, a4)) : r;
-        }
+        case kFieldSin: return sin(a0);
+        case kFieldCos: return cos(a0);
+        case kFieldTan: return tan(a0);
+        case kFieldAsin: return asin(clamp(a0, -1.0f, 1.0f));
+        case kFieldAcos: return acos(clamp(a0, -1.0f, 1.0f));
+        case kFieldAtan: return atan(a0);
+        case kFieldAbs: return abs(a0);
+        case kFieldSqrt: return sqrt(max(a0, 0.0f));
+        case kFieldFloor: return floor(a0);
+        case kFieldCeil: return ceil(a0);
+        case kFieldFract: return a0 - floor(a0);
+        case kFieldExp: return exp(a0);
+        case kFieldLog: return a0 > 0.0f ? log(a0) : 0.0f;
+        case kFieldSign: return a0 > 0.0f ? 1.0f : (a0 < 0.0f ? -1.0f : 0.0f);
+        case kFieldPow: return powStd(a0, a1);
+        case kFieldAtan2: return atan2(a0, a1);
+        case kFieldMin: return a1 < a0 ? a1 : a0;  // std::min
+        case kFieldMax: return a0 < a1 ? a1 : a0;  // std::max
+        case kFieldMod: return a1 != 0.0f ? a0 - a1 * floor(a0 / a1) : 0.0f;
+        case kFieldStep: return a1 < a0 ? 0.0f : 1.0f;
+        case kFieldClamp: return clamp(a0, min(a1, a2), max(a1, a2));
+        case kFieldMix: return mix1(a0, a1, a2);
+        case kFieldSmoothstep: return smoothstepStd(a0, a1, a2);
+        case kFieldRound: return roundStd(a0);
+        case kFieldTrunc: return trunc(a0);
+        case kFieldRadians: return a0 * (3.14159265f / 180.0f);
+        case kFieldDegrees: return a0 * (180.0f / 3.14159265f);
+        case kFieldGamma: return a1 > 0.0f && a0 > 0.0f ? powStd(a0, 1.0f / a1) : 0.0f;
+        case kFieldBias: return biasOf(a0, a1);
+        case kFieldGain: return gainOf(a0, a1);
+        case kFieldLerp: return mix1(a0, a1, a2);
+        case kFieldLinearstep: return linearstep(a0, a1, a2);
+        case kFieldFit: return fitOf(a0, a1, a2, a3, a4);
         default: return 0.0f;
     }
 }
@@ -3587,14 +3381,14 @@ void smoothStrand(uint begin, uint n, float smoothing) {
 
 // noise.cpp fractalNoise(q, seed, 2): the gusts.
 float windGust(float3 q) {
-    const float first = latticeNoise(q, octaveSeed(0)).x;
-    const float second = latticeNoise(q * 2.0f, octaveSeed(1)).x;
+    const float first = latticeNoise(q, octaveSeed(0), 1u).x;
+    const float second = latticeNoise(q * 2.0f, octaveSeed(1), 1u).x;
     return (first * 1.0f + second * 0.5f) / 1.5f;
 }
 // noise.cpp fractalNoise4(q, seed, 2): the looped gusts.
 float windGust4(float4 q) {
-    const float first = latticeNoise4(q, octaveSeed(0)).x;
-    const float second = latticeNoise4(q * 2.0f, octaveSeed(1)).x;
+    const float first = latticeNoise4(q, octaveSeed(0), 1u).x;
+    const float second = latticeNoise4(q * 2.0f, octaveSeed(1), 1u).x;
     return (first * 1.0f + second * 0.5f) / 1.5f;
 }
 // operator_state.h windLoopPoint: spot (noise units) across the wind, then on the circle by its
@@ -3632,16 +3426,16 @@ void WindCS(uint3 id : SV_DispatchThreadID) {
     // The gusts sway the direction a little; the flutter is a wave running up the strand.
     float3 windDir = dir;
     if (gust > 0.0f) {
-        const float3 sway = looped ? latticeNoise4(q4 + float4(17.3f, -4.1f, 9.7f, 2.9f), octaveSeed(2))
-                                   : latticeNoise(q + float3(17.3f, -4.1f, 9.7f), octaveSeed(2));
+        const float3 sway = looped ? latticeNoise4(q4 + float4(17.3f, -4.1f, 9.7f, 2.9f), octaveSeed(2), 3u)
+                                   : latticeNoise(q + float3(17.3f, -4.1f, 9.7f), octaveSeed(2), 3u);
         const float3 swayed = dir + sway * (0.35f * gust);
         if (len3(swayed) > 1e-6f) windDir = normalized(swayed);
     }
     float3 flutter = float3(0.0f, 0.0f, 0.0f);
     float phase = 0.0f;
     if (turbulence > 0.0f) {
-        flutter = (looped ? latticeNoise4(q4 * 4.0f + float4(-3.7f, 11.9f, 5.3f, -7.1f), octaveSeed(3))
-                          : latticeNoise(q * 4.0f + float3(-3.7f, 11.9f, 5.3f), octaveSeed(3))) *
+        flutter = (looped ? latticeNoise4(q4 * 4.0f + float4(-3.7f, 11.9f, 5.3f, -7.1f), octaveSeed(3), 3u)
+                          : latticeNoise(q * 4.0f + float3(-3.7f, 11.9f, 5.3f), octaveSeed(3), 3u)) *
                   turbulence;
         phase = strandData(s).x;
     }
@@ -4939,12 +4733,6 @@ float2 tieMeasure(float3 p, float3 origin, float3 pole, float3 u1, float3 u2, bo
     }
     return float2(tieAtan2(y, x), radial);
 }
-// math.h smoothstep (an empty edge: a step).
-float tieSmoothstep(float e0, float e1, float x) {
-    if (e1 == e0) return x < e0 ? 0.0f : 1.0f;
-    const float t = clamp((x - e0) / (e1 - e0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
 
 groupshared uint sTieMost[TIE_BINS];  // the largest radial measure a bin (its bits: they order as the floats, all >= 0)
 groupshared uint sTieFilled[TIE_BINS];
@@ -5316,7 +5104,7 @@ bool tieNext(inout TieGen g, uint s, uint routeCount, uint first, uint inputCoun
         const float a = g.routeEnd * float(idx) / float(g.routeSteps);
         p = tieRouteAt(g.route, s, routeCount, a);
         if (ease > 0.0f && a < ease && idx > 0) {
-            const float keep = 1.0f - tieSmoothstep(0.0f, ease, a);
+            const float keep = 1.0f - smoothstepStd(0.0f, ease, a);
             p = p + (tieInputAt(g.input, first, inputCount, a) - p) * keep;
         }
     } else {
@@ -5355,7 +5143,6 @@ float3 tiePush(FieldTables tables, float3 p) {
     return moved;
 }
 
-float tieUnit(float v) { return v >= 0.0f ? (v <= 1.0f ? v : 1.0f) : 0.0f; }  // node_common.cpp unitOf (NaN: 0)
 float tieFrom(uint p) { return (gFlag.x & TIE_CHANNEL_IN) != 0 ? asfloat(gOut3.Load(p * 4)) : 0.0f; }
 // The tail channel's value at point p mixed by the affect m from what it came with (applyAffect).
 void tieStoreTail(uint p, float v, float m) {
@@ -5383,7 +5170,7 @@ void TieLayCS(uint3 id : SV_DispatchThreadID) {
         for (uint i = 0; writes && i < n; ++i) gOut2.Store((begin + i) * 4, asuint(tieFrom(begin + i)));
         return;
     }
-    const float m = (gFlag.x & TIE_MASKED) != 0 ? tieUnit(tieAffect(s, begin)) : 1.0f;
+    const float m = (gFlag.x & TIE_MASKED) != 0 ? clamp01(tieAffect(s, begin)) : 1.0f;
     for (uint i = 0; i <= k; ++i) tieStoreTail(begin + i, 0.0f, m);
     float remaining = 0.0f;
     for (uint i = k + 1; i < n; ++i) remaining += len3(loadPoint(begin + i) - loadPoint(begin + i - 1));
@@ -5545,7 +5332,7 @@ void TieLayCS(uint3 id : SV_DispatchThreadID) {
     // The tail channel: 0 before the ring, 1 past it, by each point's arc along the path.
     for (uint j = k + 1; writes && j < n; ++j) {
         const float arc = asfloat(gOut2.Load((begin + j) * 4));
-        const float v = radius > 0.0f ? tieSmoothstep(ringArc - radius, ringArc + radius, arc) : (arc >= ringArc ? 1.0f : 0.0f);
+        const float v = radius > 0.0f ? smoothstepStd(ringArc - radius, ringArc + radius, arc) : (arc >= ringArc ? 1.0f : 0.0f);
         tieStoreTail(begin + j, v, m);
     }
 }
@@ -6489,7 +6276,6 @@ void FlowCS(uint3 id : SV_DispatchThreadID) {
 // 0-1 (NaN: 0): 1 the result as it is, 0 what it took, between a mix of the two. gFlag.y: the
 // widths mixed; gFlag.z: the points.
 
-float affectUnit(float v) { return v >= 0.0f ? (v <= 1.0f ? v : 1.0f) : 0.0f; }  // node_common.cpp unitOf
 float affectAt(uint s, uint p) {
     if (gFlag.x != 0u) return (gValue.y + (gValue.z - gValue.y) * asfloat(gAux0.Load(p * 4))) * gValue.x;
     return fieldAt(0, gValue.x, s, p);
@@ -6502,11 +6288,11 @@ void AffectCS(uint3 id : SV_DispatchThreadID) {
     if (s >= gStrandCount) return;
     const uint begin = strandBegin(s), n = strandCountOf(s);
     const bool perPoint = gFlag.x != 0u || fieldPerPoint(0);
-    const float strandWeight = affectUnit(affectAt(s, begin));
+    const float strandWeight = clamp01(affectAt(s, begin));
     if (!perPoint && strandWeight >= 1.0f) return;
     for (uint i = 0; i < n; ++i) {
         const uint p = begin + i;
-        const float m = perPoint ? affectUnit(affectAt(s, p)) : strandWeight;
+        const float m = perPoint ? clamp01(affectAt(s, p)) : strandWeight;
         if (m >= 1.0f) continue;  // the node's, exactly
         if (gFlag.z != 0u) {
             const float3 was = loadPoint(p);

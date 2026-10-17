@@ -90,6 +90,10 @@ add_executable(groomlab_tests
     engine/core/test_static.cpp
     engine/core/test_tie.cpp
     engine/core/test_wet.cpp
+    engine/core/test_example_node.cpp
+    # The new-node template, built as a test's operator ("TestExample": test_example_node.cpp); its
+    # "internal.h" is example_node/internal.h, which gives it op::kExample.
+    ${PROJECT_SOURCE_DIR}/tools/dev/new_node/example_op.cpp
 )
 target_link_libraries(groomlab_tests PRIVATE groomlab::core groomlab::warnings GTest::gtest_main nlohmann_json::nlohmann_json)
 if(WIN32)
@@ -108,6 +112,8 @@ groomlab_precompile(groomlab_tests <gtest/gtest.h> <nlohmann/json.hpp>)
 set_source_files_properties(engine/core/test_budgets.cpp engine/core/test_budgets_paint.cpp
     engine/core/test_budgets_stroke.cpp engine/core/test_compat.cpp engine/core/test_golden.cpp
     engine/core/test_self_collide.cpp engine/core/test_static.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties(${PROJECT_SOURCE_DIR}/tools/dev/new_node/example_op.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/engine/core/example_node")
 if(TARGET groomlab_alembic)
     target_sources(groomlab_tests PRIVATE engine/io/test_alembic.cpp engine/io/test_import_curves.cpp engine/io/test_sim_cache.cpp engine/io/test_time_determinism.cpp)
     target_link_libraries(groomlab_tests PRIVATE groomlab::alembic Alembic::Alembic)  # tests read files back directly
@@ -175,6 +181,18 @@ else()
     gtest_discover_tests(groomlab_tests DISCOVERY_MODE PRE_TEST TEST_LIST groomlab_core_tests PROPERTIES LABELS quick)
 endif()
 groomlab_label_discovered(groomlab_core_tests quick core)
+
+# tools/dev/new_node.py finds every place a new node goes (it changes nothing with --dry-run).
+find_package(Python3 COMPONENTS Interpreter QUIET)
+set(_tool_python "${Python3_EXECUTABLE}")
+if(NOT _tool_python)
+    set(_tool_python "${GROOMLAB_PYTHON_EXECUTABLE}")
+endif()
+if(_tool_python)
+    add_test(NAME tools.new_node_dry_run
+        COMMAND "${_tool_python}" "${PROJECT_SOURCE_DIR}/tools/dev/new_node.py" ExampleDryRun --category look --gpu --dry-run)
+    set_tests_properties(tools.new_node_dry_run PROPERTIES LABELS "quick;core")
+endif()
 
 # The C API library's parallel backend (engine/core/src/parallel_pool.cpp, the pool of the
 # library's own threads): against groomlab_core_private, the core with that backend.

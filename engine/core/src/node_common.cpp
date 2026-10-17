@@ -226,8 +226,6 @@ AffectKind affectOf(const Operator& op) {
 
 namespace {
 
-float unitOf(float v) { return v >= 0.0f ? (v <= 1.0f ? v : 1.0f) : 0.0f; }  // NaN: 0
-
 bool idChannel(const std::string& name) { return name.size() > 2 && name.compare(name.size() - 2, 2, "Id") == 0; }
 
 }  // namespace
@@ -269,9 +267,8 @@ StrandsPtr applyAffect(const StrandSet& in, const StrandsPtr& out, const ScalarF
     }
     const Vec3f* inPoints = in.positions().data();
     const float* inWidths = in.widths().data();
-    auto mix = [](float a, float b, float m) { return a + (b - a) * m; };
     parallelFor(0, in.strandCount(), [&](std::size_t s) {
-        const float strandWeight = unitOf(affect.at(in, s));
+        const float strandWeight = clamp01(affect.at(in, s));
         // Strand channels by the strand's weight (the root's, for a per-point field).
         if (strandWeight < 1.0f) {
             for (const Channel& c : strandChannels) {
@@ -279,14 +276,14 @@ StrandsPtr applyAffect(const StrandSet& in, const StrandsPtr& out, const ScalarF
                 if (c.id) {
                     if (strandWeight < 0.5f) c.to[s] = from;
                 } else {
-                    c.to[s] = strandWeight <= 0.0f ? from : mix(from, c.to[s], strandWeight);
+                    c.to[s] = strandWeight <= 0.0f ? from : mix1(from, c.to[s], strandWeight);
                 }
             }
         }
         const std::size_t begin = in.strandBegin(s), n = in.strandPointCount(s);
         if (!perPoint && strandWeight >= 1.0f) return;
         for (std::size_t k = 0; k < n; ++k) {
-            const float m = perPoint ? unitOf(affect.atPoint(in, s, k)) : strandWeight;
+            const float m = perPoint ? clamp01(affect.atPoint(in, s, k)) : strandWeight;
             if (m >= 1.0f) continue;  // the node's, exactly
             const std::size_t i = begin + k;
             if (m <= 0.0f) {  // the input's, exactly
@@ -296,10 +293,10 @@ StrandsPtr applyAffect(const StrandSet& in, const StrandsPtr& out, const ScalarF
                 continue;
             }
             if (points) points[i] = inPoints[i] + (points[i] - inPoints[i]) * m;
-            if (outWidths) outWidths[i] = mix(inWidths[i], outWidths[i], m);
+            if (outWidths) outWidths[i] = mix1(inWidths[i], outWidths[i], m);
             for (const Channel& c : pointChannels) {
                 const float from = c.from ? c.from[i] : c.fallback;
-                c.to[i] = c.id ? (m < 0.5f ? from : c.to[i]) : mix(from, c.to[i], m);
+                c.to[i] = c.id ? (m < 0.5f ? from : c.to[i]) : mix1(from, c.to[i], m);
             }
         }
     });

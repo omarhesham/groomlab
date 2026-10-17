@@ -222,7 +222,11 @@ public:
 }  // namespace
 
 void registerGroupOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kGroup, [] { return std::make_unique<GroupOp>(); });
+    registry.registerType(op::kGroup,
+                          {"utility",
+                           "Names a set of strands (a region, a map, an expression, guide groups) for other nodes' affect to restrict them to.",
+                           "region mask selection set"},
+                          [] { return std::make_unique<GroupOp>(); });
 }
 
 }  // namespace groomlab

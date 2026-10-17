@@ -20,6 +20,7 @@
 #include "groomlab/guide_hierarchy.h"
 #include "groomlab/guide_set.h"
 #include "groomlab/map_ref.h"
+#include "groomlab/node_catalog.h"
 #include "groomlab/parts.h"
 #include "groomlab/paths.h"
 #include "groomlab/ramp.h"
@@ -818,15 +819,23 @@ public:
 
     static OperatorRegistry& instance();
 
-    void registerType(const std::string& typeName, Factory factory);
+    // `info`: what the add-node menu and the param panel show of it (node_catalog.h); a test's
+    // own operator may pass {}.
+    void registerType(const std::string& typeName, NodeInfo info, Factory factory);
     // Drops a type (a test's own operator, registered for the test only).
-    void unregisterType(const std::string& typeName) { factories_.erase(typeName); }
+    void unregisterType(const std::string& typeName) { types_.erase(typeName); }
     bool contains(const std::string& typeName) const;
     std::unique_ptr<Operator> create(const std::string& typeName) const;
     std::vector<std::string> typeNames() const;
+    // The info a type registered with; null for a type it does not know.
+    const NodeInfo* info(const std::string& typeName) const;
 
 private:
-    std::map<std::string, Factory> factories_;
+    struct Type {
+        Factory factory;
+        NodeInfo info;
+    };
+    std::map<std::string, Type> types_;
 };
 
 // ---------------------------------------------------------------------------

@@ -33,12 +33,6 @@ namespace {
 
 constexpr double kTwoPi = 6.283185307179586;
 
-std::uint64_t hashDouble(std::uint64_t h, double d) {
-    std::uint64_t bits = 0;
-    std::memcpy(&bits, &d, sizeof bits);
-    return hashCombine(h, bits);
-}
-
 // Turns segment i of a strand toward `target` (unit) by weight w in [0, 1], keeping its length;
 // `prevOriginal` is the segment's start before this strand was touched (the walk reads each
 // original point before it overwrites it).
@@ -745,9 +739,20 @@ double jiggleLoopFrame(double frame, double now, double loopStart, double loopEn
     return wrapped >= loopEnd ? wrapped - frames : wrapped;
 }
 
-void registerMotionOperators(OperatorRegistry& registry) {
-    registry.registerType(op::kWind, [] { return std::make_unique<WindOp>(); });
-    registry.registerType(op::kJiggle, [] { return std::make_unique<JiggleOp>(); });
+void registerWindOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kWind,
+                          {"motion",
+                           "Strands bend along a wind moving through space and time. Play the timeline to see it.",
+                           "breeze air turbulence"},
+                          [] { return std::make_unique<WindOp>(); });
+}
+
+void registerJiggleOperator(OperatorRegistry& registry) {
+    registry.registerType(op::kJiggle,
+                          {"motion",
+                           "Strands lag behind the scalp's motion, overshoot and settle: no simulation cache.",
+                           "secondary lag overshoot follow"},
+                          [] { return std::make_unique<JiggleOp>(); });
 }
 
 }  // namespace groomlab

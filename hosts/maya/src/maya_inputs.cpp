@@ -219,12 +219,6 @@ std::vector<Vec3f> sampleCurveData(const MObject& curveData, unsigned samples) {
 
 namespace {
 
-std::uint64_t hashDouble(std::uint64_t h, double v) {
-    std::uint64_t bits = 0;
-    std::memcpy(&bits, &v, sizeof(bits));
-    return hashCombine(h, bits);
-}
-
 std::uint64_t hashInts(std::uint64_t h, const MIntArray& a) {
     h = hashCombine(h, a.length());
     for (unsigned i = 0; i < a.length(); ++i) h = hashCombine(h, static_cast<std::uint64_t>(static_cast<std::int64_t>(a[i])));

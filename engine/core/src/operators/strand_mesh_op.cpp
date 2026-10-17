@@ -52,7 +52,11 @@ public:
 }  // namespace
 
 void registerStrandMeshOperator(OperatorRegistry& registry) {
-    registry.registerType(op::kStrandMesh, [] { return std::make_unique<StrandMeshOp>(); });
+    registry.registerType(op::kStrandMesh,
+                          {"convert",
+                           "The strands it is handed as a polygon mesh (tubes or ribbons) that follows the animation: Maya's groom outStrandMesh, for Alembic or a renderer without curves.",
+                           "polygon tubes ribbons geometry"},
+                          [] { return std::make_unique<StrandMeshOp>(); });
 }
 
 }  // namespace groomlab
