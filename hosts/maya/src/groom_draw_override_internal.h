@@ -103,12 +103,27 @@ struct DrawTimes {
         double gpuParts[6] = {};
         double gpuMegabytes = 0;  // ... and the megabytes it sent (of `megabytes`)
         bool follow = false;      // points the GPU carried to the scalp (carryOnGpu)
+        // The streams it was bound to (bindGeometry): each name with its vertices, a * where the
+        // buffer is the device's own (a custom handle: the GPU's lines, a GPU preview's).
+        std::string streams;
     };
     double updateMs = 0, buildMs = 0, uploadMs = 0;
     // ... of updateMs: the groom's evaluation pulled (a dab's), the GPU preview's run (applyGpuPreview)
     // and the hair shading's density grid (updateHairGrid).
     double pullMs = 0, previewMs = 0, gridMs = 0, settingsMs = 0, afterMs = 0, lodMs = 0;
     std::map<std::string, Item> items;
+    // Each item's shader as style() left it this update (lastDrawTimesJson "shaders"): its instance,
+    // its kind, GroomLab's hair or not, width as coverage, the coverage the hair shader's draw
+    // callbacks know it by (-1: not one of them), the coverage density and width scale given, and
+    // how many items share the instance.
+    struct Shader {
+        std::uintptr_t instance = 0;
+        int kind = -1;
+        bool hair = false, coverage = false;
+        int registered = -1;
+        float lineDensity = 0.0f, widthScale = 0.0f;
+    };
+    std::map<std::string, Shader> shaders;
     std::uint64_t serial = 0;  // updates that wrote or ran something, counted (tests: a drag draws every step)
 };
 DrawTimes& currentDraw();
@@ -127,6 +142,9 @@ struct LodStats {
     double megabytes = 0.0;   // the indices written
     long long updates = 0;    // updates that drew with it, and of those that wrote indices
     long long rebuilds = 0;
+    long long slotsBound = 0;      // the classes' items bound to the strands' streams, all told
+    std::uint64_t baseSerial = 0;  // the strands' item's last binding the classes drew (boundSerials_)
+    std::size_t staleSlots = 0;    // drawn classes' items bound before it (0)
 };
 LodStats& lastLod();
 DrawTimes& lastDraw();

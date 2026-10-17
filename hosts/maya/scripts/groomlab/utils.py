@@ -317,12 +317,13 @@ def _count(n, word):
 
 
 def transfer_to_scalp(groom, scalp, fit=False, maps=True, color_sets=False, method=None, markers=None,
-                      keep_lengths=False):
+                      keep_lengths=False, fit_size=False):
     """Move the groom onto another scalp mesh (groomlab.transfer_groom: guides, parts and flow
     arrows re-rooted on the new scalp where `method` takes them: "closest" (default), "bounds"
     (what `fit` asks for: the old scalp's bounding box moved and scaled onto the new one's),
     "markersAlign", "markersWarp" (by marker pairs: `markers`, else the ones stored on the groom)
-    or "uv"; `keep_lengths` keeps guide lengths; `maps` projects the painted scalp maps onto it;
+    or "uv"; `keep_lengths` keeps guide lengths; `fit_size` fits the groom to the new scalp's size
+    (its scale grows with the area); `maps` projects the painted scalp maps onto it;
     `color_sets` copies the Maya color sets the graph reads onto the new mesh). One undo step.
 
     Returns {"guides", "parts", "flow": how many moved (parts and flow arrows that fall apart on
@@ -340,7 +341,7 @@ def transfer_to_scalp(groom, scalp, fit=False, maps=True, color_sets=False, meth
     from groomlab.transfer import transfer_method, METHOD_LABELS
     method = transfer_method(method, fit)
     missing = groomlab.transfer_groom(groom, mesh, maps=maps, color_sets=color_sets, report=report, method=method,
-                                      markers=markers, keep_lengths=keep_lengths)
+                                      markers=markers, keep_lengths=keep_lengths, fit_size=fit_size)
     parts = len(groomlab.list_parts(groom))
     flow = len(groomlab.flow_arrows(groom)) + len(groomlab.flow_sinks(groom))
     target = cmds.listRelatives(mesh, parent=True)[0]

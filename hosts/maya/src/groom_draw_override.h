@@ -196,6 +196,11 @@ private:
     void bindGeometry(MHWRender::MRenderItem& item, const MHWRender::MVertexBufferArray& streams,
                       const MHWRender::MIndexBuffer& indices, const MBoundingBox* bounds);
     std::map<std::string, std::vector<std::pair<MString, MHWRender::MVertexBuffer*>>> boundStreams_;
+    // Each item's last binding (bindGeometry), numbered: the level of detail's items bind the
+    // strands' streams again after every binding of theirs (a buffer made anew can take a freed
+    // one's address, and Maya's copy of a staged buffer can move when it is written again).
+    std::uint64_t bindSerial_ = 0;
+    std::map<std::string, std::uint64_t> boundSerials_;
     // The streams an item's shader reads, as its buffers hold them (`positions`, `frames` and
     // `uvs`: other buffers in their place, a GPU preview's), into `streams`.
     static void addStreams(MHWRender::MVertexBufferArray& streams, const ItemBuffers& buffers,
@@ -277,6 +282,10 @@ private:
     // and set on every hair shader of the groom.
     void updateHairGrid(const MHWRender::MFrameContext& context);
     std::uint64_t hairGridKey_ = 0;
+    // The grid's texture read back against the grid the kernels made (HairGroomState textureSum),
+    // written from the CPU where they differ; the texture last checked (its volumeSerial).
+    void checkHairGrid(gpu::LineFrames& engine, HairGroomState& grid, void* target);
+    std::uint64_t hairGridChecked_ = 0;
     // The lit strand color (a hair color, hair_color.h): with useMaterialColor the assigned
     // material's, else a HairColor node's; otherwise displayColor. Walks the shading
     // group, so it runs only when colorDirty_ says something it read changed:
@@ -378,6 +387,12 @@ private:
     std::uint64_t drawnDisplay_ = ~std::uint64_t{0};
     bool drawnVisible_ = true;
     std::uint64_t drawnTheme_ = 0;  // DisplayTheme version
+    // The groom's scale with its scalp the strands were last drawn at (GroomShape::groomScale): another
+    // one (a scalp scaled and frozen) draws the strands afresh, as width as coverage turned off and on
+    // does: their items' shaders acquired again, every stream written, the level of detail and the
+    // self-shadowing grid made again (0: none drawn yet).
+    double drawnScale_ = 0.0;
+    void drawAfreshForScale(MHWRender::MSubSceneContainer& container);
     // Guide point dots, drawn as UI drawables (see addUIDrawables). They face the
     // camera at a constant screen size, so they are rebuilt when the guides, the
     // camera or the viewport size changed (uiDirty_, set by requiresUpdate).
@@ -468,6 +483,7 @@ private:
         std::uint64_t indicesKey = 0;
         MBoundingBox bounds;
         const MHWRender::MRenderItem* item = nullptr;
+        std::uint64_t baseSerial = 0;  // the strands' item's binding it took (boundSerials_)
     };
     std::array<LodBinding, kLodClassCount + 2> lodBound_{};
     // The strands' and the colored strands' lines as last built (the builder keeps none).

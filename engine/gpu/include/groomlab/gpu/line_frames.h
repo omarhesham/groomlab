@@ -153,6 +153,19 @@ public:
     virtual double gpuMs(bool wait) = 0;
     // `count` floats of a target (checks only: blocks on the GPU).
     virtual std::vector<float> read(void* target, std::size_t count) = 0;
+    // The last runDensity's grid summed (each cell's optical density, the sigma it holds), and the
+    // points it splatted (checks only: blocks on the GPU). A grid built again from the same points
+    // sums the same: each run clears it first.
+    double densitySum();
+    std::size_t densityPoints() const { return densityPoints_; }
+    // A density texture's texels (two floats each, rg, x fastest then y then z): `texture` the
+    // host's (a runDensity target, or a view of one), null the engine's own the kernels wrote (and
+    // runDensity copied into the target). Empty where the backend cannot read one (checks only:
+    // blocks on the GPU).
+    virtual std::vector<float> readVolume(void* texture) { (void)texture; return {}; }
+    // A host's density texture written whole from `texels` (as readVolume gives them); false where
+    // the backend cannot (or the sizes differ).
+    virtual bool writeVolume(void* texture, const std::vector<float>& texels) { (void)texture; (void)texels; return false; }
 
     std::size_t strandCount() const { return strands_; }
     std::size_t pointCount() const { return points_; }
@@ -184,8 +197,11 @@ protected:
     // of `cells` cells.
     virtual void dispatchDensity(void* constants, void* positions, void* lineUvs, std::size_t points, std::size_t cells,
                                  const std::uint32_t groups[3][2], void* volume) = 0;
+    // The last density grid's cells (16.16 fixed point), `cells` of them (densitySum).
+    virtual std::vector<std::uint32_t> readDensityGrid(std::size_t cells) = 0;
 
 private:
+    std::size_t densityCells_ = 0, densityPoints_ = 0;
     void dispatchPoints(Kernel kernel, const Binding& binding, const float* values = nullptr, std::uint32_t flag = 0,
                         std::uint32_t flagZ = 0);
     std::size_t strands_ = 0, points_ = 0, uniform_ = 0;

@@ -245,6 +245,7 @@ void GroomSubSceneOverride::updateLod(MHWRender::MSubSceneContainer& container, 
     stats.farLevel = view.farLevel;
     MHWRender::MRenderItem* baseItem = container.find(baseName);
     const auto bound = boundStreams_.find(baseName.asChar());
+    const std::uint64_t baseSerial = boundSerials_[baseName.asChar()];
     stats.level = view.level;
     stats.totalStrands = sel.totalStrands;
     stats.groups = lod_.groupCount();
@@ -372,19 +373,24 @@ void GroomSubSceneOverride::updateLod(MHWRender::MSubSceneContainer& container, 
         shader->setParameter("lineBlend", blended ? 2.0f : slot == kLodBlendOpaqueSlot ? 1.0f : 0.0f);
         shader->setIsTransparent(blended);
         if (blended) item->castsShadows(false);
-        // Bound again only for other streams, indices or a new item: binding a staged buffer
-        // again has Maya send its system-memory copy up, over what a GPU preview wrote into it
-        // (DirectX 11; applyGpuPreview binds the strands' item for the same reason only when needed).
+        // Bound again for other streams, indices or a new item, and after each binding of the
+        // strands' item (the streams it was given then: the same addresses can name buffers made
+        // anew, and a staged buffer written again can be another on the device); not otherwise:
+        // binding a staged buffer again has Maya send its system-memory copy up, over what a GPU
+        // preview wrote into it (DirectX 11; applyGpuPreview binds the strands' item for the same
+        // reason only when needed).
         LodBinding& was = lodBound_[slot];
         const std::uint64_t indicesKey = hashCombine(lodSlotKeys_[std::min(slot, kLodBlendSlot)], reinterpret_cast<std::uintptr_t>(indices.get()));
-        if (!was.valid || was.streams != boundBuffers || was.indicesKey != indicesKey || !was.bounds.contains(bounds.min()) ||
-            !was.bounds.contains(bounds.max()) || item != was.item) {
+        if (!was.valid || was.streams != boundBuffers || was.baseSerial != baseSerial || was.indicesKey != indicesKey ||
+            !was.bounds.contains(bounds.min()) || !was.bounds.contains(bounds.max()) || item != was.item) {
             setGeometryForRenderItem(*item, streams, *indices, &bounds);
             was.valid = true;
             was.streams = boundBuffers;
+            was.baseSerial = baseSerial;
             was.indicesKey = indicesKey;
             was.bounds = bounds;
             was.item = item;
+            ++stats.slotsBound;
         }
         item->enable(true);
         ++drawnItems;
@@ -421,6 +427,11 @@ void GroomSubSceneOverride::updateLod(MHWRender::MSubSceneContainer& container, 
     stats.impostors = axes ? axes->strandCount() : 0;
     stats.blendSegments = sel.blendSegments;
     stats.items = drawnItems;
+    stats.baseSerial = baseSerial;
+    stats.staleSlots = 0;  // (drawn slots bound before the strands' item's last binding: none, by the above)
+    for (std::size_t slot = 0; slot < lodBound_.size(); ++slot) {
+        if (lodShaders_[slot] && container.find(lodItemName(slot)) && lodBound_[slot].baseSerial != baseSerial) ++stats.staleSlots;
+    }
     stats.indicesMs = indicesMs;
     stats.megabytes = megabytes;
     ++stats.updates;

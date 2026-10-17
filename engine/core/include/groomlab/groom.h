@@ -17,6 +17,15 @@
 
 namespace groomlab {
 
+// What a groom's scale (GroomSession::groomScale) follows: the scalp's surface area (survives
+// Freeze Transformations and re-meshing at the same size; a remodel that changes the area changes
+// it), the scalp's transform scale alone (survives remodelling; a freeze resets a transform's
+// scale, so it does not survive Freeze Transformations), or nothing (the groom keeps its sizes).
+enum class ScaleSource { Area, Transform, Off };
+// "area", "transform", "off"; and back (anything else: Area).
+const char* scaleSourceName(ScaleSource source);
+ScaleSource scaleSourceFromName(const std::string& name);
+
 struct GroomData {
     std::string graphJson;      // empty or "{}": the default graph
     std::string hierarchyJson;  // GuideHierarchy::toJson; empty: no hierarchy
@@ -52,6 +61,18 @@ struct GroomData {
     // rest pose and carry each strand to the scalp by its root's frame. Off: on the scalp as it is.
     // Stored in groom files ("followScalp": true).
     bool followScalp = false;
+    // Scale with the scalp (GroomSession::groomScale): the groom is evaluated `k` times its size.
+    // What k follows (ScaleSource): the scalp's surface area (k = sqrt(scalp area / scaleReference),
+    // the area measured on the scalp's rest pose, else the scalp as it is), its transform's scale
+    // alone (k = the host's transform scale / scaleTransformReference), or nothing (k = 1). Stored
+    // in groom files ("scaleSource": "transform" or "off", written when not "area").
+    ScaleSource scaleSource = ScaleSource::Area;
+    // The scalp area the groom is at 1x in (scene units squared); 0: not set, the first area the
+    // session measures is (k = 1 then). Stored in groom files ("scaleReference", written when set).
+    double scaleReference = 0.0;
+    // The transform scale the groom is at 1x in (ScaleSource::Transform); 0: not set, the first one
+    // the host hands in is. Stored in groom files ("scaleTransformReference", written when set).
+    double scaleTransformReference = 0.0;
 };
 
 // Registers the external inputs the graph reads: "scalp", "guides",

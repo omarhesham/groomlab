@@ -82,6 +82,18 @@ void GroomSubSceneOverride::bindGeometry(MHWRender::MRenderItem& item, const MHW
     std::vector<std::pair<MString, MHWRender::MVertexBuffer*>>& kept = boundStreams_[item.name().asChar()];
     kept.clear();
     for (unsigned i = 0; i < streams.count(); ++i) kept.emplace_back(streams.getName(i), streams.getBuffer(i));
+    boundSerials_[item.name().asChar()] = ++bindSerial_;
+    const auto timed = currentDraw().items.find(item.name().asChar());
+    if (timed != currentDraw().items.end()) {
+        std::string& out = timed->second.streams;
+        out.clear();
+        for (const auto& [streamName, buffer] : kept) {
+            if (!out.empty()) out += ' ';
+            out += streamName.asChar();
+            if (!buffer) continue;
+            out += buffer->hasCustomResourceHandle() ? std::string("*") : ":" + std::to_string(buffer->vertexCount());
+        }
+    }
     setGeometryForRenderItem(item, streams, indices, bounds);
 }
 

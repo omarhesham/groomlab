@@ -456,7 +456,7 @@ public:
         return true;
     }
 
-    Value evaluate(const EvalContext&, const std::vector<Value>& inputs) const override {
+    Value evaluate(const EvalContext& ctx, const std::vector<Value>& inputs) const override {
         const StrandsPtr in = requireStrands(inputs, op::kResample);
         const auto segments = static_cast<int>(params().getInt("segments"));
         const std::string mode = params().getString("mode");
@@ -501,7 +501,7 @@ public:
                 const std::size_t at = std::min(sorted.size() - 1, static_cast<std::size_t>(0.95f * static_cast<float>(sorted.size())));
                 std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(at), sorted.end());
                 // The long ones (not a stray), in 1% steps: a few strands' lengths changing keeps it.
-                const float reference = roundToPercentStep(std::max(sorted[at], 1e-9f));
+                const float reference = roundToPercentStep(std::max(sorted[at], 1e-9f), ctx.scale);
                 for (std::size_t s = 0; s < count; ++s) {
                     points[s] = static_cast<std::size_t>(std::clamp(
                                     static_cast<int>(std::lround(static_cast<float>(most) * need[s] / reference)), least, most)) + 1;

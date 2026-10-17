@@ -332,4 +332,19 @@ inline Vec3f restRootOr(const ScalpMesh* scalp, const StrandRoot& root, const Ve
     return scalp ? scalp->restPositionOr(root, fallback) : fallback;
 }
 
+// The surface area of the rest pose (the mesh as it is without one), summed in double: what a groom
+// scaled with its scalp measures (GroomSession::groomScale).
+double restSurfaceArea(const ScalpMesh& scalp);
+// `scalp` with its rest pose scaled about the rest points' center to `area` (scene units squared):
+// a host whose rest mesh does not take the scalp's scale (Maya's rest is the mesh's own points
+// placed once; a rig scaled at its root leaves the bound mesh's original shape as it was) gives
+// the area it measured on the scalp, so the groom scales with the scalp and the strands stay as
+// many. The same pointer without a rest pose, for an area that is not positive, and within 1e-6.
+std::shared_ptr<const ScalpMesh> withRestArea(const std::shared_ptr<const ScalpMesh>& scalp, double area);
+// The area of `triangles` on `points` (double), and the points scaled about their center to
+// `area` (false: left as they are: no area, or within 1e-6): withRestArea's, for a host handing a
+// rest pose's points alone (GroomSession::updateScalpPoints).
+double surfaceArea(const std::vector<Vec3f>& points, const std::vector<ScalpMesh::Triangle>& triangles);
+bool scaleToArea(std::vector<Vec3f>& points, const std::vector<ScalpMesh::Triangle>& triangles, double area);
+
 }  // namespace groomlab

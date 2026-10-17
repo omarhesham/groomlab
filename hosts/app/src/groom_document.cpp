@@ -456,6 +456,18 @@ void GroomDocument::setFollowScalp(bool on) {
     dirty_ = true;
 }
 
+void GroomDocument::setScaleSource(ScaleSource source) {
+    if (session().scaleSource() == source) return;
+    session().setScaleSource(source);
+    dirty_ = true;
+}
+
+void GroomDocument::setScaleReference() {
+    if (!(session().scaleArea() > 0.0) || session().scaleReference() == session().scaleArea()) return;
+    session().setScaleReference(session().scaleArea());
+    dirty_ = true;
+}
+
 void GroomDocument::loadGraph(const std::string& text) {
     try {
         // The core writes what it evaluates, with the editors' layout (each node's "ui", the
@@ -633,7 +645,9 @@ std::string GroomDocument::addNode(const std::string& type, float x, float y, st
     if (made) *made = chosen;
     // Its defaults that measure something fitted to the scalp, as a preset's are.
     const MeshPtr& scalp = file().data.scalp;
-    const std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
+    // (At the size the params are at: the groom's 1x when it is scaled with its scalp.)
+    std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
+    if (size) *size /= session().groomScale();
     return editGraph("add " + chosen, [&](json& g) {
         GraphEdit edit(g.dump());
         edit.addNode(type, chosen, {}, x, y, size);
@@ -781,6 +795,8 @@ std::string GroomDocument::transferToScalp(MeshPtr scalp, const TransferOptions&
     const MeshPtr from = scene_->file().data.scalp;
     if (!from || from->triangleCount() == 0) return "the groom has no scalp to move from";
     TransferOptions options = given;
+    // Fitting the size: the groom's scale grows the guides about their roots; the mapping only turns them.
+    if (options.fitSize && session().scaleWithScalp()) options.keepLengths = true;
     if (usesMarkers(options.method) && options.markers.empty()) options.markers = transferMarkers();
     std::unique_ptr<ScalpMapping> mapping;
     try {
@@ -797,6 +813,7 @@ std::string GroomDocument::transferToScalp(MeshPtr scalp, const TransferOptions&
         // The guides, parts and flow re-rooted (the core's transfer, Maya's groomLabTransfer's).
         if (!file.data.hierarchyJson.empty()) {
             GuideHierarchy h = GuideHierarchy::fromJson(file.data.hierarchyJson);
+            h.setScale(static_cast<float>(session().groomScale()));  // moved as shown: the groom keeps its scale
             h.transfer(*mapping);
             file.data.hierarchyJson = h.toJson();
         }
@@ -873,6 +890,14 @@ std::string GroomDocument::transferToScalp(MeshPtr scalp, const TransferOptions&
     file.guideCache = {};
     file.simCaches.clear();  // nor the simulation's bakes (made on the other scalp)
     file.data.followScalp = false;
+    // The groom keeps the scale it had (the guides moved as shown): the new scalp is k times its 1x.
+    // Fitting the size: k grows with the area (the new scalp the old one resized).
+    double target = session().groomScale();
+    if (options.fitSize && session().scaleWithScalp()) {
+        const double before = restSurfaceArea(*from), after = restSurfaceArea(*mesh);
+        if (before > 0.0 && after > 0.0) target *= std::sqrt(after / before);
+    }
+    file.data.scaleReference = restSurfaceArea(*mesh) / (target * target);
     file.data.scalpFingerprint = mesh->topologyFingerprint();  // the groom is on this scalp now
     try {
         scene_ = std::make_unique<GroomScene>(std::move(file));
@@ -1454,6 +1479,10 @@ GroomFile GroomDocument::currentFile() const {
         }
     }
     file.data.followScalp = data.followScalp;
+    // Scaling with the scalp: the reference in use (the first area measured when the file had none).
+    file.data.scaleSource = data.scaleSource;
+    file.data.scaleReference = session().scaleReference();
+    file.data.scaleTransformReference = data.scaleTransformReference;
     file.simCaches = simBakes_;
     return file;
 }

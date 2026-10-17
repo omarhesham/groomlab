@@ -690,7 +690,7 @@ private:
                 guardLength = std::numeric_limits<float>::infinity();
             } else {
                 std::nth_element(lengths.begin(), lengths.begin() + static_cast<std::ptrdiff_t>(rank), lengths.end());
-                guardLength = roundToPercentStep(lengths[rank]);  // in 1% steps: a few strands changing keeps it
+                guardLength = roundToPercentStep(lengths[rank], ctx.scale);  // in 1% steps: a few strands changing keeps it
             }
         }
 

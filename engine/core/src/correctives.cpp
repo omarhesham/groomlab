@@ -141,6 +141,7 @@ Correctives Correctives::fromJson(const std::string& text) {
 }
 
 void Correctives::apply(GuideHierarchy& h, double seconds, const ScalpMesh* scalp, const std::set<GuideId>* skipOwn) const {
+    const float scale = h.scale();  // offsets are kept at the groom's own size (GuideHierarchy::setScale)
     for (const auto& [depth, ids] : correctedByDepth(h, layers, seconds)) {
         std::vector<GuideId> moved;
         for (const GuideId id : ids) {
@@ -156,7 +157,7 @@ void Correctives::apply(GuideHierarchy& h, double seconds, const ScalpMesh* scal
                 auto it = l.offsets.find(id);
                 if (w <= 0.0f || it == l.offsets.end()) continue;
                 const std::size_t m = std::min(n, it->second.size());
-                for (std::size_t k = 0; k < m; ++k) pts[k] += frames[k].toWorld(it->second[k]) * w;
+                for (std::size_t k = 0; k < m; ++k) pts[k] += frames[k].toWorld(it->second[k] * scale) * w;
                 any = true;
             }
             if (!any) continue;
@@ -182,6 +183,7 @@ std::vector<GuideId> Correctives::record(const std::string& name, const GuideHie
                                     "(and key it) to sculpt here");
     }
     std::vector<GuideId> recorded;
+    const float scale = posed.scale();  // offsets are kept at the groom's own size (GuideHierarchy::setScale)
     const int deepest = posed.maxDepth();
     // Level by level: what a level's guides would be once the levels above are recorded.
     for (int depth = 0; depth <= deepest; ++depth) {
@@ -213,7 +215,7 @@ std::vector<GuideId> Correctives::record(const std::string& name, const GuideHie
             std::vector<Vec3f>& mine = target->offsets[id];
             mine.resize(n);
             for (std::size_t k = 0; k < n; ++k) {
-                Vec3f local = frames[k].toLocal(s.points[k] - b.points[k]);  // every layer's share
+                Vec3f local = frames[k].toLocal(s.points[k] - b.points[k]) * (1.0f / scale);  // every layer's share, at the groom's own size
                 for (const CorrectiveLayer& other : layers) {
                     if (&other == target) continue;
                     auto it = other.offsets.find(id);

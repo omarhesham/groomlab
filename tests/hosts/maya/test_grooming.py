@@ -3326,8 +3326,9 @@ class ControlsAndExamplesTest(unittest.TestCase):
                 self.assertAlmostEqual(model.param(made, "width"), 0.007, places=9)  # a head: as authored
         finally:
             cmds.currentUnit(linear="cm")
-        # Scaling the scalp's transform: the hair grows on the scaled skin at the same density per
-        # unit area seen (world space), and the fitted size follows it.
+        # Scaling the scalp's transform: the groom scales with it (scaleSource Surface Area, the default):
+        # as many strands on the bigger skin, and presets and new nodes fit the size the params
+        # are at (the groom's 1x).
         graph = {"version": 1, "output": "output",
                  "nodes": [{"name": "scalp", "type": "Scalp"}, {"name": "scatter", "type": "Scatter", "params": {"density": 4.0}},
                            {"name": "output", "type": "Output"}],
@@ -3339,6 +3340,13 @@ class ControlsAndExamplesTest(unittest.TestCase):
         strands = cmds.getAttr(groom + ".outStrandCount")
         self.assertAlmostEqual(strands / area, 4.0, delta=0.1)
         cmds.setAttr(sphere + ".scale", 3, 3, 3)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 3.0, places=3)
+        self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), strands)
+        self.assertAlmostEqual(presets.scalp_size(groom), 20.0, places=2)
+        # Off: the hair grows on the scaled skin at the same density per unit area seen (world
+        # space), and the fitted size follows the scalp.
+        groomlab.set_scale_with_scalp(groom, False)
+        self.assertEqual(cmds.getAttr(groom + ".groomScale"), 1.0)
         self.assertAlmostEqual(cmds.getAttr(groom + ".outStrandCount") / cmds.polyEvaluate(sphere, worldArea=True), 4.0, delta=0.1)
         self.assertAlmostEqual(presets.scalp_size(groom), 60.0, places=2)
         # Create Groom fits the default graph to the scalp: a 2 m creature's strands 10x as long.
@@ -3360,6 +3368,230 @@ class ControlsAndExamplesTest(unittest.TestCase):
         self.assertIn({"from": "flow", "to": node, "input": "strands"}, graph["connections"])
         self.assertEqual(groomlab.errors(groom), [])
 
+
+
+class ScaleWithScalpTest(unittest.TestCase):
+    """Scale with the scalp (scaleSource): the groom grows with its scalp like a child object.
+    The scalp's world surface area at the start frame against the area it was groomed at gives the
+    scale k; the result is the groom at 1x scaled by k about the scalp's pivot, as many strands."""
+
+    GRAPH = {"version": 1, "output": "output",
+             "nodes": [{"name": "scalp", "type": "Scalp"}, {"name": "guides", "type": "Guides"},
+                       {"name": "scatter", "type": "Scatter", "params": {"density": 3.0, "length": 2.0}},
+                       {"name": "interpolate", "type": "Interpolate"},
+                       {"name": "clump", "type": "Clump", "params": {"size": 0.8}},
+                       {"name": "width", "type": "Width", "params": {"width": 0.02}},
+                       {"name": "output", "type": "Output"}],
+             "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"},
+                             {"from": "scatter", "to": "interpolate", "input": "strands"},
+                             {"from": "guides", "to": "interpolate", "input": "guides"},
+                             {"from": "scalp", "to": "interpolate", "input": "scalp"},
+                             {"from": "interpolate", "to": "clump", "input": "strands"},
+                             {"from": "clump", "to": "width", "input": "strands"},
+                             {"from": "width", "to": "output", "input": "strands"}]}
+
+    @classmethod
+    def setUpClass(cls):
+        cmds.loadPlugin(PLUGIN_PATH, quiet=True)
+
+    def setUp(self):
+        cmds.file(new=True, force=True)
+        cmds.currentTime(1)
+
+    def make(self, scalp):
+        """A groom on `scalp` (at the origin) with two guides and GRAPH, every strand shown."""
+        groom = groomlab.create_groom(scalp)
+        curves = [cmds.curve(point=[(0, 4.9, 0), (0.3, 6.5, 0.2), (0.8, 8.0, 0.5)], degree=1),
+                  cmds.curve(point=[(4.9, 0, 0), (6.5, 0.3, 0.1), (8.0, -0.5, 0.4)], degree=1)]
+        groomlab.guides_from_curves(groom, curves)
+        cmds.delete(curves)
+        groomlab.set_graph(groom, self.GRAPH)
+        cmds.setAttr(groom + ".previewDensity", 1.0)
+        return groom
+
+    def sphere(self, name="head"):
+        return cmds.polySphere(radius=5, subdivisionsX=24, subdivisionsY=12, name=name)[0]
+
+    def assertScaledBy(self, groom, base, k, what):
+        from groomlab.exports import viewport_points
+        now = viewport_points(groom)
+        self.assertEqual(len(now), len(base), what + ": as many strand points")
+        worst = max(_dist(q, tuple(c * k for c in p)) for p, q in zip(base, now))
+        self.assertLess(worst, 1e-3 * 10 * k, what + ": the 1x groom scaled by %g (off by %g)" % (k, worst))
+
+    def test_a_scaled_transform_scales_the_groom_and_freezing_it_does_not_pop(self):
+        from groomlab.exports import viewport_points
+        head = self.sphere()
+        groom = self.make(head)
+        base = viewport_points(groom)
+        guides = guide_points(groom)
+        stored = cmds.getAttr(groom + ".guideData")
+        strands = cmds.getAttr(groom + ".outStrandCount")
+        self.assertGreater(strands, 100)
+        self.assertEqual(cmds.getAttr(groom + ".groomScale"), 1.0)
+        for k in (0.5, 2.0):
+            cmds.setAttr(head + ".scale", k, k, k)
+            self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), k, places=3)
+            self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), strands)
+            self.assertScaledBy(groom, base, k, "transform x%g" % k)
+            # The guides as the tools see them are scaled too; what is stored stays.
+            for gid, points in guide_points(groom).items():
+                self.assertLess(max(_dist(q, tuple(c * k for c in p)) for p, q in zip(guides[gid], points)), 1e-3)
+            self.assertEqual(cmds.getAttr(groom + ".guideData"), stored)
+        # Freeze transforms: the scale goes into the points, the transform back to 1: no pop.
+        frozen = viewport_points(groom)
+        cmds.makeIdentity(head, apply=True, scale=True)
+        self.assertEqual(cmds.getAttr(head + ".scale")[0], (1.0, 1.0, 1.0))
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        self.assertLess(max(_dist(p, q) for p, q in zip(frozen, viewport_points(groom))), 1e-3, "frozen: the same groom")
+        # Set Scale Reference: the size now is 1x (the params' sizes in scene units again).
+        groomlab.set_scale_reference(groom)
+        self.assertEqual(cmds.getAttr(groom + ".groomScale"), 1.0)
+        self.assertGreater(cmds.getAttr(groom + ".outStrandCount"), 3 * strands, "the same density on 4x the skin")
+        # Off: today's absolute sizes whatever the scalp's size.
+        cmds.setAttr(groom + ".scaleReference", 0.0)
+        groomlab.set_scale_with_scalp(groom, False)
+        self.assertEqual(cmds.getAttr(groom + ".groomScale"), 1.0)
+
+    def test_a_guide_added_on_the_scaled_groom_is_stored_at_1x(self):
+        head = self.sphere()
+        groom = self.make(head)
+        cmds.setAttr(head + ".scale", 2, 2, 2)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        curve = cmds.curve(point=[(0, -9.9, 0), (0.2, -12.0, 0.3), (0.4, -14.0, 0.6)], degree=1)
+        added = groomlab.guides_from_curves(groom, [curve])
+        cmds.delete(curve)
+        length = lambda pts: sum(_dist(a, b) for a, b in zip(pts, pts[1:]))
+        at2 = length(guide_points(groom)[str(added[0])])
+        self.assertAlmostEqual(at2, 4.13, delta=0.1, msg="shown as drawn")
+        cmds.setAttr(head + ".scale", 1, 1, 1)
+        self.assertAlmostEqual(length(guide_points(groom)[str(added[0])]), at2 / 2.0, delta=0.01)
+
+    def test_another_resolution_of_the_same_surface_keeps_1x(self):
+        coarse = cmds.polyPlane(width=10, height=10, subdivisionsX=4, subdivisionsY=4)[0]
+        fine = cmds.polyPlane(width=10, height=10, subdivisionsX=20, subdivisionsY=20)[0]
+        groom = groomlab.create_groom(coarse)
+        cmds.getAttr(groom + ".outStrandCount")
+        cmds.connectAttr(fine + ".worldMesh[0]", groom + ".inMesh", force=True)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4)
+
+    def test_a_squash_deformer_keeps_one_scale_on_every_frame(self):
+        head = self.sphere()
+        squash, _ = cmds.nonLinear(head, type="squash")
+        cmds.setKeyframe(squash, attribute="factor", time=1, value=0.0)
+        cmds.setKeyframe(squash, attribute="factor", time=10, value=-0.6)
+        groom = self.make(head)
+        self.assertTrue(groomlab.rest_mesh(groom), "a deformed scalp gets its rest mesh")
+        strands = cmds.getAttr(groom + ".outStrandCount")
+        for frame in (1, 4, 10, 6, 1):
+            cmds.currentTime(frame)
+            self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4, msg="frame %d" % frame)
+            self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), strands, "frame %d" % frame)
+
+    def test_a_rig_scaled_at_its_root_scales_the_groom(self):
+        # A skinned scalp: the rig's root joint scales the bound mesh, its original shape (the rest
+        # mesh) stays as it was. Measured on the bound mesh at the start frame, the groom scales.
+        from groomlab.exports import viewport_points
+        head = self.sphere()
+        cmds.select(clear=True)
+        root = cmds.joint(position=(0, 0, 0), name="root")
+        cmds.skinCluster(root, head, toSelectedBones=False)
+        groom = self.make(head)
+        self.assertTrue(groomlab.rest_mesh(groom))
+        base = viewport_points(groom)
+        strands = cmds.getAttr(groom + ".outStrandCount")
+        cmds.setAttr(root + ".scale", 2, 2, 2)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), strands)
+        self.assertScaledBy(groom, base, 2.0, "root joint x2")
+        # Scaled at another frame (the time standing): measured at the start frame all the same.
+        cmds.currentTime(5)
+        cmds.setAttr(root + ".scale", 1.5, 1.5, 1.5)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.5, places=3)
+        self.assertScaledBy(groom, base, 1.5, "root joint x1.5 at frame 5")
+
+    def test_a_save_stores_the_reference_and_a_groom_file_keeps_it(self):
+        head = self.sphere()
+        groom = self.make(head)
+        cmds.getAttr(groom + ".outStrandCount")
+        self.assertEqual(cmds.getAttr(groom + ".scaleReference"), 0.0, "the first size measured is 1x")
+        cmds.setAttr(head + ".scale", 2, 2, 2)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        folder = tempfile.mkdtemp(prefix="groomlab_scale_")
+        path = os.path.join(folder, "scaled.ma").replace("\\", "/")
+        cmds.file(rename=path)
+        cmds.file(save=True, type="mayaAscii", force=True)  # the plugin's before-save stores the reference
+        area = cmds.polyEvaluate(head, worldArea=True) / 4.0
+        self.assertAlmostEqual(cmds.getAttr(groom + ".scaleReference") / area, 1.0, delta=0.01)
+        cmds.file(path, open=True, force=True)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        groom_path = os.path.join(folder, "scaled.groom").replace("\\", "/")
+        groomlab.export_groom(groom, groom_path)
+        with open(groom_path) as f:
+            data = json.load(f)
+        self.assertAlmostEqual(data["scaleReference"] / area, 1.0, delta=0.01)
+        self.assertNotIn("scaleSource", data, "written only when not area")
+
+    def test_transform_only_follows_the_transform_and_leaves_a_remodel(self):
+        head = self.sphere()
+        groom = self.make(head)
+        groomlab.set_scale_source(groom, "transform")
+        self.assertEqual(groomlab.scale_source(groom), "transform")
+        self.assertEqual(cmds.getAttr(groom + ".groomScale"), 1.0)
+        # A remodel: the points 20% more area (the transform as it was): Transform Only leaves the groom...
+        grow = math.sqrt(1.2)
+        cmds.scale(grow, grow, grow, head + ".vtx[*]", pivot=(0, 0, 0))
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4)
+        # ...Surface Area follows it (and says so once).
+        groomlab.set_scale_source(groom, "area")
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), grow, places=3)
+        groomlab.set_scale_source(groom, "transform")
+        # The transform scaled 2x: k 2. Frozen: the transform's scale is 1 again, so is k (Transform
+        # Only does not survive Freeze Transformations; Surface Area does).
+        cmds.setAttr(head + ".scale", 2, 2, 2)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        cmds.makeIdentity(head, apply=True, scale=True)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=3)
+        groomlab.set_scale_source(groom, "area")
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0 * grow, places=3)
+        # Set Scale Reference takes both: 1x at the size and the transform now.
+        groomlab.set_scale_reference(groom)
+        groomlab.set_scale_source(groom, "transform")
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4)
+        groomlab.set_scale_source(groom, "off")
+        self.assertEqual(cmds.getAttr(groom + ".groomScale"), 1.0)
+
+    def test_transform_only_follows_a_rigs_root_joint(self):
+        head = self.sphere()
+        cmds.select(clear=True)
+        root = cmds.joint(position=(0, 0, 0), name="root")
+        cmds.skinCluster(root, head, toSelectedBones=False)
+        groom = self.make(head)
+        groomlab.set_scale_source(groom, "transform")
+        cmds.getAttr(groom + ".outStrandCount")
+        cmds.setAttr(root + ".scale", 2, 2, 2)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+
+    def test_a_transfer_fitting_the_size_matches_the_groom_scaled(self):
+        from groomlab.exports import viewport_points
+        # The groom on a 1x head moved onto a copy twice the size (frozen; by UV: the same place on
+        # it): fitted, it is the groom scaled 2x; not, it keeps its sizes.
+        head = self.sphere()
+        groom = self.make(head)
+        base = viewport_points(groom)
+        strands = cmds.getAttr(groom + ".outStrandCount")
+        big = cmds.duplicate(head, name="bigHead")[0]
+        cmds.setAttr(big + ".scale", 2, 2, 2)
+        cmds.makeIdentity(big, apply=True, scale=True)
+        groomlab.transfer_groom(groom, big, fit_size=True, maps=False, method="uv")
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), strands)
+        self.assertScaledBy(groom, base, 2.0, "fitted to a head twice the size")
+        cmds.undo()
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4)
+        groomlab.transfer_groom(groom, big, maps=False, method="uv")
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4)
+        self.assertGreater(cmds.getAttr(groom + ".outStrandCount"), 3 * strands, "its sizes kept: 4x the skin")
 
 
 class AssetFilesTest(unittest.TestCase):

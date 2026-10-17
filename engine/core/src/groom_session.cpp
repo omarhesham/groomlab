@@ -6,6 +6,7 @@
 #include <chrono>
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -28,6 +29,7 @@
 #include "groomlab/operators.h"
 #include "groomlab/operator_state.h"
 #include "groomlab/parts.h"
+#include "groomlab/presets.h"
 #include "groomlab/paths.h"
 #include "groomlab/random.h"
 #include "groomlab/scalp_paint.h"
@@ -217,12 +219,14 @@ GroomSession::GroomSession() {
 
 GroomSession::GroomSession(GroomData data) : data_(std::move(data)) {
     // Every text parses or the session is not made (the parsers' own messages).
-    parsed_ = std::make_unique<GraphDocument>(loadGraphJson(data_.graphJson));
+    parsed_ = std::make_unique<GraphDocument>(loadGraphJson(data_.graphJson));  // as stored: its errors are its own
     doc_ = std::make_unique<GraphDocument>(parsed_->clone());
     graphSet_ = true;
     if (!blank(data_.hierarchyJson)) {
-        parsedHierarchy_ = std::make_shared<const GuideHierarchy>(GuideHierarchy::fromJson(data_.hierarchyJson));
+        rawHierarchy_ = std::make_shared<const GuideHierarchy>(GuideHierarchy::fromJson(data_.hierarchyJson));
+        parsedHierarchy_ = rawHierarchy_;
     }
+    refreshScale();  // the scalp's size: the graph and guides at it
     hierarchySet_ = true;
     hierarchyFromText_ = true;
     ++parsedVersion_;
@@ -258,9 +262,22 @@ void GroomSession::setScalpFingerprint(std::uint64_t fingerprint) {
     fingerprintKey_ = 0;
 }
 
+std::unique_ptr<GraphDocument> GroomSession::parseScaled(const std::string& graphJson) const {
+    if (groomScale_ == 1.0) return std::make_unique<GraphDocument>(loadGraphJson(graphJson));
+    loadGraphJson(graphJson);  // a graph that does not load says why as it is stored, not scaled
+    return std::make_unique<GraphDocument>(loadGraphJson(scaleGraphJson(graphJson, groomScale_)));
+}
+
 void GroomSession::setGraphJson(const std::string& graphJson) {
     if (graphSet_ && graphJson == data_.graphJson) return;
-    auto parsed = std::make_unique<GraphDocument>(loadGraphJson(graphJson));  // throws before anything changes
+    installGraph(parseScaled(graphJson));  // throws before anything changes
+    controlFactors_ = controlScaleFactors(graphJson, groomScale_);
+    data_.graphJson = graphJson;
+    graphSet_ = true;
+    graphError_.clear();
+}
+
+void GroomSession::installGraph(std::unique_ptr<GraphDocument> parsed) {
     // Each document is a clone of the one parse (no cached results), taking its old one's cache.
     auto adopt = [&](std::unique_ptr<GraphDocument>& old) {
         auto doc = std::make_unique<GraphDocument>(parsed->clone());
@@ -280,9 +297,126 @@ void GroomSession::setGraphJson(const std::string& graphJson) {
     for (auto& [density, doc] : meshDocs_) adopt(doc);
     restPose_ = std::move(rest);
     parsed_ = std::move(parsed);
-    data_.graphJson = graphJson;
-    graphSet_ = true;
-    graphError_.clear();
+}
+
+// ---- Scaling with the scalp -----------------------------------------------------------------------
+
+void GroomSession::setScaleSource(ScaleSource source) {
+    if (source == data_.scaleSource) return;
+    data_.scaleSource = source;
+    refreshScale();
+}
+
+void GroomSession::setScaleWithScalp(bool on) {
+    if (on == scaleWithScalp()) return;
+    setScaleSource(on ? ScaleSource::Area : ScaleSource::Off);
+}
+
+void GroomSession::setScaleTransform(double scale) {
+    if (!(scale > 0.0) || !std::isfinite(scale)) scale = 0.0;
+    if (scale == scaleTransform_) return;
+    scaleTransform_ = scale;
+    if (firstTransform_ <= 0.0) firstTransform_ = scale;
+    // Surface Area: taken with the scalp handed in next (setScalp), so a scaled transform and the
+    // area it gives arrive together (scaleNotice tells the two apart).
+    if (data_.scaleSource == ScaleSource::Transform) refreshScale();
+}
+
+void GroomSession::setScaleTransformReference(double scale) {
+    if (!(scale > 0.0) || !std::isfinite(scale)) scale = 0.0;
+    if (scale == data_.scaleTransformReference) return;
+    data_.scaleTransformReference = scale;
+    refreshScale();
+}
+
+void GroomSession::setScaleReference(double area) {
+    if (!(area > 0.0) || !std::isfinite(area)) area = 0.0;
+    if (area == data_.scaleReference) return;
+    data_.scaleReference = area;
+    refreshScale();
+}
+
+void GroomSession::refreshScale() {
+    // The rest pose's area (the scalp's own without one): the same on every frame of a deforming
+    // scalp, and for a transform's scale and the same scale frozen into the points.
+    scaleArea_ = data_.scalp ? restSurfaceArea(*data_.scalp) : 0.0;
+    if (!(scaleArea_ > 0.0) || !std::isfinite(scaleArea_)) scaleArea_ = 0.0;
+    if (firstArea_ <= 0.0) firstArea_ = scaleArea_;
+    const double reference = scaleReference();
+    const bool areaKnown = scaleArea_ > 0.0 && reference > 0.0;
+    double k = 1.0;
+    switch (data_.scaleSource) {
+        case ScaleSource::Off: break;
+        case ScaleSource::Area:
+            if (!areaKnown) return;  // no scalp (for now): k as it was
+            k = std::sqrt(scaleArea_ / reference);
+            break;
+        case ScaleSource::Transform:
+            if (scaleTransform_ > 0.0) {
+                const double from = scaleTransformReference();
+                if (!(from > 0.0)) return;
+                k = scaleTransform_ / from;
+            } else {
+                // A host without transforms: k as the area gives it on the first measure, then kept
+                // (a remodel, another scalp leave it).
+                if (scaleMeasured_ || !areaKnown) return;
+                k = std::sqrt(scaleArea_ / reference);
+            }
+            break;
+    }
+    if (!std::isfinite(k) || k <= 0.0) k = 1.0;
+    if (std::abs(k - 1.0) < 1e-4) k = 1.0;
+    // What k was worked out from before: k changing with the area while the transform scale stands
+    // is the scalp's own size changing (an edit, a remodel, another scalp), said once (scaleNotice).
+    const double areaBefore = measuredArea_, transformBefore = measuredTransform_, kBefore = groomScale_;
+    const bool measuredBefore = scaleMeasured_;
+    if (data_.scaleSource != ScaleSource::Off) {
+        measuredArea_ = scaleArea_;
+        measuredTransform_ = scaleTransform_;
+        scaleMeasured_ = true;
+    }
+    if (std::abs(k / groomScale_ - 1.0) < 1e-4) return;  // the same k, or a moving scalp's float noise
+    if (data_.scaleSource == ScaleSource::Area && measuredBefore && areaBefore > 0.0 &&
+        std::abs(scaleArea_ / areaBefore - 1.0) > 1e-4 &&
+        std::abs(scaleTransform_ - transformBefore) <= 1e-4 * std::max(std::abs(transformBefore), 1e-12)) {
+        char line[200];
+        std::snprintf(line, sizeof line, "GroomLab: the scalp's area changed %.0f%%: the groom scaled x%.2f. Set Scale Reference to keep its sizes.",
+                      std::abs(scaleArea_ / areaBefore - 1.0) * 100.0, k / kBefore);
+        scaleNotice_ = line;
+        ++scaleNoticeSerial_;
+    }
+    groomScale_ = k;
+    controlFactors_ = controlScaleFactors(data_.graphJson, k);
+    if (parsed_ && graphError_.empty()) {
+        try {
+            installGraph(parseScaled(data_.graphJson));
+        } catch (const std::exception&) {
+            // It loaded at the last k: the scaled text loads too (only numbers change).
+        }
+    }
+    scaleHierarchy();
+}
+
+void GroomSession::scaleHierarchy() {
+    std::shared_ptr<const GuideHierarchy> scaled = rawHierarchy_;
+    if (rawHierarchy_ && rawHierarchy_->scale() != static_cast<float>(groomScale_)) {
+        auto copy = std::make_shared<GuideHierarchy>(*rawHierarchy_);
+        copy->setScale(static_cast<float>(groomScale_));
+        scaled = std::move(copy);
+    }
+    if (scaled == parsedHierarchy_) return;
+    parsedHierarchy_ = std::move(scaled);
+    ++parsedVersion_;  // rooted again (and everything rooted on it)
+}
+
+std::map<std::string, float> GroomSession::scaledControls() const {
+    if (controlFactors_.empty()) return data_.controls;
+    std::map<std::string, float> out = data_.controls;
+    for (auto& [name, value] : out) {
+        const auto f = controlFactors_.find(name);
+        if (f != controlFactors_.end()) value = static_cast<float>(value * f->second);
+    }
+    return out;
 }
 
 void GroomSession::dropGraph(const std::string& graphJson, const std::string& error) {
@@ -310,21 +444,25 @@ void GroomSession::setHierarchyJson(const std::string& json) {
     hierarchyFromText_ = true;
     hierarchyError_.clear();
     try {
-        parsedHierarchy_ = std::make_shared<const GuideHierarchy>(GuideHierarchy::fromJson(json));
+        rawHierarchy_ = std::make_shared<const GuideHierarchy>(GuideHierarchy::fromJson(json));
     } catch (const std::exception& e) {
-        parsedHierarchy_.reset();
+        rawHierarchy_.reset();
         hierarchyError_ = std::string("guideData: ") + e.what();
     }
+    parsedHierarchy_ = rawHierarchy_;
+    scaleHierarchy();
     ++parsedVersion_;
 }
 
 void GroomSession::setHierarchy(std::shared_ptr<const GuideHierarchy> hierarchy) {
-    if (hierarchySet_ && !hierarchyFromText_ && hierarchy == parsedHierarchy_) return;
+    if (hierarchySet_ && !hierarchyFromText_ && hierarchy == rawHierarchy_) return;
     data_.hierarchyJson.clear();
     hierarchySet_ = true;
     hierarchyFromText_ = false;
     hierarchyError_.clear();
-    parsedHierarchy_ = std::move(hierarchy);
+    rawHierarchy_ = std::move(hierarchy);
+    parsedHierarchy_ = rawHierarchy_;
+    scaleHierarchy();
     ++parsedVersion_;
 }
 
@@ -413,11 +551,20 @@ std::vector<std::string> GroomSession::inputErrors() const {
 // ---- Scalp and maps -------------------------------------------------------------------------
 
 void GroomSession::setScalp(MeshPtr scalp) {
-    if (scalp == data_.scalp) return;
-    if (scalp && data_.scalp && scalp->contentHash() == data_.scalp->contentHash()) {
+    if (scalp == data_.scalp || (scalp && data_.scalp && scalp->contentHash() == data_.scalp->contentHash())) {
+        absorbScaleTransform();
         return;  // the same scalp: keep the old one, with its closest-point tree built
     }
+    const bool sameSize = scalp && data_.scalp && scalp->restTotalArea() == data_.scalp->restTotalArea();
     data_.scalp = std::move(scalp);
+    // (A deforming scalp's next frame keeps its rest pose: nothing to do. Its points moved with the
+    // rest standing, a rig's scale say, whose rest the host sizes next: the transform is not taken
+    // as measured with the old area.)
+    if (!sameSize) refreshScale();
+}
+
+void GroomSession::absorbScaleTransform() {
+    if (scaleMeasured_) measuredTransform_ = scaleTransform_;
 }
 
 void GroomSession::updateScalpPoints(std::vector<Vec3f> points, const std::vector<Vec3f>* restPoints) {
@@ -833,6 +980,7 @@ SculptInput GroomSession::sculptInput(const std::string& node) {
     fillExternals(externals);
     EvalContext ctx = lastViewContext_;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.externals = &externals;
     ctx.paths = paths();
     SculptInput in;
@@ -1084,7 +1232,7 @@ void GroomSession::fillExternals(ExternalInputs& externals) const {
         setGroomExternals(externals, scalp_, guides_, activeHierarchy_, parts_, flow_);
     }
     setMeshExternals(externals, data_.meshes);          // "mesh:<name>" for ColliderMesh nodes
-    setControlExternals(externals, data_.controls);
+    setControlExternals(externals, scaledControls());  // keyed lengths at the groom's scale
     setMapExternals(externals, data_.maps);             // where each painted map lives, for Map nodes
     // The scalp's earlier frames, for Jiggle nodes (in rest space while following).
     setScalpHistoryExternal(externals, following_ ? followHistory_ : history_);
@@ -1321,6 +1469,7 @@ const ViewResult& GroomSession::evaluate(const ViewRequest& request) {
     ctx.maxPoints = request.pointBudget;
     ctx.time = request.time;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.viewport = request.viewport;
     ctx.externals = &externals;
     ctx.paths = paths();
@@ -1406,7 +1555,7 @@ const ViewResult& GroomSession::evaluate(const ViewRequest& request) {
                 rest.guides = following_ ? followGuides_ : guides_;
                 rest.parts = shownParts_;  // on scalp_'s faces, as the rest scalp's
                 rest.flow = shownFlow_;
-                rest.controls = data_.controls;
+                rest.controls = scaledControls();
                 rest.maps = data_.maps;
                 strands = restPose_->pin(strands, out.viewedNode, rest, ctx);
             } else {
@@ -1662,6 +1811,7 @@ Value GroomSession::evaluateNode(const std::string& name, float density, double 
     ctx.previewDensity = std::clamp(density, 0.0f, 1.0f);
     ctx.time = seconds;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.externals = &externals;
     ctx.paths = paths();
     Value value = scratch.graph.evaluate(id, ctx);
@@ -1683,6 +1833,7 @@ StrandsPtr GroomSession::evaluateFullDensity(double seconds) {
     ctx.previewDensity = 1.0f;
     ctx.time = seconds;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.externals = &externals;
     ctx.paths = paths();
     return carry(fullDoc_->graph.evaluateStrands(fullDoc_->output, ctx), 2);
@@ -1711,6 +1862,7 @@ std::vector<GroomSession::StrandMeshSource> GroomSession::evaluateStrandMeshes(d
     EvalContext ctx;
     ctx.time = seconds;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.externals = &externals;
     ctx.paths = paths();
     std::map<float, std::unique_ptr<GraphDocument>> docs;  // the densities still asked for
@@ -1782,6 +1934,7 @@ bool GroomSession::warmStroke(const ViewRequest& request) {
     ctx.maxPoints = request.pointBudget;
     ctx.time = request.time;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.viewport = request.viewport;
     ctx.externals = &externals;
     ctx.paths = paths();
@@ -1819,6 +1972,7 @@ std::shared_ptr<DetachedEvaluation> GroomSession::detachWarm(const ViewRequest& 
     ctx.maxPoints = request.pointBudget;
     ctx.time = request.time;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.viewport = request.viewport;
     ctx.externals = &job->externals_;
     ctx.paths = job->paths_.get();
@@ -1879,6 +2033,7 @@ std::shared_ptr<DetachedEvaluation> GroomSession::detachStroke(const ViewRequest
     ctx.maxPoints = request.pointBudget;
     ctx.time = request.time;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.viewport = request.viewport;
     ctx.externals = &job->externals_;
     ctx.paths = job->paths_.get();
@@ -1927,6 +2082,7 @@ std::shared_ptr<DetachedEvaluation> GroomSession::detach(const ViewRequest& requ
     ctx.maxPoints = request.pointBudget;
     ctx.time = request.time;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.viewport = request.viewport;
     ctx.externals = &job->externals_;
     ctx.paths = job->paths_.get();
@@ -2451,6 +2607,7 @@ EvalContext GroomSession::simContext(double seconds, const ExternalInputs& exter
     ctx.maxPoints = simPointBudget_;
     ctx.time = seconds;
     ctx.framesPerSecond = fps_;
+    ctx.scale = groomScale_;  // the lattices sizes round to, at the groom's scale
     ctx.externals = &externals;
     ctx.paths = paths();
     return ctx;

@@ -969,7 +969,7 @@ std::size_t appendGuideCurve(DisplayGeometry& batch, const std::vector<Vec3f>& p
     return smooth.size();
 }
 
-void appendTubeSurface(DisplayGeometry& batch, const HierarchyGuide& g) {
+void appendTubeSurface(DisplayGeometry& batch, const HierarchyGuide& g, float scale) {
     const std::size_t n = g.points.size();
     if (n < 2) return;
     const std::vector<Frame> frames = rotationMinimizingFrames(g.points.data(), n, g.frameUp);
@@ -982,7 +982,7 @@ void appendTubeSurface(DisplayGeometry& batch, const HierarchyGuide& g) {
         const float w = f - static_cast<float>(i);
         const Vec3f center = g.points[i] * (1.0f - w) + g.points[i + 1] * w;
         const Frame& fr = frames[w < 0.5f ? i : i + 1];
-        const float r = g.tube.radiusAt(t);
+        const float r = g.tube.radiusAt(t) * scale;  // the size the hierarchy shows (GuideHierarchy::scale)
         for (int s = 0; s < kAround; ++s) {
             const float a = 6.2831853f * static_cast<float>(s) / kAround;
             const Vec3f out = fr.toWorld({pm::cos(a), pm::sin(a), 0.0f});
@@ -1599,7 +1599,7 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
         for (const HierarchyGuide& g : hierarchy->guides()) {
             const int level = hierarchy->groupDepth(g.group);
             if (level < 0 || level >= kMaxDrawnGuideLevels || hiddenGuide(g)) continue;
-            if (s.tubes) appendTubeSurface(tubes, g);
+            if (s.tubes) appendTubeSurface(tubes, g, hierarchy->scale());
             if (!s.guides || g.points.size() < 2) continue;
             std::array<float, 3> c = levelColors[static_cast<std::size_t>(level)];
             if (byGroup) {

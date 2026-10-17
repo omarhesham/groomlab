@@ -239,6 +239,28 @@ void bindSession(py::module_& m) {
                       "frame (no effect without a rest pose or at it). Off by default.")
         .def_property_readonly("following", &GroomSession::following,
                                "The last view followed the scalp (follow_scalp on and the scalp away from its rest pose).")
+        .def_property("scale_with_scalp", &GroomSession::scaleWithScalp, &GroomSession::setScaleWithScalp,
+                      "Scale the groom with its scalp: evaluated groom_scale times its size, sqrt(scalp area / "
+                      "scale_reference), the area on the scalp's rest pose. On by default.")
+        .def_property(
+            "scale_source", [](const GroomSession& s) { return std::string(scaleSourceName(s.scaleSource())); },
+            [](GroomSession& s, const std::string& name) { s.setScaleSource(scaleSourceFromName(name)); },
+            "What groom_scale follows: \"area\" (the scalp's surface area: survives Freeze Transformations), "
+            "\"transform\" (the scale set_scale_transform hands in: survives remodelling) or \"off\".")
+        .def_property("scale_transform", &GroomSession::scaleTransform, &GroomSession::setScaleTransform,
+                      "The scalp's transform scale as the host measures it (scale_source \"transform\"); 0: none.")
+        .def_property("scale_transform_reference", &GroomSession::scaleTransformReference,
+                      &GroomSession::setScaleTransformReference,
+                      "The transform scale the groom is 1x at (set 0: the first one handed in).")
+        .def_property_readonly("scale_notice", &GroomSession::scaleNotice,
+                               "The last line saying the groom scaled because the scalp's area changed (\"\": none).")
+        .def_property_readonly("scale_notice_serial", &GroomSession::scaleNoticeSerial,
+                               "How many such notices there were (a host says each once).")
+        .def_property("scale_reference", &GroomSession::scaleReference, &GroomSession::setScaleReference,
+                      "The scalp area the groom is 1x at (set 0: the first area measured; reads the one in use).")
+        .def_property_readonly("scale_area", &GroomSession::scaleArea, "The scalp's area as last measured.")
+        .def_property_readonly("groom_scale", &GroomSession::groomScale,
+                               "What the groom is scaled by now (1 while scale_with_scalp is off).")
         .def_property_readonly("reads_time", &GroomSession::readsTime,
                                "The result depends on the time through what the session knows (Wind, ImportCurves, Jiggle, "
                                "fading correctives, a scalp history); a host adds what it knows moves (a deforming scalp, "

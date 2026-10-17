@@ -569,8 +569,14 @@ struct EvalContext {
     // asks for (8 without), wherever it sits (before or after the evaluated
     // node, or unconnected), except one bypassed or fed guides.
     int strandSegments = 0;
+    // The groom's scale (GroomSession::groomScale: a groom scaled with its scalp): the sizes
+    // operators take from the whole scalp or all the strands and round to 1% steps for edit
+    // stability (roundToPercentStep: Clump's spacing by count, Resample's reference length, Bands'
+    // guard length, the hair grids') round on a lattice anchored at it, so the groom at k is the one
+    // at 1x scaled, not one rounded otherwise. 1: anchored at 1 (decades, as a scene in other units).
+    double scale = 1.0;
 
-    // Hash of density, point budget and segments. Time is left out (time-varying
+    // Hash of density, point budget and segments (and the scale, when not 1). Time is left out (time-varying
     // data arrives as hashed externals), and so is buildCards: the operators
     // that read either (ImportCurves and Wind the time, Cards buildCards) salt
     // their own keys with it (Operator::contextSalt), so only they and what is

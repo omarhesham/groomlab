@@ -14,7 +14,7 @@ import time
 
 from maya import cmds
 
-from gui_support import CLASSIC_GRAPH, check, finish, persp_panel, say, soon, to_view
+from gui_support import CLASSIC_GRAPH, check, finish, persp_panel, process_events, say, soon, to_view
 
 FRAMES = 60
 BUDGET_FPS = 24.0
@@ -44,6 +44,27 @@ def run():
         return
     if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "haircolor":  # HairColor's randomness alone
         hair_color_randomness_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
+        finish()
+        return
+    if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "scalefreeze":  # the groom scaled 1 -> 0.1 -> 1 with freezes
+        scale_freeze_shaders_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
+        finish()
+        return
+    if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "freezecycle":  # frozen down and back up (a scene probe)
+        freeze_cycle_scene_check(os.environ["GROOMLAB_PROBE_SCENE"], os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
+        finish()
+        return
+    if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "strokescale":  # a stroke while scaled, then scaled back
+        if os.environ.get("GROOMLAB_PROBE_SCENE"):
+            stroke_scaled_scene_check(os.environ["GROOMLAB_PROBE_SCENE"], os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
+        else:
+            stroke_scaled_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
+        finish()
+        return
+    if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "colorscale":  # the hair color scaled with the scalp alone
+        hair_color_scale_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
+        hair_color_scale_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"), deformed=True)
+        hair_color_scale_presets_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
         finish()
         return
     if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "follow":  # following the scalp on the GPU alone
@@ -307,6 +328,10 @@ def run():
     cards_check(snapshots)
     strand_colors_check(snapshots)
     hair_color_randomness_check(snapshots)
+    hair_color_scale_check(snapshots)
+    hair_color_scale_check(snapshots, deformed=True)
+    stroke_scaled_check(snapshots)
+    scale_freeze_shaders_check(snapshots)
     scales_check(snapshots)
     import gui_hair
     gui_hair.hair_check(snapshots)
@@ -1229,6 +1254,516 @@ def hair_color_randomness_check(snapshots=None):
                                                              color_hue["hue"]),
           clumped["local"] < 0.6 * color_hue["local"] and clumped["hue"] > 0.5 * color_hue["hue"])
     check("HairColor's randomness made no errors", not groomlab.errors(groom))
+    cmds.file(new=True, force=True)
+
+
+def hair_color_scale_presets_check(snapshots=None):
+    """The same with shipped presets (HairColor's tips, wetness, painted maps) on a head-sized
+    sphere with guides, at the default display settings and preview density."""
+    import tempfile
+    import groomlab
+    from groomlab import presets
+    folder = snapshots or tempfile.mkdtemp(prefix="groomlab_colorscale_")
+    for preset in ("two_tone_tips", "hair_basics", "wet", "painted_maps"):
+        cmds.file(new=True, force=True)
+        scalp = cmds.polySphere(radius=10, subdivisionsX=40, subdivisionsY=20)[0]
+        groom = groomlab.create_groom(scalp)
+        curves = []
+        for i in range(12):
+            a = 2 * math.pi * i / 12.0
+            x, z = math.cos(a), math.sin(a)
+            curves.append(cmds.curve(point=[(7 * x, 7.1, 7 * z), (9 * x, 9, 9 * z), (12 * x, 6, 12 * z)], degree=2))
+        groomlab.guides_from_curves(groom, curves)
+        cmds.delete(curves)
+        presets.apply_preset(groom, preset)
+        cmds.select(clear=True)
+        cmds.viewFit("persp", allObjects=True)
+        api = cmds.groomLabGpuPreview(drawApi=True)
+
+        def shot(name):
+            cmds.refresh(currentView=True, force=True)
+            path = os.path.join(folder, "colorscale_%s_%s.png" % (preset, name))
+            cmds.playblast(frame=[1], format="image", compression="png", viewer=False, showOrnaments=False,
+                           percent=100, widthHeight=(480, 360), completeFilename=path)
+            return path
+
+        plain = shot("plain")
+        floor = differ(plain, shot("again"))
+        for step in range(1, 9):
+            s = 1.0 + step / 8.0
+            cmds.setAttr(scalp + ".scale", s, s, s)
+            cmds.refresh(currentView=True, force=True)
+        for step in range(1, 9):
+            s = 2.0 - step / 8.0
+            cmds.setAttr(scalp + ".scale", s, s, s)
+            cmds.refresh(currentView=True, force=True)
+        back = shot("back")
+        node = next(n["name"] for n in groomlab.get_graph(groom)["nodes"] if n["type"] == "HairColor")
+        value = groomlab.param_value(groom, node, "melaninRandom")
+        groomlab.set_param(groom, node, "melaninRandom", value + 0.01)
+        groomlab.set_param(groom, node, "melaninRandom", value)
+        tweaked = shot("tweaked")
+        check("%s: hair color scaled up and back is as before on %s (%.4f of the pixels differ, %.4f after a tweak, %.4f again)"
+              % (preset, api, differ(plain, back), differ(plain, tweaked), floor),
+              differ(plain, back) <= max(floor, differ(plain, tweaked)) + 0.002)
+    cmds.file(new=True, force=True)
+
+
+def hair_luminance(path):
+    """The mean luminance of the pixels that are neither the white background nor the gray floor."""
+    from PySide2 import QtGui
+    image = QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
+    data = bytes(image.constBits())[:image.byteCount()]
+    total, count = 0.0, 0
+    for i in range(0, len(data), 4):
+        b, g, r = data[i], data[i + 1], data[i + 2]
+        if min(r, g, b) > 245 or (abs(r - 69) < 4 and abs(g - 69) < 4 and abs(b - 69) < 4):
+            continue
+        total += 0.2126 * r + 0.7152 * g + 0.0722 * b
+        count += 1
+    return total / max(count, 1)
+
+
+def freeze_cycle_scene_check(scene, snapshots=None):
+    """The user's report: the scalp scaled down, frozen, scaled back up, frozen: the hair drew darker
+    until a HairColor value was tweaked."""
+    import tempfile
+    import groomlab
+    folder = snapshots or tempfile.mkdtemp(prefix="groomlab_freeze_")
+    cmds.file(scene, open=True, force=True)
+    groom = cmds.ls(type="groomLabShape")[0]
+    scalp = cmds.listRelatives(groomlab.scalp_mesh(groom), parent=True)[0]
+    color = next(n["name"] for n in groomlab.get_graph(groom, expand_default=True)["nodes"] if n["type"] == "HairColor")
+    cmds.select(clear=True)
+    cmds.viewFit("persp", scalp)
+    if os.environ.get("GROOMLAB_PROBE_CACHE") == "1":  # cached playback on (Maya's default), filled in the background
+        from gui_cached_playback import cache_on
+        cache_on("syncAsync")
+    zoom = float(os.environ.get("GROOMLAB_PROBE_ZOOM", "0"))  # the camera that share of the way to the head
+    if zoom:
+        box = cmds.exactWorldBoundingBox(scalp)
+        head = ((box[0] + box[3]) / 2, box[1] + 0.85 * (box[4] - box[1]), (box[2] + box[5]) / 2)
+        eye = cmds.getAttr("persp.translate")[0]
+        cmds.setAttr("persp.translate", *[e + (h - e) * zoom for e, h in zip(eye, head)])
+    api = cmds.groomLabGpuPreview(drawApi=True)
+
+    if os.environ.get("GROOMLAB_PROBE_MAXIMIZE") == "1":  # the user's full screen window
+        import maya.OpenMayaUI as omui
+        import shiboken2
+        from PySide2 import QtWidgets
+        window = shiboken2.wrapInstance(int(omui.MQtUtil.mainWindow()), QtWidgets.QMainWindow)
+        window.showMaximized()
+        process_events(500)
+        view = omui.M3dView.active3dView()
+        say("freeze: view %dx%d" % (view.portWidth(), view.portHeight()))
+
+    def shot(name):
+        import maya.OpenMaya as om
+        import maya.OpenMayaUI as omui
+        cmds.refresh(currentView=True, force=True)
+        stats = cmds.groomLabGraphStats(groom, drawTimes=True)
+        say("freeze %s: k %.4f, %d strands, draw %s" % (name, cmds.getAttr(groom + ".groomScale"),
+                                                     cmds.getAttr(groom + ".outStrandCount"), stats[:900]))
+        say("freeze %s: lod %s" % (name, json.dumps(json.loads(stats).get("draw", {}).get("lod"))))
+        grid = json.loads(cmds.groomLabGraphStats(groom, hairShading=True)).get("grid", {})
+        grids[name] = grid
+        say("freeze %s: grid %s" % (name, json.dumps(grid)))
+        path = os.path.join(folder, "freeze_%s.png" % name)
+        # The live view as drawn (a playblast draws again offscreen: it can miss what the view keeps).
+        view = omui.M3dView.active3dView()
+        view.refresh(False, True)
+        image = om.MImage()
+        view.readColorBuffer(image, True)
+        image.writeToFile(path, "png")
+        return path
+
+    grids = {}
+    plain = shot("plain")
+    factor = float(os.environ.get("GROOMLAB_PROBE_FACTOR", "0.5"))
+    def settle():
+        cmds.refresh(currentView=True, force=True)
+        process_events(1500)  # the user's pace: idle work, cached playback's background fill
+        cmds.refresh(currentView=True, force=True)
+        g = json.loads(cmds.groomLabGraphStats(groom, hairShading=True)).get("grid", {})
+        say("freeze settle: k %.4f, grid %s" % (cmds.getAttr(groom + ".groomScale"), {key: g.get(key) for key in (
+            "size", "cell", "volumeSerial", "serial", "staleShaders", "textureSum", "ownSum", "texelsDiffering", "checkedSerial", "reuploads")}))
+
+    cmds.setAttr(scalp + ".scale", factor, factor, factor)
+    settle()
+    cmds.makeIdentity(scalp, apply=True, translate=True, rotate=True, scale=True, normal=0, preserveNormals=True)
+    settle()
+    cmds.setAttr(scalp + ".scale", 1.0 / factor, 1.0 / factor, 1.0 / factor)
+    settle()
+    cmds.makeIdentity(scalp, apply=True, translate=True, rotate=True, scale=True, normal=0, preserveNormals=True)
+    settle()
+    back = shot("back")
+    v = groomlab.param_value(groom, color, "melanin")
+    groomlab.set_param(groom, color, "melanin", v + 0.01)
+    groomlab.set_param(groom, color, "melanin", v)
+    tweaked = shot("tweaked")
+    # The user's fix: width as coverage off and on (every strand line written again).
+    cmds.setAttr(groom + ".displayWidthCoverage", not cmds.getAttr(groom + ".displayWidthCoverage"))
+    cmds.refresh(currentView=True, force=True)
+    cmds.setAttr(groom + ".displayWidthCoverage", not cmds.getAttr(groom + ".displayWidthCoverage"))
+    toggled = shot("toggled")
+    lum = {name: hair_luminance(path) for name, path in (("plain", plain), ("back", back), ("tweaked", tweaked),
+                                                          ("toggled", toggled))}
+    say("freeze on %s: luminance %s, back vs tweaked %.4f, back vs toggled %.4f"
+        % (api, lum, differ(back, tweaked), differ(back, toggled)))
+    check("frozen down and up, the hair draws as after width coverage off and on on %s (%.4f of the pixels differ; "
+          "luminance %.2f, %.2f)" % (api, differ(back, toggled), lum["back"], lum["toggled"]),
+          differ(back, toggled) <= 0.002)
+    if grids.get("back", {}).get("valid") and grids.get("toggled", {}).get("valid"):
+        a, b = grids["back"]["sum"], grids["toggled"]["sum"]
+        check("frozen down and up, the self-shadowing grid holds what it holds made afresh on %s (%.3f, %.3f)" % (api, a, b),
+              abs(a - b) <= 1e-3 * max(abs(b), 1.0))
+
+
+def stroke_scaled_scene_check(scene, snapshots=None):
+    """stroke_scaled_check on a scene's first groom (a probe: the user's own scene)."""
+    import tempfile
+    import groomlab
+    folder = snapshots or tempfile.mkdtemp(prefix="groomlab_strokescale_")
+    cmds.file(scene, open=True, force=True)
+    groom = cmds.ls(type="groomLabShape")[0]
+    scalp = cmds.listRelatives(groomlab.scalp_mesh(groom), parent=True)[0]
+    color = next(n["name"] for n in groomlab.get_graph(groom, expand_default=True)["nodes"] if n["type"] == "HairColor")
+    say("scene groom %s on %s: hair shading %s, self-shadowing %s, coverage %s, follow %s, preview %s" % (
+        groom, scalp, cmds.getAttr(groom + ".displayHairShading"), cmds.getAttr(groom + ".displaySelfShadowing"),
+        cmds.getAttr(groom + ".displayWidthCoverage"), cmds.getAttr(groom + ".followScalp"), cmds.getAttr(groom + ".previewDensity")))
+    cmds.select(clear=True)
+    cmds.viewFit("persp", scalp)
+    api = cmds.groomLabGpuPreview(drawApi=True)
+    say("GPU preview was %s" % groomlab.gpu_preview())
+    groomlab.gpu_preview(True)
+
+    def shot(name):
+        cmds.refresh(currentView=True, force=True)
+        g = cmds.ls(type="groomLabShape")[0]
+        info = json.loads(cmds.groomLabGraphStats(g, frameInfo=True))
+        say("scenescale %s: k %.3f, %d strands, frame %s" % (name, cmds.getAttr(g + ".groomScale"),
+                                                            cmds.getAttr(g + ".outStrandCount"), json.dumps(info)[:300]))
+        path = os.path.join(folder, "scenescale_%s.png" % name)
+        cmds.playblast(frame=[cmds.currentTime(query=True)], format="image", compression="png", viewer=False,
+                       showOrnaments=False, percent=100, widthHeight=(640, 480), completeFilename=path)
+        return path
+
+    plain = shot("plain")
+    pivot = cmds.xform(scalp, query=True, worldSpace=True, rotatePivot=True)
+    cmds.setAttr(scalp + ".scale", 0.1, 0.1, 0.1)
+    cmds.refresh(currentView=True, force=True)
+    small = shot("small")
+    cmds.select(cmds.listRelatives(groom, parent=True)[0])
+    camera = (cmds.getAttr("persp.translate")[0], cmds.getAttr("persp.rotate")[0])
+    cmds.viewFit("persp", scalp)
+    box = cmds.exactWorldBoundingBox(scalp)
+    middle = ((box[0] + box[3]) / 2, box[1] + 0.6 * (box[4] - box[1]), box[5])
+    say("locked %s, hidden groups %r, guides %d, sculpt node %r" % (
+        cmds.getAttr(groom + ".locked"), cmds.getAttr(groom + ".hiddenGuideGroups"),
+        len(groomlab.get_hierarchy(groom).get("guides", [])), cmds.getAttr(groom + ".sculptNode")))
+    cmds.setAttr(groom + ".locked", False)
+    hidden = cmds.getAttr(groom + ".hiddenGuideGroups") or ""
+    cmds.setAttr(groom + ".hiddenGuideGroups", "", type="string")
+    groomlab.pin_groom(groom)
+    ctx = groomlab.brush_tool("comb", radius=80, strength=1.0)
+    cmds.refresh(currentView=True, force=True)
+    x0, y0 = to_view(middle)
+    say("stroke at %d %d (view of %s)" % (x0, y0, middle,))
+    data = cmds.getAttr(groom + ".guideData")
+    cmds.groomLabBrushCtx(ctx, edit=True, debugStroke="draw " + " ".join("%d %d" % (x0 - 15 + 2 * k, y0) for k in range(16)))
+    combed = cmds.getAttr(groom + ".guideData") != data
+    cmds.setAttr(groom + ".hiddenGuideGroups", hidden, type="string")
+    cmds.refresh(currentView=True, force=True)
+    process_events(500)  # the brush's idle work (the stroke document warmed)
+    cmds.setAttr(scalp + ".scale", 1.0, 1.0, 1.0)  # the brush still up, as a user scaling in the channel box
+    cmds.setAttr("persp.translate", *camera[0])
+    cmds.setAttr("persp.rotate", *camera[1])
+    with_tool = shot("back_tool")
+    process_events(500)
+    cmds.setToolTo("selectSuperContext")
+    cmds.select(clear=True)
+    back = shot("back")
+    say("scenescale: brush up %.2f, put away %.2f" % (hair_luminance(with_tool), hair_luminance(back)))
+    v = groomlab.param_value(groom, color, "melanin")
+    groomlab.set_param(groom, color, "melanin", v + 0.01)
+    groomlab.set_param(groom, color, "melanin", v)
+    tweaked = shot("tweaked")
+    # Fresh: the scene saved and opened again (nothing kept from the session).
+    again = os.path.join(folder, "scenescale_again.ma")
+    cmds.file(rename=again)
+    cmds.file(save=True, type="mayaAscii", force=True)
+    cmds.file(again, open=True, force=True)
+    cmds.setAttr("persp.translate", *camera[0])
+    cmds.setAttr("persp.rotate", *camera[1])
+    fresh = shot("fresh")
+    say("scenescale on %s: back vs fresh %.4f, tweaked vs fresh %.4f" % (api, differ(back, fresh), differ(tweaked, fresh)))
+    for name, path in (("plain", plain), ("back", back), ("tweaked", tweaked), ("fresh", fresh)):
+        say("scenescale %s: hair luminance %.2f" % (name, hair_luminance(path)))
+    # (The pixels differ a little anyway: the strands' order in the buffers. The hair's brightness may not.)
+    check("scene: combed while scaled to 0.1 and scaled back, the hair is as bright as the scene opened afresh on %s "
+          "(luminance %.2f, %.2f)" % (api, hair_luminance(back), hair_luminance(fresh)),
+          abs(hair_luminance(back) - hair_luminance(fresh)) < 0.5)
+    say("scenescale on %s: pivot %s, combed %s, back vs tweaked %.4f, plain vs tweaked %.4f, small %s"
+        % (api, pivot, combed, differ(back, tweaked), differ(plain, tweaked), small))
+    check("scene: combed while scaled to 0.1 and scaled back, the hair draws as after a tweak on %s (%.4f)"
+          % (api, differ(back, tweaked)), differ(back, tweaked) <= 0.002)
+
+
+def scale_freeze_shaders_check(snapshots=None):
+    """The scalp scaled to 0.1, frozen, scaled back up and frozen (the groom's scale 1 -> 0.1 -> 1):
+    the strands' items draw as width as coverage turned off and on draws them (the user's way back
+    from hair that drew darker): the same shader state (coverage, what the hair shader's draws know
+    it by, the coverage density, no instance shared) and the same picture."""
+    import tempfile
+    import groomlab
+    folder = snapshots or tempfile.mkdtemp(prefix="groomlab_scalefreeze_")
+    cmds.file(new=True, force=True)
+    scalp = cmds.polySphere(radius=1, subdivisionsX=60, subdivisionsY=30)[0]
+    curves = []
+    for i in range(8):
+        a = 2 * math.pi * i / 8
+        x, z = 0.5 * math.cos(a), 0.5 * math.sin(a)
+        y = math.sqrt(1 - 0.25)
+        curves.append(cmds.curve(degree=2, point=[(x, y, z), (1.2 * x, y + 0.5, 1.2 * z), (1.3 * x, y + 1.0, 1.3 * z)]))
+    groom = groomlab.create_groom(scalp)
+    groomlab.guides_from_curves(groom, curves, tube_radius=0.12)
+    cmds.delete(curves)
+    cmds.setAttr(groom + ".displayHairShading", 1)
+    cmds.setAttr(groom + ".displaySelfShadowing", 1.0)
+    cmds.setAttr(groom + ".displayWidthCoverage", True)
+    cmds.setAttr("persp.translate", 0.0, 1.4, 5.0)
+    cmds.setAttr("persp.rotate", -8, 0, 0)
+    cmds.select(clear=True)
+    api = cmds.groomLabGpuPreview(drawApi=True)
+
+    def shot(name):
+        cmds.refresh(currentView=True, force=True)
+        cmds.refresh(currentView=True, force=True)  # (the update after one that wrote the lines: the grid made again)
+        draw = json.loads(cmds.groomLabGraphStats(groom, drawTimes=True))["draw"]
+        path = os.path.join(folder, "scalefreeze_%s.png" % name)
+        cmds.playblast(frame=[1], format="image", compression="png", viewer=False, showOrnaments=False,
+                       percent=100, widthHeight=(480, 360), completeFilename=path)
+        return path, draw.get("shaders", {}).get("groomLabStrands", {})
+
+    def strands_item():
+        draw = json.loads(cmds.groomLabGraphStats(groom, drawTimes=True))["draw"]
+        return draw.get("items", {}).get("groomLabStrands"), draw.get("lod", {})
+
+    def grid():
+        return json.loads(cmds.groomLabGraphStats(groom, hairShading=True)).get("grid", {})
+
+    cmds.refresh(currentView=True, force=True)
+    built, _ = strands_item()  # the strands' item as first built
+    grids = [grid()]
+    afresh = None
+    for k in (0.1, 10.0):
+        cmds.setAttr(scalp + ".scale", k, k, k)
+        cmds.refresh(currentView=True, force=True)
+        if k > 1.0:
+            afresh, _ = strands_item()  # the groom's scale back at 1: the strands' item written afresh
+        grids.append(grid())
+        cmds.makeIdentity(scalp, apply=True, translate=True, rotate=True, scale=True, normal=0, preserveNormals=True)
+        cmds.refresh(currentView=True, force=True)
+        grids.append(grid())
+    back, backShader = shot("back")
+    _, backLod = strands_item()
+    # Every hair shader holds the grid as it is now (the self-shadowing a stale texture gave drew the
+    # hair darker): its texture (made anew where the grid changed size) and its contents.
+    now = grid()
+    say("scalefreeze grids: %s; now %s" % ([(g.get("size"), g.get("volumeSerial"), g.get("serial"), g.get("staleShaders")) for g in grids],
+                                           {key: now.get(key) for key in ("size", "volumeSerial", "serial", "shadersGiven", "staleShaders")}))
+    check("scaled 1 -> 0.1 -> 1 and frozen, every hair shader holds the self-shadowing grid as it is now on %s (%s)"
+          % (api, {key: now.get(key) for key in ("volumeSerial", "serial", "shadersGiven", "staleShaders")}),
+          now.get("valid") and now.get("staleShaders") == 0 and len(now.get("shadersGiven", {})) > 0 and
+          now.get("volumeSerial", 0) > grids[0].get("volumeSerial", 0) and  # (a texture of its own at each scale)
+          all(v == [now["volumeSerial"], now["serial"]] for v in now["shadersGiven"].values()) and
+          all(g.get("staleShaders", 0) == 0 for g in grids))
+    # Written afresh, the item holds what a fresh build holds: the same streams, and the CPU's share of
+    # what it sent (the indices, the colors) the same (the GPU's lines keep their layout: not sent again).
+    if built and afresh:
+        cpu = lambda item: round(item["megabytes"] - item.get("gpuMB", 0.0), 2)
+        check("scaled 1 -> 0.1 -> 1, the strands' item holds what a fresh build holds on %s (%s; %s)"
+              % (api, {key: built.get(key) for key in ("streams", "megabytes", "gpuMB")},
+                 {key: afresh.get(key) for key in ("streams", "megabytes", "gpuMB")}),
+              afresh.get("streams") == built.get("streams") and cpu(afresh) == cpu(built))
+    if backLod.get("on"):
+        check("scaled 1 -> 0.1 -> 1 and frozen, the level of detail's items draw the strands' streams as last bound on %s (%s)"
+              % (api, backLod), backLod.get("staleSlots") == 0 and backLod.get("baseSerial", 0) > 0)
+    for _ in range(2):
+        cmds.setAttr(groom + ".displayWidthCoverage", not cmds.getAttr(groom + ".displayWidthCoverage"))
+        cmds.refresh(currentView=True, force=True)
+    toggled, toggledShader = shot("toggled")
+    say("scalefreeze on %s: k %.4f, strands' shader %s; toggled %s; %.4f of the pixels differ"
+        % (api, cmds.getAttr(groom + ".groomScale"), backShader, toggledShader, differ(back, toggled)))
+    same = {key: backShader.get(key) for key in ("kind", "hair", "coverage", "registered", "lineDensity", "widthScale", "shared")}
+    fresh = {key: toggledShader.get(key) for key in same}
+    check("scaled 1 -> 0.1 -> 1 and frozen, the strands' shader state is width as coverage off and on's on %s (%s, %s)"
+          % (api, same, fresh), same == fresh and backShader.get("shared") == 1 and
+          (not backShader.get("hair") or backShader.get("registered") == int(bool(backShader.get("coverage")))))
+    check("scaled 1 -> 0.1 -> 1 and frozen, the hair draws as after width coverage off and on on %s (%.4f)"
+          % (api, differ(back, toggled)), differ(back, toggled) <= 0.002)
+    # Maya's texture holds the grid the kernels made (read back where the device lets it: DirectX 11);
+    # one spoiled from the CPU (as a copy that did not land would leave it) is found and written again.
+    if now.get("textureSum", -1.0) >= 0.0:
+        check("scaled 1 -> 0.1 -> 1 and frozen, the self-shadowing texture holds the grid the kernels made on %s (%s)"
+              % (api, {key: now.get(key) for key in ("textureSum", "ownSum", "texelsDiffering", "checkedSerial", "reuploads")}),
+              now.get("texelsDiffering") == 0 and now.get("checkedSerial", 0) > 0 and now.get("reuploads") == 0)
+        cmds.optionVar(intValue=("groomLabHairGridSpoil", 1))
+        cmds.setAttr(scalp + ".scale", 2.0, 2.0, 2.0)  # (another scale: the grid made in a new texture, checked)
+        cmds.refresh(currentView=True, force=True)
+        cmds.refresh(currentView=True, force=True)
+        spoiled = grid()
+        cmds.optionVar(remove="groomLabHairGridSpoil")
+        check("a self-shadowing texture that does not hold the grid is written again from the CPU on %s (%s)"
+              % (api, {key: spoiled.get(key) for key in ("textureSum", "ownSum", "texelsDiffering", "reuploads", "handleSwaps")}),
+              spoiled.get("reuploads") == 1 and spoiled.get("texelsDiffering") == 0)
+    cmds.file(new=True, force=True)
+
+
+def stroke_scaled_check(snapshots=None):
+    """The user's report: the scalp scaled to 0.1, the guides combed, the scalp scaled back to 1:
+    the hair drew darker until a HairColor value was tweaked. Back at 1, the view is the one a
+    tweak gives."""
+    import tempfile
+    import groomlab
+    folder = snapshots or tempfile.mkdtemp(prefix="groomlab_strokescale_")
+    cmds.file(new=True, force=True)
+    scalp = cmds.polySphere(radius=1, subdivisionsX=60, subdivisionsY=30)[0]
+    curves = []
+    for i in range(8):
+        a = 2 * math.pi * i / 8
+        x, z = 0.5 * math.cos(a), 0.5 * math.sin(a)
+        y = math.sqrt(1 - 0.25)
+        curves.append(cmds.curve(degree=2, point=[(x, y, z), (1.2 * x, y + 0.5, 1.2 * z), (1.3 * x, y + 1.0, 1.3 * z)]))
+    groom = groomlab.create_groom(scalp)
+    groomlab.guides_from_curves(groom, curves, tube_radius=0.12)
+    cmds.delete(curves)
+    graph = groomlab.get_graph(groom, expand_default=True)
+    if not any(n["type"] == "HairColor" for n in graph["nodes"]):
+        graph["nodes"].insert(-1, {"name": "color", "type": "HairColor", "params": {"melanin": 0.3}})
+        into = next(c for c in graph["connections"] if c["to"] == "output")
+        graph["connections"] = [c for c in graph["connections"] if c is not into]
+        graph["connections"] += [{"from": into["from"], "to": "color", "input": "strands"},
+                                 {"from": "color", "to": "output", "input": "strands"}]
+        groomlab.set_graph(groom, graph)
+    color = next(n["name"] for n in groomlab.get_graph(groom, expand_default=True)["nodes"] if n["type"] == "HairColor")
+    cmds.setAttr(groom + ".displayHairShading", 1)
+    cmds.setAttr(groom + ".displaySelfShadowing", 1.0)
+    cmds.setAttr("persp.translate", 0.0, 1.4, 5.0)
+    cmds.setAttr("persp.rotate", -8, 0, 0)
+    cmds.select(cmds.listRelatives(groom, parent=True)[0])
+    api = cmds.groomLabGpuPreview(drawApi=True)
+
+    def shot(name):
+        cmds.refresh(currentView=True, force=True)
+        path = os.path.join(folder, "strokescale_%s.png" % name)
+        cmds.playblast(frame=[1], format="image", compression="png", viewer=False, showOrnaments=False,
+                       percent=100, widthHeight=(480, 360), completeFilename=path)
+        return path
+
+    def tweak():
+        v = groomlab.param_value(groom, color, "melanin")
+        groomlab.set_param(groom, color, "melanin", v + 0.01)
+        groomlab.set_param(groom, color, "melanin", v)
+
+    shot("plain")
+    cmds.setAttr(scalp + ".scale", 0.1, 0.1, 0.1)
+    cmds.refresh(currentView=True, force=True)
+    ctx = groomlab.brush_tool("comb", radius=60, strength=1.0)
+    cmds.refresh(currentView=True, force=True)
+    x0, y0 = to_view((0.0, 0.085, 0.05))
+    data = cmds.getAttr(groom + ".guideData")
+    cmds.groomLabBrushCtx(ctx, edit=True, debugStroke="draw " + " ".join("%d %d" % (x0 - 30 + 4 * k, y0) for k in range(16)))
+    combed = cmds.getAttr(groom + ".guideData") != data
+    cmds.setToolTo("selectSuperContext")
+    cmds.refresh(currentView=True, force=True)
+    cmds.setAttr(scalp + ".scale", 1.0, 1.0, 1.0)
+    back = shot("back")
+    tweak()
+    tweaked = shot("tweaked")
+    say("strokescale on %s: combed %s, back %.4f of the pixels differ from after a tweak" % (api, combed, differ(back, tweaked)))
+    check("combed while scaled to 0.1 and scaled back, the hair draws as after a tweak on %s (%.4f of the pixels differ; "
+          "combed: %s)" % (api, differ(back, tweaked), combed), differ(back, tweaked) <= 0.002)
+    cmds.file(new=True, force=True)
+
+
+def hair_color_scale_check(snapshots=None, deformed=False):
+    """A groom scaled with its scalp keeps its hair color: scaled up and back down, the view is the
+    one before (the user's report: the color broke, a param tweak brought it back)."""
+    import tempfile
+    import groomlab
+    folder = snapshots or tempfile.mkdtemp(prefix="groomlab_colorscale_")
+    cmds.file(new=True, force=True)
+    cmds.currentTime(10)  # away from the start frame: the scalp's size is read at the start frame
+    scalp = cmds.polySphere(radius=1, subdivisionsX=40, subdivisionsY=20)[0]
+    if deformed:  # a deformed scalp (its rest mesh, set by create_groom), followed
+        bend = cmds.nonLinear(scalp, type="bend")[0]
+    groom = groomlab.create_groom(scalp)
+    groomlab.set_graph(groom, CLASSIC_GRAPH)
+    groomlab.set_param(groom, "scatter", "density", 6000.0)
+    graph = groomlab.get_graph(groom, expand_default=True)
+    graph["nodes"].insert(-1, {"name": "clump", "type": "Clump", "params": {"count": 60, "strength": 0.6}})
+    graph["nodes"].insert(-1, {"name": "color", "type": "HairColor",
+                               "params": {"melanin": 0.3, "melaninRandom": 0.4, "hueRandom": 0.3, "clumpShare": 0.5}})
+    into = next(c for c in graph["connections"] if c["to"] == "output")
+    graph["connections"] = [c for c in graph["connections"] if c is not into]
+    graph["connections"] += [{"from": into["from"], "to": "clump", "input": "strands"},
+                             {"from": "clump", "to": "color", "input": "strands"},
+                             {"from": "color", "to": "output", "input": "strands"}]
+    groomlab.set_graph(groom, graph)
+    cmds.setAttr(groom + ".previewDensity", 1.0)
+    if deformed:
+        cmds.setAttr(bend + ".curvature", 0.4)  # away from its rest pose
+    cmds.select(clear=True)
+    cmds.setAttr("persp.translate", 0.0, 6.0, 0.01)
+    cmds.setAttr("persp.rotate", -90.0, 0.0, 0.0)
+    cmds.viewFit("persp", allObjects=True)
+    api = cmds.groomLabGpuPreview(drawApi=True)
+
+    def shot(name):
+        cmds.refresh(currentView=True, force=True)
+        path = os.path.join(folder, "colorscale_%s.png" % name)
+        cmds.playblast(frame=[1], format="image", compression="png", viewer=False, showOrnaments=False,
+                       percent=100, widthHeight=(480, 360), completeFilename=path)
+        return path
+
+    def tweak():
+        groomlab.set_param(groom, "color", "melanin", 0.31)
+        groomlab.set_param(groom, "color", "melanin", 0.3)
+
+    # Each display: the lines, the hair shading with self-shadowing, ribbons, the clump level of detail.
+    setups = [("lines", {}), ("hair", {"displayHairShading": 1, "displaySelfShadowing": 1.0}),
+              ("ribbons", {"displayRibbons": True}), ("lod", {"displayClumpLod": True, "displayRibbons": False})]
+    if deformed:
+        setups = [("rest", {}), ("follow", {"followScalp": True}),
+                  ("followhair", {"followScalp": True, "displayHairShading": 1, "displaySelfShadowing": 1.0})]
+    for name, attrs in setups:
+        for attr, value in attrs.items():
+            cmds.setAttr(groom + "." + attr, value)
+        plain = shot(name + "_plain")
+        floor = differ(plain, shot(name + "_again"))
+        for k in (2.0, 0.5):
+            # In steps, as a drag of the scale manipulator evaluates it.
+            for step in range(1, 9):
+                s = 1.0 + (k - 1.0) * step / 8.0
+                cmds.setAttr(scalp + ".scale", s, s, s)
+                cmds.refresh(currentView=True, force=True)
+            scaled = shot("%s_x%g" % (name, k))
+            tweak()
+            scaled_tweaked = shot("%s_x%g_tweaked" % (name, k))
+            check("%s: hair color scaled x%g is as after a tweak on %s (%.4f of the pixels differ)"
+                  % (name, k, api, differ(scaled, scaled_tweaked)), differ(scaled, scaled_tweaked) <= floor + 0.002)
+            for step in range(1, 9):
+                s = k + (1.0 - k) * step / 8.0
+                cmds.setAttr(scalp + ".scale", s, s, s)
+                cmds.refresh(currentView=True, force=True)
+            back = shot("%s_back%g" % (name, k))
+            tweak()
+            tweaked = shot("%s_back%g_tweaked" % (name, k))
+            check("%s: hair color scaled x%g and back is as before on %s (%.4f of the pixels differ, %.4f after a tweak)"
+                  % (name, k, api, differ(plain, back), differ(plain, tweaked)),
+                  differ(plain, back) <= max(floor, differ(plain, tweaked)) + 0.002)
+    cmds.currentTime(1)
     cmds.file(new=True, force=True)
 
 

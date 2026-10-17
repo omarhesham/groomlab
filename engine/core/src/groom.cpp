@@ -19,6 +19,20 @@
 
 namespace groomlab {
 
+const char* scaleSourceName(ScaleSource source) {
+    switch (source) {
+        case ScaleSource::Transform: return "transform";
+        case ScaleSource::Off: return "off";
+        default: return "area";
+    }
+}
+
+ScaleSource scaleSourceFromName(const std::string& name) {
+    if (name == "transform") return ScaleSource::Transform;
+    if (name == "off") return ScaleSource::Off;
+    return ScaleSource::Area;
+}
+
 void setGroomExternals(ExternalInputs& externals, const MeshPtr& scalp, const GuidesPtr& guides,
                        const HierarchyPtr& hierarchy, const PartsPtr& parts, const FlowPtr& flow) {
     if (parts && !parts->empty()) externals.set("parts", parts, parts->contentHash());

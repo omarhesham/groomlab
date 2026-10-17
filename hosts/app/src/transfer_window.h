@@ -136,6 +136,7 @@ private:
     QLabel* rightTitle_ = nullptr;
     QComboBox* methodBox_ = nullptr;
     QCheckBox* keepLengths_ = nullptr;
+    QCheckBox* fitSize_ = nullptr;  // fit the groom to the new scalp's size (TransferOptions::fitSize)
     QCheckBox* maps_ = nullptr;
     QCheckBox* symmetry_ = nullptr;
     QPushButton* undoButton_ = nullptr;

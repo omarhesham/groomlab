@@ -145,6 +145,11 @@ TransferWindow::TransferWindow(MainWindow* main, QWidget* parent) : QWidget(pare
     keepLengths_ = new QCheckBox(tr("Keep guide lengths"));
     keepLengths_->setToolTip(tr("Guides turn with the new head but keep their lengths (off: they scale with it)"));
     checks->addWidget(keepLengths_);
+    fitSize_ = new QCheckBox(tr("Fit groom to the new scalp's size"));
+    fitSize_->setToolTip(tr("The new scalp taken as the old one resized: the groom's scale grows with its area (lengths, "
+                            "widths and clumps follow, the strand count stays, guides scale about their roots). Off: the "
+                            "groom keeps the size shown"));
+    checks->addWidget(fitSize_);
     maps_ = new QCheckBox(tr("Project painted maps"));
     maps_->setChecked(true);
     maps_->setToolTip(tr("Vertex and texture maps carried onto the new mesh by the same method (a texture map's new "
@@ -399,6 +404,7 @@ bool TransferWindow::transfer() {
     TransferOptions options;
     options.method = method();
     options.keepLengths = keepLengths_->isChecked();
+    options.fitSize = fitSize_->isChecked();
     if (markerEditing()) options.markers = editor_.pairs();
     if (!main_->transferToMesh(newScalpPath_, options, maps_->isChecked())) {
         message_->setText(main_->lastReport());

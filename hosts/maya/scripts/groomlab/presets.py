@@ -292,10 +292,13 @@ def set_controls(groom, values, graph=None):
     return done
 
 
-def scalp_size(groom):
+def scalp_size(groom, scaled=True):
     """The largest extent of the groom's scalp (world bounding box) in centimeters, the unit the
     groom works in (Maya's internal unit, whatever the UI's linear unit: the scalp, guides and
-    params are all in it), or None without a scalp. The core's presetScalpSize measures the same."""
+    params are all in it), or None without a scalp. The core's presetScalpSize measures the same.
+    A groom scaled with its scalp (groomScale k) stores its params at 1x: the size is divided by k,
+    so a preset or a new node fits the size the params are at (and a saved preset records it).
+    `scaled` False: the size as it is (a groom just made is at 1x)."""
     import groomlab
     from maya import cmds
     from maya.api import OpenMaya as om
@@ -305,6 +308,10 @@ def scalp_size(groom):
     box = cmds.exactWorldBoundingBox(scalp)  # in the UI's linear unit
     size = max(box[3] - box[0], box[4] - box[1], box[5] - box[2])
     size = om.MDistance(size, om.MDistance.uiUnit()).asCentimeters()
+    if scaled and cmds.attributeQuery("groomScale", node=groom, exists=True):
+        k = cmds.getAttr(groom + ".groomScale")
+        if k and k > 0.0:
+            size /= k
     return size if size > 0 else None
 
 

@@ -958,6 +958,44 @@ TEST(AppDocument, SavesAndExports) {
     EXPECT_EQ(doc->evaluate(request).strands->strandCount(), count);
 }
 
+TEST(AppDocument, ScaleWithScalpIsSavedAndATransferKeepsTheScale) {
+    auto doc = GroomDocument::open(kSampleGroom);  // a file without a reference: its first size is 1x
+    ViewRequest request;
+    const std::size_t count = doc->evaluate(request).strands->strandCount();
+    EXPECT_EQ(doc->session().groomScale(), 1.0);
+    const double area = doc->session().scaleArea();
+    ASSERT_GT(area, 0.0);
+    EXPECT_DOUBLE_EQ(doc->currentFile().data.scaleReference, area) << "saved: the reference in use";
+    // Moved onto a scalp twice the size, the groom keeps its scale (1x: its sizes as they were, the
+    // same density on four times the skin, as a transfer always did).
+    const ScalpMesh& was = *doc->file().data.scalp;
+    std::vector<Vec3f> points = was.points();
+    for (Vec3f& p : points) p = p * 2.0f;
+    auto big = std::make_shared<ScalpMesh>(points, was.triangles());
+    if (was.hasUVs()) big->setCornerUVs(was.cornerUVs());
+    ASSERT_EQ(doc->transferToScalp(big, false, false), "");
+    EXPECT_NEAR(doc->session().groomScale(), 1.0, 1e-4);
+    EXPECT_NEAR(doc->currentFile().data.scaleReference / (4.0 * area), 1.0, 1e-4);
+    EXPECT_GT(doc->evaluate(request).strands->strandCount(), 3 * count);
+    // Off and Transform Only: saved as such. Set Scale Reference: the size now is 1x.
+    doc->setScaleSource(ScaleSource::Off);
+    EXPECT_EQ(doc->currentFile().data.scaleSource, ScaleSource::Off);
+    doc->setScaleSource(ScaleSource::Transform);
+    EXPECT_EQ(doc->currentFile().data.scaleSource, ScaleSource::Transform);
+    doc->setScaleSource(ScaleSource::Area);
+    doc->setScaleReference();
+    EXPECT_EQ(doc->session().groomScale(), 1.0);
+    // Fit to the new scalp's size: the scalp twice the size is the old one resized, so the groom is
+    // scaled 2x (as many strands as at 1x).
+    auto fitted = GroomDocument::open(kSampleGroom);
+    fitted->evaluate(request);
+    TransferOptions fit;
+    fit.fitSize = true;
+    ASSERT_EQ(fitted->transferToScalp(big, fit, false), "");
+    EXPECT_NEAR(fitted->session().groomScale(), 2.0, 1e-4);
+    EXPECT_EQ(fitted->evaluate(request).strands->strandCount(), count);
+}
+
 TEST(AppDocument, SeveralScalpsAndAReferenceOpenSaveAndExport) {
     // A groom file with another scalp (its own Scalp and Scatter) and a Reference node bringing in
     // the sample groom: the app evaluates it through the core, saves it with its scalps, and

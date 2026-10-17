@@ -77,6 +77,7 @@ add_executable(groomlab_tests
     engine/core/test_robustness.cpp
     engine/core/test_scale_export.cpp
     engine/core/test_scale_invariance.cpp
+    engine/core/test_scale_with_scalp.cpp
     engine/core/test_scales.cpp
     engine/core/test_scalp_paint.cpp
     engine/core/test_semver.cpp

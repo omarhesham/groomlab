@@ -98,6 +98,20 @@ public:
     // by its root's rigid frame. Off by default.
     static MObject aFollowScalp;
     static MObject aScalpTopology;   // the topology the groom was made on (an imported file's scalp fingerprint; "": not known)
+    // Scale with the scalp (GroomSession::setScaleSource): the groom grows with its scalp. Scale
+    // Source Surface Area (0, the default): k = sqrt(area / scaleReference), the area the scalp's
+    // world surface at the scene's start frame (the rest mesh sized to it: withRestArea); Transform
+    // Only (1): k = the scalp's transform scale at the start frame (its world matrix's, its rig's
+    // root joint's: scalpTransformScaleAt) / scaleTransformReference; Off (2): k = 1. The
+    // references 0: the first one measured (Set Scale Reference and a save store them). groomScale
+    // (k), scaleArea and scaleTransform (what was measured) are outputs for the Attribute Editor
+    // and groomlab.set_scale_reference.
+    static MObject aScaleSource;
+    static MObject aScaleReference;
+    static MObject aScaleTransformReference;
+    static MObject aGroomScale;
+    static MObject aScaleArea;
+    static MObject aScaleTransform;
     // Colliders: array of {colliderMesh (world space), colliderName, colliderRestMesh}. Each is the
     // graph's external mesh "mesh:<name>" (a ColliderMesh node reads it, a Collide node pushes
     // strands out of it); an empty name is the connected mesh's transform name. colliderRestMesh,
@@ -377,6 +391,8 @@ public:
     // The hierarchy as stored, rooted on the current scalp: no poses, no correctives,
     // no preview. What guide edits (brush strokes) are made against and written back.
     HierarchyPtr authoredHierarchy();
+    // What the live evaluation scales the groom by with its scalp (GroomSession::groomScale).
+    double groomScale() const { return session_.groomScale(); }
     PartsPtr evaluatedParts();  // null without parts
     FlowPtr evaluatedFlow();    // null without flow arrows
     // The Cards nodes' cards (laid out in one atlas) while displayCards is on
@@ -716,6 +732,19 @@ private:
     std::uint64_t symmetrySeamVersion_ = 0;
     std::string reported_;  // the last message sent to the Script Editor
     std::string reportedHeavy_;  // the last "heavy" Scatter note warned about (finishView)
+
+    // Scaling with the scalp (aScaleSource): the scalp's world area at the scene's start frame
+    // (measured by the live lane: at that frame as it is, else read at it when the scalp changed
+    // while Maya does not play or scrub, a first evaluation or another start frame), the start
+    // frame it was measured at, and the first area the groom was evaluated at (the reference while
+    // scaleReference is 0). Shared by both lanes and exports (the scaleArea output).
+    MeshPtr scaleScalp(Lane& lane, MDataBlock& data, const MeshPtr& scalp, bool meshTouched);
+    std::atomic<double> scaleMeasure_{0.0};
+    std::atomic<double> scaleTransformMeasure_{0.0};  // the transform scale at the start frame (measured with the area)
+    std::atomic<double> firstScaleTransform_{0.0};    // the first one (the reference while scaleTransformReference is 0)
+    std::uint64_t scaleNoticeSaid_ = 0;               // the live session's scaleNoticeSerial last said
+    MTime scaleMeasuredAt_;
+    std::atomic<double> firstScaleArea_{0.0};
 
     // The stored texts (graph, guideData, scalpMaps, correctiveData, partData, flowData) are
     // read live (copied out of the node and handed to the session, which compares them with the

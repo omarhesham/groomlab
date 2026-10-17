@@ -634,6 +634,64 @@ TEST_P(LineFramesTest, DensityGridIsTheCpus) {
     device->release(lineUvs);
 }
 
+// The grid made again (the viewport makes it after every update that moves the strands) holds what
+// one fresh build holds: each run clears it first, nothing adds up. Also after the strands were
+// scaled down and back up (a groom scaled with its scalp, frozen), the same cells: the same sum.
+TEST_P(LineFramesTest, DensityGridMadeAgainSumsAsOnce) {
+    auto device = makeDevice(GetParam());
+    if (!device->available()) GTEST_SKIP() << GetParam() << ": no device";
+    auto frames = device->frames();
+    const auto scalp = test::makeSphere(12, 24);
+    const StrandsPtr strands = wavyStrands(scalp, 3000, 17, true);
+    const StrandLines lines(strands, scalp, true, nullptr);
+    const std::size_t n = strands->pointCount();
+    void* points = device->buffer(n * 12);
+    void* lineUvs = device->buffer(n * 8);
+    std::vector<float> uvs(n * 2);
+    lines.writeUvs(uvs.data(), 2);
+    gpu::LineFrames::DensityGrid grid;
+    const unsigned size[3] = {23, 19, 27};
+    grid.cell = 0.12f;
+    for (int k = 0; k < 3; ++k) {
+        grid.size[k] = size[k];
+        grid.origin[k] = -0.5f * grid.cell * static_cast<float>(size[k]);
+    }
+    grid.pieceWeight = 0.785398f * 0.05f / (grid.cell * grid.cell * grid.cell);
+    void* volume = device->volume(size[0], size[1], size[2]);
+    auto put = [&](float scale) {
+        std::vector<Vec3f> p = strands->positions();
+        std::vector<float> u = uvs;
+        for (Vec3f& q : p) q = q * scale;
+        for (std::size_t i = 0; i < n; ++i) u[i * 2 + 1] *= scale;
+        frames->write(points, p.data(), 0, n * 12);
+        frames->write(lineUvs, u.data(), 0, n * 8);
+    };
+    put(1.0f);
+    frames->runDensity(points, lineUvs, n, grid, volume);
+    const double once = frames->densitySum();
+    EXPECT_GT(once, 1.0);
+    EXPECT_EQ(frames->densityPoints(), n);
+    for (int again = 0; again < 4; ++again) {
+        frames->runDensity(points, lineUvs, n, grid, volume);
+        EXPECT_DOUBLE_EQ(frames->densitySum(), once) << "made " << again + 2 << " times";
+    }
+    put(0.1f);
+    frames->runDensity(points, lineUvs, n, grid, volume);
+    EXPECT_NE(frames->densitySum(), once);
+    put(1.0f);
+    frames->runDensity(points, lineUvs, n, grid, volume);
+    EXPECT_DOUBLE_EQ(frames->densitySum(), once) << "scaled down and back up";
+    // The host's texture holds what the kernels made (where the backend reads textures back).
+    const std::vector<float> own = frames->readVolume(nullptr);
+    if (!own.empty()) {
+        EXPECT_EQ(own.size(), std::size_t{size[0]} * size[1] * size[2] * 2);
+        EXPECT_EQ(frames->readVolume(volume), own) << "the texture copied into";
+    }
+    device->releaseVolume(volume);
+    device->release(points);
+    device->release(lineUvs);
+}
+
 // runDensity's GPU time at the viewport bench's 1M strands (16 points each on a radius-10 sphere,
 // rows of strands side by side, 159 cells a side): the median of 15 runs, with the occlusion's reach
 // and without. A benchmark, run by hand (--gtest_also_run_disabled_tests).

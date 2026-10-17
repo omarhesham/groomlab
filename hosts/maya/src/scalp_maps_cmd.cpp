@@ -175,7 +175,7 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
         const MeshPtr scalp = shape->evaluatedCageScalp();  // vertex maps are stored per vertex of the cage
         refreshMayaPaths();  // texture files resolve against the scene's folder and project as they are now
         std::string error;
-        std::shared_ptr<GuideHierarchy> h = toHierarchy(guidesPlug.asString().asChar(), scalp.get(), &error);
+        std::shared_ptr<GuideHierarchy> h = toHierarchy(guidesPlug.asString().asChar(), scalp.get(), &error, groomScaleOf(shape->thisMObject()));
         if (!h) return fail(kName, error.c_str());
 
         if (db.isFlagSet(kValues[0])) {

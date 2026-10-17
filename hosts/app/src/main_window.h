@@ -461,6 +461,12 @@ private:
     QComboBox* scalpMap_ = nullptr;
     QComboBox* scalpMapChannel_ = nullptr;
     QCheckBox* cardsView_ = nullptr;
+    // Scaling with the scalp (GroomDocument::setScaleSource): what it follows and the groom's scale
+    // ("1.00x"), refreshed with the display choices; the session's scale notice last shown.
+    QComboBox* scaleSource_ = nullptr;
+    const void* scaleNoticeSession_ = nullptr;
+    std::uint64_t scaleNoticeShown_ = 0;
+    QLabel* groomScale_ = nullptr;
     bool lookdevWanted_ = true;  // the Lookdev box: the colored modes draw lines while they are on
     QMenu* menu_ = nullptr;
     QMenu* presetsMenu_ = nullptr;

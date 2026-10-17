@@ -13,6 +13,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
+#include <QLabel>
 #include <QSignalBlocker>
 #include <QTimer>
 
@@ -69,6 +70,11 @@ void MainWindow::refreshDisplayChoices() {
     const bool cards = document_ && document_->session().hasCardsNode();
     cardsView_->setEnabled(cards);
     if (!cards) cardsView_->setChecked(false);
+    // The groom's scale with its scalp.
+    const QSignalBlocker blockScale(scaleSource_);
+    scaleSource_->setCurrentIndex(std::max(0, scaleSource_->findData(static_cast<int>(
+                                                  document_ ? document_->session().scaleSource() : ScaleSource::Area))));
+    groomScale_->setText(QString::number(document_ ? document_->session().groomScale() : 1.0, 'f', 2) + QStringLiteral("x"));
 }
 
 void MainWindow::applyDisplayOptions() {

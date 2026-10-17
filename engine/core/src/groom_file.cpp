@@ -450,6 +450,9 @@ std::string groomFileToJson(const GroomFile& file) {
     root["guideCache"] = file.guideCache.empty() ? json(nullptr) : cacheJson(file.guideCache);
     if (!file.searchPaths.empty()) root["searchPaths"] = file.searchPaths;
     if (file.data.followScalp) root["followScalp"] = true;  // written only when on (the default is off)
+    if (file.data.scaleSource != ScaleSource::Area) root["scaleSource"] = scaleSourceName(file.data.scaleSource);  // (default "area")
+    if (file.data.scaleReference > 0.0) root["scaleReference"] = file.data.scaleReference;  // the area the groom is 1x at
+    if (file.data.scaleTransformReference > 0.0) root["scaleTransformReference"] = file.data.scaleTransformReference;
     if (!file.cardBake.empty()) root["cardBake"] = {{"prefix", file.cardBake.prefix}, {"strands", file.cardBake.strands}};
     if (!file.simCaches.empty()) root["simCaches"] = simCachesJson(file.simCaches);
     if (!file.prototypes.empty()) {
@@ -543,6 +546,9 @@ GroomFile groomFileFromJson(const std::string& text, const std::string& baseDir)
         file.guideCache = readCache(root, "guideCache", baseDir);
         file.searchPaths = root.value("searchPaths", std::vector<std::string>{});
         file.data.followScalp = root.value("followScalp", false);
+        file.data.scaleSource = scaleSourceFromName(root.value("scaleSource", std::string("area")));
+        file.data.scaleReference = std::max(0.0, root.value("scaleReference", 0.0));  // none: the first area measured
+        file.data.scaleTransformReference = std::max(0.0, root.value("scaleTransformReference", 0.0));
         if (root.contains("simCaches") && root.at("simCaches").is_object()) file.simCaches = readSimCaches(root.at("simCaches"), baseDir);
         if (root.contains("cardBake") && root.at("cardBake").is_object()) {
             const json& bake = root.at("cardBake");

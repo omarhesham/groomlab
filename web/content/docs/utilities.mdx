@@ -99,6 +99,13 @@ rotated and scaled with the surface around its root (**Keep guide lengths** disa
 scaling). **Copy mesh color sets** also copies Maya color sets. One **Ctrl+Z** in Maya undoes the
 whole transfer, and the window updates accordingly.
 
+By default the groom keeps the size it shows: on a bigger head the hair keeps its lengths and the
+same density covers more skin. **Fit groom to the new scalp's size** treats the new scalp as the
+old one resized instead: the groom's scale grows with the scalp's area
+([Scaling a groom](/docs/guides-and-brushes#scaling-a-groom)), so lengths, widths and clumps
+follow, the strand count stays the same and the guides scale about their roots (the mapping only
+turns them). In Python: `groomlab.transfer_groom(groom, "bigHead", fit_size=True)`.
+
 Without the window: click **Pick** on the Scalp row of the groom's Attribute Editor, or choose the
 mesh in the Scalp node's **Mesh** field (closest point method).
 

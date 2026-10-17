@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -938,6 +939,8 @@ struct HairShaderEntry {
     std::weak_ptr<HairGroomState> groom;
     bool coverage = false;
     std::uint64_t lightsHash = 0;
+    // The density grid it was last given (setHairGrid): the texture's number, the grid's.
+    std::uint64_t gridVolume = 0, gridSerial = 0;
 };
 
 std::mutex& registryMutex() {
@@ -988,6 +991,11 @@ void setLights(MHWRender::MShaderInstance& shader, const HairLightSet& set) {
     shader.setParameter("gAmbient", set.ambient);
 }
 
+std::atomic<long long>& unknownDraws() {
+    static std::atomic<long long> n{0};
+    return n;
+}
+
 void hairPreDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemList& items, MHWRender::MShaderInstance* shader) {
     if (!shader) return;
     HairShaderEntry* entry = nullptr;
@@ -996,6 +1004,7 @@ void hairPreDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemL
         auto it = registry().find(shader);
         if (it != registry().end()) entry = &it->second;
     }
+    if (!entry) ++unknownDraws();
     if (entry && entry->coverage) coveragePreDraw(context, items, shader);
     if (!colorPass(context)) return;
     LightCache& cache = lightCache();
@@ -1060,6 +1069,35 @@ MHWRender::MShaderInstance* acquireHairShader(const MHWRender::MShaderManager& s
     return shader;
 }
 
+bool hairShaderGrid(const MHWRender::MShaderInstance* shader, std::uint64_t* volume, std::uint64_t* serial) {
+    std::lock_guard<std::mutex> lock(registryMutex());
+    const auto it = registry().find(shader);
+    if (it == registry().end()) return false;
+    if (volume) *volume = it->second.gridVolume;
+    if (serial) *serial = it->second.gridSerial;
+    return true;
+}
+
+int noteHairShader(const MHWRender::MShaderInstance* shader, bool coverage, const std::shared_ptr<HairGroomState>& groom) {
+    if (!shader) return -1;
+    std::lock_guard<std::mutex> lock(registryMutex());
+    auto [it, added] = registry().try_emplace(shader);
+    const int was = added ? -1 : (it->second.coverage ? 1 : 0);
+    HairShaderEntry& entry = it->second;
+    if (entry.coverage != coverage || entry.groom.lock() != groom) entry.lightsHash = 0;  // (the lights given again)
+    entry.coverage = coverage;
+    entry.groom = groom;
+    return was;
+}
+
+int hairShaderCoverage(const MHWRender::MShaderInstance* shader) {
+    std::lock_guard<std::mutex> lock(registryMutex());
+    const auto it = registry().find(shader);
+    return it == registry().end() ? -1 : (it->second.coverage ? 1 : 0);
+}
+
+long long hairDrawsUnknown() { return unknownDraws(); }
+
 bool hairShaderAvailable(const MHWRender::MShaderManager& shaders) {
     static int state = 0;
     static MHWRender::DrawAPI api = MHWRender::kNone;
@@ -1082,11 +1120,15 @@ HairGroomState::~HairGroomState() {
 }
 
 MHWRender::MTexture* HairGroomState::volumeFor(const unsigned want[3]) {
-    if (volume && size[0] == want[0] && size[1] == want[1] && size[2] == want[2]) return volume;
+    if (volume && !remake && size[0] == want[0] && size[1] == want[1] && size[2] == want[2]) return volume;
+    remake = false;
     MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
     MHWRender::MTextureManager* textures = renderer ? renderer->getTextureManager() : nullptr;
     if (!textures) return nullptr;
-    if (volume) textures->releaseTexture(volume);
+    // The new texture made before the old one goes (another address, never the freed one's: a
+    // shader handed a texture at the address it already holds may keep drawing the old one), under
+    // a name of its own (the texture manager hands back a cached texture of the same name).
+    MHWRender::MTexture* old = volume;
     volume = nullptr;
     valid = false;
     MHWRender::MTextureDescription desc;
@@ -1100,19 +1142,40 @@ MHWRender::MTexture* HairGroomState::volumeFor(const unsigned want[3]) {
     desc.fArraySlices = 1;
     desc.fBytesPerRow = want[0] * 8;
     desc.fBytesPerSlice = want[0] * want[1] * 8;
-    // (Named for this state and size: Maya's texture manager hands back a texture of the same name.)
-    char name[96];
-    std::snprintf(name, sizeof name, "groomLabHairDensity_%p_%ux%ux%u", static_cast<void*>(this), want[0], want[1], want[2]);
+    static std::atomic<unsigned long long> made{0};
+    char name[128];
+    std::snprintf(name, sizeof name, "groomLabHairDensity_%p_%ux%ux%u_%llu", static_cast<void*>(this), want[0], want[1], want[2],
+                  ++made);
     const std::vector<float> zeros(std::size_t{want[0]} * want[1] * want[2] * 2, 0.0f);
     volume = textures->acquireTexture(MString(name), desc, zeros.data(), false);
+    if (old) textures->releaseTexture(old);
+    if (volume) ++volumeSerial;
     for (int k = 0; k < 3; ++k) size[k] = volume ? want[k] : 0;
     return volume;
 }
 
 void setHairGrid(MHWRender::MShaderInstance& shader, const HairGroomState* groom, float selfShadowing) {
     const bool on = groom && groom->valid && groom->volume && selfShadowing > 0.0f;
+    // The texture this shader was given last: another one (made anew after the grid changed size,
+    // a groom scaled with its scalp say) is bound after none, so the instance lets go of the old
+    // one whatever address the new one has.
+    bool rebind = on;
+    {
+        std::lock_guard<std::mutex> lock(registryMutex());
+        const auto it = registry().find(&shader);
+        if (it != registry().end()) {
+            const std::uint64_t volume = on ? groom->volumeSerial : 0;
+            rebind = on && it->second.gridVolume != volume;
+            it->second.gridVolume = volume;
+            it->second.gridSerial = on ? groom->serial : 0;
+        }
+    }
     if (on) {
         MHWRender::MTextureAssignment assignment;
+        if (rebind) {
+            assignment.texture = nullptr;
+            shader.setParameter("gDensityTexture", assignment);
+        }
         assignment.texture = groom->volume;
         shader.setParameter("gDensityTexture", assignment);
         static const MHWRender::MSamplerState* sampler = [] {

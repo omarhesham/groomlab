@@ -88,18 +88,19 @@ bool isBound(const HierarchyGuide& g, const ScalpMesh& scalp) {
            !g.rootLocal.empty() && g.rootLocal.size() == g.points.size();
 }
 
-void bind(HierarchyGuide& g, const ScalpMesh& scalp) {
+// `scale`: the size shown (GuideHierarchy::setScale): the world shape is that times what is stored.
+void bind(HierarchyGuide& g, const ScalpMesh& scalp, float scale) {
     const Frame f = rootFrame(scalp, g.root);
     const Vec3f origin = scalp.position(g.root);
     g.rootLocal.resize(g.points.size());
-    for (std::size_t i = 0; i < g.points.size(); ++i) g.rootLocal[i] = f.toLocal(g.points[i] - origin);
+    for (std::size_t i = 0; i < g.points.size(); ++i) g.rootLocal[i] = f.toLocal(g.points[i] - origin) * (1.0f / scale);
     g.frameUpLocal = f.toLocal(g.frameUp);
 }
 
-void rebuildFromRoot(HierarchyGuide& g, const ScalpMesh& scalp) {
+void rebuildFromRoot(HierarchyGuide& g, const ScalpMesh& scalp, float scale) {
     const Frame f = rootFrame(scalp, g.root);
     const Vec3f origin = scalp.position(g.root);
-    for (std::size_t i = 0; i < g.points.size(); ++i) g.points[i] = origin + f.toWorld(g.rootLocal[i]);
+    for (std::size_t i = 0; i < g.points.size(); ++i) g.points[i] = origin + f.toWorld(g.rootLocal[i] * scale);
     g.frameUp = f.toWorld(g.frameUpLocal);
 }
 
@@ -386,8 +387,8 @@ void GuideHierarchy::resolveFollower(HierarchyGuide& child, const HierarchyGuide
     for (std::size_t i = 0; i < n; ++i) {
         const float t = paramAt(i, n);
         const Vec3f o = rotateXY(sampleEven(child.offsets, t, Vec3f{}), parent.tube.twist * t);
-        const float r = parent.tube.radiusAt(t);
-        child.points[i] = parent.points[i] + frames[i].toWorld({o.x * r, o.y * r, o.z});
+        const float r = parent.tube.radiusAt(t) * scale_;
+        child.points[i] = parent.points[i] + frames[i].toWorld({o.x * r, o.y * r, o.z * scale_});
     }
 
     // The cross-section at the root is not the scalp surface: snap the root
@@ -422,8 +423,8 @@ std::vector<Vec3f> GuideHierarchy::offsetsFromWorld(const HierarchyGuide& child,
     for (std::size_t i = 0; i < n; ++i) {
         const float t = paramAt(i, n);
         const Vec3f local = frames[i].toLocal(pts[i] - parent.points[i]);
-        const float r = std::max(parent.tube.radiusAt(t), 1e-6f);
-        offsets[i] = rotateXY({local.x / r, local.y / r, local.z}, -parent.tube.twist * t);
+        const float r = std::max(parent.tube.radiusAt(t) * scale_, 1e-6f);
+        offsets[i] = rotateXY({local.x / r, local.y / r, local.z / scale_}, -parent.tube.twist * t);
     }
     return offsets;
 }
@@ -436,7 +437,7 @@ void GuideHierarchy::evaluateGuide(HierarchyGuide& g, const ScalpMesh* scalp, co
     }
     if (!scalp || scalp->triangleCount() == 0 || g.points.size() < 2) return;
     if (isBound(g, *scalp)) {
-        rebuildFromRoot(g, *scalp);
+        rebuildFromRoot(g, *scalp, scale_);
         return;
     }
     // Never-rooted primaries accept curves drawn tip-first. Edited guides
@@ -447,7 +448,14 @@ void GuideHierarchy::evaluateGuide(HierarchyGuide& g, const ScalpMesh* scalp, co
         g.frameUp = anyPerpendicular(rootTangent(g.points));
     }
     g.root = rootRigidly(g.points, *scalp);
-    bind(g, *scalp);
+    bind(g, *scalp, scale_);
+}
+
+void GuideHierarchy::setScale(float scale) {
+    if (!(scale > 0.0f) || !std::isfinite(scale)) scale = 1.0f;
+    if (scale == scale_) return;
+    invalidateHash();
+    scale_ = scale;
 }
 
 std::vector<std::size_t> GuideHierarchy::depthOrder(const std::vector<std::size_t>& indices) const {
@@ -1067,6 +1075,7 @@ std::uint64_t GuideHierarchy::contentHash() const {
 
 std::uint64_t GuideHierarchy::computeContentHash() const {
     std::uint64_t h = hashCombine(hash64(groups_.size()), boundTopology_);
+    if (scale_ != 1.0f) h = hashFloat(h, scale_);  // (a hierarchy at 1 hashes as it always has)
     for (const GuideGroup& g : groups_) {
         h = hashCombine(hashCombine(h, g.id), g.parent);
         h = hashString(h, g.name);

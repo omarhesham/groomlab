@@ -28,7 +28,10 @@
 #include <maya/MFnStringArrayData.h>
 #include <maya/MFnNurbsCurve.h>
 #include <maya/MFnReference.h>
+#include <maya/MItDependencyGraph.h>
 #include <maya/MItDependencyNodes.h>
+#include <maya/MFnMatrixData.h>
+#include <maya/MPlugArray.h>
 #include <maya/MIntArray.h>
 #include <maya/MItMeshPolygon.h>
 #include <maya/MMatrix.h>
@@ -389,6 +392,63 @@ std::vector<Vec3f> scalpPointsAt(const MObject& node, const MTime& time) {
     MDGContext context(time);
     MDGContextGuard guard(context);
     return meshPoints(plug.asMObject());
+}
+
+namespace {
+
+// A matrix plug's uniform scale (the cube root of its 3x3 determinant's size); 0 where unreadable.
+double uniformScaleOf(const MPlug& plug) {
+    if (plug.isNull()) return 0.0;
+    MObject data = plug.asMObject();
+    if (data.isNull()) return 0.0;
+    MFnMatrixData fn(data);
+    const MMatrix m = fn.matrix();
+    const double det = m(0, 0) * (m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1)) - m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0)) +
+                       m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0));
+    const double s = std::cbrt(std::abs(det));
+    return std::isfinite(s) ? s : 0.0;
+}
+
+}  // namespace
+
+double scalpTransformScaleAt(const MObject& node, const MTime& time) {
+    const MPlug plug = MFnDependencyNode(node).findPlug("inMesh", true);
+    if (plug.isNull() || !plug.isConnected()) return 0.0;
+    const MPlug source = plug.source();
+    if (source.isNull()) return 0.0;
+    MObject mesh = source.node();
+    MDGContext context(time);
+    MDGContextGuard guard(context);
+    // The mesh's world matrix (its instance's: worldMesh[i] feeds inMesh).
+    double scale = 1.0;
+    MPlug world = MFnDependencyNode(mesh).findPlug("worldMatrix", true);
+    if (!world.isNull()) {
+        const unsigned index = source.isElement() ? source.logicalIndex() : 0u;
+        const double s = uniformScaleOf(world.elementByLogicalIndex(index));
+        if (s > 0.0) scale = s;
+    }
+    // A skinned mesh: its rig's root joint (the influence nearest the top of the DAG) at that time.
+    MStatus status;
+    MItDependencyGraph skins(mesh, MFn::kSkinClusterFilter, MItDependencyGraph::kUpstream, MItDependencyGraph::kDepthFirst,
+                             MItDependencyGraph::kNodeLevel, &status);
+    if (status == MS::kSuccess && !skins.isDone()) {
+        const MPlug matrices = MFnDependencyNode(skins.currentItem()).findPlug("matrix", true);
+        unsigned shallowest = ~0u;
+        MPlug rootMatrix;
+        for (unsigned i = 0; !matrices.isNull() && i < matrices.numConnectedElements(); ++i) {
+            const MPlug from = matrices.connectionByPhysicalIndex(i).source();
+            if (from.isNull()) continue;
+            MDagPath path;
+            if (MDagPath::getAPathTo(from.node(), path) != MS::kSuccess) continue;
+            if (path.length() < shallowest) {
+                shallowest = path.length();
+                rootMatrix = from;
+            }
+        }
+        const double s = uniformScaleOf(rootMatrix);
+        if (s > 0.0) scale *= s;
+    }
+    return scale;
 }
 
 std::vector<Vec3f> joinedScalpPointsAt(const MObject& node, const MTime& time, const NamedScalps& extras) {
@@ -837,9 +897,10 @@ float readSoftSelectRadius(const MObject& node) {
     return MFnDependencyNode(node).findPlug("softSelectRadius", true).asFloat();
 }
 
-std::shared_ptr<GuideHierarchy> toHierarchy(const std::string& json, const ScalpMesh* scalp, std::string* error) {
+std::shared_ptr<GuideHierarchy> toHierarchy(const std::string& json, const ScalpMesh* scalp, std::string* error, float scale) {
     try {
         auto hierarchy = std::make_shared<GuideHierarchy>(GuideHierarchy::fromJson(json));
+        hierarchy->setScale(scale);
         hierarchy->evaluate(scalp);
         return hierarchy;
     } catch (const std::exception& e) {
@@ -1015,8 +1076,74 @@ MeshPtr rawScalpFromNode(const MObject& node, NodeInputCache* cache) {
     // Match render: what the renderer refines the mesh by (read on every evaluation: Arnold's and
     // the smooth preview's attributes are on the mesh, not in its data).
     raw = withRenderSubdivisionOf(raw, fn.findPlug("inMesh", true));
+    // Scaling with the scalp: the rest mesh sized as the node sizes it (GroomShape::scaleScalp).
+    if (raw && raw->hasRest()) {
+        const ScaleRead scale = readScale(node, cache);
+        if (scale.on) raw = withRestArea(raw, scale.measure);
+    }
     if (cache) cache->rawScalp = raw;
     return raw;
+}
+
+float groomScaleOf(const MObject& node) {
+    const MPlug plug = MFnDependencyNode(node).findPlug("groomScale", true);
+    if (plug.isNull()) return 1.0f;
+    MDGContextGuard normal(MDGContext::fsNormal);
+    const double k = plug.asDouble();
+    return k > 0.0 && std::isfinite(k) ? static_cast<float>(k) : 1.0f;
+}
+
+ScaleRead readScale(const MObject& node, NodeInputCache* cache) {
+    auto sourceOf = [](int value) { return value == 1 ? ScaleSource::Transform : value == 2 ? ScaleSource::Off : ScaleSource::Area; };
+    if (cache && cache->scaleRead) {
+        ScaleRead kept;
+        kept.on = cache->scaleOn;
+        kept.source = sourceOf(cache->scaleSource);
+        kept.measure = cache->scaleMeasure;
+        kept.reference = cache->scaleReference;
+        kept.transform = cache->scaleTransform;
+        kept.transformReference = cache->scaleTransformReference;
+        kept.k = cache->scaleK;
+        return kept;
+    }
+    ScaleRead out;
+    MFnDependencyNode fn(node);
+    const MPlug source = fn.findPlug("scaleSource", true);
+    int sourceValue = 2;
+    if (source.isNull()) {
+        out.on = false;
+        out.source = ScaleSource::Off;
+    } else {
+        MDGContextGuard normal(MDGContext::fsNormal);  // an export at another frame: the node's own measure
+        sourceValue = source.asShort();
+        out.source = sourceOf(sourceValue);
+        out.on = out.source != ScaleSource::Off;
+        const double area = fn.findPlug("scaleArea", true).asDouble();  // evaluates the groom when dirty
+        const double k = fn.findPlug("groomScale", true).asDouble();
+        const double set = fn.findPlug("scaleReference", true).asDouble();
+        const double transform = fn.findPlug("scaleTransform", true).asDouble();
+        const double setTransform = fn.findPlug("scaleTransformReference", true).asDouble();
+        out.k = k > 0.0 ? k : 1.0;
+        out.measure = area;
+        out.transform = transform;
+        // Transform Only: the area reference that gives the same k (hosts without transforms work k
+        // out from the area: a groom file, the procedural).
+        out.reference = out.source == ScaleSource::Transform && k > 0.0 && area > 0.0 ? area / (k * k)
+                        : set > 0.0                                                   ? set
+                        : (k > 0.0 && area > 0.0 ? area / (k * k) : 0.0);
+        out.transformReference = setTransform > 0.0 ? setTransform : (k > 0.0 && transform > 0.0 ? transform / k : 0.0);
+    }
+    if (cache) {
+        cache->scaleRead = true;
+        cache->scaleOn = out.on;
+        cache->scaleSource = sourceValue;
+        cache->scaleMeasure = out.measure;
+        cache->scaleReference = out.reference;
+        cache->scaleTransform = out.transform;
+        cache->scaleTransformReference = out.transformReference;
+        cache->scaleK = out.k;
+    }
+    return out;
 }
 
 MeshPtr scalpFromNode(const MObject& node, NodeInputCache* cache, MapCatalog* maps, bool readMaps) {
@@ -1179,6 +1306,10 @@ GroomData groomDataFromNode(const MObject& node, NodeInputCache* cache, std::str
     data.meshes = colliderMeshesFromNode(node, cache);  // "mesh:<name>" for the graph's ColliderMesh nodes
     data.time = mayaSeconds(fn.findPlug("time", true).asMTime());
     data.followScalp = fn.findPlug("followScalp", true).asBool();
+    const ScaleRead scale = readScale(node, cache);  // scaling with the scalp, as the node evaluates
+    data.scaleSource = scale.source;
+    data.scaleTransformReference = scale.source == ScaleSource::Transform ? scale.transformReference : 0.0;
+    data.scaleReference = scale.reference;
     data.scalpFingerprint = parseScalpFingerprint(fn.findPlug("scalpTopology", true).asString().asChar());
     return data;
 }
@@ -1248,6 +1379,7 @@ void NodeEvaluator::refreshStoredInputs() {
     scalpPast_.clear();
     inputs_.guideCache.reset();
     inputs_.verifyScalp = true;  // the scalp's UVs and color sets may have been edited too
+    inputs_.scaleRead = false;   // scaling with the scalp: the node's measure read again
     if (!session_) return;  // the next evaluate reads everything
     MStatus status;
     MFnDependencyNode fn(node_, &status);
@@ -1262,6 +1394,11 @@ void NodeEvaluator::refreshStoredInputs() {
     session_->setCorrectivesJson(withWeightCurves(node_, fn.findPlug("correctiveData", true).asString().asChar()));
     session_->setSculptsJson(fn.findPlug("sculptData", true).asString().asChar());
     session_->setFollowScalp(fn.findPlug("followScalp", true).asBool());
+    const ScaleRead scale = readScale(node_, &inputs_);
+    session_->setScaleSource(scale.source);
+    session_->setScaleTransformReference(scale.transformReference);
+    session_->setScaleTransform(scale.transform);
+    session_->setScaleReference(scale.reference);
     session_->setScalpFingerprint(parseScalpFingerprint(fn.findPlug("scalpTopology", true).asString().asChar()));
     const std::string graph = fn.findPlug("graph", true).asString().asChar();
     if (graph != nodeGraphJson_) {

@@ -70,6 +70,9 @@ GroomLab always writes the fields marked *always*; the others only when they hol
 | `guideCache` | object or null | null | Animated guide poses in an Alembic cache, matched to hierarchy guides by ID. *Always.* |
 | `searchPaths` | array of strings | none | Where relative paths in the graph resolve, after the file's own folder. May use environment variables. |
 | `followScalp` | boolean | false | The groom is evaluated on the scalp's rest pose and carried by each root. Written only when true. |
+| `scaleSource` | string | `"area"` | What the groom's scale follows ([Scaling a groom](/docs/guides-and-brushes#scaling-a-groom)): `"area"` (the scalp's surface area), `"transform"` (the scalp's transform scale) or `"off"`. Written only when not `"area"`. |
+| `scaleReference` | number | none | The scalp area (scene units squared, measured on the rest pose) the groom is 1x at; the scale is the square root of the scalp's area over it. None: the first area measured. |
+| `scaleTransformReference` | number | none | The transform scale the groom is 1x at (`"transform"`). None: the first one measured. A host without transforms scales the groom by `scaleReference`. |
 | `cardBake` | object | none | The last game-card bake: `{"prefix", "strands"}`. **Unstable.** |
 | `simCaches` | object | none | Baked Simulate nodes: `{"<node>": {"file", "object", "stamp"}}`. **Unstable.** |
 | `prototypes` | object | none | Meshes the Instance nodes name, inline ([below](#prototypes)). |

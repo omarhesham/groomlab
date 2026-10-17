@@ -109,6 +109,35 @@ def _fill_inputs(groom):
            attributes=("guideData", "groomFile"))
 
 
+SCALE = "groomLabAEScale"
+SCALE_TIP = ("What the groom is scaled by with its scalp: 1.00x at the size it was groomed at. Set Scale Reference "
+             "makes the scalp's size now 1x (the groom then keeps the sizes its params say at this size)")
+
+
+def scale_new(attr):
+    """The groom's scale (groomScale, read only, as 1.00x) and Set Scale Reference."""
+    groom = _groom(attr)
+    cmds.setUITemplate("attributeEditorTemplate", pushTemplate=True)
+    cmds.rowLayout(SCALE, numberOfColumns=4, adjustableColumn=4, columnWidth=[(1, 145), (2, 60), (3, 20)],
+                   columnAttach=[(1, "right", 6)])
+    cmds.text(label="Groom Scale", annotation=SCALE_TIP)
+    field = cmds.floatField(SCALE + "Field", editable=False, precision=2, annotation=SCALE_TIP)
+    cmds.text(label="x", align="left", annotation=SCALE_TIP)
+    # The groom the section shows now (scale_replace moves it): kept on the button.
+    cmds.button(SCALE + "Set", label="Set Scale Reference", annotation=SCALE_TIP, docTag=groom,
+                command=lambda *_: _run(groomlab.set_scale_reference, cmds.button(SCALE + "Set", query=True, docTag=True)))
+    cmds.setParent("..")
+    cmds.setUITemplate(popTemplate=True)
+    cmds.connectControl(field, groom + ".groomScale")
+
+
+def scale_replace(attr):
+    groom = _groom(attr)
+    if cmds.floatField(SCALE + "Field", exists=True):
+        cmds.connectControl(SCALE + "Field", groom + ".groomScale")
+        cmds.button(SCALE + "Set", edit=True, docTag=groom)
+
+
 COLLIDER_FRICTION_TIP = ("Friction: how much simulated hair resting on this mesh is kept from sliding, 0-1, in a "
                          "Simulate node it feeds (-1: the Simulate node's friction)")
 

@@ -69,7 +69,7 @@ enum : int { kMass = 0, kMx = 1, kMxx = 4, kMw = 10, kSums = 11 };
 bool finitePoints(const Vec3f* p, std::size_t n);
 
 // The scalp's size: its rest pose's bounding box diagonal, on the decimal lattice (0: none).
-float scalpSize(const ScalpMesh* scalp);
+float scalpSize(const ScalpMesh* scalp, double scale = 1.0);  // scale: EvalContext::scale, the lattice's anchor
 
 // What keeps pushed points out of the scalp (Interpolate keepClearance's surface and floor).
 struct ScalpFloor {
@@ -93,7 +93,8 @@ struct Layout {
 };
 // The layout of `in`'s grid: false when there is nothing to splat (no strand of two finite points,
 // or a set of no size).
-bool layoutOf(const StrandSet& in, const ScalpMesh* scalp, std::size_t most, std::uint64_t thinSalt, Layout* out);
+bool layoutOf(const StrandSet& in, const ScalpMesh* scalp, std::size_t most, std::uint64_t thinSalt, Layout* out,
+              double scale = 1.0);  // scale: EvalContext::scale, the lattices' anchor
 
 // The sparse grid: nodes at whole multiples of h (the world's), local node (i, j, k) the world's
 // (o + i, ...); blocks of 4^3 nodes where samples fall, numbered in the order of the block table.

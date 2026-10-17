@@ -904,4 +904,48 @@ bool ScalpMesh::intersectRay(const Vec3f& origin, const Vec3f& direction, Surfac
     return true;
 }
 
+double restSurfaceArea(const ScalpMesh& scalp) {
+    double area = 0.0;
+    for (std::size_t t = 0; t < scalp.triangleCount(); ++t) area += scalp.restTriangleArea(t);
+    return area;
+}
+
+double surfaceArea(const std::vector<Vec3f>& points, const std::vector<ScalpMesh::Triangle>& triangles) {
+    double area = 0.0;
+    for (const ScalpMesh::Triangle& t : triangles) {
+        if (t[0] < 0 || t[1] < 0 || t[2] < 0) continue;
+        const auto a = static_cast<std::size_t>(t[0]), b = static_cast<std::size_t>(t[1]), c = static_cast<std::size_t>(t[2]);
+        if (a >= points.size() || b >= points.size() || c >= points.size()) continue;
+        const float x = 0.5f * (points[b] - points[a]).cross(points[c] - points[a]).length();
+        if (std::isfinite(x)) area += x;
+    }
+    return area;
+}
+
+bool scaleToArea(std::vector<Vec3f>& points, const std::vector<ScalpMesh::Triangle>& triangles, double area) {
+    if (points.empty() || !(area > 0.0) || !std::isfinite(area)) return false;
+    const double now = surfaceArea(points, triangles);
+    if (!(now > 0.0) || std::abs(area / now - 1.0) < 1e-6) return false;
+    const auto s = static_cast<float>(std::sqrt(area / now));
+    double cx = 0.0, cy = 0.0, cz = 0.0;
+    for (const Vec3f& p : points) {
+        cx += p.x;
+        cy += p.y;
+        cz += p.z;
+    }
+    const auto n = static_cast<double>(points.size());
+    const Vec3f center(static_cast<float>(cx / n), static_cast<float>(cy / n), static_cast<float>(cz / n));
+    for (Vec3f& p : points) p = center + (p - center) * s;
+    return true;
+}
+
+std::shared_ptr<const ScalpMesh> withRestArea(const std::shared_ptr<const ScalpMesh>& scalp, double area) {
+    if (!scalp || !scalp->hasRest()) return scalp;
+    std::vector<Vec3f> rest = scalp->restPoints();
+    if (!scaleToArea(rest, scalp->triangles(), area)) return scalp;
+    auto out = std::make_shared<ScalpMesh>(*scalp);
+    out->setRestPoints(std::move(rest));
+    return out;
+}
+
 }  // namespace groomlab

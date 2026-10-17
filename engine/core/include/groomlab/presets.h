@@ -30,6 +30,7 @@
 // on Windows, where both hosts save), and the folder shipped with the product; a preset in an
 // earlier directory hides one of the same name in a later one.
 
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -151,5 +152,24 @@ std::string makePresetJson(const std::string& graphJson, std::optional<double> s
 // The scalp size a preset is made on and fitted to: the largest extent of the mesh's bounding
 // box; nullopt for a mesh without points.
 std::optional<double> presetScalpSize(const ScalpMesh& scalp);
+
+// ---- Scaling a groom with its scalp (GroomSession::groomScale) -----------------------------------
+// The one table of how a measure scales: what a param of `unit` (ParamSpec::unit) is multiplied by
+// on a scalp `k` times as big (a preset fitted to it, a groom scaled with its scalp): length and
+// width by k, density by 1 / k^2 (as many strands on the bigger skin), perLength by 1 / k. nullopt
+// for a unit that does not scale (angle, turns, fraction, seconds, pixels, color, none).
+std::optional<double> unitScaleFactor(const std::string& unit, double k);
+// The graph's JSON (graph_io.h; blank or "{}": the default graph) with every param that measures
+// something scaled by `k`, as fitPresetJson fits a preset to a scalp k times as big: params left at
+// their spec defaults too, compounds' inner nodes, the min and max of maps, Expression variables
+// that say their unit. What a groom scaled with its scalp evaluates (its stored graph stays as it
+// is). The text as it is for k of 1 (within 1e-9), not finite or not positive, and for text that
+// is not a JSON object (loadGraphJson says why).
+std::string scaleGraphJson(const std::string& graphJson, double k);
+// The factor each control's value takes on a groom `k` times its size, by control name (what
+// GroomSession::setControls takes): a keyed param's controls by the param's unit (paramControls),
+// a keyable Expression variable's control by the unit the variable says. Controls left out keep
+// their values (a Control node's value is a factor of what it is plugged into). Empty for k of 1.
+std::map<std::string, double> controlScaleFactors(const std::string& graphJson, double k);
 
 }  // namespace groomlab

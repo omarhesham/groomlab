@@ -229,6 +229,7 @@ MStatus TransferCmd::doIt(const MArgList& args) {
             const std::string stored = guidePlug.asString().asChar();
             if (!stored.empty()) {
                 GuideHierarchy h = GuideHierarchy::fromJson(stored);
+                h.setScale(groomScaleOf(groom.node()));  // moved as shown (the groom keeps its scale: transfer_groom)
                 h.transfer(*mapping);
                 moved = h.guides().size();
                 guideJson = h.toJson();

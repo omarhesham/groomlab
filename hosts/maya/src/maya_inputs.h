@@ -134,7 +134,12 @@ float readSoftSelectRadius(const MObject& node);
 
 // Parses the node's guideData JSON and evaluates it on the scalp. Returns an
 // empty hierarchy for empty text; on malformed text returns null and sets *error.
-std::shared_ptr<GuideHierarchy> toHierarchy(const std::string& json, const ScalpMesh* scalp, std::string* error);
+// `scale`: the groom's (groomScaleOf): the guides shown at it (GuideHierarchy::setScale), and edits
+// made in world space stored at the groom's own size.
+std::shared_ptr<GuideHierarchy> toHierarchy(const std::string& json, const ScalpMesh* scalp, std::string* error, float scale = 1.0f);
+// What a groom node is scaled by with its scalp now (its groomScale output, read in the normal
+// context: the groom is evaluated when it is dirty); 1 for a node without one.
+float groomScaleOf(const MObject& node);
 
 // A nurbsCurve's (transform or shape name) world space curve data; false
 // when it isn't one.
@@ -172,6 +177,10 @@ std::vector<Vec3f> meshWorldPoints(const MObject& meshData);
 // The scalp's (inMesh plug's) world-space points at `time`, evaluated in that context; empty
 // without a mesh.
 std::vector<Vec3f> scalpPointsAt(const MObject& node, const MTime& time);
+// The scalp's transform scale at `time` (GroomSession::setScaleTransform): the uniform scale of the
+// inMesh mesh's world matrix, times its rig's root joint's (the skinCluster influence nearest the
+// top of the DAG) where it is skinned; 0 without a mesh.
+double scalpTransformScaleAt(const MObject& node, const MTime& time);
 // The scalp joined with the node's other scalps at `time` (each read in that time's context, as
 // scalpPointsAt reads inMesh): inMesh's points, then each of `extras`' (the other scalps as joined,
 // by name: their extraScalps element's mesh). An other scalp that does not read with its points'
@@ -257,7 +266,26 @@ struct NodeInputCache {
     std::uint64_t scalpsKey = 0;
     NamedScalps scalps;
     std::shared_ptr<GuideCacheReader> guideCache;
+    // Scaling with the scalp as the node evaluates it (readScale), read once per export.
+    bool scaleRead = false;
+    bool scaleOn = true;
+    int scaleSource = 0;
+    double scaleMeasure = 0.0, scaleReference = 0.0, scaleTransform = 0.0, scaleTransformReference = 0.0, scaleK = 1.0;
 };
+
+// Scaling with the scalp as the groom node evaluates it (groom_shape.h scaleSource): what it follows
+// (on: not Off), the scalp's world area and transform scale at the start frame the node measured
+// (its outputs, read in the normal context: the groom is evaluated when they are dirty), the
+// references it is 1x at (scaleReference and scaleTransformReference, else the first ones the node
+// measured) and its scale k. With a cache, read once.
+struct ScaleRead {
+    bool on = true;
+    ScaleSource source = ScaleSource::Area;
+    double measure = 0.0, reference = 0.0;
+    double transform = 0.0, transformReference = 0.0;
+    double k = 1.0;
+};
+ScaleRead readScale(const MObject& node, NodeInputCache* cache = nullptr);
 
 // A groomLabShape node's inputs read from its plugs at the current time
 // (or the time of an active MDGContextGuard). Corrective layers with a weight

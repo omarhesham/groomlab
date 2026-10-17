@@ -344,7 +344,7 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
         MPlug dataPlug = groomFn.findPlug("guideData", true);
         const MeshPtr scalp = joinedScalpFromNode(groomPath.node());  // with the groom's other scalps
         std::string error;
-        std::shared_ptr<GuideHierarchy> h = toHierarchy(dataPlug.asString().asChar(), scalp.get(), &error);
+        std::shared_ptr<GuideHierarchy> h = toHierarchy(dataPlug.asString().asChar(), scalp.get(), &error, groomScaleOf(groomPath.node()));
         if (!h) return fail(kName, error.c_str());
     
         // Targets: -guide, else -group, else -level, else the selection.

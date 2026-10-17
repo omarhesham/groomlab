@@ -448,8 +448,12 @@ void fitControls(json& graph, const Factors& factors) {
     });
 }
 
-// What each unit's params are multiplied by on a scalp `k` times as big.
-Factors factorsFor(double k) { return {{"length", k}, {"width", k}, {"density", 1.0 / (k * k)}, {"perLength", 1.0 / k}}; }
+// What each unit's params are multiplied by on a scalp `k` times as big (unitScaleFactor's table).
+Factors factorsFor(double k) {
+    Factors factors;
+    for (const char* unit : {"length", "width", "density", "perLength"}) factors[unit] = *unitScaleFactor(unit, k);
+    return factors;
+}
 
 json fitted(json graph, std::optional<double> size) {
     const auto recorded = graph.find("size");
@@ -868,6 +872,71 @@ std::string makePresetJson(const std::string& graphJson, std::optional<double> s
         if (controls.is_object() && !controls.empty()) out["controls"] = controls;
     }
     return out.dump(2);
+}
+
+std::optional<double> unitScaleFactor(const std::string& unit, double k) {
+    if (unit == "length" || unit == "width") return k;
+    if (unit == "density") return 1.0 / (k * k);
+    if (unit == "perLength") return 1.0 / k;
+    return std::nullopt;
+}
+
+namespace {
+
+bool scales(double k) { return std::isfinite(k) && k > 0.0 && std::abs(k - 1.0) > 1e-9; }
+
+// The graph's JSON as an object (blank or "{}": the default graph); null for text that is not one.
+json graphObject(const std::string& graphJson) {
+    const bool blank = graphJson.find_first_not_of(" \t\r\n") == std::string::npos;
+    json graph = json::parse(blank ? defaultGraphJson() : graphJson, nullptr, false);
+    if (graph.is_object() && graph.empty()) graph = json::parse(defaultGraphJson());
+    return graph.is_object() ? graph : json();
+}
+
+}  // namespace
+
+std::string scaleGraphJson(const std::string& graphJson, double k) {
+    if (!scales(k)) return graphJson;
+    json graph = graphObject(graphJson);
+    if (graph.is_null()) return graphJson;  // loadGraphJson says what is wrong with it
+    fitNodes(graph, factorsFor(k));
+    return graph.dump();
+}
+
+std::map<std::string, double> controlScaleFactors(const std::string& graphJson, double k) {
+    std::map<std::string, double> out;
+    if (!scales(k)) return out;
+    json graph = graphObject(graphJson);
+    if (graph.is_null()) return out;
+    const Factors factors = factorsFor(k);
+    auto add = [&](const std::string& control, const std::string& unit) {
+        if (const std::optional<double> f = factorOf(unit, factors); f && !control.empty()) out.emplace(control, *f);
+    };
+    eachNode(graph, [&](json& node) {
+        const json params = node.value("params", json::object());
+        if (node.value("type", std::string()) == "Expression" && params.is_object() && params.contains("variables") &&
+            params["variables"].is_string()) {
+            const json variables = json::parse(params["variables"].get<std::string>(), nullptr, false);
+            if (variables.is_object()) {
+                for (const auto& [name, v] : variables.items()) {
+                    if (v.is_object() && v.contains("control") && v["control"].is_string() && v.contains("unit") && v["unit"].is_string()) {
+                        add(v["control"].get<std::string>(), v["unit"].get<std::string>());
+                    }
+                }
+            }
+        }
+        const auto links = node.find("paramControls");
+        if (links == node.end() || !links->is_object()) return;
+        for (const auto& [param, controls] : links->items()) {
+            const std::string unit = unitOf(node, param);
+            if (controls.is_string()) add(controls.get<std::string>(), unit);
+            if (!controls.is_array()) continue;
+            for (const json& c : controls) {
+                if (c.is_string()) add(c.get<std::string>(), unit);
+            }
+        }
+    });
+    return out;
 }
 
 std::optional<double> presetScalpSize(const ScalpMesh& scalp) {

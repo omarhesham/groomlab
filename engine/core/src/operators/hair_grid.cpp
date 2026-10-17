@@ -47,7 +47,7 @@ bool finitePoints(const Vec3f* p, std::size_t n) {
     return true;
 }
 
-float scalpSize(const ScalpMesh* scalp) {
+float scalpSize(const ScalpMesh* scalp, double scale) {
     if (!scalp || scalp->triangleCount() == 0) return 0.0f;
     const std::vector<Vec3f>& points = scalp->hasRest() ? scalp->restPoints() : scalp->points();
     if (points.empty()) return 0.0f;
@@ -57,7 +57,7 @@ float scalpSize(const ScalpMesh* scalp) {
         hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
     }
     const float d = (hi - lo).length();
-    return d > 0.0f && std::isfinite(d) ? roundToPercentStep(d) : 0.0f;
+    return d > 0.0f && std::isfinite(d) ? roundToPercentStep(d, scale) : 0.0f;
 }
 
 ScalpFloor ScalpFloor::of(const std::shared_ptr<const ScalpMesh>& scalp, float size) {
@@ -81,7 +81,7 @@ bool ScalpFloor::push(Vec3f& p, RestPoseCollision::Cursor& cursor) const {
     return surface.pushOut(p, floor, depth, searchRadius, cursor, &probe);
 }
 
-bool layoutOf(const StrandSet& in, const ScalpMesh* scalp, std::size_t most, std::uint64_t thinSalt, Layout* out) {
+bool layoutOf(const StrandSet& in, const ScalpMesh* scalp, std::size_t most, std::uint64_t thinSalt, Layout* out, double scale) {
     Layout& l = *out;
     // The strands splatted: the core, at most about `most` of it (a share by ID).
     const PreviewCore roles(in);
@@ -100,7 +100,7 @@ bool layoutOf(const StrandSet& in, const ScalpMesh* scalp, std::size_t most, std
     l.weight = 1.0 / (share * thin);  // the strands of a render each splatted one stands for
 
     // The cell, and the cross-section of a strand without widths.
-    l.size = scalpSize(scalp);
+    l.size = scalpSize(scalp, scale);
     l.area = scalp && l.size > 0.0f ? static_cast<double>(scalp->restTotalArea()) : 0.0;
     if (!std::isfinite(l.area)) l.area = 0.0;
     l.widths = false;
@@ -126,13 +126,13 @@ bool layoutOf(const StrandSet& in, const ScalpMesh* scalp, std::size_t most, std
         }
         const float d = (hi - lo).length();
         if (!(d > 0.0f) || !std::isfinite(d)) return false;
-        const double extent = roundToPercentStep(d);
+        const double extent = roundToPercentStep(d, scale);
         l.extent = extent;
         h = extent * kCellWithoutScalp;
         const double w = extent * kNominalWidth;
         nominal = 0.25 * kPi * w * w;
     }
-    h = roundToPercentStep(static_cast<float>(h));
+    h = roundToPercentStep(static_cast<float>(h), scale);
     if (!(h > 0.0) || !std::isfinite(h) || !(nominal >= 0.0) || !std::isfinite(nominal)) return false;
     l.h = h;
     l.nominal = nominal;

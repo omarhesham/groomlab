@@ -130,7 +130,7 @@ public:
         const std::size_t count = in->strandCount();
 
         Layout layout;
-        if (!layoutOf(*in, scalp.get(), kMostSplatted, kThinSalt, &layout)) return in;
+        if (!layoutOf(*in, scalp.get(), kMostSplatted, kThinSalt, &layout, ctx.scale)) return in;
         const std::vector<std::size_t>& splatted = layout.strands;
         // A strand's charge cross-section (kNominalCover of its share of the scalp's area).
         const double area = layout.area > 0.0 ? layout.area : kAreaWithoutScalp * layout.extent * layout.extent;

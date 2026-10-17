@@ -798,10 +798,25 @@ void GroomSubSceneOverride::style(MHWRender::MRenderItem& item, ItemBuffers& buf
     // Width as coverage: the strand lines' width scale (the ribbons') and floor, the density the
     // coverage is taken to the render's from (displayCoverageDensity: the preview's; else 1); the
     // lit graph's coverage on or off (ribbons draw with the same graph: off).
+    DrawTimes::Shader& noted = currentDraw().shaders[item.name().asChar()];
+    noted.instance = reinterpret_cast<std::uintptr_t>(buffers.shader);
+    noted.kind = kind;
+    noted.hair = buffers.hair;
+    noted.coverage = buffers.coverage;
+    if (buffers.hair) {
+        // What the hair shader's draw callbacks take (its blending with coverage, its groom's lights):
+        // this item's, every update, whatever another acquire of the same address left there.
+        noteHairShader(buffers.shader, buffers.coverage, hairState_);
+        noted.registered = hairShaderCoverage(buffers.shader);
+    }
     if (buffers.coverage || kind == 2 || kind == 9) {
-        buffers.shader->setParameter("lineWidthScale", floatPlug(GroomShape::aRibbonWidthScale));
+        const float widthScale = floatPlug(GroomShape::aRibbonWidthScale);
+        const float lineDensity = displayFlag(GroomShape::aDisplayCoverageDensity) ? shape_->evaluatedDensity() : 1.0f;
+        noted.widthScale = widthScale;
+        noted.lineDensity = lineDensity;
+        buffers.shader->setParameter("lineWidthScale", widthScale);
         buffers.shader->setParameter("lineCoverageFloor", kLineCoverageFloor);
-        buffers.shader->setParameter("lineDensity", displayFlag(GroomShape::aDisplayCoverageDensity) ? shape_->evaluatedDensity() : 1.0f);
+        buffers.shader->setParameter("lineDensity", lineDensity);
         if (kind == 2 || kind == 9) buffers.shader->setParameter("lineCoverage", buffers.coverage ? 1.0f : 0.0f);
         // Every strand as it is, every fragment in one pass (the level of detail sets its own: updateLod).
         buffers.shader->setParameter("lineLod", 0.0f);

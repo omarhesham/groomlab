@@ -215,6 +215,7 @@ GroomFile currentFile(const Session& s) {
     GroomFile file = s.file;
     file.data = s.groom->data();
     file.data.scalpHistory = nullptr;
+    file.data.scaleReference = s.groom->scaleReference();  // in use: the first area measured when none was set
     file.framesPerSecond = s.groom->framesPerSecond();
     writeMaps(s, file);
     return file;
@@ -238,8 +239,11 @@ void feedTime(Session& s) {
 }
 
 std::optional<double> scalpSize(const Session& s) {
+    // At the size the params are at: the groom's 1x when it is scaled with its scalp.
     const MeshPtr& scalp = s.groom->rawScalp();
-    return scalp ? presetScalpSize(*scalp) : std::nullopt;
+    std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
+    if (size) *size /= s.groom->groomScale();
+    return size;
 }
 
 // The scalp's rest pose as a mesh (the scalp itself without one), kept while it stays the same.

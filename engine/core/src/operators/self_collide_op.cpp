@@ -169,7 +169,7 @@ public:
         // The strands splatted (the core, at most about kMostSplatted of it), the cell, and the
         // cross-section of a strand without widths.
         Layout layout;
-        if (!layoutOf(*in, scalp.get(), kMostSplatted, kThinSalt, &layout)) return in;
+        if (!layoutOf(*in, scalp.get(), kMostSplatted, kThinSalt, &layout, ctx.scale)) return in;
         const std::vector<std::size_t>& splatted = layout.strands;
         const double weight = layout.weight, h = layout.h, nominal = layout.nominal;
         const bool widths = layout.widths;

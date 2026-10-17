@@ -173,15 +173,32 @@ std::string lastDrawTimesJson() {
         std::snprintf(buffer, sizeof buffer,
                       "%s\"%s\": {\"acquireMs\": %.3f, \"writeMs\": %.3f, \"commitMs\": %.3f, \"bindMs\": %.3f, \"megabytes\": %.3f, "
                       "\"partialStrands\": %zu, \"gpuFrames\": %s, \"gpuParts\": [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f], \"gpuMB\": %.3f, "
-                      "\"follow\": %s}",
+                      "\"follow\": %s, \"streams\": \"%s\"}",
                       first ? "" : ", ", name.c_str(), item.acquireMs, item.writeMs, item.commitMs, item.bindMs, item.megabytes,
                       item.partialStrands, item.gpuFrames ? "true" : "false", item.gpuParts[0], item.gpuParts[1], item.gpuParts[2],
-                      item.gpuParts[3], item.gpuParts[4], item.gpuParts[5], item.gpuMegabytes, item.follow ? "true" : "false");
+                      item.gpuParts[3], item.gpuParts[4], item.gpuParts[5], item.gpuMegabytes, item.follow ? "true" : "false",
+                      item.streams.substr(0, 300).c_str());
         out += buffer;
         first = false;
     }
+    // Each item's shader as styled this update, and how many items share its instance.
+    out += "}, \"shaders\": {";
+    first = true;
+    for (const auto& [name, s] : t.shaders) {
+        std::size_t sharing = 0;
+        for (const auto& [otherName, other] : t.shaders) sharing += other.instance == s.instance ? 1 : 0;
+        std::snprintf(buffer, sizeof buffer,
+                      "%s\"%s\": {\"instance\": \"%llx\", \"kind\": %d, \"hair\": %s, \"coverage\": %s, \"registered\": %d, "
+                      "\"lineDensity\": %.4f, \"widthScale\": %.4f, \"shared\": %zu}",
+                      first ? "" : ", ", name.c_str(), static_cast<unsigned long long>(s.instance), s.kind, s.hair ? "true" : "false",
+                      s.coverage ? "true" : "false", s.registered, s.lineDensity, s.widthScale, sharing);
+        out += buffer;
+        first = false;
+    }
+    std::snprintf(buffer, sizeof buffer, "}, \"hairDrawsUnknown\": %lld", hairDrawsUnknown());
+    out += buffer;
     // The strand lines' draws with width as coverage since the plugin loaded, by kind (CoverageBlend).
-    std::snprintf(buffer, sizeof buffer, "}, \"dots\": %zu, \"clumpCenterDots\": %zu, \"coverageDraws\": {\"hashed\": %lld, \"sampled\": %lld, \"blendItem\": %lld}",
+    std::snprintf(buffer, sizeof buffer, ", \"dots\": %zu, \"clumpCenterDots\": %zu, \"coverageDraws\": {\"hashed\": %lld, \"sampled\": %lld, \"blendItem\": %lld}",
                   lastDots().dots, lastDots().clumpCenters, coverageBlend().hashed, coverageBlend().sampled, coverageBlend().blendItemDraws);
     out += buffer;
     // The screen-space level of detail (updateLod).
@@ -189,10 +206,12 @@ std::string lastDrawTimesJson() {
     std::snprintf(buffer, sizeof buffer,
                   ", \"lod\": {\"on\": %s, \"level\": %d, \"drawnStrands\": %zu, \"totalStrands\": %zu, \"groups\": %zu, \"clumped\": %s, "
                   "\"thinnedGroups\": %zu, \"impostors\": %zu, \"blendSegments\": %zu, \"items\": %zu, \"ms\": %.3f, \"indicesMs\": %.3f, "
-                  "\"megabytes\": %.3f, \"updates\": %lld, \"rebuilds\": %lld, \"selectMs\": %.3f, \"slotsWritten\": %zu, \"farLevel\": %d}}",
+                  "\"megabytes\": %.3f, \"updates\": %lld, \"rebuilds\": %lld, \"selectMs\": %.3f, \"slotsWritten\": %zu, \"farLevel\": %d, "
+                  "\"slotsBound\": %lld, \"baseSerial\": %llu, \"staleSlots\": %zu}}",
                   lod.on ? "true" : "false", lod.level == kNoLodLevel ? -9999 : lod.level, lod.drawnStrands, lod.totalStrands, lod.groups,
                   lod.clumped ? "true" : "false", lod.thinnedGroups, lod.impostors, lod.blendSegments, lod.items, lod.ms, lod.indicesMs,
-                  lod.megabytes, lod.updates, lod.rebuilds, lod.selectMs, lod.slotsWritten, lod.farLevel == kNoLodLevel ? -9999 : lod.farLevel);
+                  lod.megabytes, lod.updates, lod.rebuilds, lod.selectMs, lod.slotsWritten, lod.farLevel == kNoLodLevel ? -9999 : lod.farLevel,
+                  lod.slotsBound, static_cast<unsigned long long>(lod.baseSerial), lod.staleSlots);
     return out + buffer;
 }
 
@@ -500,6 +519,11 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     drawnTheme_ = theme.version;
     drawnVersion_ = shape_->evaluationVersion();
     drawnDisplay_ = shape_->displayVersion();
+    // The groom scaled with its scalp to another size: drawn afresh (drawnScale_).
+    if (const double k = shape_->groomScale(); k != drawnScale_) {
+        if (drawnScale_ != 0.0) drawAfreshForScale(container);
+        drawnScale_ = k;
+    }
     // Width as coverage turned on or off: the strand lines are written again for their shaders.
     const bool coverage = displayFlag(GroomShape::aDisplayWidthCoverage);
     if (coverage != widthCoverage_) {
@@ -720,6 +744,28 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     currentDraw().lodMs = phases();
     updateHairGrid(context);
     currentDraw().gridMs = phases();
+}
+
+void GroomSubSceneOverride::drawAfreshForScale(MHWRender::MSubSceneContainer& container) {
+    // What width as coverage turned off and on does (the user's way back from hair that drew darker
+    // after the scalp was scaled down, frozen and scaled back up), for the strands' items alone.
+    hideLod(container);
+    for (const MString* name : {&kStrandsItem, &kDimStrandsItem, &kColoredStrandsItem, &kRibbonsItem}) {
+        const auto it = items_.find(name->asChar());
+        if (it == items_.end()) continue;
+        ItemBuffers& b = it->second;
+        b.shaderKind = -1;  // its shader acquired again
+        b.layout = b.uvsKey = b.uvsIdsKey = b.colorsKey = 0;  // every stream written
+        b.ribbonLayout = b.ribbonUvsKey = b.ribbonColorsKey = b.ribbonIdsKey = 0;
+    }
+    builder_.invalidate(DisplayPart::Strands);
+    hairGridKey_ = 0;
+    // The self-shadowing grid in a texture of its own (its cells another size in the world: the hair
+    // shaders let go of the old texture and its old density, setHairGrid).
+    if (hairState_) {
+        hairState_->valid = false;
+        hairState_->remake = true;
+    }
 }
 
 void gpuFramesSwitched() {

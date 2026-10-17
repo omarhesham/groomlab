@@ -151,6 +151,9 @@ std::string info(const GroomFile& file, const std::string& fileUpAxis) {
     out["framesPerSecond"] = file.framesPerSecond;
     out["source"] = file.source;
     out["followScalp"] = file.data.followScalp;
+    out["scaleSource"] = scaleSourceName(file.data.scaleSource);
+    out["scaleTransformReference"] = file.data.scaleTransformReference;
+    out["scaleReference"] = file.data.scaleReference;
     out["directory"] = generic(file.directory);
     out["searchPaths"] = file.searchPaths;
     if (const ScalpMesh* s = file.data.scalp.get()) {
@@ -370,6 +373,10 @@ MStatus ImportGroomCmd::doIt(const MArgList& args) {
             modifier_.newPlugValueString(fn.findPlug("scalpMaps", true), maps.toJson().c_str());
             if (!cardMaps.empty()) modifier_.newPlugValueString(fn.findPlug("cardMaps", true), cardMaps.c_str());
             modifier_.newPlugValueBool(fn.findPlug("followScalp", true), file.data.followScalp);
+            // Scaling with the scalp: what it follows and what it is 1x at (none: the first measured).
+            modifier_.newPlugValueShort(fn.findPlug("scaleSource", true), static_cast<short>(file.data.scaleSource));
+            modifier_.newPlugValueDouble(fn.findPlug("scaleTransformReference", true), file.data.scaleTransformReference);
+            modifier_.newPlugValueDouble(fn.findPlug("scaleReference", true), file.data.scaleReference);
             // The last transfer's markers, for the next transfer.
             modifier_.newPlugValueString(fn.findPlug("transferMarkers", true),
                                          file.transferMarkers.empty() ? "" : transferMarkersToJson(file.transferMarkers).c_str());

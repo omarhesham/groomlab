@@ -26,6 +26,8 @@ global proc AEgroomLabButtonsReplace(string $attr)
 
 global proc AEgroomLabInputsNew(string $attr) { python("import groomlab.ui.ae as a; a.inputs_new('" + $attr + "')"); }
 global proc AEgroomLabInputsReplace(string $attr) { python("import groomlab.ui.ae as a; a.inputs_replace('" + $attr + "')"); }
+global proc AEgroomLabScaleNew(string $attr) { python("import groomlab.ui.ae as a; a.scale_new('" + $attr + "')"); }
+global proc AEgroomLabScaleReplace(string $attr) { python("import groomlab.ui.ae as a; a.scale_replace('" + $attr + "')"); }
 global proc AEgroomLabControlsNew(string $attr) { python("import groomlab.ui.ae as a; a.controls_new('" + $attr + "')"); }
 global proc AEgroomLabControlsReplace(string $attr) { python("import groomlab.ui.ae as a; a.controls_replace('" + $attr + "')"); }
 global proc AEgroomLabColorNew(string $attr) { python("import groomlab.ui.ae as a; a.color_new('" + $attr + "')"); }
@@ -54,6 +56,16 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
                 + "frame. Needs a rest mesh. Guide curves and simulated or cached guides keep their place; colliders, "
                 + "ImportCurves, Wind's direction and world-space noise are read at rest (they do not follow the head).")
                 -addControl "followScalp";
+            editorTemplate -annotation ("What the groom's scale follows (it grows with its scalp like a child object: lengths, "
+                + "widths, clumps and guide shapes grow with it, densities thin so the strand count stays). Surface Area: "
+                + "the scalp's world surface at the scene's start frame (scaling the transform, freezing it and a rig "
+                + "scaled at its root all count; editing or remodelling the mesh to another size scales the groom too). "
+                + "Transform Only: the scalp's transform and rig scale at the start frame alone (remodelling leaves the "
+                + "groom as it is; Freeze Transformations resets the transform's scale, so it scales the groom back). "
+                + "Surface Area survives Freeze Transformations; Transform Only survives remodelling. Off: the groom "
+                + "keeps its sizes in scene units.")
+                -addControl "scaleSource";
+            editorTemplate -callCustom "AEgroomLabScaleNew" "AEgroomLabScaleReplace" "groomScale";
         editorTemplate -endLayout;
         // Sliders that Control nodes add (keyable ctl_ attributes).
         editorTemplate -beginLayout "Controls" -collapse 0;

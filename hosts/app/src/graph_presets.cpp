@@ -30,8 +30,11 @@ std::string readFile(const std::string& path) {
 }
 
 std::optional<double> scalpSizeOf(const GroomDocument& document) {
+    // At the size the params are at: the groom's 1x when it is scaled with its scalp.
     const MeshPtr& scalp = document.file().data.scalp;
-    return scalp ? presetScalpSize(*scalp) : std::nullopt;
+    std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
+    if (size) *size /= document.session().groomScale();
+    return size;
 }
 
 // Text pasted from a chat: a ``` code block's content (```json too), else the text.

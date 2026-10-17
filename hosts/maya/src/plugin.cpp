@@ -190,6 +190,7 @@ PLUGIN_EXPORT MStatus initializePlugin(MObject obj) {
         try {
             groomlab::maya::refreshMayaPaths();
             callGroomlab("follow_scene_files");
+            callGroomlab("store_scale_references");  // a groom reopens at the scale it had
         } catch (...) {
         }
     }));

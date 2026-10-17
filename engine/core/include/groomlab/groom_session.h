@@ -424,6 +424,55 @@ public:
     // The last evaluation followed the scalp (on, and the scalp away from its rest pose).
     bool following() const { return following_; }
 
+    // ---- Scaling with the scalp ---------------------------------------------------------------
+    // On (the default), the groom grows with its scalp like a child object: it is evaluated k times
+    // its size, k = sqrt(area / reference), `area` the scalp's surface area on its rest pose (the
+    // scalp as it is without one: ScalpMesh::restTotalArea; the groom's own scalp, not the other
+    // scalps), so scaling the scalp's transform, freezing that scale into its points or re-meshing it
+    // give the same k, and a deforming scalp with a rest pose keeps one k on every frame. Applied at
+    // evaluation; what is stored stays as it is: the graph's params scale by their units
+    // (scaleGraphJson: lengths and widths by k, densities by 1 / k^2 so there are as many strands,
+    // per-length rates by 1 / k), keyed controls by their params' units (controlScaleFactors), the
+    // guides' shapes about their roots (GuideHierarchy::setScale, shot sculpts' offsets with them),
+    // so the result is the groom at 1x scaled up (Simulate's gravity and offsets are lengths: its
+    // frames are dropped when k changes, and a bake records other settings). k changes below 1e-4
+    // (a moving scalp's float noise) are left out. Off: k is 1 (the groom keeps its sizes in scene
+    // units, as before). A host fitting new nodes or presets to the scalp's size divides it by k.
+    // What k follows (ScaleSource): Area as above; Transform: the scale the host hands in
+    // (setScaleTransform: the scalp's transform and rig at the start frame) over
+    // scaleTransformReference, mesh edits left out (a host without transforms hands none in: k is
+    // then the area's on the first measure and stays); Off: k is 1.
+    void setScaleSource(ScaleSource source);
+    ScaleSource scaleSource() const { return data_.scaleSource; }
+    // On: Area (unless it follows the transform already); off: Off.
+    void setScaleWithScalp(bool on);
+    bool scaleWithScalp() const { return data_.scaleSource != ScaleSource::Off; }
+    // The scalp's transform scale (uniform: the cube root of its matrix's determinant, a rig's root
+    // joints' with it), as the host measures it; 0 or less: none (a host without transforms).
+    // Handed in before the scalp it was measured with (setScalp).
+    void setScaleTransform(double scale);
+    double scaleTransform() const { return scaleTransform_; }
+    // The transform scale the groom is 1x at (0: not set, the first one handed in is).
+    void setScaleTransformReference(double scale);
+    double scaleTransformReference() const {
+        return data_.scaleTransformReference > 0.0 ? data_.scaleTransformReference : firstTransform_;
+    }
+    // The last time k changed while the transform scale did not (the scalp's area changed: an edit,
+    // a remodel, another scalp) under Area: a line for the user ("GroomLab: the scalp's area changed
+    // 12%: the groom scaled x1.06. Set Scale Reference to keep its sizes."), and its number (0: none
+    // yet), so a host says it once.
+    const std::string& scaleNotice() const { return scaleNotice_; }
+    std::uint64_t scaleNoticeSerial() const { return scaleNoticeSerial_; }
+    // The area the groom is 1x at (scene units squared). 0 or less: not set, the first area measured
+    // is (scaleReference() says which). Set Scale Reference sets scaleArea().
+    void setScaleReference(double area);
+    // The reference in use: the one set, else the first area measured (0 before any scalp).
+    double scaleReference() const { return data_.scaleReference > 0.0 ? data_.scaleReference : firstArea_; }
+    // The scalp's area as last measured (0 without a scalp).
+    double scaleArea() const { return scaleArea_; }
+    // k: what the groom is scaled by now (1 while off, without a scalp or a reference).
+    double groomScale() const { return groomScale_; }
+
     // Whether the groom's result depends on the time through what the session knows: the graph
     // (graphReadsTime: Wind, ImportCurves, Jiggle, Simulate), corrective layers whose weight changes with
     // time (a weight curve, a fade in or out) and a scalp history handed in. A host adds what only
@@ -743,10 +792,36 @@ private:
     bool graphSet_ = false;
     std::string graphError_;
 
+    // Scaling with the scalp (setScaleWithScalp).
+    double groomScale_ = 1.0;   // k
+    double scaleArea_ = 0.0;    // the area last measured
+    double firstArea_ = 0.0;    // the first area measured: the reference while none is set
+    double scaleTransform_ = 0.0;   // setScaleTransform (0: none handed in)
+    double firstTransform_ = 0.0;   // the first transform scale handed in: the reference while none is set
+    double measuredArea_ = 0.0, measuredTransform_ = 0.0;  // what k was last worked out from (the notice)
+    bool scaleMeasured_ = false;    // k worked out once (Transform without a host's transform: kept)
+    std::string scaleNotice_;
+    std::uint64_t scaleNoticeSerial_ = 0;
+    std::map<std::string, double> controlFactors_;  // controlScaleFactors at k
+    // The graph parsed from data_.graphJson scaled by k (scaleGraphJson); throws as loadGraphJson.
+    std::unique_ptr<GraphDocument> parseScaled(const std::string& graphJson) const;
+    // Swaps in a parsed graph: every document adopts its old one's cache.
+    void installGraph(std::unique_ptr<GraphDocument> parsed);
+    // Measures the scalp and, when k changes, parses the graph again and scales the guides.
+    void refreshScale();
+    // The transform scale handed in taken as measured with the scalp's area as it stands (the same
+    // scalp handed in again: a frozen transform).
+    void absorbScaleTransform();
+    // parsedHierarchy_ from rawHierarchy_ at k (a copy with GuideHierarchy::setScale).
+    void scaleHierarchy();
+    // data_.controls with controlFactors_ applied.
+    std::map<std::string, float> scaledControls() const;
+
     // Guides.
     bool hierarchySet_ = false;
     bool hierarchyFromText_ = false;
-    std::shared_ptr<const GuideHierarchy> parsedHierarchy_;
+    std::shared_ptr<const GuideHierarchy> rawHierarchy_;     // as set (stored)
+    std::shared_ptr<const GuideHierarchy> parsedHierarchy_;  // the same at k (scaleHierarchy)
     // The stored hierarchy bound again on the scalp's rest pose, when it was saved bound to
     // another topology (rootedHierarchy), with what it was made from.
     std::shared_ptr<const GuideHierarchy> reboundHierarchy_;

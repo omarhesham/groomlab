@@ -1,6 +1,6 @@
 ---
 title: Guides & brushes
-description: The guide hierarchy (primary and child guides), guide groups with show/hide and color, freezing and soloing guides, and the grooming brushes and their settings.
+description: The guide hierarchy (primary and child guides), guide groups with show/hide and color, freezing and soloing guides, the grooming brushes and their settings, and how a groom scales with its scalp.
 ---
 
 Guides are the curves you shape by hand; the render strands are interpolated between them. The
@@ -223,3 +223,50 @@ For vellus hair, brows and short fur, the **Flow** brush grooms a direction fiel
 the scalp (drag over arrows to comb them, Ctrl to erase), or click to place whorls and other
 singular points that hair turns around. A **Flow** node lays the strands along the field. See
 [Fur & feathers](/docs/fur-and-feathers).
+
+## Scaling a groom
+
+A groom scales with its scalp, like an object parented to it. Scale the head up 2x and the hair
+is the same hair 2x as big: lengths, widths, clump sizes and the guides' shapes double, the
+density drops to a quarter so the strand count stays the same, and curl frequency halves. The
+stored values do not change; the Graph Editor shows the values at the size the groom was
+groomed at.
+
+- **The readout.** Attribute Editor > Inputs > **Groom Scale** shows how much the groom is scaled
+  now: `1.00x` at the size it was groomed at. In the standalone app it is in the Display panel.
+- **Scale Source** (Attribute Editor > Inputs; Display panel in the app;
+  `groomlab.set_scale_source(groom, "area" | "transform" | "off")`) says what the scale follows:
+  - **Surface Area** (the default): the scalp's surface area at the scene's start frame. Scaling
+    the scalp's transform and **Freeze Transformations** give the same result (the groom does not
+    jump when you freeze), and a scalp replaced by a higher or lower resolution version of the
+    same surface stays at 1x. Editing or remodelling the mesh to another size scales the groom
+    too; when that happens GroomLab says so once, in the Script Editor and in the view (the app:
+    its status message): *"GroomLab: the scalp's area changed 12%: the groom scaled x1.06. Set
+    Scale Reference to keep its sizes."*
+  - **Transform Only**: the scale of the scalp's transform (and its rig's root joint) at the start
+    frame, nothing else. Remodelling the mesh leaves the groom as it is. But Freeze
+    Transformations resets the transform's scale to 1, so the groom goes back to 1x with it.
+  - In short: **Surface Area survives Freeze Transformations; Transform Only survives
+    remodelling.** In the standalone app (no transforms) Transform Only keeps the scale the groom
+    opened with.
+  - **Off**: sizes stay in scene units whatever the scalp's size, and a bigger scalp grows more
+    strands at the same density.
+- Animation after the start frame (a squash, blend shapes) does not change the scale.
+- **Rigs.** Scaling a rig at its root scales the skinned scalp, and the groom with it. Surface
+  Area measures the skinned mesh, not its original shape; Transform Only reads the root joint's
+  scale.
+- **Set Scale Reference.** Makes the scalp's size now the groom's 1x (the button next to the
+  readout, or `groomlab.set_scale_reference(groom)`), for both sources. Use it when you scaled or
+  remodelled the scalp on purpose and want the groom to keep its sizes in scene units at the new
+  size.
+- **Transfers** keep the size shown by default; **Fit groom to the new scalp's size** in the
+  Transfer window treats the new scalp as the old one resized, so the groom scales with it (see
+  [Transfer to a new scalp](/docs/utilities#transfer-to-a-new-scalp)).
+- **Presets and new nodes** are fitted to the size the groom is at 1x, so they match the values
+  already in the graph.
+- **Simulation.** Gravity and collision distances scale too, so a scaled groom moves like the
+  unscaled one scaled. Changing the scale drops the simulated frames; a bake made at another
+  scale no longer matches and is simulated again.
+- **Groom files** keep the source and the reference sizes (`scaleSource`, `scaleReference`,
+  `scaleTransformReference`), so exports, renders and the standalone app scale the groom the same
+  way.

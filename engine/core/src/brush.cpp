@@ -1764,7 +1764,12 @@ GuideId placeGuide(GuideHierarchy& hierarchy, const ScalpMesh& scalp, const Plac
     if (pts.empty()) {
         for (int i = 0; i <= segments; ++i) pts.push_back(at.position + at.normal * (s.length * i / segments));
     }
-    const GuideId id = addToGroup(hierarchy, gid, std::move(pts), matched && !match.tube.radius.empty() ? match.tube : s.tube);
+    // A neighbor's tube as it is stored; the brush's (world space) at the size the groom is stored at.
+    TubeProfile tube = matched && !match.tube.radius.empty() ? match.tube : s.tube;
+    if (!(matched && !match.tube.radius.empty())) {
+        for (float& r : tube.radius) r /= hierarchy.scale();
+    }
+    const GuideId id = addToGroup(hierarchy, gid, std::move(pts), tube);
     // Painted layers: a root guide takes them from its neighbors (children inherit their parent's).
     if (matched && hierarchy.groupDepth(gid) == 0) {
         for (const auto& [name, value] : match.attributes) hierarchy.setAttribute(id, name, value);

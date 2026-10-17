@@ -151,6 +151,12 @@ MObject GroomShape::aTime;
 MObject GroomShape::aSimCaches;
 MObject GroomShape::aTransferMarkers;
 MObject GroomShape::aScalpTopology;
+MObject GroomShape::aScaleSource;
+MObject GroomShape::aScaleReference;
+MObject GroomShape::aGroomScale;
+MObject GroomShape::aScaleArea;
+MObject GroomShape::aScaleTransformReference;
+MObject GroomShape::aScaleTransform;
 MObject GroomShape::aGraph;
 MObject GroomShape::aGuideData;
 MObject GroomShape::aPartData;
@@ -462,6 +468,47 @@ MStatus GroomShape::initialize() {
     CHECK_MSTATUS_AND_RETURN_IT(status);
     tAttr.setStorable(true);
     tAttr.setHidden(true);
+    // Scale with the scalp (GroomSession::setScaleSource): what the groom's scale follows, Surface
+    // Area for new grooms and grooms saved before it (their first evaluation is their 1x: nothing
+    // changes until the scalp does).
+    MFnEnumAttribute sourceAttr;
+    aScaleSource = sourceAttr.create("scaleSource", "glssc", 0, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    sourceAttr.addField("Surface Area", 0);
+    sourceAttr.addField("Transform Only", 1);
+    sourceAttr.addField("Off", 2);
+    sourceAttr.setStorable(true);
+    sourceAttr.setKeyable(false);
+    sourceAttr.setNiceNameOverride("Scale Source");
+    // The transform scale the groom is 1x at (Transform Only); 0: the first one measured.
+    aScaleTransformReference = nAttr.create("scaleTransformReference", "glstr", MFnNumericData::kDouble, 0.0, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    nAttr.setStorable(true);
+    nAttr.setKeyable(false);
+    nAttr.setMin(0.0);
+    nAttr.setHidden(true);
+    // The scalp area the groom is 1x at (scene units squared); 0: the first area measured.
+    aScaleReference = nAttr.create("scaleReference", "glsrf", MFnNumericData::kDouble, 0.0, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    nAttr.setStorable(true);
+    nAttr.setKeyable(false);
+    nAttr.setMin(0.0);
+    nAttr.setHidden(true);
+    aGroomScale = nAttr.create("groomScale", "glgsc", MFnNumericData::kDouble, 1.0, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    nAttr.setWritable(false);
+    nAttr.setStorable(false);
+    nAttr.setNiceNameOverride("Groom Scale");
+    aScaleArea = nAttr.create("scaleArea", "glsar", MFnNumericData::kDouble, 0.0, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    nAttr.setWritable(false);
+    nAttr.setStorable(false);
+    nAttr.setHidden(true);
+    aScaleTransform = nAttr.create("scaleTransform", "glstm", MFnNumericData::kDouble, 0.0, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    nAttr.setWritable(false);
+    nAttr.setStorable(false);
+    nAttr.setHidden(true);
 
     // Colliders: meshes the graph reads as "mesh:<name>" (ColliderMesh nodes), for Collide nodes.
     aColliderMesh = tAttr.create("colliderMesh", "glclm", MFnData::kMesh, MObject::kNullObj, &status);
@@ -929,12 +976,12 @@ MStatus GroomShape::initialize() {
     tAttr.setStorable(false);
     tAttr.setHidden(true);
 
-    for (MObject* attr : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aColliderMeshes, &aExtraScalps, &aRenderDensity, &aRenderWidthScale, &aRenderLengthScale, &aSimGuides, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aTransferMarkers, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aPartData, &aGraphUi, &aViewNode, &aLocked, &aDisplayInstances, &aGuideSelection, &aSoftSelectRadius, &aStrandColorMode, &aStrandColorSource, &aStrandColorMin, &aStrandColorMax, &aDisplayRibbons, &aRibbonWidthScale, &aDisplayWidthCoverage, &aDisplayCoverageDensity, &aDisplayClumpLod, &aClumpLodError, &aDisplayLighting, &aDisplayShadows, &aDisplayHairShading, &aDisplaySelfShadowing, &aDisplayStrandVariation, &aGuideColor, &aGuideWidth, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aDisplayFlow, &aShotSculpt, &aShotLayer, &aLodDistance, &aLodNear, &aLodFar, &aLodMinDensity,
+    for (MObject* attr : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aScaleSource, &aScaleReference, &aScaleTransformReference, &aGroomScale, &aScaleArea, &aScaleTransform, &aColliderMeshes, &aExtraScalps, &aRenderDensity, &aRenderWidthScale, &aRenderLengthScale, &aSimGuides, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aTransferMarkers, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aPartData, &aGraphUi, &aViewNode, &aLocked, &aDisplayInstances, &aGuideSelection, &aSoftSelectRadius, &aStrandColorMode, &aStrandColorSource, &aStrandColorMin, &aStrandColorMax, &aDisplayRibbons, &aRibbonWidthScale, &aDisplayWidthCoverage, &aDisplayCoverageDensity, &aDisplayClumpLod, &aClumpLodError, &aDisplayLighting, &aDisplayShadows, &aDisplayHairShading, &aDisplaySelfShadowing, &aDisplayStrandVariation, &aGuideColor, &aGuideWidth, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aDisplayFlow, &aShotSculpt, &aShotLayer, &aLodDistance, &aLodNear, &aLodFar, &aLodMinDensity,
                           &aLodWidthCompensation, &aCameraCull, &aCullMargin, &aBackfaceCull, &aBackfaceAngle, &aDisplayColor, &aUseMaterialColor, &aSculptDisplay, &aSculptDensity, &aDisplayLevel, &aGuideColorMode, &aGuideColorLayer, &aThemeGuideColors, &aGuidePoints, &aGuideSmoothing, &aGuideDisplaySegments, &aHiddenGuideGroups, &aGuideGroupColors, &aRenderMode, &aGroomFile, &aPreviewDensity, &aPreviewPointBudget, &aDisplayGuides,
                           &aDisplayTubes, &aBrushTick, &aCardDensity, &aOutCards, &aOutRachis, &aOutStrandMesh, &aDisplayCards, &aDisplayStrandMesh, &aDisplayCardTextures, &aDisplayOverlaysOnTop, &aCardMaps, &aScalpMaps, &aScalpMapDisplay, &aScalpMapChannel, &aOutStrandCount, &aLastError, &aOutFrame}) {
         CHECK_MSTATUS_AND_RETURN_IT(addAttribute(*attr));
     }
-    for (MObject* input : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aColliderMeshes, &aColliderMesh, &aColliderName, &aColliderRestMesh,
+    for (MObject* input : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aScaleSource, &aScaleReference, &aScaleTransformReference, &aColliderMeshes, &aColliderMesh, &aColliderName, &aColliderRestMesh,
                            &aExtraScalps, &aExtraScalpMesh, &aExtraScalpName, &aExtraScalpRestMesh, &aSimGuides, &aSimCurve, &aSimGuideId, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aPartData, &aPreviewDensity, &aPreviewPointBudget, &aSculptDensity, &aViewNode, &aBrushTick, &aCardDensity, &aDisplayCards, &aDisplayStrandMesh, &aCardMaps, &aScalpMaps}) {
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutStrandCount));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aLastError));
@@ -942,6 +989,11 @@ MStatus GroomShape::initialize() {
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutRachis));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutStrandMesh));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutFrame));
+    }
+    for (MObject* input : {&aInMesh, &aRestMesh, &aScaleSource, &aScaleReference, &aScaleTransformReference, &aTime}) {
+        CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aGroomScale));
+        CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aScaleArea));
+        CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aScaleTransform));
     }
     return MS::kSuccess;
 }
@@ -955,6 +1007,37 @@ void GroomShape::updateGraph(GroomSession& session, const std::string& text, boo
         session.dropGraph(text, std::string("graph: ") + e.what());
         if (reportIt) report(e.what(), true);
     }
+}
+
+MeshPtr GroomShape::scaleScalp(Lane& lane, MDataBlock& data, const MeshPtr& scalp, bool meshTouched) {
+    if (!scalp || data.inputValue(aScaleSource).asShort() == 2) return scalp;
+    if (lane.live) {
+        // The scalp's world area at the start frame: on a rig scaled at its root, the bound mesh's
+        // (its original shape stays as it was), and one area on every frame of a deforming scalp.
+        // At the start frame the scalp as it is; elsewhere read at the start frame when the scalp
+        // changed (an edit: a scale, frozen transforms, another mesh; or another frame of it), on
+        // the first evaluation or for another start frame. Not while Maya plays or scrubs: the
+        // area stays (an edit is made with the time standing).
+        const MTime start = MAnimControl::animationStartTime();
+        const MTime now = data.inputValue(aTime).asTime();
+        double area = 0.0;
+        if (now == start) {
+            area = surfaceArea(scalp->points(), scalp->triangles());
+        } else if (!(scaleMeasure_.load() > 0.0) || start != scaleMeasuredAt_ || meshTouched) {
+            if (!MAnimControl::isPlaying() && !MAnimControl::isScrubbing()) {
+                const std::vector<Vec3f> points = scalpPointsAt(thisMObject(), start);
+                if (points.size() == scalp->pointCount()) area = surfaceArea(points, scalp->triangles());
+            }
+            if (!(area > 0.0) && !(scaleMeasure_.load() > 0.0)) area = surfaceArea(scalp->points(), scalp->triangles());
+        }
+        if (area > 0.0) {
+            scaleMeasure_ = area;
+            scaleMeasuredAt_ = start;
+        }
+    }
+    // (The background lane, before any live evaluation: the scalp as it is.)
+    const double measure = scaleMeasure_.load() > 0.0 ? scaleMeasure_.load() : surfaceArea(scalp->points(), scalp->triangles());
+    return withRestArea(scalp, measure);
 }
 
 std::shared_ptr<const GuideHierarchy> GroomShape::storedHierarchy(std::string* error) {
@@ -1007,7 +1090,7 @@ void GroomShape::report(const std::string& message, bool error) {
 
 MStatus GroomShape::compute(const MPlug& plug, MDataBlock& data) {
     if (plug != aOutStrandCount && plug != aLastError && plug != aOutFrame && plug != aOutCards && plug != aOutRachis &&
-        plug != aOutStrandMesh) {
+        plug != aOutStrandMesh && plug != aGroomScale && plug != aScaleArea && plug != aScaleTransform) {
         return MS::kUnknownParameter;
     }
     // Another context (cached playback filling frames in the background, a query at another
@@ -1017,6 +1100,17 @@ MStatus GroomShape::compute(const MPlug& plug, MDataBlock& data) {
     const bool normal = data.context().isNormal();
     if (!normal) lock = std::unique_lock<std::recursive_mutex>(background_->mutex);
     Lane& lane = normal ? live_ : background_->lane;
+    if (plug == aGroomScale || plug == aScaleArea || plug == aScaleTransform) {
+        // What the evaluation measured (made first when its outputs are dirty).
+        data.inputValue(aOutStrandCount);
+        data.outputValue(aGroomScale).setDouble(lane.session.groomScale());
+        data.outputValue(aScaleArea).setDouble(lane.session.scaleArea());
+        data.setClean(aGroomScale);
+        data.setClean(aScaleArea);
+        data.outputValue(aScaleTransform).setDouble(lane.session.scaleTransform());
+        data.setClean(aScaleTransform);
+        return MS::kSuccess;
+    }
     // The live lane's compute: a pending commit settled from within it lands into it (it goes on and
     // makes the frame), not into the data block from outside.
     // (The background lane, on other threads, leaves the flag alone.)
@@ -1118,6 +1212,20 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
     }
     MeshPtr scalp = lane.rawScalp;
     const bool meshTouched = lane.meshDirty || meshKey != lane.meshKey;  // an edit, or another frame of a moving scalp
+    // Scale with the scalp: the scalp's transform scale at the start frame (its world matrix's, its
+    // rig's root joint's), read live when the scalp changed (not while Maya plays or scrubs) and
+    // handed to the session before any of the scalp's new points, so a scaled transform and the area
+    // it gives arrive together (Transform Only's k; Surface Area's notice tells them apart).
+    if (live && data.inputValue(aScaleSource).asShort() != 2 && (meshTouched || !(scaleTransformMeasure_.load() > 0.0)) &&
+        !MAnimControl::isPlaying() && !MAnimControl::isScrubbing()) {
+        const double transform = scalpTransformScaleAt(thisMObject(), MAnimControl::animationStartTime());
+        if (transform > 0.0) {
+            scaleTransformMeasure_ = transform;
+            if (!(firstScaleTransform_.load() > 0.0)) firstScaleTransform_ = transform;
+        }
+    }
+    session.setScaleTransform(scaleTransformMeasure_.load());
+    const bool scalpReconnected = lane.meshReconnected;  // (another mesh: a transfer sets the scale itself)
     if (meshTouched) {
         // Other points on the topology of the last conversion (a deforming scalp's next frame, a
         // moving transform): only the points are read, the session moves them on the scalp it
@@ -1133,6 +1241,10 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
             if (topology == lane.topologyKey && (restKept || lane.restTopologyKey == meshTopologyKey(hash64(0x70B0), restData))) {
                 std::vector<Vec3f> points = meshWorldPoints(meshData);
                 std::vector<Vec3f> rest = restKept ? std::vector<Vec3f>() : meshWorldPoints(restData);
+                // Sized as scaleScalp sizes it (the session's k stays as it was).
+                if (!restKept && (data.inputValue(aScaleSource).asShort() != 2) && rest.size() == lane.rawScalp->pointCount()) {
+                    scaleToArea(rest, lane.rawScalp->triangles(), scaleMeasure_.load());
+                }
                 if (points.size() == lane.rawScalp->pointCount() && session.rawScalp() == lane.rawScalp &&
                     (restKept || (lane.rawScalp->hasRest() && rest.size() == lane.rawScalp->pointCount()))) {
                     session.updateScalpPoints(std::move(points), restKept ? nullptr : &rest);
@@ -1164,9 +1276,38 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
     // the mesh node read live only (on the main thread; a background lane takes the last read).
     if (live) scalpRender_.levels = renderSubdivisionOf(MPlug(thisMObject(), aInMesh), &scalpRender_.from);
     scalp = withRenderSubdivision(scalp, scalpRender_.levels, scalpRender_.from);
+    // Scale with the scalp: the rest mesh sized to the scalp's area at the start frame, the
+    // reference set (or the first area measured) before the scalp, so k is worked out once.
+    scalp = scaleScalp(lane, data, scalp, meshTouched);
+    const short source = data.inputValue(aScaleSource).asShort();
+    session.setScaleSource(source == 1 ? ScaleSource::Transform : source == 2 ? ScaleSource::Off : ScaleSource::Area);
+    double reference = data.inputValue(aScaleReference).asDouble();
+    if (!(reference > 0.0) && scalp) {
+        if (!(firstScaleArea_.load() > 0.0)) firstScaleArea_ = restSurfaceArea(*scalp);
+        reference = firstScaleArea_.load();
+    }
+    session.setScaleReference(reference);
+    // The transform scale the groom is 1x at (scaleTransformReference, else the first measured).
+    double transformReference = data.inputValue(aScaleTransformReference).asDouble();
+    if (!(transformReference > 0.0)) transformReference = firstScaleTransform_.load();
+    session.setScaleTransformReference(transformReference);
     const std::uint64_t scalpHash = scalp ? scalp->contentHash() : 0;
     lane.rawScalp = scalp;
     session.setScalp(scalp);
+    // The groom scaled because the scalp's own area changed (an edit, a remodel; Surface Area): said
+    // once, in the Script Editor and in the view (never a dialog). Not for another mesh connected
+    // (a transfer, its undo: the transfer sets the scale it keeps).
+    if (live && session.scaleNoticeSerial() != scaleNoticeSaid_) {
+        scaleNoticeSaid_ = session.scaleNoticeSerial();
+        if (!scalpReconnected) {
+            const MString line(session.scaleNotice().c_str());
+            MGlobal::displayWarning(line);
+            if (MGlobal::mayaState() == MGlobal::kInteractive) {
+                MGlobal::executeCommandOnIdle(
+                    "inViewMessage -statusMessage \"" + line + "\" -position topCenter -fade -fadeStayTime 4000", false);
+            }
+        }
+    }
     session.setScalpFingerprint(parseScalpFingerprint(data.inputValue(aScalpTopology).asString().asChar()));
     session.setFollowScalp(data.inputValue(aFollowScalp).asBool());  // evaluate at rest, carry to the scalp
     // The vertex maps painted on it (scalpMaps): the session lays them on as color sets.
@@ -1736,7 +1877,7 @@ MStatus GroomShape::setDependentsDirty(const MPlug& plug, MPlugArray& affected) 
         plug == aDisplayCardTextures || plug == aDisplayOverlaysOnTop || plug == aCardMaps || plug == aScalpMapDisplay || plug == aScalpMapChannel;
     // Inputs: the groom re-evaluates, then redraws.
     const bool input =
-        plug == aInMesh || plug == aRestMesh || plug == aFollowScalp || plug == aScalpTopology || plug == aColliderMeshes ||
+        plug == aInMesh || plug == aRestMesh || plug == aFollowScalp || plug == aScalpTopology || plug == aScaleSource || plug == aScaleReference || plug == aScaleTransformReference || plug == aColliderMeshes ||
         plug == aColliderMesh ||
         plug == aColliderName || plug == aColliderRestMesh || plug == aExtraScalps || plug == aExtraScalpMesh ||
         plug == aExtraScalpName || plug == aExtraScalpRestMesh || plug == aSimGuides || plug == aSimCurve || plug == aGuideCache ||

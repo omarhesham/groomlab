@@ -13,6 +13,26 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.13.0 (October 16, 2026)
+
+- **Scale with scalp.** A groom now scales with its mesh like a child object: scale the head (its
+  transform, a rig's root, or the mesh itself) and lengths, widths, clump sizes and noise scale with
+  it, density adjusts so the strand count stays the same, and guides keep their shapes. The scale
+  comes from the scalp's surface area at the animation's start frame, so **Freeze Transformations**
+  changes nothing and animation doesn't make it wobble. Your values are never changed: scaling back
+  gives the original groom. **Scale Source** (Surface Area, Transform Only or Off), a **Groom
+  Scale** readout and **Set Scale Reference** are in the Attribute Editor's Inputs (and the app's
+  Display panel). Surface Area survives Freeze Transformations; Transform Only survives remodelling
+  the mesh. When a remodel changes the scalp's size under Surface Area, GroomLab says once how much
+  the groom scaled. See [Scaling a groom](/docs/guides-and-brushes#scaling-a-groom).
+- **Transfer: Fit groom to the new scalp's size.** A new option in the Transfer window
+  (`transfer_groom(..., fit_size=True)`) treats the new scalp as the old one resized, so the groom
+  scales with it; off (the default), it keeps the size shown.
+
+Grooms saved before: they start at 1x the first time they're measured, so nothing changes until a
+mesh is resized. Scenes whose rest mesh was captured before the head was resized change their strand
+count once.
+
 ## 0.12.0 (October 16, 2026)
 
 - **Expose any parameter.** Every parameter can now be exposed as an input (574 of 579; the rest

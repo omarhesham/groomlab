@@ -42,7 +42,7 @@ def create_groom(scalp=None, guides=None, name="groomLab1", fit=False):
         if fit:
             import groomlab_core
             from groomlab import presets
-            size = presets.scalp_size(shape)
+            size = presets.scalp_size(shape, scaled=False)  # just made: at 1x
             if size and abs(size / groomlab_core.DEFAULTS_SCALP_SIZE - 1.0) > 1e-6:
                 cmds.setAttr(shape + ".graph", groomlab_core.default_graph_json_for(size), type="string")
     if guides:
@@ -57,6 +57,82 @@ def set_follow_scalp(groom, on=True):
     place; colliders, ImportCurves, Wind's direction and world-space noise are read at rest.
     One undo step."""
     cmds.setAttr(groom + ".followScalp", bool(on))
+
+
+SCALE_SOURCES = ("area", "transform", "off")
+
+
+def set_scale_source(groom, source="area"):
+    """What the groom's scale follows. The groom grows with its scalp like a child object (lengths,
+    widths, clump sizes and guide shapes times the scale, densities divided by its square so the
+    strand count stays, curl frequencies divided by it); a deforming scalp keeps one scale.
+
+    "area" (the default): sqrt(scalp area / reference), the area the scalp's world surface at the
+    scene's start frame: scaling the scalp's transform, freezing it, re-meshing it at the same size
+    and a rig scaled at its root all count, and editing or remodelling the mesh to another size
+    scales the groom too (said once in the Script Editor and the view). "transform": the scalp's
+    transform scale at the start frame (its world matrix's, times its rig's root joint's) over the
+    reference: remodelling leaves the groom as it is, but Freeze Transformations resets the
+    transform's scale, so the groom goes back with it. Surface Area survives Freeze
+    Transformations; Transform Only survives remodelling. "off": the groom keeps its sizes in
+    scene units."""
+    if source not in SCALE_SOURCES:
+        raise ValueError("scale source %r: one of %s" % (source, ", ".join(SCALE_SOURCES)))
+    cmds.setAttr(groom + ".scaleSource", SCALE_SOURCES.index(source))
+
+
+def scale_source(groom):
+    """What the groom's scale follows: "area", "transform" or "off" (set_scale_source)."""
+    return SCALE_SOURCES[cmds.getAttr(groom + ".scaleSource")]
+
+
+def set_scale_with_scalp(groom, on=True):
+    """Scale with the scalp (set_scale_source "area") or not ("off"); on by default. Turning it on
+    keeps "transform" where the groom follows that."""
+    if not on:
+        set_scale_source(groom, "off")
+    elif scale_source(groom) == "off":
+        set_scale_source(groom, "area")
+
+
+def groom_scale(groom):
+    """What the groom is scaled by now (its groomScale: 1.0 at the size it was groomed at, or
+    while its scale source is off)."""
+    return cmds.getAttr(groom + ".groomScale")
+
+
+def set_scale_reference(groom):
+    """Make the scalp's size now the groom's 1x: the groom keeps the sizes its params and guides
+    say at this size (groomScale reads 1.00 again). One undo step. Returns the reference area."""
+    area = cmds.getAttr(groom + ".scaleArea")
+    if not area or area <= 0.0:
+        raise RuntimeError("%s has no scalp to measure" % groom)
+    transform = cmds.getAttr(groom + ".scaleTransform")
+    with undo_chunk("set_scale_reference"):
+        cmds.setAttr(groom + ".scaleReference", area)
+        if transform and transform > 0.0:
+            cmds.setAttr(groom + ".scaleTransformReference", transform)
+    return area
+
+
+def store_scale_references():
+    """Before a save: a groom without a scale reference (made before scaling with the scalp, or
+    not saved since it was made) stores the one it uses (the first size it was evaluated at), so
+    the groom reopens at the scale it had. The plugin calls it just before every save."""
+    for groom in list_grooms():
+        if cmds.referenceQuery(groom, isNodeReferenced=True):
+            continue
+        if cmds.getAttr(groom + ".scaleSource") == 2 or not scalp_mesh(groom):
+            continue
+        k = cmds.getAttr(groom + ".groomScale")
+        if not k > 0.0:
+            continue
+        area = cmds.getAttr(groom + ".scaleArea")
+        if cmds.getAttr(groom + ".scaleReference") <= 0.0 and area > 0.0:
+            cmds.setAttr(groom + ".scaleReference", area / (k * k))
+        transform = cmds.getAttr(groom + ".scaleTransform")
+        if cmds.getAttr(groom + ".scaleTransformReference") <= 0.0 and transform > 0.0:
+            cmds.setAttr(groom + ".scaleTransformReference", transform / k)
 
 
 _IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)

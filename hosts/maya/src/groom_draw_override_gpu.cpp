@@ -425,6 +425,49 @@ void GroomSubSceneOverride::expandGpuRibbons(gpu::LineFrames& engine, ItemBuffer
     engine.runRibbons(points, lineUvs, b.ribbonWidthScale, b.lit, targets, light);
 }
 
+void GroomSubSceneOverride::checkHairGrid(gpu::LineFrames& engine, HairGroomState& grid, void* target) {
+    const std::vector<float> own = engine.readVolume(nullptr);
+    std::vector<float> drawn = engine.readVolume(target);
+    grid.checkedSerial = grid.serial;
+    if (own.empty() || drawn.size() != own.size()) {  // (a backend that cannot read textures: not checked)
+        grid.textureSum = grid.ownSum = -1.0;
+        grid.texelsDiffering = 0;
+        return;
+    }
+    // (The optionVar groomLabHairGridSpoil 1, tests only: the texture written over from the CPU with a
+    // denser grid first, as a copy that did not land would leave it; set back to 0 once used.)
+    bool spoilSet = false;
+    if (MGlobal::optionVarIntValue("groomLabHairGridSpoil", &spoilSet) == 1 && spoilSet) {
+        MGlobal::setOptionVarValue("groomLabHairGridSpoil", 0);
+        std::vector<float> dense(own.size());
+        for (std::size_t i = 0; i < own.size(); ++i) dense[i] = own[i] * 10.0f + 0.5f;
+        if (engine.writeVolume(target, dense)) drawn = engine.readVolume(target);
+    }
+    auto compare = [&](const std::vector<float>& texels) {
+        double sum = 0.0, ownSum = 0.0;
+        std::size_t differing = 0;
+        for (std::size_t i = 0; i < own.size(); i += 2) {
+            sum += static_cast<double>(texels[i]);
+            ownSum += static_cast<double>(own[i]);
+            if (texels[i] != own[i] || texels[i + 1] != own[i + 1]) ++differing;
+        }
+        grid.textureSum = sum;
+        grid.ownSum = ownSum;
+        grid.texelsDiffering = differing;
+    };
+    compare(drawn);
+    if (grid.texelsDiffering == 0 || !grid.volume) return;
+    // The device's copy did not land: the grid written into the texture from the CPU (into the
+    // resource the texture names now: Maya may have given it another). (Not MTexture::update: it
+    // writes a volume texture's first slice alone.)
+    void* now = grid.volume->resourceHandle();
+    if (now != target) ++grid.handleSwaps;
+    if (!now || !engine.writeVolume(now, own)) return;
+    ++grid.reuploads;
+    drawn = engine.readVolume(now);
+    if (drawn.size() == own.size()) compare(drawn);
+}
+
 void GroomSubSceneOverride::updateHairGrid(const MHWRender::MFrameContext&) {
     const float strength = floatPlug(GroomShape::aDisplaySelfShadowing);
     // The hair shaders of the groom: its items' and the level of detail's copies.
@@ -494,17 +537,46 @@ void GroomSubSceneOverride::updateHairGrid(const MHWRender::MFrameContext&) {
         size[k] = static_cast<unsigned>(std::clamp(std::ceil(extent[k] / cell), 1.0, 256.0));
         origin[k] = static_cast<float>((k == 0 ? lo.x : k == 1 ? lo.y : lo.z) - margin);
     }
-    // Written again when the strands moved this update (written, carried, a GPU preview's) or the grid moved.
+    // A point of width w blocks (pi / 4) w x its piece of strand (the strands' mean segment, from a
+    // sample of them: written whole or in part, the same strands give the same), at the render's
+    // density.
+    double length = 0.0;
+    std::size_t segments = 0;
+    {
+        const StrandSet& s = *strands;
+        const std::size_t every = std::max<std::size_t>(1, s.strandCount() / 2048);
+        for (std::size_t k = 0; k < s.strandCount(); k += every) {
+            const std::size_t begin = s.strandBegin(k), n = s.strandPointCount(k);
+            for (std::size_t i = 1; i < n; ++i) {
+                const Vec3f d = s.positions()[begin + i] - s.positions()[begin + i - 1];
+                length += std::sqrt(static_cast<double>(d.x) * d.x + static_cast<double>(d.y) * d.y + static_cast<double>(d.z) * d.z);
+            }
+            segments += n > 1 ? n - 1 : 0;
+        }
+    }
+    const double piece = segments ? length / static_cast<double>(segments) : cell;
+    const auto pieceWeight = static_cast<float>(0.785398 * piece / (cell * cell * cell) / density);
+    // Written again when the strands moved this update (written, carried, a GPU preview's), the grid
+    // moved, or what a point weighs or how many there are changed (a groom scaled with its scalp: the
+    // same cells, other strands); and once more in the update after one that wrote the strand lines
+    // (grid.settle): the lines' new contents may reach the device only as Maya draws them (DirectX 11
+    // keeps a copy it sends up then), and a grid splatted from the lines as they were before would
+    // stay (too dense or too light) until the next edit.
     std::uint64_t key = hashFloat(hashFloat(hash64(size[0] * 73856093ull ^ size[1] * 19349663ull ^ size[2] * 83492791ull), static_cast<float>(cell)),
                                   origin[0] + 3.0f * origin[1] + 7.0f * origin[2]);
     key = hashCombine(key, reinterpret_cast<std::uintptr_t>(drawn));
+    key = hashCombine(hashFloat(key, pieceWeight), b.linePoints);
+    key = hashCombine(key, shape_->strandsVersion());
     const DrawTimes& now = currentDraw();
-    const bool moved = now.items.count(drawn->asChar()) || follow_ || gpuRunning();
-    if (grid.valid && key == hairGridKey_ && !moved) {
+    const bool written = now.items.count(drawn->asChar()) != 0;
+    const bool moved = written || follow_ || gpuRunning();
+    if (grid.valid && key == hairGridKey_ && !moved && !grid.settle) {
         grid.why.clear();
         forEachHairShader([&](MHWRender::MShaderInstance& s) { setHairGrid(s, &grid, strength); });
         return;
     }
+    grid.settle = written;  // (made again once the lines are drawn: the next update)
+    if (grid.settle) MHWRender::MRenderer::setGeometryDrawDirty(object_);
     // The points as the item draws them: the ribbons' lines, else the streams bound last.
     void* positions = nullptr;
     void* uvs = nullptr;
@@ -542,31 +614,27 @@ void GroomSubSceneOverride::updateHairGrid(const MHWRender::MFrameContext&) {
         }
         g.cell = static_cast<float>(cell);
         grid.cell = g.cell;
-        // A point of width w blocks (pi / 4) w x its piece of strand (the strands' mean segment,
-        // from a sample of them: written whole or in part, the same strands give the same), at the
-        // render's density.
-        double length = 0.0;
-        std::size_t segments = 0;
-        const StrandSet& s = *strands;
-        const std::size_t every = std::max<std::size_t>(1, s.strandCount() / 2048);
-        for (std::size_t k = 0; k < s.strandCount(); k += every) {
-            const std::size_t begin = s.strandBegin(k), n = s.strandPointCount(k);
-            for (std::size_t i = 1; i < n; ++i) {
-                const Vec3f d = s.positions()[begin + i] - s.positions()[begin + i - 1];
-                length += std::sqrt(static_cast<double>(d.x) * d.x + static_cast<double>(d.y) * d.y + static_cast<double>(d.z) * d.z);
-            }
-            segments += n > 1 ? n - 1 : 0;
-        }
-        const double piece = segments ? length / static_cast<double>(segments) : cell;
-        g.pieceWeight = static_cast<float>(0.785398 * piece / (cell * cell * cell) / density);
+        g.pieceWeight = pieceWeight;
         g.defaultWidth = 0.01f;
         g.occlusionReach = 6.0f;
+        const bool newTexture = grid.volumeSerial != hairGridChecked_;
         try {
             engine->runDensity(positions, uvs, b.linePoints, g, target);
             grid.valid = true;
             grid.why.clear();
             ++grid.serial;
+            grid.pieceWeight = pieceWeight;
+            grid.density = density;
+            grid.points = b.linePoints;
+            grid.strandsVersion = shape_->strandsVersion();
             hairGridKey_ = key;
+            // The texture checked against the grid the kernels made where this grid was not made for
+            // moving strands (a settle, a scale, a size: rare) or went into a new texture; written from
+            // the CPU where the device's copy did not land (the hair would shade with what it held).
+            if (!moved || newTexture) {
+                hairGridChecked_ = grid.volumeSerial;
+                checkHairGrid(*engine, grid, target);
+            }
         } catch (const std::exception& e) {
             grid.why = e.what();
         }
@@ -994,8 +1062,40 @@ std::string hairGridJson(const GroomShape* shape) {
         j["origin"] = {g.origin[0], g.origin[1], g.origin[2]};
         j["serial"] = g.serial;
         j["ignoredLights"] = g.ignoredLights.size();
+        // What it was made from, and what it holds (a grid made twice from the same lines sums the same).
+        j["pieceWeight"] = g.pieceWeight;
+        j["density"] = g.density;
+        j["points"] = g.points;
+        j["strandsVersion"] = g.strandsVersion;
+        j["settle"] = g.settle;
         gpu::LineFrames* engine = o.gpuLines_ ? o.gpuLines_->engine() : nullptr;
         j["gpuMs"] = engine ? engine->gpuMs(true) : -1.0;
+        j["sum"] = engine && g.valid ? engine->densitySum() : 0.0;
+        j["splatted"] = engine ? engine->densityPoints() : 0;
+        // The grid each hair shader was last given (its texture's number, the grid's) against the
+        // grid now: "stale" counts the ones given another (a texture made since, a grid written since).
+        j["volumeSerial"] = g.volumeSerial;
+        // Maya's texture as last checked against the grid the kernels made (checkHairGrid).
+        j["textureSum"] = g.textureSum;
+        j["ownSum"] = g.ownSum;
+        j["texelsDiffering"] = g.texelsDiffering;
+        j["checkedSerial"] = g.checkedSerial;
+        j["reuploads"] = g.reuploads;
+        j["handleSwaps"] = g.handleSwaps;
+        nlohmann::json given = nlohmann::json::object();
+        std::size_t stale = 0;
+        auto note = [&](const std::string& name, const MHWRender::MShaderInstance* shader) {
+            std::uint64_t volume = 0, serial = 0;
+            if (!shader || !hairShaderGrid(shader, &volume, &serial)) return;
+            given[name] = {volume, serial};
+            if (g.valid && volume != 0 && (volume != g.volumeSerial || serial != g.serial)) ++stale;
+        };
+        for (const auto& [name, b] : o.items_) {
+            if (b.hair) note(name, b.shader);
+        }
+        for (std::size_t slot = 0; slot < o.lodShaders_.size(); ++slot) note("lod" + std::to_string(slot), o.lodShaders_[slot]);
+        j["shadersGiven"] = given;
+        j["staleShaders"] = stale;
         break;
     }
     return j.dump();

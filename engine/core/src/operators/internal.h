@@ -276,7 +276,12 @@ private:
 // Resample's reference length, Bands' guard length), so that an edit changing a few strands, or
 // the scalp's area a little, keeps it, and with it the result everywhere else; a scene in other
 // units (a power of ten bigger or smaller) rounds alike. Not positive or not finite: as it is.
-inline float roundToPercentStep(float value) { return roundToDecadeStep(value, 230); }
+// `scale`: the groom's (EvalContext::scale): the lattice anchored at it, so a groom scaled with its
+// scalp rounds as at 1x, scaled.
+inline float roundToPercentStep(float value, double scale = 1.0) {
+    if (scale == 1.0 || !(scale > 0.0) || !std::isfinite(scale)) return roundToDecadeStep(value, 230);
+    return static_cast<float>(roundToDecadeStep(static_cast<float>(value / scale), 230) * scale);
+}
 
 // Strands of `in` spread over the scalp about `spacing` apart (look_ops.cpp: a Clump's own pick of
 // its centers by size, at its randomness default, every core strand allowed: preview_core.h), in

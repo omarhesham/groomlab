@@ -162,6 +162,15 @@ public:
     // shape and re-roots at the closest point, instead of being rebuilt on
     // the wrong face.
     void evaluate(const ScalpMesh* scalp);
+    // The size the guides are shown at, as a groom scaled with its scalp is (GroomSession::
+    // groomScale): evaluate rebuilds each bound guide's shape (rootLocal) times it about its root,
+    // following children sit at their offsets times it (tube radii and the distance along the
+    // parent: tubes are that much wider), and binding (a guide edited or added in world space)
+    // divides it out, so what is stored (rootLocal, offsets, tube radii) stays at the groom's own
+    // size whatever size it is shown at. 1 by default; copies keep it; not stored (toJson). Call
+    // evaluate after.
+    void setScale(float scale);
+    float scale() const { return scale_; }
     // The topology (ScalpMesh::topologyHash) the bound guides' root frames
     // belong to; 0 until bound.
     std::uint64_t boundTopology() const { return boundTopology_; }
@@ -307,6 +316,7 @@ private:
     GroupId nextGroupId_ = 1;
     GuideId nextGuideId_ = 1;
     std::uint64_t boundTopology_ = 0;
+    float scale_ = 1.0f;  // setScale
 };
 
 }  // namespace groomlab

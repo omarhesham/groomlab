@@ -166,6 +166,11 @@ class TransferWindow(QtWidgets.QWidget):
         self.keep_lengths = QtWidgets.QCheckBox("Keep guide lengths")
         self.keep_lengths.setToolTip("Guides turn with the new head but keep their lengths (off: they scale with it)")
         checks.addWidget(self.keep_lengths)
+        self.fit_size = QtWidgets.QCheckBox("Fit groom to the new scalp's size")
+        self.fit_size.setToolTip("The new scalp taken as the old one resized: the groom's scale grows with its area "
+                                 "(lengths, widths and clumps follow, the strand count stays, guides scale about their "
+                                 "roots). Off: the groom keeps the size shown")
+        checks.addWidget(self.fit_size)
         self.maps = QtWidgets.QCheckBox("Project painted maps")
         self.maps.setChecked(True)
         self.maps.setToolTip("Vertex and texture maps carried onto the new scalp by the same method (a texture map "
@@ -609,7 +614,8 @@ class TransferWindow(QtWidgets.QWidget):
         try:
             result = utils.transfer_to_scalp(self.groom, self.scalp(), maps=self.maps.isChecked(),
                                              color_sets=self.color_sets.isChecked(), method=method, markers=markers,
-                                             keep_lengths=self.keep_lengths.isChecked())
+                                             keep_lengths=self.keep_lengths.isChecked(),
+                                             fit_size=self.fit_size.isChecked())
         except (ValueError, RuntimeError) as e:
             self.message.setText(str(e).strip())
             self._redraw()

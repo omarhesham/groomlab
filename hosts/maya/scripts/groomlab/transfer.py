@@ -2,6 +2,7 @@
 """Moving a groom onto another scalp mesh: guides, parts, flow, maps and color sets."""
 
 import json
+import math
 
 from maya import cmds
 
@@ -22,7 +23,7 @@ METHOD_LABELS = {
 
 
 def transfer_groom(groom, scalp, fit=False, maps=True, color_sets=False, report=None, method=None, markers=None,
-                   keep_lengths=False):
+                   keep_lengths=False, fit_size=False):
     """Move a groom to another scalp mesh: a new sculpt, a retopologized head, another character.
 
     Guides, parts and flow arrows are re-rooted on the new scalp at the current frame (do it at
@@ -43,6 +44,12 @@ def transfer_groom(groom, scalp, fit=False, maps=True, color_sets=False, report=
     snapped onto the two meshes and stored on the groom (transferMarkers, saved in .groom files);
     None reuses the stored ones. With every method but closest a guide's shape turns and scales
     with the mapping at its root; `keep_lengths` keeps its length (it only turns).
+
+    `fit_size` fits the groom to the new scalp's size: the new scalp is taken as the old one
+    resized, so the groom's scale becomes k * sqrt(new area / old area) (its scale reference kept):
+    lengths, widths and clumps follow, densities keep the strand count and guide shapes scale about
+    their roots (they turn with the mapping without scaling, as with `keep_lengths`). Off (the
+    default): the groom keeps the size shown (its reference set again for the new scalp).
 
     `maps` (on by default) projects the painted scalp maps onto the new scalp by position: a
     vertex map gets values for the new vertices, a texture map a new image at the new scalp's
@@ -72,11 +79,27 @@ def transfer_groom(groom, scalp, fit=False, maps=True, color_sets=False, report=
         flags["keepLengths"] = True
     if markers is not None:
         flags["markers"] = markers_json(markers)
+    scaling = cmds.getAttr(groom + ".scaleSource") != 2
+    k = cmds.getAttr(groom + ".groomScale") if scaling else 1.0  # the guides move as shown
+    old_area = cmds.getAttr(groom + ".scaleArea") if scaling else 0.0
+    if fit_size and scaling:
+        flags["keepLengths"] = True  # (the groom's scale grows them: the mapping only turns them)
     with undo_chunk("transfer"):
         clear_rest_mesh(groom)  # the old scalp's (its placement node too)
         cmds.groomLabTransfer(groom, **flags)
         if _original_shape(mesh):
             set_rest_mesh(groom)
+        # The groom keeps the scale it had (its params and guides look as they did): the new
+        # scalp's size is k times the groom's 1x. Fitting the size: k grows with the area, the
+        # new scalp the old one resized (k * sqrt(new area / old area)).
+        if scaling and k > 0.0:
+            area = cmds.getAttr(groom + ".scaleArea")
+            if area > 0.0:
+                target = k * math.sqrt(area / old_area) if fit_size and old_area > 0.0 else k
+                cmds.setAttr(groom + ".scaleReference", area / (target * target))
+                transform = cmds.getAttr(groom + ".scaleTransform")
+                if transform > 0.0:
+                    cmds.setAttr(groom + ".scaleTransformReference", transform / target)
         if color_sets and old_mesh:
             copied_sets, stuck_sets = _copy_color_sets(old_mesh, mesh, _color_sets_read(read, old_mesh, mesh, before),
                                                        method, get_transfer_markers(groom))

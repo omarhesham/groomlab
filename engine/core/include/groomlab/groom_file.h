@@ -19,7 +19,8 @@
 //    "guides": [{"id": 3, "root": [face, u, v], "points": [x, y, z, ...]}],
 //    "scalpCache": {"file": "scalp.abc", "object": "headShape"}?,
 //    "searchPaths": ["$PROJECT", "C:/shows/abc/sourceimages"]?,
-//    "guideCache": {"file": "sim.abc", "object": ""}?, "followScalp": true?,
+//    "guideCache": {"file": "sim.abc", "object": ""}?, "followScalp": true?, "scaleSource": "transform"|"off"?,
+//    "scaleReference": 412.5?, "scaleTransformReference": 1.0?,
 //    "cardBake": {"prefix": "hair_cards/hair_", "strands": "<node>:<hash>,..."}?,
 //    "simCaches": {"<Simulate node>": {"file": "hair_sim/sim.abc", "object": "", "stamp": "9f3a..."}}?,
 //    "prototypes": {"<name>": {"points": [...], "triangles": [...], "normals": [...]?, "uvs": [...]?}}?,
@@ -38,7 +39,11 @@
 // "upAxis" is the world's up axis the points are in: "Y" (Maya, the app) or "Z" (Blender,
 // Houdini set Z-up); convertUpAxis turns a file into the other. "followScalp"
 // (GroomData::followScalp, written when on): evaluated on the scalp's rest pose and carried by
-// each root (follow_scalp.h), with the scalp cache's frames as the scalp now. "cardBake": the
+// each root (follow_scalp.h), with the scalp cache's frames as the scalp now. "scaleSource"
+// (GroomData::scaleSource: "transform" or "off", written when not "area"), "scaleReference"
+// (GroomData::scaleReference, the scalp area the groom is 1x at, written when set) and
+// "scaleTransformReference" (the transform scale it is 1x at, written when set): the groom scales
+// with its scalp (GroomSession::groomScale); without a reference the first one measured is it. "cardBake": the
 // last card bake's files, <prefix>Depth|Coverage|Tangent|Attribute|Color|AO.tga,
 // <prefix>Atlas.json and <prefix>Preview.png (the hosts' layout), and the stamp of what each
 // Cards node's cards were made from (the stale check; empty: unknown, every node stale).

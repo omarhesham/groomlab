@@ -283,6 +283,7 @@ std::uint64_t EvalContext::hash() const {
     // own keys with it (Operator::contextSalt).
     std::uint64_t h = hashBytes(0, &previewDensity, sizeof previewDensity);
     h = hashBytes(h, &maxPoints, sizeof maxPoints);
+    if (scale != 1.0) h = hashBytes(h, &scale, sizeof scale);
     return hashBytes(h, &strandSegments, sizeof strandSegments);
 }
 

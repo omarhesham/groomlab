@@ -226,6 +226,15 @@ void bindGroom(py::module_& m) {
         .def_readwrite("follow_scalp", &GroomData::followScalp,
                        "Evaluate on the scalp's rest pose and carry each strand by its root's frame (groom files store it).")
         .def_property(
+            "scale_source", [](const GroomData& d) { return std::string(scaleSourceName(d.scaleSource)); },
+            [](GroomData& d, const std::string& name) { d.scaleSource = scaleSourceFromName(name); },
+            "What the groom's scale follows: \"area\" (the scalp's surface area, the default), \"transform\" (its "
+            "transform's scale alone) or \"off\" (groom files store it when not \"area\").")
+        .def_readwrite("scale_transform_reference", &GroomData::scaleTransformReference,
+                       "The transform scale the groom is 1x at (scale_source \"transform\"); 0: the first one measured.")
+        .def_readwrite("scale_reference", &GroomData::scaleReference,
+                       "The scalp area the groom is 1x at; 0: the first area measured (groom files store it when set).")
+        .def_property(
             "meshes",
             [](const GroomData& d) {
                 std::map<std::string, std::shared_ptr<ScalpMesh>> out;

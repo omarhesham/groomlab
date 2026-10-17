@@ -494,6 +494,13 @@ void MainWindow::reevaluate(bool quiet) {
     const ViewResult& shown = *view;
     for (const SessionMessage& m : shown.messages) report(QString::fromStdString(m.text), m.error);
     if (!shown.errors.empty()) report(QString::fromStdString(shown.errors.front()));
+    // The groom scaled because the scalp's area changed (Surface Area): said once, in the status toast.
+    if (const GroomSession& s = document_->session(); s.scaleNoticeSerial() != 0 &&
+        (&s != scaleNoticeSession_ || s.scaleNoticeSerial() != scaleNoticeShown_)) {
+        scaleNoticeSession_ = &s;
+        scaleNoticeShown_ = s.scaleNoticeSerial();
+        report(QString::fromStdString(s.scaleNotice()));
+    }
     const MeshPtr scalp = shown.scalp ? shown.scalp : document_->file().data.scalp;
     viewport_->setScalp(scalp);
     // The cards instead of the strands: flat (the builder's item), or textured by the last

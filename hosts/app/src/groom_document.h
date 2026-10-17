@@ -146,6 +146,11 @@ public:
     // Following the scalp (GroomSession::setFollowScalp): kept in the file ("followScalp").
     bool followScalp() const { return session().followScalp(); }
     void setFollowScalp(bool on);
+    // Scaling with the scalp (GroomSession::setScaleSource; the file's "scaleSource" and
+    // "scaleReference"): what the groom's scale follows, and Set Scale Reference (the scalp's size
+    // now is 1x).
+    void setScaleSource(ScaleSource source);
+    void setScaleReference();
 
     // ---- The graph ---------------------------------------------------------------------------
     struct NodeInfo {

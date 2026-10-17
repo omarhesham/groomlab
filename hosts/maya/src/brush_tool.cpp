@@ -362,7 +362,7 @@ public:
     }
     std::shared_ptr<GuideHierarchy> editableHierarchy() override {
         std::string error;
-        std::shared_ptr<GuideHierarchy> h = toHierarchy(storedText(StrokeField::Guides), scalp().get(), &error);
+        std::shared_ptr<GuideHierarchy> h = toHierarchy(storedText(StrokeField::Guides), scalp().get(), &error, groomScaleOf(cmd_.groom_.node()));
         if (!h) throw std::runtime_error(error);
         return h;
     }

@@ -10,7 +10,9 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QLabel>
 #include <QListWidget>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -200,6 +202,41 @@ void MainWindow::buildPanels() {
     cardsView_->setEnabled(false);
     cardsView_->setToolTip(tr("The Cards nodes' cards instead of the strands (when the graph has a Cards node)"));
     form->addRow(tr("Card view"), cardsView_);
+    // Scaling with the scalp: the groom grows with its scalp (kept in the file); its scale now and
+    // Set Scale Reference (the scalp's size now is 1x).
+    scaleSource_ = new QComboBox(display);
+    scaleSource_->addItem(tr("Surface Area"), static_cast<int>(ScaleSource::Area));
+    scaleSource_->addItem(tr("Transform Only"), static_cast<int>(ScaleSource::Transform));
+    scaleSource_->addItem(tr("Off"), static_cast<int>(ScaleSource::Off));
+    scaleSource_->setToolTip(tr("What the groom's scale follows (it grows with its scalp like a child object: lengths, widths, "
+                                "clumps and guide shapes scale with it, densities thin so the strand count stays). Surface "
+                                "Area: the scalp's surface area (a remodel to another size scales the groom). Transform Only: "
+                                "the scalp's transform in Maya (here, the scale the groom opened with: remodels and other "
+                                "scalps leave it). Surface Area survives Freeze Transformations; Transform Only survives "
+                                "remodelling. Off: sizes in scene units"));
+    form->addRow(tr("Scale source"), scaleSource_);
+    auto* scaleHost = new QWidget(display);
+    auto* scaleRow = new QHBoxLayout(scaleHost);
+    scaleRow->setContentsMargins(0, 0, 0, 0);
+    groomScale_ = new QLabel(QStringLiteral("1.00x"), scaleHost);
+    groomScale_->setToolTip(tr("What the groom is scaled by with its scalp: 1.00x at the size it was groomed at"));
+    auto* setReference = new QPushButton(tr("Set Scale Reference"), scaleHost);
+    setReference->setToolTip(tr("Make the scalp's size now the groom's 1x: the groom keeps the sizes its params say at this size"));
+    scaleRow->addWidget(groomScale_);
+    scaleRow->addWidget(setReference, 1);
+    form->addRow(tr("Groom scale"), scaleHost);
+    connect(scaleSource_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+        if (!document_) return;
+        document_->setScaleSource(static_cast<ScaleSource>(scaleSource_->currentData().toInt()));
+        refreshDisplayChoices();
+        reevaluate();
+    });
+    connect(setReference, &QPushButton::clicked, this, [this] {
+        if (!document_) return;
+        document_->setScaleReference();
+        refreshDisplayChoices();
+        reevaluate();
+    });
     host_->setPanelContent(OverlayHost::Panel::Display, tr("Display"), theme::purple(), displayScroll);
     connect(density_, &ValueSlider::released, this, [this] { reevaluate(); });
     connect(budget_, &ValueSlider::released, this, [this] { reevaluate(); });

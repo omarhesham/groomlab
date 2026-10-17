@@ -61,6 +61,28 @@ struct HairGroomState {
     bool valid = false;
     double gpuMs = -1.0;     // the last grid's milliseconds on the GPU (-1: not known)
     std::uint64_t serial = 0;  // grids written so far
+    std::uint64_t volumeSerial = 0;  // textures made so far (volumeFor; the one now: this number)
+    bool remake = false;             // the next volumeFor makes a new texture whatever its size
+    // The texture as the hair shaders sample it, checked against the grid the kernels made (the
+    // draw override's updateHairGrid: after a grid not made for moving strands, and in a new
+    // texture): its texels' sum and the grid's (-1: not read), the texels that differed when last
+    // checked, the grid's serial then, and how often the texture was written again from the CPU
+    // because the device's copy had not landed.
+    double textureSum = -1.0, ownSum = -1.0;
+    std::size_t texelsDiffering = 0;
+    std::uint64_t checkedSerial = 0;
+    long long reuploads = 0;
+    long long handleSwaps = 0;       // checks that found the texture on another device resource than the one written
+    // What the last grid was made from (groomLabGraphStats -hairShading): the weight of a point of
+    // width 1, the preview density it was taken to the render's from, the points splatted, the
+    // strands' version, and the draw override's update it was made in.
+    float pieceWeight = 0.0f;
+    float density = 1.0f;
+    std::size_t points = 0;
+    std::uint64_t strandsVersion = 0;
+    // A grid made in an update that wrote the strand lines is made again in the next update (once
+    // the lines are on the device as drawn: a buffer's new contents may reach it after the update).
+    bool settle = false;
     std::string why;         // why there is none ("": there is, or none was asked for)
     HairGroomState() = default;
     HairGroomState(const HairGroomState&) = delete;
@@ -82,6 +104,19 @@ void setHairGrid(MHWRender::MShaderInstance& shader, const HairGroomState* groom
 MHWRender::MShaderInstance* acquireHairShader(const MHWRender::MShaderManager& shaders, bool colored, bool coverage,
                                               const std::shared_ptr<HairGroomState>& groom, bool card = false);
 bool hairShaderAvailable(const MHWRender::MShaderManager& shaders);
+// What a hair shader's draw callbacks know it by, set again for the item drawing with it (style(),
+// every update): its groom and whether it draws the strand lines' coverage (their blending). An
+// instance's address may be another acquire's too (a released one taken again, a probe, an instance
+// the shader manager hands out twice): the item's own state is what its draws take. Returns the
+// coverage it was known by before (-1: not known).
+int noteHairShader(const MHWRender::MShaderInstance* shader, bool coverage, const std::shared_ptr<HairGroomState>& groom);
+// The coverage a hair shader's callbacks know it by (-1: not one of them); the draws whose
+// instance they did not know (drawn with no coverage blending, no groom's lights).
+int hairShaderCoverage(const MHWRender::MShaderInstance* shader);
+// The grid a hair shader was last given (setHairGrid): its texture's number (HairGroomState
+// volumeSerial; 0: none) and the grid's (serial). False: not one of the hair shaders.
+bool hairShaderGrid(const MHWRender::MShaderInstance* shader, std::uint64_t* volume, std::uint64_t* serial);
+long long hairDrawsUnknown();
 
 // The hair's material on a hair shader: the color (its own, or the colors stream's: a hair color,
 // hair_color.h, absorbed as aiStandardHair absorbs its base color) and HairColor's highlight

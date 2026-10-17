@@ -6,6 +6,7 @@
 #include <set>
 
 #include "groomlab/operators.h"
+#include "groomlab/presets.h"
 
 namespace groomlab::gpu {
 
@@ -17,6 +18,32 @@ bool sameChain(const LookChain& a, const LookChain& b) {
         if (a.stages[k].node != b.stages[k].node || a.stages[k].level != b.stages[k].level) return false;
     }
     return true;
+}
+
+// A drag's values are the stored ones (what the editors show). On a groom scaled with its scalp
+// (GroomSession::groomScale) the document's params are at its scale (scaleGraphJson): the drag's
+// numbers and vectors of a unit that scales are scaled alike (unitScaleFactor), a param's unit as
+// its spec says while its unitWhen holds.
+void scaleOverrides(const GraphDocument& doc, double k, Overrides& own) {
+    if (k == 1.0) return;
+    for (auto& [node, params] : own) {
+        const auto it = doc.nodesByName.find(node);
+        if (it == doc.nodesByName.end()) continue;
+        const Operator& op = doc.graph.node(it->second);
+        const std::vector<ParamSpec> specs = op.paramSpecs();
+        for (auto& [name, value] : params) {
+            const auto spec = std::find_if(specs.begin(), specs.end(), [&](const ParamSpec& s) { return s.name == name; });
+            if (spec == specs.end()) continue;
+            if (!spec->unitWhen.empty()) {
+                const std::string text = op.params().getString(spec->unitWhen.param);  // (the conditions are on text params)
+                if (std::find(spec->unitWhen.in.begin(), spec->unitWhen.in.end(), text) == spec->unitWhen.in.end()) continue;
+            }
+            const std::optional<double> f = unitScaleFactor(spec->unit, k);
+            if (!f) continue;
+            if (auto* d = std::get_if<double>(&value)) *d *= *f;
+            if (auto* v = std::get_if<Vec3f>(&value)) *v = *v * static_cast<float>(*f);
+        }
+    }
 }
 
 }  // namespace
@@ -43,6 +70,7 @@ bool LookPreview::plan(const GroomSession& session, const Shown& shown, const Ov
     // Sculpt nodes' strengths dragged: the guides each hands on made here, at the dragged strength
     // (guides are few), standing in for its cached result; the rest of the drag the stages' own.
     Overrides own = stroke ? Overrides{} : overrides;
+    scaleOverrides(*doc, session.groomScale(), own);
     std::map<NodeId, GuidesPtr> made;
     std::set<NodeId> sculpts;
     for (auto at = own.begin(); at != own.end();) {

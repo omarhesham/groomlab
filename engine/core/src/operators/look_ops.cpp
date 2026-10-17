@@ -333,8 +333,9 @@ struct CenterPlan {
 // adsorption, measured on a plane).
 constexpr float kDartsPerClump = 4.98f;
 
+// `scale`: the groom's (EvalContext::scale), the spacing by count rounds at.
 CenterPlan planClumpCenters(const StrandSet& in, const ScalpMesh* scalp, std::size_t count, float size,
-                            const ScalarField& weight, std::uint64_t seed) {
+                            const ScalarField& weight, std::uint64_t seed, double scale = 1.0) {
     CenterPlan plan;
     const bool bySize = size > 0.0f && std::isfinite(size);
     if (in.empty() || (count == 0 && !bySize)) return plan;
@@ -419,7 +420,7 @@ CenterPlan planClumpCenters(const StrandSet& in, const ScalpMesh* scalp, std::si
             }
             area = std::max(a * std::max(b, a * 0.1f), 1e-12f);
         }
-        spacing = roundToPercentStep(std::sqrt(area / static_cast<float>(count)));
+        spacing = roundToPercentStep(std::sqrt(area / static_cast<float>(count)), scale);
     }
     if (!(spacing > 0.0f) || !std::isfinite(spacing)) return plan;
     const float apart = kEvenShare * spacing;
@@ -954,7 +955,7 @@ private:
                 if (incremental && !(pick && pick->byRoots)) return false;
                 if (!pick) {
                     pick = std::make_shared<const Pick>(
-                        planClumpCenters(*in, scalpOf(ctx), sizing.count, sizing.size, weight, seed));
+                        planClumpCenters(*in, scalpOf(ctx), sizing.count, sizing.size, weight, seed, ctx.scale));
                     if (keyed) keepPick(key, pick);
                 }
                 // Each center moved `randomness` of its way to its random spot, the strand rooted

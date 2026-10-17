@@ -100,6 +100,12 @@ struct TransferOptions {
     // Guides keep their lengths and tube radii (they turn, they do not scale). Off (the default):
     // they scale with the head (the mapping's scale at their root). Methods but closest.
     bool keepLengths = false;
+    // Fit the groom to the new scalp's size (the hosts' transfers; the mapping does not read it):
+    // the new scalp taken as the old one resized, the groom's scale reference kept, so its scale
+    // becomes k * sqrt(new area / old area) (lengths, widths and clumps follow, densities keep the
+    // strand count, guide shapes scale about their roots) and the guides turn without scaling
+    // (as keepLengths). Off (the default): the groom keeps the size shown.
+    bool fitSize = false;
 };
 
 // A 3x3 matrix, rows. What a mapping does to a vector standing at a point.

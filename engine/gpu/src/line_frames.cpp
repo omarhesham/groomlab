@@ -210,6 +210,15 @@ void LineFrames::runDensity(void* positions, void* lineUvs, std::size_t count, c
         if (groups[k][1] > kMaxGroups) throw std::runtime_error("GPU density: too many threads for one dispatch");
     }
     dispatchDensity(&c, positions, lineUvs, count, cells, groups, volume);
+    densityCells_ = cells;
+    densityPoints_ = count;
+}
+
+double LineFrames::densitySum() {
+    if (densityCells_ == 0) return 0.0;
+    double sum = 0.0;
+    for (const std::uint32_t v : readDensityGrid(densityCells_)) sum += static_cast<double>(v);
+    return sum / 65536.0;  // (density.slang's kFixed)
 }
 
 void LineFrames::dispatchPoints(Kernel kernel, const Binding& binding, const float* values, std::uint32_t flag, std::uint32_t flagZ) {
@@ -357,7 +366,89 @@ public:
         return out;
     }
 
+    std::vector<float> readVolume(void* texture) override {
+        std::vector<float> out;
+        ID3D11Texture3D* source = texture ? texture3DOf(texture) : volume_;
+        if (!source) return out;
+        if (!texture) source->AddRef();
+        D3D11_TEXTURE3D_DESC desc{};
+        source->GetDesc(&desc);
+        if (desc.Format != DXGI_FORMAT_R32G32_FLOAT) {
+            source->Release();
+            return out;
+        }
+        D3D11_TEXTURE3D_DESC s = desc;
+        s.Usage = D3D11_USAGE_STAGING;
+        s.BindFlags = 0;
+        s.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        s.MiscFlags = 0;
+        s.MipLevels = 1;
+        ID3D11Texture3D* staging = nullptr;
+        if (FAILED(device_->CreateTexture3D(&s, nullptr, &staging))) {
+            source->Release();
+            return out;
+        }
+        context_->CopySubresourceRegion(staging, 0, 0, 0, 0, source, 0, nullptr);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (SUCCEEDED(context_->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
+            const std::size_t row = std::size_t{desc.Width} * 2;
+            out.resize(row * desc.Height * desc.Depth);
+            for (UINT z = 0; z < desc.Depth; ++z) {
+                for (UINT y = 0; y < desc.Height; ++y) {
+                    const auto* from = static_cast<const unsigned char*>(mapped.pData) + std::size_t{z} * mapped.DepthPitch +
+                                       std::size_t{y} * mapped.RowPitch;
+                    std::memcpy(out.data() + (std::size_t{z} * desc.Height + y) * row, from, row * sizeof(float));
+                }
+            }
+            context_->Unmap(staging, 0);
+        }
+        staging->Release();
+        source->Release();
+        return out;
+    }
+
+    bool writeVolume(void* texture, const std::vector<float>& texels) override {
+        ID3D11Texture3D* target = texture ? texture3DOf(texture) : nullptr;
+        if (!target) return false;
+        D3D11_TEXTURE3D_DESC desc{};
+        target->GetDesc(&desc);
+        const std::size_t row = std::size_t{desc.Width} * 2;
+        const bool fits = desc.Format == DXGI_FORMAT_R32G32_FLOAT && texels.size() == row * desc.Height * desc.Depth;
+        if (fits) {
+            context_->UpdateSubresource(target, 0, nullptr, texels.data(), static_cast<UINT>(row * sizeof(float)),
+                                        static_cast<UINT>(row * desc.Height * sizeof(float)));
+        }
+        target->Release();
+        return fits;
+    }
+
 protected:
+    // The 3D texture a handle names (a texture, or a view of one), referenced; null where it names none.
+    static ID3D11Texture3D* texture3DOf(void* handle) {
+        ID3D11Texture3D* target = nullptr;
+        auto* unknown = static_cast<IUnknown*>(handle);
+        if (SUCCEEDED(unknown->QueryInterface(__uuidof(ID3D11Texture3D), reinterpret_cast<void**>(&target)))) return target;
+        ID3D11View* view = nullptr;
+        if (SUCCEEDED(unknown->QueryInterface(__uuidof(ID3D11View), reinterpret_cast<void**>(&view)))) {
+            ID3D11Resource* resource = nullptr;
+            view->GetResource(&resource);
+            view->Release();
+            if (resource) {
+                resource->QueryInterface(__uuidof(ID3D11Texture3D), reinterpret_cast<void**>(&target));
+                resource->Release();
+            }
+        }
+        return target;
+    }
+
+    std::vector<std::uint32_t> readDensityGrid(std::size_t cells) override {
+        std::vector<std::uint32_t> out(cells);
+        if (!grid_ || cells == 0 || cells > gridCells_) return out;
+        const std::vector<float> raw = read(grid_, cells);
+        std::memcpy(out.data(), raw.data(), cells * 4);
+        return out;
+    }
+
     void upload(Buffer which, const void* data, std::size_t bytes) override {
         Raw& b = buffers_[which];
         const std::size_t size = std::max<std::size_t>((bytes + 3) & ~std::size_t{3}, 16);
@@ -468,20 +559,7 @@ protected:
         auto* c = static_cast<StageConstants*>(constants);
         // The target: a 3D texture of the grid's size and format (the host's, copied into).
         // (A texture, or a view of one: Viewport 2.0's MTexture hands out its shader resource view.)
-        ID3D11Texture3D* target = nullptr;
-        auto* unknown = static_cast<IUnknown*>(volume);
-        if (FAILED(unknown->QueryInterface(__uuidof(ID3D11Texture3D), reinterpret_cast<void**>(&target)))) {
-            ID3D11View* view = nullptr;
-            if (SUCCEEDED(unknown->QueryInterface(__uuidof(ID3D11View), reinterpret_cast<void**>(&view)))) {
-                ID3D11Resource* resource = nullptr;
-                view->GetResource(&resource);
-                view->Release();
-                if (resource) {
-                    resource->QueryInterface(__uuidof(ID3D11Texture3D), reinterpret_cast<void**>(&target));
-                    resource->Release();
-                }
-            }
-        }
+        ID3D11Texture3D* target = texture3DOf(volume);
         if (!target) throw std::runtime_error("GPU density: the target is not a 3D texture");
         D3D11_TEXTURE3D_DESC want{};
         target->GetDesc(&want);
@@ -922,6 +1000,14 @@ public:
     }
 
 protected:
+    std::vector<std::uint32_t> readDensityGrid(std::size_t cells) override {
+        std::vector<std::uint32_t> out(cells);
+        if (!grid_.name || cells == 0 || cells * 4 > grid_.bytes) return out;
+        const std::vector<float> raw = read(reinterpret_cast<void*>(static_cast<std::uintptr_t>(grid_.name)), cells);
+        std::memcpy(out.data(), raw.data(), cells * 4);
+        return out;
+    }
+
     void upload(Buffer which, const void* data, std::size_t bytes) override {
         requireReachable();
         GlKept kept;
