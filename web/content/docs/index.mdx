@@ -1,12 +1,19 @@
 ---
 title: Introduction
-description: What GroomLab is, where its tools live in Maya, and the supported Maya versions.
+description: What GroomLab is (for Maya, the standalone app and Blender), where its tools live in Maya, and the supported Maya versions.
 ---
 
-GroomLab is a hair, fur and feather system for Maya. It combines **hierarchical guides** that you
-shape by hand (primary guides, and child guides generated inside their parents' tubes) with a
-**procedural node graph** that generates the render strands from them (scatter, interpolate,
-clump, noise, curl and so on).
+GroomLab is a hair, fur and feather system for Maya, the standalone GroomLab app and Blender. It
+combines **hierarchical guides** that you shape by hand (primary guides, and child guides generated
+inside their parents' tubes) with a **procedural node graph** that generates the render strands
+from them (scatter, interpolate, clump, noise, curl and so on). One `.groom` file opens in all
+three.
+
+<Cards>
+  <Card title="Maya" href="/docs/installation" description="The plug-in: install it, then groom in the Groom Tools and the Graph Editor." />
+  <Card title="GroomLab app" href="/docs/app" description="Standalone grooming, look-dev, cards and export on Windows (beta)." />
+  <Card title="Blender" href="/docs/blender" description="The add-on: GroomLab grooms with Blender's brushes (beta)." />
+</Cards>
 
 <Callout type="info" title="Early access">
   GroomLab is in early access and under active development. Grooming, rendering and export work
@@ -22,10 +29,11 @@ clump, noise, curl and so on).
 | Window | Contents |
 | --- | --- |
 | **Attribute Editor** (groom shape) | Inputs (scalp, rest mesh, guides, colliders), keyable controls, display and render settings. |
-| **Groom Tools** | Guide brushes, guide groups, painted maps, sculpt layers (correctives) and reference photos. |
+| **Groom Tools** | Guide brushes, guide groups, painted maps, sculpt layers (correctives) and reference photos, in the Tools, Paint, Correctives and Photos tabs; the **Output** section simulates, exports, renders, transfers and imports. |
 | **Graph Editor** | The node graph that generates the strands. |
 
 Every UI action has a Python equivalent in the `groomlab` package ([Python API](/docs/python-api)).
+[Common tasks](/docs/common-tasks) shows where each task lives in Maya, the app and Blender.
 
 The standalone [GroomLab app](/docs/app) (grooming, look-dev and export without Maya) and
 [GroomLab for Blender](/docs/blender) are in beta on Windows. Both open grooms made in Maya
@@ -45,6 +53,7 @@ without conversion.
 <Cards>
   <Card title="Installation" href="/docs/installation" description="Unzip, drag install.mel onto Maya, restart once." />
   <Card title="Quick start" href="/docs/quick-start" description="Create a groom, place guides and add a look." />
+  <Card title="Common tasks" href="/docs/common-tasks" description="Where each common task lives in Maya, the app and Blender." />
   <Card title="Node graph" href="/docs/node-graph" description="The nodes that generate the strands, and their parameters." />
   <Card title="Game export" href="/docs/game-export" description="Cards and strands for Unreal, Unity and glTF." />
   <Card title="What's new" href="/docs/whats-new" description="Changes per release, newest first." />

@@ -26,6 +26,12 @@ import numpy as np
 CREATE_NO_WINDOW = 0x08000000
 
 
+def sentence(text):
+    """A message as Blender's reports show it: a capital first letter."""
+    text = str(text or "")
+    return text[:1].upper() + text[1:]
+
+
 class HelperError(RuntimeError):
     def __init__(self, code, message):
         RuntimeError.__init__(self, "%s: %s" % (code, message))

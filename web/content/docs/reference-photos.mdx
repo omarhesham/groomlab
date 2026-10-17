@@ -3,9 +3,9 @@ title: Reference photos
 description: Importing reference photos as image-plane cameras, aligning them to the head mesh by point pairs, and grooming through them.
 ---
 
-<Example name="reference.png" alt="A reference photo lined up with the head mesh" caption="Groom Tools > Reference" optional />
+<Example name="reference.png" alt="A reference photo lined up with the head mesh" caption="Groom Tools > Photos" optional />
 
-The **Reference** tab in the Groom Tools creates a camera for each reference photo, aligned to the
+The **Photos** tab in the Groom Tools creates a camera for each reference photo, aligned to the
 head mesh, so you can groom while looking through it.
 
 <Steps>
@@ -40,7 +40,7 @@ Align it by eye (move the camera), or **by point pairs**:
 The status line reports the reprojection error in pixels, and each pair shows its own error, so a
 mismatched pair is easy to find.
 
-Easier: the [Reference window](#guides-from-reference-photos-experimental) shows the photo and the
+Easier: the [Guides from Photos window](#guides-from-photos-experimental) shows the photo and the
 mesh side by side; click the pairs there and the camera solves as you go, no looking through it.
 
 </Step>
@@ -64,20 +64,20 @@ ref.lock_reference(cam)
 ref.set_reference_opacity(cam, 0.4)
 ```
 
-## Guides from reference photos (experimental)
+## Guides from photos (experimental)
 
 <Callout type="info" title="Experimental">
-Guides from Reference grows guides that follow the hair in your reference photos. It is a first
+Guides from Photos grows guides that follow the hair in your reference photos. It is a first
 version: try it, then brush the result.
 </Callout>
 
-**GroomLab > Guides > Guides from Reference (experimental)...** opens the **Reference window**
-(Groom Tools > Reference has an **Open Reference Window...** button too). It works like the Transfer
+**GroomLab > Guides from Photos (experimental)...** opens the **Guides from Photos** window
+(Groom Tools > Photos has an **Open Guides from Photos...** button too). It works like the Transfer
 Groom window: the photo on the left, the groom's scalp on the right, the settings beside them. You
 never have to look through a Maya camera; each photo still gets a camera with the photo on an image
 plane, kept lined up, so renders and Arnold can use it.
 
-<Example name="reference-window.png" alt="The Reference window: a photo with numbered landmarks, flow arrows and the mesh's outline on the left, the scalp with the matching landmarks on the right" caption="The Reference window" optional />
+<Example name="reference-window.png" alt="The Guides from Photos window: a photo with numbered landmarks, flow arrows and the mesh's outline on the left, the scalp with the matching landmarks on the right" caption="The Guides from Photos window" optional />
 
 <Steps>
 <Step>
@@ -133,7 +133,8 @@ and **Redo**) walk the current photo's edits.
 Set **Symmetry** (Auto uses the scalp's own symmetry), **Guide count** and **Max length** (Auto: as
 far as the photos show the hair reaching), uncheck **Use this photo** on a photo to leave it out, then
 **Generate**. The guides go into the **fromReference** group and are selected. Generate again
-replaces them; one Maya undo step each time.
+replaces them; one Maya undo step each time. While it works, the window shows a wait cursor, greys
+out its buttons and says what it is doing (Measured Look's Apply too).
 
 **Measured Look** shows what the photos measure against what your graph has: the hair color (and
 lighter or darker tips), clumps (how far apart and how tight), curls, flyaways, frizz, and where the
@@ -148,7 +149,7 @@ clumps in short fur, and flyaways against a backdrop of the hair's own shade.
 </Step>
 </Steps>
 
-The standalone app has the same window: **Tools > Guides from Reference (experimental)...** (photos,
+The standalone app has the same window: **Tools > Guides from Photos (Experimental)...** (photos,
 landmarks, flow arrows, mask touch-ups and Generate, saved with the groom; the measured look is
 Maya's for now).
 
@@ -163,7 +164,7 @@ import groomlab
 from groomlab import from_reference as fr
 from groomlab.ui import reference_window
 
-w = reference_window.show(groom)                  # the Reference window; scripts drive it too:
+w = reference_window.show(groom)                  # the Guides from Photos window; scripts drive it too:
 cam = w.import_photo("C:/photos/front.jpg")
 w.add_landmark("photo", (412, 230)); w.add_landmark("mesh", (0.0, 9.5, 3.1))   # ... 4 pairs or more
 w.add_flow_stroke([(820, 300), (790, 620)])        # photo pixels, root first

@@ -47,14 +47,16 @@ class VIEW3D_PT_groomlab(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         layout.prop(scene.groomlab, "groom")
-        obj = context.active_object
-        if obj is not None and obj.type == "MESH" and obj.groomlab.role == "NONE":
-            layout.operator("groomlab.add_groom", icon="CURVES")
         scalp = active_groom(context)
         if scalp is None:
-            layout.label(text="Select a mesh (the scalp) and add a groom")
-            layout.operator("groomlab.load_groom", icon="FILE_FOLDER")
+            # The empty state the Groom Tools panel shows too (palette.py): one name, one button.
+            layout.label(text="Select the scalp mesh, then:")
+            layout.operator("groomlab.add_groom", text="Create Groom from Selection", icon="ADD")
+            layout.operator("groomlab.load_groom", text="Open Groom File...", icon="FILE_FOLDER")
             return
+        obj = context.active_object
+        if obj is not None and obj.type == "MESH" and obj.groomlab.role == "NONE":
+            layout.operator("groomlab.add_groom", text="Create Groom from Selection", icon="ADD")
         g = scalp.groomlab
         rt = groom.runtime_if_any(scalp)
         row = layout.row(align=True)
@@ -85,8 +87,8 @@ class VIEW3D_PT_groomlab(bpy.types.Panel):
             _wrap(layout.box(), text, icon="INFO")
         col = layout.column(align=True)
         row = col.row(align=True)
-        row.operator("groomlab.save_groom", icon="FILE_TICK")
-        row.operator("groomlab.load_groom", icon="FILE_FOLDER")
+        row.operator("groomlab.save_groom", text="Save Groom File...", icon="FILE_TICK")
+        row.operator("groomlab.load_groom", text="Open Groom File...", icon="FILE_FOLDER")
         row = col.row(align=True)
         row.operator("groomlab.export_alembic", text="Alembic", icon="EXPORT")
         row.operator("groomlab.export_usd", text="USD", icon="EXPORT")

@@ -34,6 +34,14 @@ QPixmap tintedIcon(const QString& resource, const QColor& color, int size, qreal
 // The icon as drawn (the three-strand logo keeps its colors).
 QPixmap coloredIcon(const QString& resource, int size, qreal devicePixelRatio);
 
+// A number with at most `decimals` decimals and its trailing zeros dropped ("0.35", not "0.350";
+// "1", not "1.000"), as every host shows a param (docs/APP_PARITY.md, Glossary: Numbers).
+QString trimmedNumber(double value, int decimals);
+
+// A tooltip with the keys of shortcut `id` from the one shortcut table (groomlab/shortcuts.h, the
+// app's rows) after it: "Frame the groom (F)"; the tip alone when the app has no such row.
+QString withShortcut(const QString& tip, const char* id);
+
 // Fills a rounded rectangle with the glass color (or another).
 void paintGlass(QPainter& painter, const QRectF& rect, qreal radius, const QColor& color, const QColor& edge = QColor());
 
@@ -145,6 +153,7 @@ public:
     void setLimits(double min, double max);  // what a typed value may reach (unbounded by default)
     void setValue(double value);  // clamped to the limits (the range widens to show it); no signal
     double value() const { return value_; }
+    QString shownText() const { return format_(value_); }  // the value as drawn (its format)
     double minimum() const { return min_; }
     double maximum() const { return max_; }
     void setFill(const QColor& color);
@@ -222,8 +231,10 @@ public:
         QString label;
         QColor fill;
         QColor text;
+        QString tip;  // the segment's own tooltip (its key, say)
     };
     void setItems(std::vector<Item> items);
+    const std::vector<Item>& items() const { return items_; }
     void setCurrent(int index);  // no signal
     int current() const { return current_; }
     void setBackground(const QColor& color);  // the glass by default; the chip tone inside a panel
@@ -242,6 +253,7 @@ signals:
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    bool event(QEvent* event) override;  // the tooltip of the segment under the mouse
 
 private:
     std::vector<QRect> segmentRects() const;

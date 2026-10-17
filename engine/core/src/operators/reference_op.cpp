@@ -40,6 +40,7 @@
 #include "groomlab/parallel.h"
 #include "groomlab/paths.h"
 #include "groomlab/random.h"
+#include "groomlab/process_caches.h"
 #include "groomlab/scalp_pieces.h"
 #include "groomlab/texture.h"
 #include "internal.h"
@@ -86,6 +87,13 @@ std::shared_ptr<LoadedGroom> loadedGroom(const std::string& path, std::uint64_t 
     constexpr std::size_t kKept = 8;
     static std::mutex mutex;
     static std::list<std::shared_ptr<LoadedGroom>> kept;
+    static const bool registered = (registerProcessCache("referenced grooms", [] {
+                                        std::list<std::shared_ptr<LoadedGroom>> drop;
+                                        const std::lock_guard<std::mutex> lock(mutex);
+                                        drop.swap(kept);
+                                    }),
+                                    true);
+    (void)registered;
     {
         const std::lock_guard<std::mutex> lock(mutex);
         for (auto it = kept.begin(); it != kept.end(); ++it) {

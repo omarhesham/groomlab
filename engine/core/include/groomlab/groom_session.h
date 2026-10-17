@@ -73,8 +73,10 @@ struct ViewRequest {
     std::string stopAt;
     // Following the scalp (setFollowScalp), the host carries the strands to the scalp now itself (Maya's
     // viewport, on the GPU): the view hands them on at rest with how to carry them (ViewResult::follow)
-    // instead of carrying them, where carryStrands would move nothing but their points
-    // (carriesPointsAlone). The bounds are the carried strands' all the same.
+    // instead of carrying them, where carryStrands would move nothing but their points and the
+    // instances placed on them (carriesPointsAndInstances: the host's DisplayBuilder places those
+    // on the instanced strands carried, DisplayInputs::follow). The bounds are the carried strands'
+    // all the same.
     bool hostCarries = false;
 };
 
@@ -224,6 +226,8 @@ struct GroomStats {
     // Distance fields made in this process so far (MeshDistanceField::madeCount; tests: a deforming
     // collider with a rest pose makes none after its first frame).
     std::size_t distanceFieldsMade = 0;
+    // The view document's cached results: bytes held (Graph::cachedBytes), results its limit let go.
+    std::size_t cacheBytes = 0, cacheEvictions = 0;
     bool strokeDocument = false;  // a stroke document is kept (a stroke made one, or warmStroke)
     std::vector<SimStatus> simulations;  // the Simulate nodes' caches (GroomSession::simulationStatus)
 
@@ -279,6 +283,7 @@ private:
     bool warm_ = false;
     const GraphDocument* warmBase_ = nullptr;
     std::size_t warmBaseEvaluations_ = 0;
+    std::uint64_t warmBaseGeneration_ = 0;  // (a stroke document let go and made again since: not adopted)
     // A dab: the stroke document lent (doc_), the preview guides copied as they were, and the
     // graph they were made for (graphGeneration_).
     bool stroke_ = false;
@@ -577,6 +582,14 @@ public:
     // The output at `density` and `seconds` (buildCards: Cards nodes build their cards), instances
     // pinned or fitted to rest. Throws what the evaluation threw (GraphError...).
     StrandsPtr evaluate(float density, double seconds, bool buildCards = false);
+    // What evaluate(density, seconds) gives, when the last view evaluated it alike (an export of
+    // the frame the viewport shows, at the view's density): its strands placed (FollowCarry
+    // carried), no evaluation. Alike: the output viewed (no node), no stroke, the same density and
+    // time, cards not built, no Scatter thinned to the point budget, and no node off in one and on
+    // in the other (evaluation modes; nor a Compound or Reference, whose insides would say). Null
+    // otherwise. The caller has the view evaluated with the inputs as they are (Maya's export
+    // pulls the shape's frame first).
+    StrandsPtr viewedAsRendered(float density, double seconds) const;
     // One node by name ("" the output) with the last evaluation's inputs at `density`, in a
     // scratch copy of the graph (results matching the view's are reused, none evicted). Throws
     // GraphError (no such node, a failing node) or std::runtime_error (no graph).
@@ -765,6 +778,7 @@ private:
     std::unique_ptr<GraphDocument> parsed_;
     std::unique_ptr<GraphDocument> doc_;        // the view's
     std::uint64_t docGeneration_ = 0;           // each new doc_ (a detached evaluation's base)
+    std::uint64_t strokeDocGeneration_ = 0;     // each time sculptDoc_ goes or takes another graph (adoptWarm)
     std::vector<SessionMessage> detachedMessages_;  // said by detach's binding, for the next evaluate to say
     // A live stroke's view at its own density (previewDensity x sculptDensity): a document of its
     // own, so the stroke's first dab does not evict the view's cache (its release would scatter
@@ -962,6 +976,10 @@ private:
         StrandsPtr out;
     };
     Carried carried_[4];  // the view, the cards, full density, a node
+    // stats()' instance count, for the strands (and their instances) it was counted on.
+    mutable std::weak_ptr<const StrandSet> instancesCountedOn_;
+    mutable std::weak_ptr<const InstanceSet> instancesCounted_;
+    mutable std::size_t instanceCount_ = 0;
 
     // Simulation.
     std::map<std::string, std::unique_ptr<SimNode>> sims_;  // by node name

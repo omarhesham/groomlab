@@ -407,7 +407,7 @@ class GROOMLAB_MT_tools_more(bpy.types.Menu):
         layout.operator("groomlab.add_groom", text="Create Groom from Selection")
         layout.operator("groomlab.tool_exit")
         layout.separator()
-        layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts")
+        layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts...")
 
 
 classes = (VIEW3D_PT_groomlab_tools, VIEW3D_PT_groomlab_tools_sculpting, GROOMLAB_UL_groups, GROOMLAB_UL_maps,

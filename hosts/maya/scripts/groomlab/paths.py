@@ -205,7 +205,7 @@ def follow_scene_files():
                 new = follow(rel)
                 if new:
                     cmds.setAttr(texture + ".fileTextureName", new_base + "/" + new, type="string")
-    # Reference photos (Groom Tools > Reference) travel the same way.
+    # Reference photos (Groom Tools > Photos) travel the same way.
     for camera in reference.list_references():
         if cmds.referenceQuery(camera, isNodeReferenced=True):
             continue

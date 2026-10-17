@@ -14,6 +14,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
 #include <QKeyEvent>
@@ -64,6 +65,7 @@ void MainWindow::setGraphShown(bool shown) {
     if (shown) {  // the badges from the last evaluation
         graph_->setNodeTimes(document_->nodeTimes());
         graph_->setNodeNotes(document_->nodeNotes());
+        graph_->setNodeErrors(document_->nodeErrors());
     }
     graphAction_->setChecked(shown);
     host_->setGraphShown(shown, shown ? graph_->nodeCount() : (document_ ? static_cast<int>(document_->nodes().size()) : 0));
@@ -81,8 +83,9 @@ bool MainWindow::showUiPanel(const QString& name) {
     else if (n == QStringLiteral("look")) panel = OverlayHost::Panel::Look;
     else if (n == QStringLiteral("display")) panel = OverlayHost::Panel::Display;
     else if (n == QStringLiteral("brush")) panel = OverlayHost::Panel::Brush;
+    else if (n == QStringLiteral("shortcuts") || n == QStringLiteral("help")) return showHelp(QStringLiteral("shortcuts"));
     else {
-        report(tr("No panel '%1' (guides, nodes, maps, correctives, look, display, brush)").arg(name));
+        report(tr("No panel '%1' (guides, nodes, maps, correctives, look, display, brush, shortcuts)").arg(name));
         return false;
     }
     if (panel == OverlayHost::Panel::Brush || panel == OverlayHost::Panel::Guides || panel == OverlayHost::Panel::Display ||
@@ -90,6 +93,17 @@ bool MainWindow::showUiPanel(const QString& name) {
         setUiMode(QStringLiteral("groom"));
     }
     host_->showPanel(panel, true);
+    return true;
+}
+
+bool MainWindow::setUiSearch(const QString& text) {
+    if (!document_) {
+        report(tr("No groom open: no Graph Editor to search"));
+        return false;
+    }
+    setGraphShown(true);
+    graph_->openSearchAt(QPointF(graph_->width() * 0.35, graph_->height() * 0.25));  // (no cursor in a scripted run)
+    graph_->setSearchText(text);
     return true;
 }
 
@@ -112,12 +126,52 @@ bool MainWindow::setUiLookTab(const QString& name) {
 
 bool MainWindow::setUiHover(const QString& name) {
     const QString n = name.toLower();
+    if (n == QStringLiteral("labels")) {
+        setRailLabels(true, false);  // the rails' names kept shown, as on a first run
+        return true;
+    }
     if (n != QStringLiteral("rail") && n != QStringLiteral("panels") && n != QStringLiteral("all")) {
-        report(tr("No hover state '%1' (rail, panels, all)").arg(name));
+        report(tr("No hover state '%1' (rail, panels, all, labels)").arg(name));
         return false;
     }
     host_->setRailsExpanded(n != QStringLiteral("panels"), n != QStringLiteral("rail"));
     return true;
+}
+
+bool MainWindow::setUiPrompt(const QString& name) {
+    const QString n = name.toLower();
+    if (n == QStringLiteral("unsaved") || n == QStringLiteral("reload")) {
+        // As an interactive window asks (an edit made first when none is), nothing done on a choice.
+        const bool was = interactive_;
+        interactive_ = true;
+        if (document_ && !document_->dirty() && !document_->nodes().empty()) {
+            const std::string node = document_->nodes().front().name;
+            float x = 0.0f, y = 0.0f;
+            document_->nodePosition(node, &x, &y);
+            document_->setNodePosition(node, x, y);  // (the file dirty, nothing moved)
+        }
+        if (n == QStringLiteral("unsaved")) confirmDiscard(tr("closing"), {});
+        else askReload();
+        interactive_ = was;
+        return host_->promptShown();
+    }
+    if (n == QStringLiteral("info")) {
+        host_->toast(tr("Saved strokes.groom"), false);
+        return true;
+    }
+    if (n == QStringLiteral("start")) {
+        // The card after New Groom on Mesh (the next step on a bald scalp).
+        host_->setStartHintShown(true);
+        return host_->startHintShown();
+    }
+    if (n == QStringLiteral("error")) {
+        host_->toast(tr("Cannot export: the folder is read-only. Pick another output folder in the Export panel "
+                        "(renders/hair/a_long_folder_name/strokes.abc)"),
+                     true);
+        return true;
+    }
+    report(tr("No prompt '%1' (unsaved, reload, info, error, start)").arg(name));
+    return false;
 }
 
 bool MainWindow::setUiMenu(const QString& name) {
@@ -184,12 +238,14 @@ void MainWindow::fillPresetsMenu() {
         const QString about = QString::fromStdString(info.description.empty() ? info.name : info.description);
         sub->menuAction()->setToolTip(about);
         sub->menuAction()->setData(QString::fromStdString(info.name));
-        QAction* apply = sub->addAction(tr("Apply"), this, [this, path = info.path] { applyPreset(QString::fromStdString(path)); });
-        apply->setToolTip(tr("Replace this groom's graph with the preset, sizes fitted to this scalp, the maps it reads made: one undo step"));
+        // With no groom open: the preset on a new groom (a mesh asked for first), not a dead end.
+        QAction* apply = document_ ? sub->addAction(tr("Apply"), this, [this, path = info.path] { applyPreset(QString::fromStdString(path)); })
+                                   : sub->addAction(tr("Apply on a Mesh..."), this, [this, path = info.path] { startFromPreset(QString::fromStdString(path)); });
+        apply->setToolTip(document_ ? tr("Replace this groom's graph with the preset, sizes fitted to this scalp, the maps it reads made: one undo step")
+                                    : tr("Pick a mesh (.obj or .abc): a new groom is made on it with this look"));
         QAction* insert = sub->addAction(tr("Insert after selected node"), this, [this, path = info.path] { insertPreset(QString::fromStdString(path)); });
         insert->setToolTip(tr("Keep this graph and add the preset's look to it as one Compound after the selected node (before the "
                               "Output when none is selected), fitted to this scalp: one undo step"));
-        apply->setEnabled(document_ != nullptr);
         insert->setEnabled(document_ != nullptr);
     };
     for (const std::string& category : order) {
@@ -225,6 +281,22 @@ void MainWindow::showPresetsMenu() {
     presetsMenu_->popup(host_->mapToGlobal(QPoint(pill.left(), pill.top() - 6 - size.height())));
 }
 
+bool MainWindow::startFromPreset(const QString& nameOrPath, const QString& meshPath) {
+    QString mesh = meshPath;
+    if (mesh.isEmpty()) {
+        // A mesh asked for on a click (never in a scripted run: no dialog may stop it).
+        if (!interactive_) {
+            report(tr("A preset needs a groom: make one on a mesh first (New Groom on Mesh), then apply %1").arg(nameOrPath));
+            return false;
+        }
+        mesh = QFileDialog::getOpenFileName(this, tr("A Mesh for the Preset"), QString(), tr("Meshes (*.obj *.abc)"));
+        if (mesh.isEmpty()) return false;
+    }
+    if (!newGroomOnMesh(mesh)) return false;
+    host_->setStartHintShown(false);  // the look is there: no bald-scalp hint
+    return applyPreset(nameOrPath);
+}
+
 bool MainWindow::applyPreset(const QString& nameOrPath) {
     if (!document_) {
         report(tr("No groom open to apply the preset %1 to").arg(nameOrPath));
@@ -249,7 +321,7 @@ bool MainWindow::applyPreset(const QString& nameOrPath) {
         graph_->refresh();
         graph_->fitAll();
     }
-    report(tr("Applied the preset %1").arg(QString::fromStdString(presetMessage(applied))), false);
+    notify(tr("Applied the preset %1").arg(QString::fromStdString(presetMessage(applied))));
     return true;
 }
 
@@ -323,7 +395,7 @@ bool MainWindow::savePreset(const QString& name, bool overwrite) {
         report(tr("Cannot save the preset %1: %2").arg(name, QString::fromStdString(error)));
         return false;
     }
-    report(tr("Saved the preset %1 to %2").arg(name, QString::fromStdString(path)), false);
+    notify(tr("Saved the preset %1 to %2").arg(name, QString::fromStdString(path)));
     return true;
 }
 
@@ -354,7 +426,7 @@ void MainWindow::pasteGraph() {
         graph_->refresh();
         graph_->fitAll();
     }
-    report(tr("Pasted %1 (Ctrl+Z undoes it)").arg(QString::fromStdString(presetMessage(applied))), false);
+    notify(tr("Pasted %1 (Ctrl+Z undoes it)").arg(QString::fromStdString(presetMessage(applied))));
 }
 
 bool MainWindow::selectUiNode(const QString& name) {

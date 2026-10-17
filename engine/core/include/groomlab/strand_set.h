@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -74,6 +75,21 @@ public:
             }
         }
         delete drop;
+    }
+    // Every kept array deleted (releaseProcessCaches), and the bytes they held.
+    void clear() {
+        std::vector<std::vector<T>*> drop;
+        {
+            std::lock_guard<std::mutex> guard(lock_);
+            drop.swap(kept_);
+        }
+        for (std::vector<T>* v : drop) delete v;
+    }
+    std::size_t bytes() {
+        std::lock_guard<std::mutex> guard(lock_);
+        std::size_t total = 0;
+        for (const std::vector<T>* v : kept_) total += v->capacity() * sizeof(T);
+        return total;
     }
 
 private:
@@ -201,6 +217,27 @@ public:
         owned_.store(true, std::memory_order_release);
         from.data_ = fresh();
         from.owned_.store(true, std::memory_order_release);
+        return *data_;
+    }
+    // `tail` appended. An array of this one's own is grown in place (amortized, as insert); one
+    // shared with another set (a copy about to grow: Merge's) is not cloned and then grown (two
+    // copies and a reallocation) but made once at its new size (recycled when one is kept) and
+    // both parts copied into it in parallel. What was shared is not touched.
+    std::vector<T>& appended(const std::vector<T>& tail, std::mutex& lock) {
+        const std::size_t head = data_->size(), total = head + tail.size();
+        if (tail.empty() || owned_.load(std::memory_order_acquire) || data_.use_count() == 1 ||
+            total * sizeof(T) < (std::size_t{1} << 20)) {
+            std::vector<T>& own = mut(lock);
+            own.insert(own.end(), tail.begin(), tail.end());
+            return own;
+        }
+        const std::vector<T>& before = *data_;
+        std::vector<T>* array = detail::ArrayPool<T>::instance().take(total);
+        if (!array) array = new std::vector<T>(total);
+        if (head) detail::copyBytesParallel(array->data(), before.data(), head * sizeof(T));
+        detail::copyBytesParallel(array->data() + head, tail.data(), tail.size() * sizeof(T));
+        data_ = std::shared_ptr<std::vector<T>>(array, detail::ToArrayPool<T>{});
+        owned_.store(true, std::memory_order_release);
         return *data_;
     }
     // Replaces the contents with a fresh array (nothing shared is touched).
@@ -345,6 +382,13 @@ public:
     // again: an operator's last result the graph let go of (IncrementalInputs::sole).
     std::vector<Vec3f>& takePositionsFrom(StrandSet& from);
     std::vector<float>& takeWidthsFrom(StrandSet& from);
+    // `from`'s points as this set's, shared with it (no copy; copy on write as ever), with its
+    // extent: for a set holding the same strands as `from` (IDs, roots, offsets), whose points
+    // are `from`'s (StrandChanges::pointsKept).
+    void sharePositionsOf(const StrandSet& from);
+    // The widths for writing every point anew (as overwritePositions): not copied from a set
+    // sharing them, so each must be written.
+    std::vector<float>& overwriteWidths() { return widths_.overwrite(lock_); }
     std::vector<float>* copyStrandChannelFrom(const std::string& name, const StrandSet& from);
     std::vector<float>* copyPointChannelFrom(const std::string& name, const StrandSet& from);
     void removeStrandChannel(const std::string& name) { strandChannels_.erase(name); }
@@ -402,6 +446,9 @@ public:
         bool empty() const { return lo.x > hi.x; }
     };
     Extent extent() const;
+    // Each array it holds: its elements' address (one array shared between sets has the same in all
+    // of them) and its bytes. What a cache of sets holds counts each address once (Graph::setCacheLimit).
+    void forEachArray(const std::function<void(const void*, std::size_t)>& visit) const;
     // extent() of a set holding the strands `previous` holds, where only `changed` strands'
     // points differ (StrandChanges): the blocks of strands none of which changed take previous'
     // parts (when it worked its extent out), the others are measured again. The same values

@@ -64,8 +64,9 @@ class _GroomTab(QtWidgets.QWidget):
             result = fn(*args, **kwargs)
             self.status("")
             return result if result is not None else True
-        except (RuntimeError, ValueError, gm.GraphError) as e:
-            self.status(str(e).strip())
+        except (RuntimeError, ValueError, gm.GraphError, OSError, IOError) as e:
+            from groomlab.ui import messages
+            self.status(messages.plain(e))
             return None
 
     def need(self):
@@ -1403,7 +1404,7 @@ class PaintTab(_GroomTab):
 
 
 # ---------------------------------------------------------------------------
-# Correctives (Sculpt tab)
+# Correctives (the Correctives tab)
 
 BASE = "<base groom>"  # the base groom's row (never a layer name: those are identifiers)
 NODE = "node:"  # a Sculpt node's row: NODE + its name (a layer name has no colon)
@@ -1698,18 +1699,9 @@ class ReferenceTab(_GroomTab):
         self._thumbs = {}   # (path, mtime) -> QIcon
         self._rows = None   # what the list shows
         self._shown = None  # what the controls and pairs show
-        # In a scroll area: with Guides from Reference the tab is taller than a docked palette.
-        outer = QtWidgets.QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QtWidgets.QScrollArea()
-        scroll.setObjectName("referenceScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        inner = QtWidgets.QWidget()
-        scroll.setWidget(inner)
-        outer.addWidget(scroll)
-        layout = QtWidgets.QVBoxLayout(inner)
+        # No scroll area of its own: the Groom Tools' column scrolls (a second one inside it clipped
+        # Align by Points and scrolled apart from the rest).
+        layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(theme.px(6))
         layout.addWidget(_about("Each photo is a camera. <b>Look Through</b> it, line it up with the mesh (by eye, or "
@@ -1847,13 +1839,13 @@ class ReferenceTab(_GroomTab):
         self._build_generate(layout)
         self.refresh()
 
-    # -- Guides from Reference (experimental) -------------------------------------------
+    # -- Guides from Photos (experimental) -------------------------------------------
 
     def _build_generate(self, layout):
-        """The Guides from Reference section: the Reference window does the work (the photo and the
+        """The Guides from Photos section: the Reference window does the work (the photo and the
         mesh side by side: landmarks, flow arrows, the mask, Generate, the measured look); here, a
         way in and where things stand."""
-        heading = QtWidgets.QLabel("GUIDES FROM REFERENCE (EXPERIMENTAL)")
+        heading = QtWidgets.QLabel("GUIDES FROM PHOTOS (EXPERIMENTAL)")
         heading.setProperty("role", "subheading")
         heading.setObjectName("referenceGuidesHeading")
         layout.addWidget(heading)
@@ -1865,7 +1857,7 @@ class ReferenceTab(_GroomTab):
         cameras_menu = QtWidgets.QMenu(self)
         cameras_menu.aboutToShow.connect(lambda m=cameras_menu: self._fill_cameras_menu(m))
         bar, made = _action_bar(
-            [("Open Reference Window...", "The photo and the mesh side by side: landmarks line the photo's camera up, "
+            [("Open Guides from Photos...", "The photo and the mesh side by side: landmarks line the photo's camera up, "
                                           "flow arrows and mask touch-ups on the photo, Generate and the measured look",
               lambda: self.open_window()),
              ("Add Camera", "Add View from Camera: a camera that already shows a photo on an image plane becomes a "
@@ -1903,11 +1895,11 @@ class ReferenceTab(_GroomTab):
         if made:
             self.refresh()
             self.select(made)
-            self.status("%s is a reference now: line it up in the Reference window." % made.split("|")[-1])
+            self.status("%s is a reference now: line it up in Guides from Photos." % made.split("|")[-1])
         return made
 
     def show_generate(self):
-        """Where Guides from Reference stands: the photos, their landmarks and arrows, the next step."""
+        """Where Guides from Photos stands: the photos, their landmarks and arrows, the next step."""
         from groomlab import from_reference
         rows = []
         try:
@@ -1918,11 +1910,11 @@ class ReferenceTab(_GroomTab):
         except (RuntimeError, ValueError):
             pass
         if not rows:
-            step = "Open the Reference window, import a photo of the groom and line it up with a few landmarks."
+            step = "Open Guides from Photos, import a photo of the groom and line it up with a few landmarks."
         else:
             step = "; ".join("%s: %d landmark pair%s, %d flow arrow%s" % (
                 name.split("|")[-1], pairs, "" if pairs == 1 else "s", strokes, "" if strokes == 1 else "s")
-                for name, pairs, strokes in rows) + ". Generate in the Reference window."
+                for name, pairs, strokes in rows) + ". Generate in Guides from Photos."
         if self.groom and from_reference.measured_look(self.groom):
             step += " A measured look is ready to apply there."
         self.gen_hint.setText(step)
@@ -2049,7 +2041,7 @@ class ReferenceTab(_GroomTab):
         need = self.ref.MIN_PAIRS_FIXED if self.keep_focal.isChecked() else self.ref.MIN_PAIRS
         self.align_about.setText(
             "Click a feature on the photo (looking through it), then the same feature on the mesh in another view. "
-            "%d of %d pairs%s. Easier: the Reference window (below), the photo and the mesh side by side." % (
+            "%d of %d pairs%s. Easier: Guides from Photos (below), the photo and the mesh side by side." % (
                 complete, need, " (focal length kept)" if self.keep_focal.isChecked() else ", or 4 keeping the focal length"))
         self.result.setText("Last solve: %.2f px off on average, focal length %.1f mm." % (info["rms"], info["focal"])
                             if info["rms"] >= 0 else "")
@@ -2079,9 +2071,20 @@ class ReferenceTab(_GroomTab):
 
     # -- Following the viewport ------------------------------------------------------
 
-    def poll(self):
-        """The palette's tick: the list follows the scene and the viewport's camera."""
-        self.refresh()
+    def poll(self, full=False):
+        """The palette's tick: the list and the controls follow the scene and the viewport's camera,
+        rebuilt only when something changed (the photos, the camera looked through, the tool) or with
+        `full` (every few seconds, for edits made elsewhere: a photo's landmarks, its opacity)."""
+        from maya import cmds
+        try:
+            names = tuple(self.ref.list_references())
+            viewing = self.ref.current_reference()
+        except (RuntimeError, ValueError):
+            names, viewing = (), None
+        state = (names, viewing, cmds.currentCtx(), self.current())
+        if full or state != getattr(self, "_poll_state", None):
+            self._poll_state = state
+            self.refresh()
 
     def follow_view(self, camera=None):
         """The viewport looks through a reference: pick it here; the buttons show what is on."""

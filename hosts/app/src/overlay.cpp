@@ -3,16 +3,20 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileInfo>
+#include <QFontMetrics>
 #include <QGraphicsOpacityEffect>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QLocale>
 #include <QMenu>
 #include <QMimeData>
@@ -25,12 +29,16 @@
 #include <QVBoxLayout>
 #include <QVariantAnimation>
 
+#include <nlohmann/json.hpp>
+
 #include "groomlab/brush_catalog.h"
+#include "groomlab/graph_io.h"
 
 #include "cards_panel.h"
 #include "export_panel.h"
 #include "node_graph.h"
 #include "param_editors.h"
+#include "param_panel.h"
 #include "theme.h"
 #include "timeline.h"
 #include "viewport.h"
@@ -41,6 +49,26 @@ namespace {
 
 // The panels with a button in the right rail (Guides, Nodes, Maps, Correctives, Look, Display), in Panel's order.
 constexpr std::size_t kRailPanels = 6;
+
+// How the Look card shows a HairColor param: with the spec's decimals from the core's catalog
+// (displayUnit, as the Node panel), trailing zeros dropped (0.35, not 0.350). The card's sliders
+// hold the stored value (their inline edit types it), so a fraction is not shown as a percentage.
+std::function<QString(double)> hairColorFormat(const std::string& param) {
+    static const nlohmann::json hairColor = [] {
+        for (const nlohmann::json& spec : nlohmann::json::parse(operatorSpecsJson())) {
+            if (spec.value("type", std::string()) == "HairColor") return spec;
+        }
+        return nlohmann::json::object();
+    }();
+    DisplayUnit unit = displayUnit(std::string(), false, 2);
+    for (const nlohmann::json& p : hairColor.value("params", nlohmann::json::array())) {
+        if (p.value("name", std::string()) == param) {
+            const std::string kind = p.value("unit", std::string());
+            unit = displayUnit(kind == "fraction" ? std::string() : kind, false, p.value("decimals", -1));
+        }
+    }
+    return [unit](double v) { return trimmedNumber(v, unit.decimals) + unit.suffix; };
+}
 
 QString iconPath(const char* name) { return QStringLiteral(":/groomlab/icons/ui_%1.svg").arg(QLatin1String(name)); }
 
@@ -206,7 +234,14 @@ void BrushRail::setExpanded(bool expanded, bool animate) {
 
 void BrushRail::enterEvent(QEnterEvent* /*event*/) { setExpanded(true); }
 
-void BrushRail::leaveEvent(QEvent* /*event*/) { setExpanded(false); }
+void BrushRail::leaveEvent(QEvent* /*event*/) {
+    if (!pinned_) setExpanded(false);
+}
+
+void BrushRail::setPinned(bool pinned) {
+    pinned_ = pinned;
+    setExpanded(pinned || underMouse(), false);
+}
 
 void BrushRail::setActive(const std::string& mode, bool select) {
     toolMode_ = mode;
@@ -309,7 +344,13 @@ void PanelRail::enterEvent(QEnterEvent* /*event*/) { setExpanded(true); }
 
 void PanelRail::leaveEvent(QEvent* /*event*/) {
     hovered_ = -1;
-    setExpanded(false);
+    if (!pinned_) setExpanded(false);
+    else update();
+}
+
+void PanelRail::setPinned(bool pinned) {
+    pinned_ = pinned;
+    setExpanded(pinned || underMouse(), false);
 }
 
 int PanelRail::rowAt(const QPoint& at) const {
@@ -405,9 +446,9 @@ BrushBar::BrushBar(QWidget* parent) : GlassPanel(parent, 28.0) {
     radius_->setCaption(tr("Radius"));
     radius_->setRange(5.0, 400.0);
     radius_->setStep(1.0);
-    radius_->setFormat([](double v) { return QString::number(std::lround(v)); });
-    radius_->setValueWidth(30);
-    radius_->setToolTip(tr("The brush circle in pixels (B held + drag, or middle-drag, sets it too)"));
+    radius_->setFormat([](double v) { return QString::number(std::lround(v)) + QStringLiteral(" px"); });
+    radius_->setValueWidth(46);
+    radius_->setToolTip(withShortcut(tr("The brush circle in pixels"), "brush.radius"));
     layout->addWidget(radius_);
     strength_ = new ValueSlider(this);
     strength_->setCaption(tr("Strength"));
@@ -416,7 +457,7 @@ BrushBar::BrushBar(QWidget* parent) : GlassPanel(parent, 28.0) {
     strength_->setFill(theme::yellow());
     strength_->setFormat([](double v) { return QString::number(std::lround(v * 100.0)) + QStringLiteral("%"); });
     strength_->setValueWidth(40);
-    strength_->setToolTip(tr("Comb: the fraction of the drag; others: the effect per stamp (Shift+middle-drag sets it too)"));
+    strength_->setToolTip(withShortcut(tr("Comb: the fraction of the drag; others: the effect per stamp"), "brush.strength"));
     layout->addWidget(strength_);
 
     auto* chips = new QWidget(this);
@@ -432,7 +473,7 @@ BrushBar::BrushBar(QWidget* parent) : GlassPanel(parent, 28.0) {
     falloff_->setToolTip(tr("Falloff: soft, linear or hard (the brush's hardness)"));
     chipLayout->addWidget(falloff_);
     symmetry_ = new RoundButton(chips);
-    symmetry_->setText(tr("Sym X"));
+    symmetry_->setText(tr("Symmetry"));
     symmetry_->setDiameter(32);
     symmetry_->setRadius(10.0);
     symmetry_->setPadding(12);
@@ -441,7 +482,6 @@ BrushBar::BrushBar(QWidget* parent) : GlassPanel(parent, 28.0) {
     symmetry_->setFill(theme::chip(), theme::emeraldChip());
     symmetry_->setTextColor(theme::textMuted(), theme::emeraldSoft());
     symmetry_->setCheckable(true);
-    symmetry_->setToolTip(tr("Every stamp repeated mirrored across the YZ plane"));
     chipLayout->addWidget(symmetry_);
     pressure_ = new RoundButton(chips);
     pressure_->setDiameter(32);
@@ -449,7 +489,7 @@ BrushBar::BrushBar(QWidget* parent) : GlassPanel(parent, 28.0) {
     pressure_->setFixedWidth(36);
     pressure_->setIcon(iconPath("pen"), 17);
     pressure_->setIconColor(theme::textMuted(), theme::text());
-    pressure_->setFill(theme::chip(), QColor(255, 255, 255, 46));
+    pressure_->setFill(theme::chip(), theme::chipChecked());
     pressure_->setCheckable(true);
     pressure_->setToolTip(tr("Pen pressure scales the strength"));
     chipLayout->addWidget(pressure_);
@@ -484,7 +524,9 @@ BrushBar::BrushBar(QWidget* parent) : GlassPanel(parent, 28.0) {
     });
     connect(symmetry_, &QAbstractButton::toggled, this, [this](bool on) {
         if (updating_) return;
-        values_.mirrorAxis = on ? 0 : -1;
+        if (!on && values_.mirrorAxis >= 0) lastSymmetry_ = values_.mirrorAxis;
+        values_.mirrorAxis = on ? lastSymmetry_ : -1;
+        refresh();
         emit edited(false);
     });
     connect(pressure_, &QAbstractButton::toggled, this, [this](bool on) {
@@ -511,7 +553,15 @@ void BrushBar::refresh() {
     radius_->setValue(values_.radius);
     strength_->setValue(values_.strength);
     falloff_->setIcon(iconPath(values_.hardness < 0.25f ? "falloff_soft" : values_.hardness < 0.75f ? "falloff_linear" : "falloff_hard"), 22);
-    symmetry_->setChecked(values_.mirrorAxis == 0);
+    // On for any symmetry (a world axis or the scalp's topology); the tooltip names which.
+    static const char* const kSymmetryNames[] = {"World X", "World Y", "World Z", "Topology"};
+    const bool symmetric = values_.mirrorAxis >= 0 && values_.mirrorAxis <= 3;
+    if (symmetric) lastSymmetry_ = values_.mirrorAxis;
+    symmetry_->setChecked(symmetric);
+    symmetry_->setToolTip(withShortcut(symmetric ? tr("Symmetry: %1 (every stamp repeated mirrored; the Brush panel picks the plane)")
+                                                       .arg(tr(kSymmetryNames[values_.mirrorAxis]))
+                                                 : tr("Symmetry off: on, every stamp is repeated mirrored (%1)").arg(tr(kSymmetryNames[lastSymmetry_])),
+                                       "brush.symmetry"));
     pressure_->setChecked(values_.pressure);
     updating_ = false;
 }
@@ -665,9 +715,9 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
         s->setCaption(caption);
         s->setRange(min, max);
         s->setFill(fill);
-        s->setFormat([](double v) { return QString::number(v, 'f', 2); });
-        materialLayout->addWidget(s);
         const std::string name = param;
+        s->setFormat(hairColorFormat(name));
+        materialLayout->addWidget(s);
         auto apply = [this, name, member, materialSet, s](bool live) {
             if (updating_) return;
             if (groomColor_.node.empty()) {
@@ -720,8 +770,8 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
     groomMode_->setSegmentPadding(10);
     groomMode_->setFontSize(12);
     groomMode_->setStretch(true);
-    groomMode_->setToolTip(tr("Natural: the pigment (melanin, redness), as real hair. Picked color: the color you pick, "
-                              "rendered as picked (white hair: white)"));
+    groomMode_->setToolTip(tr("HairColor's mode. Natural (melanin): the pigment (melanin, redness), as real hair. "
+                              "Picked color (color): the color you pick, rendered as picked (white hair: white)"));
     materialLayout->addWidget(groomMode_);
     connect(groomMode_, &Segmented::changed, this, [this](int index) {
         if (updating_ || groomColor_.node.empty()) return;
@@ -751,7 +801,7 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
     moreButton_->setRadius(12.0);
     moreButton_->setFontSize(13);
     moreButton_->setFontWeight(600);
-    moreButton_->setFill(QColor(255, 255, 255, 15), QColor(255, 255, 255, 15));
+    moreButton_->setFill(theme::chipSoft(), theme::chipSoft());
     moreButton_->setTextColor(theme::textDim(), theme::textDim());
     moreButton_->setToolTip(tr("Every hair material parameter, and the surfaces (the scalp, the props, the eyes)"));
     materialLayout->addWidget(moreButton_);
@@ -935,7 +985,7 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
     all->setRadius(10.0);
     all->setFontSize(12);
     all->setFontWeight(600);
-    all->setFill(QColor(255, 255, 255, 15), QColor(255, 255, 255, 15));
+    all->setFill(theme::chipSoft(), theme::chipSoft());
     all->setTextColor(theme::textDim(), theme::textDim());
     moreLayout->addWidget(all);
     connect(all, &QAbstractButton::clicked, this, &LookCard::moreRequested);
@@ -1379,10 +1429,10 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
 
     // ---- Top-center: the modes.
     modes_ = new Segmented(this);
-    modes_->setItems({{tr("Groom"), theme::yellow(), theme::ink()},
-                      {tr("Look"), theme::red(), Qt::white},
-                      {tr("Cards"), theme::blue(), Qt::white},
-                      {tr("Export"), theme::emerald(), theme::ink()}});
+    modes_->setItems({{tr("Groom"), theme::yellow(), theme::ink(), tr("Groom (Ctrl+1): brushes, guides and the graph")},
+                      {tr("Look"), theme::red(), Qt::white, tr("Look (Ctrl+2): lighting, the hair material, the surfaces")},
+                      {tr("Cards"), theme::blue(), Qt::white, tr("Cards (Ctrl+3): hair cards for game engines and their bake")},
+                      {tr("Export"), theme::emerald(), theme::ink(), tr("Export (Ctrl+4): Alembic, USD, Unreal, Unity, cards")}});
     // A mode clicked while the graph is up closes the graph (the current mode too), then switches.
     connect(modes_, &Segmented::clicked, this, [this](int) {
         if (graphShown_) emit graphCloseRequested();
@@ -1430,30 +1480,30 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
         QString tip;
     };
     const Button buttons[] = {
-        {Panel::Guides, "groups", theme::emerald(), tr("Guide groups")},
-        {Panel::Nodes, "layers", theme::blueLight(), tr("Nodes and their parameters")},
+        {Panel::Guides, "groups", theme::emerald(), tr("Guide Groups: the groups of guides, shown, hidden, mirrored")},
+        {Panel::Nodes, "layers", theme::blueLight(), tr("Node List: the nodes and their settings")},
         {Panel::Maps, "pen", theme::yellow(), tr("Painted maps: make, paint and show them")},
         {Panel::Correctives, "wave", theme::red(), tr("Correctives: shot-sculpt layers over the animated groom")},
-        {Panel::Look, "sun", theme::yellow(), tr("Lighting, the hair material, the surfaces")},
+        {Panel::Look, "sun", theme::yellow(), tr("Look Settings: lighting, the hair material, the surfaces")},
         {Panel::Display, "eye", theme::purple(), tr("Display: density, point budget, strand colors, what is drawn")},
     };
     panels_.resize(static_cast<std::size_t>(Panel::Count), nullptr);
     panelTitles_.resize(panels_.size());
     panelDots_.resize(panels_.size());
     panelRail_ = new PanelRail(this);
-    const QString names[] = {tr("Guide groups"), tr("Nodes"), tr("Maps"), tr("Correctives"), tr("Look"), tr("Display")};
+    const QString names[] = {tr("Guide groups"), tr("Node List"), tr("Maps"), tr("Correctives"), tr("Look Settings"), tr("Display")};
     for (std::size_t i = 0; i < std::size(buttons); ++i) {
         const Button& b = buttons[i];
         RoundButton* button = glassButton(b.icon, b.tint, 48, 20, b.tip, this);
         button->setCheckable(true);
-        button->setFill(theme::glass(), QColor(255, 255, 255, 46));
+        button->setFill(theme::glass(), theme::chipChecked());
         button->setIconColor(b.tint, b.tint);
         const Panel panel = b.panel;
         connect(button, &QAbstractButton::clicked, this, [this, panel] { togglePanel(panel); });
         panelButtons_.push_back(button);
         panelRail_->addButton(button, names[i]);
     }
-    RoundButton* frame = glassButton("frame", theme::text(), 48, 19, tr("Frame all (F)"), this);
+    RoundButton* frame = glassButton("frame", theme::text(), 48, 19, withShortcut(tr("Frame the groom"), "view.frame"), this);
     connect(frame, &QAbstractButton::clicked, this, &OverlayHost::frameAllRequested);
     panelButtons_.push_back(frame);
     panelRail_->addButton(frame, tr("Frame all"));
@@ -1466,17 +1516,17 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
     graphPill_->setText(tr("Graph"));
     graphPill_->setIcon(iconPath("graph"), 18);
     graphPill_->setIconColor(theme::yellow(), theme::yellow());
-    graphPill_->setFill(theme::glass(), QColor(255, 255, 255, 46));
+    graphPill_->setFill(theme::glass(), theme::chipChecked());
     graphPill_->setDiameter(44);
     graphPill_->setPadding(18);
     graphPill_->setFontSize(14);
-    graphPill_->setToolTip(tr("The node graph over the viewport (Tab)"));
+    graphPill_->setToolTip(withShortcut(tr("Graph Editor"), "view.graph"));
     connect(graphPill_, &QAbstractButton::clicked, this, &OverlayHost::graphToggleRequested);
     // With the graph: the presets menu and a close button, beside the pill.
     presetsPill_ = new RoundButton(this);
     presetsPill_->setText(tr("Presets"));
     presetsPill_->setDimText(QStringLiteral("▾"));
-    presetsPill_->setFill(theme::glass(), QColor(255, 255, 255, 46));
+    presetsPill_->setFill(theme::glass(), theme::chipChecked());
     presetsPill_->setDiameter(44);
     presetsPill_->setPadding(18);
     presetsPill_->setFontSize(14);
@@ -1484,19 +1534,32 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
                                 "or copy and paste the graph as text"));
     connect(presetsPill_, &QAbstractButton::clicked, this, &OverlayHost::presetsRequested);
     presetsPill_->hide();
-    graphClose_ = glassButton("close", theme::text(), 44, 16, tr("Close the node graph (Esc)"), this);
+    graphClose_ = glassButton("close", theme::text(), 44, 16, withShortcut(tr("Close the Graph Editor"), "view.escape"), this);
     connect(graphClose_, &QAbstractButton::clicked, this, &OverlayHost::graphCloseRequested);
     graphClose_->hide();
     toast_ = new GlassPanel(this, 12.0);
     toast_->setColor(theme::glassSolid());
     toast_->setAttribute(Qt::WA_TransparentForMouseEvents, true);
     auto* toastLayout = new QHBoxLayout(toast_);
-    toastLayout->setContentsMargins(14, 8, 14, 8);
+    toastLayout->setContentsMargins(14, 8, 16, 8);
+    toastLayout->setSpacing(10);
+    toastDot_ = dotLabel(theme::red(), 8, toast_);
+    toastLayout->addWidget(toastDot_, 0, Qt::AlignTop);
     toastText_ = new QLabel(toast_);
     toastText_->setFont(theme::uiFont(13, 600));
-    toastText_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
-    toastLayout->addWidget(toastText_);
+    toastText_->setWordWrap(true);
+    toastText_->setTextFormat(Qt::PlainText);
+    toastLayout->addWidget(toastText_, 1);
     toast_->hide();
+    toastTimer_ = new QTimer(this);
+    toastTimer_->setSingleShot(true);
+    connect(toastTimer_, &QTimer::timeout, toast_, &QWidget::hide);
+
+    // The prompt (showPrompt): filled when asked, centered over everything.
+    prompt_ = new GlassPanel(this, 18.0);
+    prompt_->setColor(theme::glassSolid());
+    prompt_->setObjectName(QStringLiteral("prompt"));
+    prompt_->hide();
 
     // ---- The middle, with no groom open: what to do first, and the recent files.
     emptyCard_ = new GlassPanel(this, 24.0);
@@ -1506,12 +1569,16 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
         card->setSpacing(10);
         auto* title = new QLabel(tr("No groom open"), emptyCard_);
         title->setFont(theme::uiFont(18, 800));
-        title->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
+        title->setStyleSheet(QStringLiteral("color: %1; font-size: 18px; font-weight: 800;").arg(theme::text().name()));
         card->addWidget(title);
-        auto* hint = new QLabel(tr("Drop a .groom, .obj or .abc file on the window, or"), emptyCard_);
+        auto* hint = new QLabel(emptyCard_);
+        hint->setObjectName(QStringLiteral("emptyHint"));
+        hint->setWordWrap(true);
+        hint->setFixedWidth(320);
         hint->setFont(theme::uiFont(13, 500));
         hint->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
         card->addWidget(hint);
+        emptyHint_ = hint;
         auto action = [this, card](const QString& text, const QString& key, const QColor& fill, const QColor& ink, auto slot) {
             auto* b = new RoundButton(emptyCard_);
             b->setText(text);
@@ -1545,6 +1612,54 @@ OverlayHost::OverlayHost(Viewport* viewport, QWidget* parent) : QWidget(parent),
     emptyCard_->hide();
     setAcceptDrops(true);
 
+    // ---- After New Groom on Mesh: the next step, under the modes.
+    startHint_ = new GlassPanel(this, 18.0);
+    startHint_->setObjectName(QStringLiteral("startHint"));
+    startHint_->setColor(theme::glassSolid());
+    {
+        auto* box = new QVBoxLayout(startHint_);
+        box->setContentsMargins(20, 14, 20, 14);
+        box->setSpacing(8);
+        auto* title = new QLabel(tr("Next: give the scalp some guides"), startHint_);
+        title->setFont(theme::uiFont(15, 800));
+        title->setStyleSheet(QStringLiteral("color: %1; font-size: 15px; font-weight: 800;").arg(theme::text().name()));
+        box->addWidget(title);
+        auto* text = new QLabel(tr("Pick Place in the brush rail on the left, then click the scalp for a guide or drag to lay "
+                                   "down many; the strands grow from them. Or start from a whole look in Presets."),
+                                startHint_);
+        text->setWordWrap(true);
+        text->setFixedWidth(380);
+        text->setFont(theme::uiFont(13, 500));
+        text->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textSoft().name()));
+        box->addWidget(text);
+        auto* row = new QHBoxLayout();
+        row->setSpacing(8);
+        auto button = [this, row](const QString& label, bool primary, auto slot) {
+            auto* b = new RoundButton(startHint_);
+            b->setText(label);
+            b->setDiameter(32);
+            b->setRadius(11.0);
+            b->setPadding(14);
+            b->setFontSize(13);
+            b->setFontWeight(700);
+            const QColor fill = primary ? theme::actionFill(theme::emerald()) : theme::chip();
+            const QColor ink = primary ? theme::actionText(theme::ink()) : theme::text();
+            b->setFill(fill, fill);
+            b->setTextColor(ink, ink);
+            connect(b, &QAbstractButton::clicked, this, [this, slot] {
+                setStartHintShown(false);
+                slot();
+            });
+            row->addWidget(b);
+        };
+        button(tr("Pick Place"), true, [this] { emit placeRequested(); });
+        button(tr("Presets"), false, [this] { emit presetsRequested(); });
+        row->addStretch(1);
+        button(tr("Got it"), false, [] {});
+        box->addLayout(row);
+    }
+    startHint_->hide();
+
     // ---- Look, Cards, Export, the timeline.
     lookCard_ = new LookCard(this);
     cardsPanel_ = new CardsPanel(this);
@@ -1564,7 +1679,8 @@ void OverlayHost::setRecentFiles(const QStringList& paths) {
     recentCaption_->setVisible(!recentFiles_.isEmpty());
     for (const QString& path : recentFiles_) {
         auto* b = new RoundButton(recentCaption_->parentWidget());
-        b->setText(QFileInfo(path).fileName());
+        // (Long names elided in the middle: the card stays its width.)
+        b->setText(QFontMetrics(theme::uiFont(13, 600)).elidedText(QFileInfo(path).fileName(), Qt::ElideMiddle, 300));
         b->setDiameter(32);
         b->setRadius(10.0);
         b->setPadding(12);
@@ -1575,15 +1691,54 @@ void OverlayHost::setRecentFiles(const QStringList& paths) {
         b->setToolTip(path);
         connect(b, &QAbstractButton::clicked, this, [this, path] { emit fileDropped(path); });
         recentLayout_->addWidget(b);
+        b->show();  // (now: the layout would show it later, after the card took its size without it)
         recentButtons_.push_back(b);
     }
     refreshEmptyCard();
+}
+
+QString OverlayHost::emptyText() const {
+    switch (mode_) {
+        case Mode::Look: return tr("Look mode lights the groom and sets its hair material. Open a groom, or make one on a mesh:");
+        case Mode::Cards: return tr("Cards mode turns a groom into hair cards for game engines and bakes their textures. Open a groom first:");
+        case Mode::Export: return tr("Export mode writes the groom as Alembic, USD, Unreal or Unity strands, or cards. Open a groom first:");
+        case Mode::Groom: break;
+    }
+    return tr("Drop a .groom, .obj or .abc file on the window, or");
+}
+
+void OverlayHost::setStartHintShown(bool shown) {
+    if (!built_) return;
+    startHint_->setVisible(shown && groomOpen());
+    if (startHint_->isVisible()) {
+        placeStartHint();
+        startHint_->raise();
+    }
+}
+
+bool OverlayHost::startHintShown() const { return startHint_ && startHint_->isVisible(); }
+
+void OverlayHost::placeStartHint() {
+    startHint_->adjustSize();
+    startHint_->move((width() - startHint_->width()) / 2, 84);
 }
 
 void OverlayHost::refreshEmptyCard() {
     if (!built_) return;
     const bool open = groomOpen();
     emptyCard_->setVisible(!open);
+    emptyHint_->setText(emptyText());
+    if (!open) startHint_->hide();
+    else if (startHint_->isVisible()) placeStartHint();
+    // Nothing to render, switch or show in the graph yet: Render, the modes, Graph and Presets wait
+    // for a groom (the card's own buttons start one); the modes' panels and numbers too.
+    for (QWidget* w : {static_cast<QWidget*>(render_), static_cast<QWidget*>(graphPill_), static_cast<QWidget*>(presetsPill_)}) w->setEnabled(open);
+    modes_->setEnabled(open);  // (drawn faded while disabled)
+    stats_->setVisible(open && mode_ == Mode::Groom);
+    refine_->setVisible(open && mode_ == Mode::Look);
+    lookCard_->setVisible(open && mode_ == Mode::Look);
+    cardsPanel_->setVisible(open && mode_ == Mode::Cards);
+    exportPanel_->setVisible(open && mode_ == Mode::Export);
     // The brush rail and bar wait for a groom: dimmed and disabled until one is open.
     for (QWidget* w : {static_cast<QWidget*>(rail_), static_cast<QWidget*>(bar_)}) {
         w->setEnabled(open);
@@ -1596,6 +1751,11 @@ void OverlayHost::refreshEmptyCard() {
         effect->setEnabled(!open);
     }
     if (!open) {
+        // The recent files just added counted (their own layout first, then the card's): without
+        // it the card kept the height it had without them until a later relayout.
+        recentLayout_->activate();
+        recentCaption_->parentWidget()->updateGeometry();
+        if (emptyCard_->layout()) emptyCard_->layout()->activate();
         emptyCard_->adjustSize();
         emptyCard_->move((width() - emptyCard_->width()) / 2, (height() - emptyCard_->height()) / 2);
         emptyCard_->raise();
@@ -1630,6 +1790,15 @@ void OverlayHost::setRailsExpanded(bool brushRail, bool panelRail) {
     refreshToolLabel();
 }
 
+void OverlayHost::setRailLabels(bool shown) {
+    rail_->setPinned(shown);
+    panelRail_->setPinned(shown);
+    refreshToolLabel();
+    relayout();  // the stats and the pills keep clear of the names
+}
+
+bool OverlayHost::railLabels() const { return rail_->pinned(); }
+
 QRect OverlayHost::presetsPillRect() const { return presetsPill_->geometry(); }
 
 void OverlayHost::setTimelineShown(bool shown) {
@@ -1643,10 +1812,26 @@ void OverlayHost::setMenu(QMenu* menu) { menu_ = menu; }
 void OverlayHost::setFileName(const QString& name, bool dirty) {
     name_ = name;
     dirty_ = dirty;
+    refreshFileName();
+    refreshEmptyCard();
+    relayout();
+}
+
+void OverlayHost::refreshFileName() {
+    const QString& name = name_;
+    const bool dirty = dirty_;
     std::vector<ShadowText::Run> runs;
     ShadowText::Run run;
-    run.text = name.isEmpty() ? tr("No groom open") : name;
     run.font = theme::uiFont(17, 800);
+    run.text = name.isEmpty() ? tr("No groom open") : name;
+    // A long name is elided in the middle (the extension stays) to the room between the logo and
+    // the modes, so it never runs into them.
+    if (width() > 0 && modes_) {
+        const int logoRight = 24 + 36 + 12 + 30 + 12;
+        const int modesLeft = (width() - modes_->sizeHint().width()) / 2;
+        const int room = std::max(80, modesLeft - logoRight - 16 - (dirty ? 18 : 0));
+        run.text = QFontMetrics(run.font).elidedText(run.text, Qt::ElideMiddle, room);
+    }
     run.color = name.isEmpty() ? theme::textDim() : theme::text();
     runs.push_back(run);
     if (dirty) {
@@ -1657,8 +1842,6 @@ void OverlayHost::setFileName(const QString& name, bool dirty) {
         runs.push_back(dot);
     }
     fileName_->setRuns(runs);
-    refreshEmptyCard();
-    relayout();
 }
 
 void OverlayHost::setUndoRedo(bool canUndo, bool canRedo, const QString& undoText, const QString& redoText) {
@@ -1790,6 +1973,9 @@ void OverlayHost::setPanelContent(Panel panel, const QString& title, const QColo
         if (i < kRailPanels) panelButtons_[i]->setChecked(false);
     });
     panels_[index] = floating;
+    // The Node panel follows its rows: a node's form built again (another node, a note after an
+    // evaluation) asks for a new layout, and the panel takes the height it asks then.
+    if (panel == Panel::Node) floating->installEventFilter(this);
 }
 
 void OverlayHost::setPanelTitle(Panel panel, const QString& title, const QColor& dot) {
@@ -1850,11 +2036,22 @@ void OverlayHost::placePanel(Panel panel) {
         const int ph = std::min(620, h - top - bottom - 12);
         floating->setGeometry((w - 400) / 2, bar_->geometry().top() - 12 - ph, 400, ph);
     } else if (panel == Panel::Node) {
-        // At the right (left of the rail), under the look card when it is there: as tall as its
-        // content within the view (the content scrolls past that).
-        const int y = lookCard_->isVisible() ? lookCard_->geometry().bottom() + 12 : top;
-        const int ph = std::clamp(floating->sizeHint().height(), std::min(160, h - y - bottom), std::max(160, h - y - bottom));
-        floating->setGeometry(w - 24 - railRoom - 340, y, 340, ph);
+        // At the right (left of the rail; in Look mode left of the look card, which takes the
+        // right's height): as tall as its content within the view (the content scrolls past that).
+        // Down to the window's bottom margin when nothing at the bottom is under it (the brush
+        // bar, the timeline and the refining stats keep their place), so a long node's form
+        // scrolls only when the window is short.
+        const bool look = lookCard_->isVisible();
+        const int right = look ? lookCard_->geometry().left() - 12 : w - 24 - railRoom;
+        const int x = std::max(24, right - 340);
+        int bottomEdge = h - 24;
+        for (QWidget* below : {static_cast<QWidget*>(bar_), static_cast<QWidget*>(timeline_), static_cast<QWidget*>(refine_)}) {
+            const QRect r = below->geometry();
+            if (below->isVisible() && r.left() < x + 340 && r.right() > x) bottomEdge = std::min(bottomEdge, r.top() - 12);
+        }
+        const int room = std::max(bottomEdge - top, h - top - bottom);
+        const int ph = std::clamp(floating->sizeHint().height(), std::min(160, room), std::max(160, room));
+        floating->setGeometry(x, top, 340, ph);
     } else if (panel == Panel::Help) {
         // In the middle, as tall as its page within the view.
         const int pw = std::min(520, w - 48);
@@ -1870,18 +2067,168 @@ void OverlayHost::placePanel(Panel panel) {
     }
 }
 
-void OverlayHost::toast(const QString& text) {
+void OverlayHost::toast(const QString& text, bool error) {
+    toastError_ = error;
     toastText_->setText(text);
+    // An error tinted red with a red dot, its text bright; an info message plain glass, smaller
+    // and softer, with a green dot.
+    const QColor base = theme::glassSolid(), tint = theme::red();
+    constexpr float t = 0.3f;
+    const QColor errorFill = QColor::fromRgbF(base.redF() + (tint.redF() - base.redF()) * t, base.greenF() + (tint.greenF() - base.greenF()) * t,
+                                              base.blueF() + (tint.blueF() - base.blueF()) * t, std::max(base.alphaF(), 0.92f));
+    toast_->setColor(error ? errorFill : base);
+    toastText_->setFont(theme::uiFont(error ? 13 : 12, error ? 600 : 500));
+    toastText_->setStyleSheet(QStringLiteral("color: %1; font-size: %2px; font-weight: %3;")
+                                  .arg((error ? theme::text() : theme::textSoft()).name())
+                                  .arg(error ? 13 : 12)
+                                  .arg(error ? 600 : 500));
+    toastDot_->setStyleSheet(QStringLiteral("background: %1; border-radius: 4px;").arg((error ? theme::redLight() : theme::emerald()).name()));
+    placeToast();
+    toast_->show();
+    toast_->raise();
+    // One timer, restarted: a new toast gets its whole time (an error long enough to read it).
+    toastTimer_->start(toastMilliseconds());
+}
+
+int OverlayHost::toastMilliseconds() const {
+    const int length = static_cast<int>(toastText_->text().size());
+    return toastError_ ? std::clamp(2500 + 45 * length, 4500, 10000) : std::clamp(1500 + 30 * length, 2500, 4500);
+}
+
+bool OverlayHost::toastShown() const { return toast_->isVisible(); }
+
+QString OverlayHost::toastText() const { return toastText_->text(); }
+
+void OverlayHost::placeToast() {
+    // As wide as its text up to 560 px (within the view), wrapped past that.
+    const int maxWidth = std::max(160, std::min(560, width() - 48));
+    toastText_->ensurePolished();  // (its style sheet sets the font measured here)
+    const int chrome = 14 + 16 + 8 + 10;  // the margins, the dot, the gap
+    const int textWidth = std::clamp(QFontMetrics(toastText_->font()).horizontalAdvance(toastText_->text()) + 4, 40, maxWidth - chrome);
+    toastText_->setFixedWidth(textWidth);
     toast_->adjustSize();
-    toast_->resize(std::min(toast_->width(), width() - 48), toast_->height());
     // Above the brush bar (and the timeline when it is there).
     int above = mode_ == Mode::Groom && bar_->isVisible() ? bar_->geometry().top() - 12 : height() - 90;
     if (timelineShown_) above = std::min(above, timeline_->geometry().top() - 12);
-    const int y = above - toast_->height();
-    toast_->move((width() - toast_->width()) / 2, y);
-    toast_->show();
-    toast_->raise();
-    QTimer::singleShot(4500, toast_, [this] { toast_->hide(); });
+    toast_->move((width() - toast_->width()) / 2, above - toast_->height());
+}
+
+void OverlayHost::showPrompt(const QString& title, const QString& text, std::vector<PromptChoice> choices) {
+    // Filled again each time: its title, its sentence, its buttons with their actions.
+    delete prompt_->layout();
+    for (QWidget* child : prompt_->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly)) delete child;
+    auto* box = new QVBoxLayout(prompt_);
+    box->setContentsMargins(24, 20, 24, 20);
+    box->setSpacing(10);
+    auto* heading = new QLabel(title, prompt_);
+    heading->setObjectName(QStringLiteral("promptTitle"));
+    heading->setFont(theme::uiFont(16, 800));
+    heading->setStyleSheet(QStringLiteral("color: %1; font-size: 16px; font-weight: 800;").arg(theme::text().name()));
+    box->addWidget(heading);
+    auto* body = new QLabel(text, prompt_);
+    body->setObjectName(QStringLiteral("promptText"));
+    body->setTextFormat(Qt::PlainText);
+    body->setWordWrap(true);
+    body->setFont(theme::uiFont(13, 500));
+    body->setStyleSheet(QStringLiteral("color: %1; font-size: 13px; font-weight: 500;").arg(theme::textSoft().name()));
+    box->addWidget(body);
+    auto* row = new QHBoxLayout();
+    row->setContentsMargins(0, 8, 0, 0);
+    row->setSpacing(8);
+    row->addStretch(1);
+    RoundButton* focus = nullptr;
+    for (PromptChoice& choice : choices) {
+        auto* b = new RoundButton(prompt_);
+        b->setText(choice.label);
+        b->setDiameter(36);
+        b->setRadius(12.0);
+        b->setPadding(16);
+        b->setFontSize(13);
+        b->setFontWeight(700);
+        const QColor fill = choice.primary ? theme::actionFill(theme::yellow()) : theme::chip();
+        const QColor ink = choice.primary ? theme::actionText(theme::ink()) : theme::text();
+        b->setFill(fill, fill);
+        b->setTextColor(ink, ink);
+        b->setFocusPolicy(Qt::StrongFocus);
+        if (choice.primary) focus = b;
+        connect(b, &QAbstractButton::clicked, this, [this, action = std::move(choice.action)] {
+            hidePrompt();
+            if (action) action();
+        });
+        row->addWidget(b);
+    }
+    box->addLayout(row);
+    placePrompt();
+    prompt_->show();
+    prompt_->raise();
+    if (focus) focus->setFocus();
+}
+
+void OverlayHost::showTextPrompt(const QString& title, const QString& text, const QString& initial, const QString& accept,
+                                 std::function<void(const QString&)> done) {
+    auto* line = new QLineEdit(initial);
+    line->setObjectName(QStringLiteral("promptLine"));
+    line->setFont(theme::monoFont(13));
+    auto take = std::make_shared<std::function<void(const QString&)>>(std::move(done));
+    showPrompt(title, text,
+               {{tr("Cancel"), false, {}},
+                {accept, true, [line, take] {
+                     if (*take) (*take)(line->text().trimmed());
+                 }}});
+    // The line under the sentence, before the buttons; Enter accepts, Escape cancels.
+    auto* box = static_cast<QVBoxLayout*>(prompt_->layout());
+    line->setParent(prompt_);
+    box->insertWidget(2, line);
+    connect(line, &QLineEdit::returnPressed, this, [this, accept] { choosePrompt(accept); });
+    line->installEventFilter(this);
+    placePrompt();
+    line->setFocus();
+    line->selectAll();
+}
+
+QString OverlayHost::promptLine() const {
+    const auto* line = prompt_->findChild<QLineEdit*>(QStringLiteral("promptLine"));
+    return line && prompt_->isVisible() ? line->text() : QString();
+}
+
+void OverlayHost::setPromptLine(const QString& text) {
+    if (auto* line = prompt_->findChild<QLineEdit*>(QStringLiteral("promptLine"))) line->setText(text);
+}
+
+bool OverlayHost::eventFilter(QObject* watched, QEvent* event) {
+    if (event->type() == QEvent::LayoutRequest && watched == panels_[static_cast<std::size_t>(Panel::Node)]) {
+        QMetaObject::invokeMethod(this, [this] {
+            FloatingPanel* node = panels_[static_cast<std::size_t>(Panel::Node)];
+            if (node && node->isVisible()) placePanel(Panel::Node);
+        }, Qt::QueuedConnection);
+    }
+    if (event->type() == QEvent::KeyPress && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape &&
+        watched->objectName() == QStringLiteral("promptLine")) {
+        hidePrompt();
+        return true;
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
+void OverlayHost::hidePrompt() { prompt_->hide(); }
+
+bool OverlayHost::promptShown() const { return prompt_->isVisible(); }
+
+bool OverlayHost::choosePrompt(const QString& label) {
+    if (!prompt_->isVisible()) return false;
+    for (RoundButton* b : prompt_->findChildren<RoundButton*>()) {
+        if (b->text() == label) {
+            b->click();
+            return true;
+        }
+    }
+    return false;
+}
+
+void OverlayHost::placePrompt() {
+    prompt_->setFixedWidth(std::max(200, std::min(440, width() - 48)));
+    prompt_->adjustSize();
+    prompt_->move((width() - prompt_->width()) / 2, std::max(72, (height() - prompt_->height()) / 2 - 40));
 }
 
 void OverlayHost::setMode(Mode mode) {
@@ -1905,13 +2252,16 @@ void OverlayHost::setMode(Mode mode) {
         showPanel(Panel::Brush, false);
     }
     // The graph fits beside the look card, not under it.
-    graph_->setFitMargins(QMargins(60, 90, look ? 24 + 272 + 24 : 60, 100));
+    graph_->setFitMargins(QMargins(graph_->fitMargins().left(), 90, look ? 24 + 272 + 24 : 60, 100));
     relayout();
 }
 
 void OverlayHost::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
+    if (built_) refreshFileName();
     relayout();
+    if (built_ && prompt_->isVisible()) placePrompt();
+    if (built_ && toast_->isVisible()) placeToast();
 }
 
 void OverlayHost::relayout() {
@@ -1938,6 +2288,7 @@ void OverlayHost::relayout() {
     request.graphShown = graphShown_;
     request.graphToolsWidth = presetsPill_->sizeHint().width() + (graphShown_ ? 8 + 44 : 0);
     request.barShown = mode_ == Mode::Groom;
+    request.railLabelsWidth = rail_->pinned() ? rail_->expandedWidth() : 0;
     request.refine = refine_->sizeHint();
     const theme::OverlayLayout layout = theme::layoutOverlay(request);
 
@@ -1958,6 +2309,10 @@ void OverlayHost::relayout() {
 
     rail_->setButtonSize(layout.railButton, layout.railGap, layout.railDivider);
     rail_->move(layout.rail.topLeft());
+    // The graph fits right of the rail's names while they show (Rail Labels).
+    QMargins fit = graph_->fitMargins();
+    fit.setLeft(rail_->pinned() ? layout.rail.left() + rail_->expandedWidth() + 16 : 60);
+    graph_->setFitMargins(fit);
     refreshToolLabel();
     panelRail_->place(layout.panelRail.right() + 1, layout.panelRail.top());
     bar_->setGeometry(layout.bar);

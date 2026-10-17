@@ -8,6 +8,7 @@
 
 #include "groomlab/scalp_maps.h"
 #include "groomlab/subdivision.h"
+#include "groomlab/process_caches.h"
 
 namespace groomlab {
 
@@ -233,6 +234,13 @@ std::map<std::string, MeshPtr> scalpPieces(const MeshPtr& whole) {
     constexpr std::size_t kKept = 3;  // the scalp, its rest pose (following), a rest pose's (pinned instances)
     static std::mutex mutex;
     static std::list<Kept> kept;
+    static const bool registered = (registerProcessCache("scalp pieces", [] {
+                                        std::list<Kept> drop;
+                                        const std::lock_guard<std::mutex> lock(mutex);
+                                        drop.swap(kept);
+                                    }),
+                                    true);
+    (void)registered;
     {
         const std::lock_guard<std::mutex> lock(mutex);
         for (auto it = kept.begin(); it != kept.end(); ++it) {

@@ -613,6 +613,17 @@ class BrushTest(SceneMixin, unittest.TestCase):
 
 
 class GraphTest(SceneMixin, unittest.TestCase):
+    def test_strand_resolution_is_the_branchs(self):
+        # The default graph's Resample, after the Scatter, sets its resolution; the graph editors' note says so.
+        doc = gl.load_graph_json(gl.default_graph_json())
+        scatter = [n for n in doc.names if doc.op(n).type_name == "Scatter"][0]
+        resample = [n for n in doc.names if doc.op(n).type_name == "Resample"][0]
+        segments, source = doc.strand_resolution(scatter)
+        self.assertEqual(source, resample)
+        self.assertGreater(segments, 0)
+        self.assertIn("set by Resample '%s'" % resample, doc.strand_resolution_note(scatter))
+        self.assertIn("Scatter '%s'" % scatter, doc.strand_resolution_note(resample))
+
     def test_default_graph_and_specs(self):
         text = gl.default_graph_json()
         doc = json.loads(text)
@@ -640,8 +651,11 @@ class GraphTest(SceneMixin, unittest.TestCase):
         # Gravity, Displace and Mirror (shape nodes) and the new params, every spec described.
         specs = {s["type"]: s for s in gl.operator_specs()}
         for t in ("Gravity", "Displace", "Mirror"):
-            self.assertEqual(specs[t]["category"], "shape")
+            self.assertEqual(specs[t]["role"], "shape")  # the operator's own; the menu's is the catalog's
             self.assertEqual(specs[t]["output"]["type"], "Curves")  # strands or guides, as fed
+        self.assertEqual(specs["Gravity"]["category"], "deform")
+        self.assertEqual(specs["Mirror"]["category"], "shape")
+        self.assertEqual(specs["Reference"]["label"], "Linked Groom")
         for t, spec in specs.items():
             self.assertTrue(spec["description"], t)
         params = {t: {p["name"]: p for p in s["params"]} for t, s in specs.items()}

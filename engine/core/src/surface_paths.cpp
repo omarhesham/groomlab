@@ -14,6 +14,7 @@
 #include "groomlab/frames.h"
 #include "groomlab/parallel.h"
 #include "groomlab/random.h"
+#include "groomlab/process_caches.h"
 
 namespace groomlab {
 
@@ -330,6 +331,13 @@ std::shared_ptr<const SurfaceGraph> sharedSurfaceGraph(const ScalpMesh& scalp) {
     static std::mutex mutex;
     static std::list<Entry> kept;  // most recently used first
     constexpr std::size_t kKept = 4;
+    static const bool registered = (registerProcessCache("surface graphs", [] {
+                                        std::list<Entry> drop;
+                                        const std::lock_guard<std::mutex> lock(mutex);
+                                        drop.swap(kept);
+                                    }),
+                                    true);
+    (void)registered;
     const std::uint64_t surface = scalp.restSurfaceHash();
     {
         const std::lock_guard<std::mutex> lock(mutex);

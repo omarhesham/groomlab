@@ -464,7 +464,7 @@ void ExportPanel::setBusy(bool busy) {
 
 void ExportPanel::setStatus(const QString& text, bool error) {
     status_->setText(text);
-    status_->setStyleSheet(error ? QStringLiteral("color: #FF7A7C;") : QStringLiteral("color: %1;").arg(theme::textDim().name()));
+    status_->setStyleSheet(QStringLiteral("color: %1;").arg((error ? theme::errorText() : theme::textDim()).name()));
 }
 
 void ExportPanel::refresh() {

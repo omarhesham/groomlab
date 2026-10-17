@@ -236,6 +236,20 @@ bool ScalarField::readsPositions() const {
     return map_.source == MapRef::Source::Expression && expression_.readsPositions();
 }
 
+bool ScalarField::readsAttributes() const {
+    if (!hasMap_) return false;
+    if (field_) {
+        const ScalarField* inner = field_->scalarField();
+        return !inner || inner->readsAttributes();  // a field of another kind: it may
+    }
+    switch (map_.source) {
+        case MapRef::Source::Texture:
+        case MapRef::Source::ColorSet: return false;
+        case MapRef::Source::Expression: return !expression_.channels().empty();
+        default: return true;  // an attribute map; a guide map's strand channel
+    }
+}
+
 bool ScalarField::perPoint() const {
     if (!hasMap_) return false;
     if (field_) return field_->perPoint();

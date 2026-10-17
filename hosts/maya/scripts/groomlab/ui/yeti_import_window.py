@@ -59,20 +59,21 @@ class YetiImportWindow(QtWidgets.QWidget):
         self.roots.setPlainText(_remembered_roots())
         outer.addWidget(self.roots)
 
+        # The one button rule: secondary actions, the primary one on the right, Close last.
         buttons = QtWidgets.QHBoxLayout()
+        buttons.addStretch(1)
+        refresh = QtWidgets.QPushButton("Refresh")
+        refresh.setToolTip("List the scene's Yeti graphs again")
+        refresh.clicked.connect(self.refresh)
+        buttons.addWidget(refresh)
         self.import_button = QtWidgets.QPushButton("Import")
         self.import_button.setProperty("role", "primary")
         self.import_button.setToolTip("Import the checked Yeti graphs as GroomLab grooms")
         self.import_button.clicked.connect(self.import_checked)
         buttons.addWidget(self.import_button)
-        refresh = QtWidgets.QPushButton("Refresh")
-        refresh.setToolTip("List the scene's Yeti graphs again")
-        refresh.clicked.connect(self.refresh)
-        buttons.addWidget(refresh)
         close = QtWidgets.QPushButton("Close")
         close.clicked.connect(self.close)
         buttons.addWidget(close)
-        buttons.addStretch(1)
         outer.addLayout(buttons)
 
         self.report = QtWidgets.QPlainTextEdit()
@@ -103,7 +104,8 @@ class YetiImportWindow(QtWidgets.QWidget):
             found = groomlab.yeti_nodes()
             problem = "" if found else "The scene has no Yeti nodes (pgYetiMaya)."
         except Exception as e:
-            found, problem = [], "The scene's Yeti nodes can't be listed: %s" % e
+            from groomlab.ui import messages
+            found, problem = [], "The scene's Yeti nodes can't be listed: %s" % messages.plain(e)
         for d in found:
             grooms = ", ".join(g.split("|")[-1] for g in d["grooms"]) or "no groom"
             scalp = (d["scalp"] or "?").split("|")[-1]
@@ -137,10 +139,22 @@ class YetiImportWindow(QtWidgets.QWidget):
         cmds.optionVar(stringValue=(ROOTS_VAR, roots))
         self.import_button.setEnabled(False)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+
+        def progress(i, count, name):
+            # Which one is being read, in the window and Maya's status line (the window repaints).
+            text = "Importing %s %d of %d: %s..." % ("graph", i + 1, count, name)
+            self.report.setPlainText(text)
+            self.report.repaint()
+            QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+            print("GroomLab: " + text)
+
         try:
-            report = groomlab.import_yeti(nodes=names, roots=roots)
-        except Exception as e:
-            self.report.setPlainText("The import failed: %s" % e)
+            report = groomlab.import_yeti(nodes=names, roots=roots, progress=progress)
+        except Exception as e:  # noqa: BLE001 (said in the window, the traceback in the Script Editor)
+            from groomlab.ui import messages
+            import traceback
+            traceback.print_exc()
+            self.report.setPlainText("The import failed: %s" % messages.plain(e))
             return None
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()

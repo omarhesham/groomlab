@@ -14,7 +14,7 @@
 //            [--cards-resolution N] [--bake-cards dir [--bake-name name]]
 //            [--screenshot out.png [--size WxH] [--frames N]] [--benchmark N] [--live-benchmark N [--live-mode orbit|hover|stroke|param]]
 //            [--ui-screenshot out.png [--ui-mode groom|look|cards|export] [--ui-graph] [--ui-panel name]
-//                                     [--ui-hover rail|panels|all] [--ui-preset name]]
+//                                     [--ui-hover rail|panels|all|labels] [--ui-preset name] [--ui-search text]]
 //
 // --screenshot renders the scene without a window (an offscreen device) and quits: a check
 // without anyone at the window; --frames N accumulates N refined frames first. --benchmark N
@@ -25,7 +25,8 @@
 // --export-* and --bake-cards write the groom (at --time, or over --export-frames) without a
 // window and quit unless a screenshot is asked for too: the scripted exports the tests run.
 // --ui-screenshot shows the window at --size, in a UI mode, with the node graph or a panel
-// open (--ui-node selects a node in the graph, --ui-look-tab picks the look card's tab), grabs
+// open (--ui-node selects a node in the graph, --ui-look-tab picks the look card's tab, --ui-search
+// opens the graph's Add Node search with the text typed; --ui-panel shortcuts: the shortcut sheet), grabs
 // it with its floating UI after the first frame and quits (no dialog ever opens). --display
 // sets the display options (strand colors, the map on the scalp, the guides, the card view).
 // --theme picks this run's theme (View > Theme saves one for every start; scripted runs use the
@@ -139,7 +140,8 @@ int main(int argc, char** argv) {
     int benchmarkOrbit = 0;
     bool drawDabs = false;
     int gpuPreview = -1;  // -1: the preference
-    QString uiScreenshot, uiMode, uiPanel, uiLookTab, uiNode, uiHover, uiPreset, uiMenu, uiPaintParam, themeName;
+    QString uiScreenshot, uiMode, uiPanel, uiLookTab, uiNode, uiHover, uiPreset, uiMenu, uiPrompt, uiPaintParam, uiSearch, themeName;
+    bool hasUiSearch = false;
     bool uiGraph = false;
     QStringList sets, displays;
     // Props (meshes beside the groom) with the preset each is shaded by, and eyes.
@@ -307,6 +309,11 @@ int main(int argc, char** argv) {
             uiPreset = QString::fromLocal8Bit(argv[++i]);
         } else if (std::strcmp(arg, "--ui-menu") == 0 && hasValue) {
             uiMenu = QString::fromLocal8Bit(argv[++i]);
+        } else if (std::strcmp(arg, "--ui-prompt") == 0 && hasValue) {
+            uiPrompt = QString::fromLocal8Bit(argv[++i]);
+        } else if (std::strcmp(arg, "--ui-search") == 0 && hasValue) {
+            uiSearch = QString::fromLocal8Bit(argv[++i]);
+            hasUiSearch = true;
         } else if (std::strcmp(arg, "--ui-paint-param") == 0 && hasValue) {
             uiPaintParam = QString::fromLocal8Bit(argv[++i]);
         } else if (std::strcmp(arg, "--theme") == 0 && hasValue) {
@@ -376,7 +383,8 @@ int main(int argc, char** argv) {
                         "                [--display name=value]... [--theme charcoal|playful|polar|studio]\n"
                         "                [--ui-screenshot out.png [--ui-mode groom|look|cards|export] [--ui-graph] [--ui-panel name]\n"
                         "                                         [--ui-look-tab material|lighting|render[,more]] [--ui-node name]\n"
-                        "                                         [--ui-hover rail|panels|all] [--ui-preset name] [--ui-menu presets]\n"
+                        "                                         [--ui-hover rail|panels|all|labels] [--ui-preset name] [--ui-menu presets]\n"
+                        "                                         [--ui-prompt unsaved|reload|info|error]\n"
                         "                                         [--ui-paint-param node.param]]\n"
                         "surface presets: clay, scalp, plastic, metal, skin, skin light, skin dark, eye brown, eye blue, eye green\n"
                         "display options: colorMode (solid, colorset, attribute, random, clump, density), colorSource, colorMin,\n"
@@ -437,6 +445,9 @@ int main(int argc, char** argv) {
     // A window someone sits at: its default size within the screen (a 1366x768 laptop, or 1920x1080
     // with 125-150% text, is smaller than it), centered.
     if (!headless && uiScreenshot.isEmpty() && liveBenchmark <= 0) groomlab::app::fitWindowToScreen(&window, window.size());
+    // Someone sits at it: unsaved edits are asked about before they go, info messages toast.
+    window.setInteractive(!scripted && liveBenchmark <= 0);
+    if (!scripted && liveBenchmark <= 0) window.firstRunRailLabels();
     if (!headless) window.show();
     if (!uiMode.isEmpty() && !window.setUiMode(uiMode) && scripted) return 1;
     if (!path.isEmpty() && !window.openPath(path) && headless) return 1;
@@ -552,7 +563,9 @@ int main(int argc, char** argv) {
         if (!uiPanel.isEmpty() && !window.showUiPanel(uiPanel)) return 1;
         if (!uiHover.isEmpty() && !window.setUiHover(uiHover)) return 1;
         if (!uiMenu.isEmpty() && !window.setUiMenu(uiMenu)) return 1;
+        if (!uiPrompt.isEmpty() && !window.setUiPrompt(uiPrompt)) return 1;
         if (!uiLookTab.isEmpty() && !window.setUiLookTab(uiLookTab)) return 1;
+        if (hasUiSearch && !window.setUiSearch(uiSearch)) return 1;
         int code = 1;
         window.captureUi([&](const QImage& image) {
             if (image.isNull()) {

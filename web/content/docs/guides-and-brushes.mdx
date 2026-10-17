@@ -18,6 +18,21 @@ basic workflow:
   caption="Guides are colored by level: primaries blue, children emerald, then yellow, red, white."
 />
 
+<Callout title="In the app and in Blender">
+  **App:** the brushes are on the left rail in **Groom** mode, with Select and Freeze last. The
+  brush bar at the bottom and the **Brush** panel hold the settings; **Guide groups** on the right
+  rail holds the groups, **Generate children**, mirror and sync. The keys below work without
+  installing anything: **B** + drag, **M** + drag, **Alt+Shift+X**, **Page Up** / **Page Down**,
+  **S** for Select, **Esc** to leave the brush, **Alt** + drag to move the camera with any brush.
+  There is no marking menu. See [GroomLab app](/docs/app#groom-with-brushes).
+
+  **Blender:** press **N** in the 3D viewport and open the **GroomLab** tab: **Groom Tools** has the
+  **Tools** and **Paint** tabs, with **Guide groups & edits** folded below. **B** + drag, **M** +
+  drag, **Page Up** / **Page Down** and **S** work as here; **Y** opens a pie menu in place of the
+  marking menu, and **Esc** or right-click cancels a stroke. Symmetry is in the tool's card. See
+  [Blender](/docs/blender#groom-tools).
+</Callout>
+
 ## The hierarchy
 
 Primary guides are the top level. **Child guides** are generated inside each parent's **tube**
@@ -171,12 +186,17 @@ back without Ctrl.
   density map removes hair).
 - **Alt+Shift+X** turns symmetry on or off, after **GroomLab > Install GroomLab Hotkeys**.
 - **Shift+drag** smooths, with any brush.
-- **B** + drag sets the radius, **M** + drag the strength (or middle-drag and Shift+middle-drag).
+- **B** + drag sets the radius, **M** + drag the strength, after **GroomLab > Install GroomLab
+  Hotkeys** (or middle-drag and Shift+middle-drag).
 - **Shift+click** a guide to solo it; **Shift+click** off a guide to unfreeze all (see
   [Freeze and solo](#freeze-and-solo)).
 - **Page Up** and **Page Down** step the active group up or down a level.
 - **Y** + click opens a marking menu, after **GroomLab > Install GroomLab Hotkeys**.
 - Tablet **pen pressure** scales the strength.
+
+**GroomLab > Help > Keyboard Shortcuts** lists every key (the same table as the app and Blender) and
+marks the ones that need the GroomLab hotkey set. **Install GroomLab Hotkeys** shows which keys it
+changed and the hotkey set it switched from.
 
 <Example name="groom-tools.png" alt="The Groom Tools panel" caption="The Groom Tools: brushes as icons, settings below." />
 
@@ -190,7 +210,7 @@ The active brush's settings are shown below the tabs; each brush shows only the 
 | **Falloff** | How the effect fades toward the brush edge: 0 hard, 1 soft from the center out. |
 | **Falloff curve** | The falloff as a curve, center (left) to edge (right). Right-click it for presets. |
 | **Root to tip** | How much of the strength each part of a guide receives, root (left) to tip (right); for example, style the ends and leave the roots. |
-| **Symmetry** | Mirrors every stroke: across world **X**, or with **Topology** across the scalp's own left and right (for a head that is rotated, animated or not quite symmetric). |
+| **Symmetry** | In the **Group** row at the top of the Groom Tools, with or without a brush. Mirrors every stroke: across world **X**, or with **Topology** across the scalp's own left and right (for a head that is rotated, animated or not quite symmetric). |
 | **Selected only** | Brush only the selected guides, weighted by the soft selection. |
 | **Keep off scalp** | Guides never go below the scalp; points pushed under it slide along it. |
 | **Front facing only** | A stroke does not reach what is on the far side of the head from the camera: guides, parts, flow arrows or paint. |
@@ -204,7 +224,7 @@ Selection** and **Clear Selection**.
 
 ## Symmetry
 
-- **Symmetric grooming:** turn on **Symmetry** (first in the brush settings, or **Alt+Shift+X**) and
+- **Symmetric grooming:** turn on **Symmetry** (in the Groom Tools' **Group** row, or **Alt+Shift+X**) and
   every stroke is mirrored. While it is on, a red line on the scalp shows the mirror plane (with
   **Topology**, the scalp's middle loop) for as long as a brush is on, the cursor anywhere.
 - **Mirroring one side:** groom one side, then use **Edit Guides > Mirror Group...** or **Sync

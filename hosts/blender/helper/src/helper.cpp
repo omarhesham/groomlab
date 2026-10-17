@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "groomlab/attributes.h"
+#include "groomlab/shortcuts.h"
 #include "groomlab/color_patterns.h"
 #include "groomlab/export_view.h"
 #include "groomlab/follow_scalp.h"
@@ -1416,6 +1417,14 @@ json Helper::run(const std::string& cmd, const json& args) {
 
     // ---- The graph ----
     if (cmd == "operator_specs") return {{"operators", operatorSpecs()}};
+    if (cmd == "shortcuts") {
+        // Every host's keys in one table (shortcuts.h): the rows Blender's tool has.
+        json rows = json::array();
+        for (const Shortcut& r : shortcutsFor(kShortcutBlender)) {
+            rows.push_back({{"id", r.id}, {"context", r.context}, {"keys", r.keys}, {"action", r.action}});
+        }
+        return {{"shortcuts", rows}};
+    }
     if (cmd == "default_graph") return {{"graph", json::parse(defaultGraphJson())}};
     if (cmd == "get_graph") {
         Session& s = session(args);

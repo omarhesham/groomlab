@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""GroomLab > Check for Updates...: this install's version, the newest release and its notes, Update
+"""GroomLab > Help > Check for Updates...: this install's version, the newest release and its notes, Update
 Now (download, verify, unpack beside this install; Maya's restart finishes it) or Later, and the
 startup check's preference (Qt: groomlab.ui.qt). A plain window over Maya, never modal: a scripted session that
 opens it goes on. The work is groomlab.updates'.
@@ -53,7 +53,12 @@ class UpdatesWindow(QtWidgets.QWidget):
         self.progress.setVisible(False)
         outer.addWidget(self.progress)
 
+        # The one button rule: secondary actions, the primary one on the right, Close (Later) last.
         buttons = QtWidgets.QHBoxLayout()
+        buttons.addStretch(1)
+        self.check_button = QtWidgets.QPushButton("Check Again")
+        self.check_button.clicked.connect(self.check)
+        buttons.addWidget(self.check_button)
         self.update_button = QtWidgets.QPushButton("Update Now")
         self.update_button.setProperty("role", "primary")
         self.update_button.setToolTip("Download the new version, check it and install it beside this one; restart Maya "
@@ -61,13 +66,9 @@ class UpdatesWindow(QtWidgets.QWidget):
         self.update_button.clicked.connect(self.update_now)
         buttons.addWidget(self.update_button)
         self.later_button = QtWidgets.QPushButton("Later")
-        self.later_button.setToolTip("Close; GroomLab > Check for Updates... any time")
+        self.later_button.setToolTip("Close; GroomLab > Help > Check for Updates... any time")
         self.later_button.clicked.connect(self.close)
         buttons.addWidget(self.later_button)
-        self.check_button = QtWidgets.QPushButton("Check Again")
-        self.check_button.clicked.connect(self.check)
-        buttons.addWidget(self.check_button)
-        buttons.addStretch(1)
         outer.addLayout(buttons)
 
         self.startup = QtWidgets.QCheckBox("Check for updates when Maya starts (once a day)")
@@ -255,7 +256,7 @@ class UpdateNote(QtWidgets.QLabel):
             self.setText("")
             self.setVisible(False)
             return
-        self.setText('GroomLab %s is available \u2014 <a href="updates">GroomLab &gt; Check for Updates</a>'
+        self.setText('GroomLab %s is available \u2014 <a href="updates">GroomLab &gt; Help &gt; Check for Updates</a>'
                      % result["latest"])
-        self.setToolTip("A new GroomLab version is out: see what's new and update in GroomLab > Check for Updates...")
+        self.setToolTip("A new GroomLab version is out: see what's new and update in GroomLab > Help > Check for Updates...")
         self.setVisible(True)

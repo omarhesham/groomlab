@@ -15,14 +15,25 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QAction>
+#include <QApplication>
+#include <QCloseEvent>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QImage>
 #include <QLabel>
+#include <QSet>
+#include <QLineEdit>
+#include <QMenu>
 #include <QLayout>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QPointF>
 #include <QMouseEvent>
+#include <QKeyEvent>
+#include <QTimer>
 #include <QSize>
 
 #include <gtest/gtest.h>
@@ -45,6 +56,7 @@
 #include "groomlab/transfer.h"
 #include "groomlab/graph.h"
 #include "groomlab/parts.h"
+#include "groomlab/shortcuts.h"
 #include "groomlab/texture.h"
 #include "guides_panel.h"
 #include "graph_presets.h"
@@ -58,6 +70,11 @@
 #include "theme.h"
 #include "timeline.h"
 #include "viewport.h"
+
+// What QTest's key clicks call first (QtGui): the shortcut map tried for a key press at `o` as a
+// window system's would be; true when a shortcut took it.
+Q_GUI_EXPORT bool qt_sendShortcutOverrideEvent(QObject* o, ulong timestamp, int k, Qt::KeyboardModifiers mods,
+                                               const QString& text = QString(), bool autorep = false, ushort count = 1);
 
 namespace groomlab::app {
 namespace {
@@ -111,6 +128,52 @@ void dragPhoto(PhotoView* view, const std::vector<QPointF>& photoPoints, Qt::Key
 
 
 }  // namespace
+
+TEST(AppPanels, NodePanelAsTallAsItsRowsShowsThemWithoutScrolling) {
+    // The Node panel takes the height its hint asks (within the view): at that height no node's
+    // form scrolls, a compound's (a few rows) as a long node's.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    std::string compound;
+    ASSERT_EQ(doc->collapseNodes({nodeOfType(*doc, "Noise")}, &compound), "");
+    for (const std::string& node : {compound, nodeOfType(*doc, "Interpolate"), nodeOfType(*doc, "Width"), nodeOfType(*doc, "Length")}) {
+        ParamPanel panel;
+        panel.setDocument(doc.get());
+        panel.showNode(node);
+        panel.resize(340, 2000);
+        panel.show();
+        QApplication::processEvents();
+        panel.resize(340, panel.sizeHint().height());
+        QApplication::processEvents();
+        QScrollArea* scroll = panel.findChild<QScrollArea*>();
+        ASSERT_TRUE(scroll);
+        EXPECT_EQ(scroll->verticalScrollBar()->maximum(), 0) << node << ": the form scrolls at the panel's own height " << panel.sizeHint().height();
+    }
+    // In the window, the floating Node panel as tall as that, down to the window's bottom margin
+    // when the brush bar is not under it; a node picked after another takes its own height.
+    MainWindow window;
+    window.resize(1600, 1000);
+    window.show();
+    OverlayHost* host = window.overlay();
+    host->resize(1600, 1000);
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    window.setGraphShown(true);
+    host->graph()->setSelection({nodeOfType(*window.document(), "Noise")});
+    host->graph()->groupSelected();
+    for (const char* type : {"Compound", "Interpolate", "Width", "HairColor", "Width", "Compound"}) {
+        ASSERT_TRUE(window.selectUiNode(QString::fromStdString(nodeOfType(*window.document(), type))));
+        QApplication::processEvents();
+        FloatingPanel* floating = host->panel(OverlayHost::Panel::Node);
+        ASSERT_TRUE(floating && floating->isVisible());
+        QScrollArea* scroll = floating->findChild<QScrollArea*>();
+        ASSERT_TRUE(scroll);
+        if (floating->sizeHint().height() <= floating->height()) {
+            EXPECT_EQ(scroll->verticalScrollBar()->maximum(), 0) << type << ": the form scrolls at the height it asked";
+        } else {
+            EXPECT_GE(floating->geometry().bottom(), 1000 - 100 - 24) << type << ": a long form not given the room below";
+        }
+    }
+}
 
 TEST(AppPanels, ParamEditorsRoundTripEveryKindWithoutLosingMaps) {
     auto doc = GroomDocument::open(kSampleGroom);
@@ -874,13 +937,19 @@ TEST(AppPanels, TimelineSimControlsShowTheCacheAndAskForRuns) {
     EXPECT_EQ(simulate, 1);
     EXPECT_EQ(bake, 1);
     EXPECT_EQ(clear, 1);
-    // Busy: the buttons wait for the run.
+    // Busy: Simulate is the run's Cancel, the others wait for the run.
+    int cancel = 0;
+    QObject::connect(&timeline, &Timeline::simulationCancelRequested, [&] { ++cancel; });
     timeline.setSimulationBusy(true);
-    EXPECT_FALSE(timeline.simulateButton()->isEnabled());
+    EXPECT_TRUE(timeline.simulateButton()->isEnabled());
+    EXPECT_EQ(timeline.simulateButton()->text(), QStringLiteral("Cancel"));
+    EXPECT_FALSE(timeline.bakeButton()->isEnabled());
     timeline.simulateButton()->click();
     EXPECT_EQ(simulate, 1);
+    EXPECT_EQ(cancel, 1);
     timeline.setSimulationBusy(false);
     EXPECT_TRUE(timeline.bakeButton()->isEnabled());
+    EXPECT_EQ(timeline.simulateButton()->text(), QStringLiteral("Simulate"));
 
     // The strip under the scrubber's track: frames 1-24 cached (emerald), 25-48 baked (blue).
     timeline.setSimulatedFrames({{1, 24}}, {{25, 48}});
@@ -995,6 +1064,140 @@ TEST(AppPanels, ViewThemeSavesTheChoiceForTheNextStart) {
     EXPECT_FALSE(theme::glassy());
     EXPECT_TRUE(window.overlay()->styleSheet().contains(theme::uiColor("panel").name()));
     EXPECT_EQ(window.overlay()->panel(OverlayHost::Panel::Help)->color(), theme::uiColor("panel"));
+}
+
+TEST(AppPanels, UnsavedChangesAreAskedAboutAndMessagesToast) {
+    // A window someone sits at asks before an edit is lost (closing, Quit, Open, a dropped or
+    // recent file, Reload) in a glass prompt over the viewport, never a dialog; scripted runs and
+    // tests (not interactive) never ask. Info messages toast briefly, errors tinted and longer, one
+    // timer for all of them.
+    const std::string copy = sampleCopy("groomlab_app_unsaved");
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    OverlayHost* host = window.overlay();
+    host->resize(1280, 720);
+    // Without a groom the groom-only actions are off; Reload needs a file too.
+    const auto action = [&](const char* name) { return window.findChild<QAction*>(QLatin1String(name)); };
+    for (const char* name : {"transfer", "guidesFromReference", "deleteGuides", "reload", "saveAs"}) {
+        ASSERT_NE(action(name), nullptr) << name;
+        EXPECT_FALSE(action(name)->isEnabled()) << name << " without a groom";
+    }
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(copy)));
+    for (const char* name : {"transfer", "guidesFromReference", "deleteGuides", "reload", "saveAs"}) {
+        EXPECT_TRUE(action(name)->isEnabled()) << name << " with a groom";
+    }
+    const std::string hairColor = nodeOfType(*window.document(), "HairColor");
+    ASSERT_TRUE(window.setParamText(QString::fromStdString(hairColor) + QStringLiteral(".melanin=0.25")));
+    ASSERT_TRUE(window.document()->dirty());
+    // Not interactive: nothing asks, the reload goes ahead.
+    EXPECT_FALSE(window.interactive());
+    int proceeded = 0;
+    window.confirmDiscard(QStringLiteral("testing"), [&] { ++proceeded; });
+    EXPECT_EQ(proceeded, 1);
+    EXPECT_FALSE(host->promptShown());
+    // Interactive: the prompt, its choices; Cancel keeps everything, Discard goes ahead.
+    window.setInteractive(true);
+    window.confirmDiscard(QStringLiteral("testing"), [&] { ++proceeded; });
+    EXPECT_TRUE(host->promptShown());
+    EXPECT_EQ(proceeded, 1);
+    QStringList labels;
+    for (const RoundButton* b : host->prompt()->findChildren<RoundButton*>()) labels << b->text();
+    EXPECT_EQ(labels, (QStringList{QStringLiteral("Save"), QStringLiteral("Discard"), QStringLiteral("Cancel")}));
+    EXPECT_TRUE(host->choosePrompt(QStringLiteral("Cancel")));
+    EXPECT_FALSE(host->promptShown());
+    EXPECT_EQ(proceeded, 1);
+    window.confirmDiscard(QStringLiteral("testing"), [&] { ++proceeded; });
+    EXPECT_TRUE(host->choosePrompt(QStringLiteral("Discard")));
+    EXPECT_EQ(proceeded, 2);
+    // Closing the window: refused and asked; Cancel keeps it open.
+    {
+        QCloseEvent close;
+        QCoreApplication::sendEvent(&window, &close);
+        EXPECT_FALSE(close.isAccepted()) << "a dirty groom closed without asking";
+        EXPECT_TRUE(host->promptShown());
+        EXPECT_TRUE(host->choosePrompt(QStringLiteral("Cancel")));
+        EXPECT_TRUE(window.isVisible());
+    }
+    // Save writes the file and then goes ahead.
+    window.confirmDiscard(QStringLiteral("testing"), [&] { ++proceeded; });
+    EXPECT_TRUE(host->choosePrompt(QStringLiteral("Save")));
+    EXPECT_FALSE(window.document()->dirty());
+    EXPECT_EQ(proceeded, 3);
+    EXPECT_TRUE(host->toastShown()) << "Saved shows as an info toast";
+    EXPECT_FALSE(host->toastIsError());
+    EXPECT_TRUE(host->toastText().startsWith(QStringLiteral("Saved")));
+    // Reload asks when there is something to lose, and reads the file again on Reload.
+    ASSERT_TRUE(window.setParamText(QString::fromStdString(hairColor) + QStringLiteral(".melanin=0.75")));
+    window.askReload();
+    EXPECT_TRUE(host->promptShown());
+    EXPECT_TRUE(host->choosePrompt(QStringLiteral("Reload")));
+    EXPECT_FALSE(window.document()->dirty());
+    EXPECT_NEAR(window.document()->param(hairColor, "melanin").get<double>(), 0.25, 1e-6) << "the saved value read back";
+    // Toasts: an error is tinted and stays longer than an info message; a long one wraps within the view.
+    host->toast(QStringLiteral("Saved sample.groom"), false);
+    const int infoMs = host->toastMilliseconds();
+    host->toast(QString(QStringLiteral("Cannot export: the folder is read-only. ")).repeated(6), true);
+    EXPECT_TRUE(host->toastIsError());
+    EXPECT_GT(host->toastMilliseconds(), infoMs);
+    QWidget* toast = nullptr;
+    for (QLabel* label : host->findChildren<QLabel*>()) {
+        if (label->text() == host->toastText()) toast = label->parentWidget();
+    }
+    ASSERT_NE(toast, nullptr);
+    EXPECT_LE(toast->width(), 560 + 1);
+    EXPECT_GT(toast->height(), 40) << "a long message wraps";
+    window.setInteractive(false);
+}
+
+TEST(AppPanels, MenusWearTheThemeAndKeysWorkWhereTheySay) {
+    // The menu is the overlay's (its style sheet themes it); Ctrl+Shift+S saves as (spelled out:
+    // QKeySequence::SaveAs has no Windows binding); Tab opens the graph from the viewport but a
+    // text field keeps it (the next field); the modes have Ctrl+1..4 in their tooltips.
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    window.activateWindow();
+    QCoreApplication::processEvents();
+    OverlayHost* host = window.overlay();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    QAction* saveAs = window.findChild<QAction*>(QStringLiteral("saveAs"));
+    ASSERT_NE(saveAs, nullptr);
+    EXPECT_EQ(saveAs->shortcut(), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    QMenu* menu = nullptr;
+    for (QMenu* m : host->findChildren<QMenu*>()) {
+        for (const QAction* a : m->actions()) {
+            if (a == saveAs) menu = m;
+        }
+    }
+    ASSERT_NE(menu, nullptr) << "the File menu under the overlay (its style sheet)";
+    int sameKey = 0;
+    for (const QAction* a : window.findChildren<QAction*>()) sameKey += a->shortcut() == saveAs->shortcut() ? 1 : 0;
+    EXPECT_EQ(sameKey, 1) << "an ambiguous Ctrl+Shift+S does nothing";
+    for (int i = 0; i < 4; ++i) {
+        EXPECT_TRUE(host->modes()->items()[static_cast<std::size_t>(i)].tip.contains(QStringLiteral("Ctrl+%1").arg(i + 1)));
+    }
+    if (QApplication::activeWindow() != &window) GTEST_SKIP() << "the offscreen platform did not activate the window: shortcuts not tried";
+    // Ctrl+Shift+S reaches Save As (its slot swapped for a count: no file dialog in a test).
+    QObject::disconnect(saveAs, &QAction::triggered, nullptr, nullptr);
+    int savedAs = 0;
+    QObject::connect(saveAs, &QAction::triggered, [&] { ++savedAs; });
+    host->viewport()->setFocus();
+    EXPECT_TRUE(qt_sendShortcutOverrideEvent(host->viewport(), 0, Qt::Key_S, Qt::ControlModifier | Qt::ShiftModifier));
+    EXPECT_EQ(savedAs, 1);
+    // Tab in a text field: no shortcut, the graph stays closed.
+    auto* field = new QLineEdit(host);
+    field->show();
+    field->setFocus();
+    EXPECT_FALSE(qt_sendShortcutOverrideEvent(field, 0, Qt::Key_Tab, Qt::NoModifier)) << "Tab taken from the text field";
+    EXPECT_FALSE(window.graphShown());
+    // Tab over the viewport: the graph.
+    host->viewport()->setFocus();
+    EXPECT_TRUE(qt_sendShortcutOverrideEvent(host->viewport(), 0, Qt::Key_Tab, Qt::NoModifier));
+    EXPECT_TRUE(window.graphShown());
+    // Ctrl+3: Cards mode.
+    EXPECT_TRUE(qt_sendShortcutOverrideEvent(host->viewport(), 0, Qt::Key_3, Qt::ControlModifier));
+    EXPECT_EQ(host->mode(), OverlayHost::Mode::Cards);
 }
 
 TEST(AppPanels, FreeForAnyUseNoWatermarkAndSupportGroomLab) {
@@ -1694,15 +1897,15 @@ TEST(AppPanels, BrushPanelCurvesSymmetryAndAWidthMap) {
     session.settings().setFalloffProfile("");
     panel.refresh();
     EXPECT_FALSE(falloff->isChecked()) << "the panel follows the settings";
-    // Symmetry: none, x, y, z or topology.
+    // Symmetry by the glossary's names: Off, World X, Y, Z or Topology.
     auto* symmetry = panel.findChild<QComboBox*>(QStringLiteral("symmetry"));
     ASSERT_TRUE(symmetry);
-    symmetry->setCurrentIndex(symmetry->findText(QStringLiteral("topology")));
+    symmetry->setCurrentIndex(symmetry->findText(QStringLiteral("Topology")));
     EXPECT_TRUE(session.settings().brush.mirrorTopology);
     EXPECT_EQ(session.settings().symmetryName(), "topology");
     session.settings().setSymmetry("x");
     panel.refresh();
-    EXPECT_EQ(symmetry->currentText(), QStringLiteral("x"));
+    EXPECT_EQ(symmetry->currentText(), QStringLiteral("World X"));
     session.settings().setSymmetry("none");
     panel.refresh();
 
@@ -2379,6 +2582,805 @@ TEST(AppPanels, ReferenceWindowLinesAPhotoUpAndGrowsGuides) {
     ASSERT_TRUE(back->photo()->camera);
     EXPECT_NEAR(back->photo()->camera->focalPx, rw->photo()->camera->focalPx, 1e-6 * rw->photo()->camera->focalPx);
     EXPECT_TRUE(back->generateButton()->isEnabled());
+}
+
+
+// ---- UX batch 2: jobs, keys, the shortcut sheet, the Add Node search, numbers ----------------------
+
+namespace {
+
+// A click posted to a widget (delivered by the event loop, as a click on the screen would be).
+void postClick(QWidget* w) {
+    const QPointF at(w->width() / 2.0, w->height() / 2.0);
+    QCoreApplication::postEvent(w, new QMouseEvent(QEvent::MouseButtonPress, at, w->mapToGlobal(at), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier));
+    QCoreApplication::postEvent(w, new QMouseEvent(QEvent::MouseButtonRelease, at, w->mapToGlobal(at), Qt::LeftButton, Qt::NoButton, Qt::NoModifier));
+}
+
+void key(QWidget* w, QEvent::Type type, int k, Qt::KeyboardModifiers mods = Qt::NoModifier) {
+    QKeyEvent event(type, k, mods);
+    QCoreApplication::sendEvent(w, &event);
+}
+
+}  // namespace
+
+TEST(AppPanels, AJobsCancelTakesAClickWhileTheRestOfTheWindowWaits) {
+    // An export runs on the UI thread with the events in between: its Cancel takes a click, every
+    // other click waits (the Graph pill does nothing), another export is refused, and closing the
+    // window stops the job first, then closes it.
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    OverlayHost* host = window.overlay();
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "groomlab_app_job_cancel";
+    std::filesystem::create_directories(dir);
+    ExportOptions options;
+    options.density = 0.05f;
+    options.frames = FrameRange{1.0, 40.0, 1.0};
+    bool sawBusy = false, refused = false;
+    QString job;
+    QTimer::singleShot(0, &window, [&] {
+        sawBusy = window.busy();
+        job = window.busyJob();
+        refused = !window.exportTo(QStringLiteral("alembic"), QString::fromStdString((dir / "again.abc").u8string()), options);
+        postClick(host->graphPill());                     // held back
+        postClick(host->exportPanel()->exportButton());   // Cancel
+    });
+    EXPECT_FALSE(window.exportTo(QStringLiteral("alembic"), QString::fromStdString((dir / "cancelled.abc").u8string()), options))
+        << "the export ran to its end: Cancel's click never landed";
+    EXPECT_TRUE(sawBusy);
+    EXPECT_EQ(job, QStringLiteral("export"));
+    EXPECT_TRUE(refused) << "a second export started inside the first";
+    EXPECT_TRUE(window.lastReport().startsWith(QStringLiteral("Stopped after"))) << window.lastReport().toStdString();
+    EXPECT_FALSE(window.busy());
+    EXPECT_FALSE(window.graphShown()) << "a click on the Graph pill got through during the export";
+    EXPECT_EQ(QApplication::overrideCursor(), nullptr) << "the busy cursor stayed";
+    // Undo and Open are refused while it runs (a script or a timer calling them).
+    bool undoRefused = false;
+    QTimer::singleShot(0, &window, [&] {
+        undoRefused = !window.openGroom(QString::fromStdString(kSampleGroom));
+        // Closing the window: refused while the job runs, the job stopped, the window closed after.
+        QCloseEvent close;
+        QCoreApplication::sendEvent(&window, &close);
+        EXPECT_FALSE(close.isAccepted());
+        EXPECT_TRUE(window.isVisible());
+    });
+    EXPECT_FALSE(window.exportTo(QStringLiteral("alembic"), QString::fromStdString((dir / "closed.abc").u8string()), options));
+    EXPECT_TRUE(undoRefused);
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(window.isVisible()) << "the window closed once the job stopped";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+TEST(AppPanels, GraphFFramesTheSelectedNodeAndAFramesAll) {
+    // Maya's Graph Editor keys: F frames the selected node (none: the whole graph), A the whole graph;
+    // the menus show the same keys.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    NodeGraphView view;
+    view.resize(1200, 800);
+    view.setDocument(doc.get());
+    key(&view, QEvent::KeyPress, Qt::Key_A);
+    const qreal fitScale = view.viewScale();
+    const QPointF fitPan = view.viewPan();
+    const std::string scatter = nodeOfType(*doc, "Scatter");
+    view.selectNode(scatter);
+    key(&view, QEvent::KeyPress, Qt::Key_F);
+    EXPECT_TRUE(view.viewScale() != fitScale || view.viewPan() != fitPan) << "F framed nothing new";
+    // The node's center sits at the middle of the view (inside the chrome's margins: 60 90 60 100).
+    float x = 0.0f, y = 0.0f;
+    if (doc->nodePosition(scatter, &x, &y)) {
+        const QPointF center = (QPointF(x, y) + QPointF(80.0, 30.0)) * view.viewScale() + view.viewPan();
+        EXPECT_NEAR(center.x(), 60 + (1200 - 120) / 2.0, 40.0);
+    }
+    key(&view, QEvent::KeyPress, Qt::Key_A);
+    EXPECT_DOUBLE_EQ(view.viewScale(), fitScale);
+    EXPECT_EQ(view.viewPan(), fitPan);
+    view.selectNode({});
+    key(&view, QEvent::KeyPress, Qt::Key_F);
+    EXPECT_DOUBLE_EQ(view.viewScale(), fitScale) << "F with nothing selected frames the whole graph";
+    EXPECT_EQ(view.viewPan(), fitPan);
+}
+
+TEST(AppPanels, MDragSetsTheStrengthAndAltShiftXTogglesSymmetry) {
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    OverlayHost* host = window.overlay();
+    Viewport* viewport = host->viewport();
+    viewport->resize(1000, 600);
+    // M held: brush mode, a left drag to the right raises the strength (0.01 a pixel), the radius kept.
+    BrushToolSettings& s = window.brush().settings();
+    s.brush.strength = 0.5f;
+    const float radius = s.screenRadius;
+    key(viewport, QEvent::KeyPress, Qt::Key_M);
+    EXPECT_EQ(viewport->toolMode(), Viewport::ToolMode::Brush);
+    mouse(viewport, QEvent::MouseButtonPress, QPoint(400, 300));
+    {
+        QMouseEvent move(QEvent::MouseMove, QPointF(430, 300), viewport->mapToGlobal(QPointF(430, 300)), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(viewport, &move);
+    }
+    mouse(viewport, QEvent::MouseButtonRelease, QPoint(430, 300));
+    key(viewport, QEvent::KeyRelease, Qt::Key_M);
+    EXPECT_NEAR(s.brush.strength, 0.8f, 1e-4f);
+    EXPECT_FLOAT_EQ(s.screenRadius, radius);
+    // Alt+Shift+X (Tools > Symmetry On/Off): World X on, off, and the mode it had back on.
+    QAction* symmetry = window.findChild<QAction*>(QStringLiteral("symmetry"));
+    ASSERT_NE(symmetry, nullptr);
+    EXPECT_EQ(symmetry->shortcut(), QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_X));
+    s.setSymmetry("none");
+    symmetry->trigger();
+    EXPECT_EQ(s.symmetryName(), "x");
+    EXPECT_EQ(window.lastReport(), QStringLiteral("Symmetry: World X on"));
+    symmetry->trigger();
+    EXPECT_EQ(s.symmetryName(), "none");
+    EXPECT_EQ(window.lastReport(), QStringLiteral("Symmetry: World X off"));
+    // The chip shows symmetry on for any mode (World Y, Topology), not only World X.
+    RoundButton* chip = nullptr;
+    for (RoundButton* b : host->bar()->findChildren<RoundButton*>()) {
+        if (b->text() == QStringLiteral("Symmetry")) chip = b;
+    }
+    ASSERT_NE(chip, nullptr) << "the brush bar's Symmetry chip";
+    ASSERT_TRUE(window.setBrushText(QStringLiteral("symmetry=y")));
+    symmetry->trigger();
+    symmetry->trigger();  // off and on again: World Y comes back
+    EXPECT_EQ(s.symmetryName(), "y");
+    EXPECT_TRUE(chip->isChecked()) << "World Y on, the chip off";
+    EXPECT_TRUE(chip->toolTip().contains(QStringLiteral("World Y")));
+    s.setSymmetry("topology");
+    symmetry->trigger();
+    symmetry->trigger();
+    EXPECT_TRUE(chip->isChecked());
+    EXPECT_EQ(window.lastReport(), QStringLiteral("Symmetry: Topology on"));
+    // The chip turns it off and back on as it was.
+    chip->click();
+    EXPECT_EQ(s.symmetryName(), "none");
+    chip->click();
+    EXPECT_EQ(s.symmetryName(), "topology");
+}
+
+TEST(AppPanels, TheShortcutSheetListsTheSharedTable) {
+    // Help > Keyboard Shortcuts is built from the one table (groomlab/shortcuts.h): every app row,
+    // a heading per context; tooltips take their keys from it too.
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    ASSERT_TRUE(window.showHelp(QStringLiteral("shortcuts")));
+    QString sheet;
+    for (const QLabel* label : window.overlay()->panel(OverlayHost::Panel::Help)->findChildren<QLabel*>()) {
+        if (label->text().contains(QStringLiteral("<table"))) sheet = label->text();
+    }
+    ASSERT_FALSE(sheet.isEmpty());
+    const std::vector<Shortcut> rows = shortcutsFor(kShortcutApp);
+    ASSERT_GT(rows.size(), 20u);
+    for (const Shortcut& s : rows) {
+        EXPECT_TRUE(sheet.contains(QString::fromStdString(s.keys).toHtmlEscaped())) << s.id;
+        EXPECT_TRUE(sheet.contains(QString::fromStdString(s.action).toHtmlEscaped())) << s.id;
+    }
+    for (const char* context : {"File", "Modes", "Brush", "Viewport", "Graph"}) {
+        EXPECT_TRUE(sheet.contains(QStringLiteral("<b>%1</b>").arg(QLatin1String(context)))) << context;
+    }
+    for (const Shortcut& s : shortcutsFor(kShortcutMaya)) {
+        if (!(s.hosts & kShortcutApp) && s.id == "graph.view") EXPECT_FALSE(sheet.contains(QString::fromStdString(s.action)));
+    }
+    EXPECT_EQ(withShortcut(QStringLiteral("Frame the groom"), "view.frame"), QStringLiteral("Frame the groom (F)"));
+    EXPECT_EQ(withShortcut(QStringLiteral("Nothing"), "no.such.row"), QStringLiteral("Nothing"));
+    EXPECT_TRUE(window.overlay()->graphPill()->toolTip().startsWith(QStringLiteral("Graph Editor (Tab)")));
+    EXPECT_TRUE(window.showUiPanel(QStringLiteral("shortcuts")));
+}
+
+TEST(AppPanels, AddNodeSearchRanksAsMayaAndShowsLabels) {
+    // The Add Node search ranks as Maya's: a search word ("symmetry") finds Mirror first, a param's
+    // name (density) ranks Scatter before a node that only mentions it, the label finds a type
+    // ("linked": Reference, shown as Linked Groom); empty: every type but the hidden ones, by menu.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    const std::vector<std::string> symmetry = nodeSearchResults(*doc, QStringLiteral("symmetry"));
+    ASSERT_FALSE(symmetry.empty());
+    EXPECT_EQ(symmetry.front(), "Mirror");
+    const std::vector<std::string> density = nodeSearchResults(*doc, QStringLiteral("density"));
+    const auto at = [](const std::vector<std::string>& v, const char* type) { return std::find(v.begin(), v.end(), type) - v.begin(); };
+    ASSERT_LT(at(density, "Scatter"), static_cast<long long>(density.size()));
+    ASSERT_LT(at(density, "Expression"), static_cast<long long>(density.size()));
+    EXPECT_LT(at(density, "Scatter"), at(density, "Expression"));
+    const std::vector<std::string> linked = nodeSearchResults(*doc, QStringLiteral("linked"));
+    ASSERT_FALSE(linked.empty());
+    EXPECT_EQ(linked.front(), "Reference");
+    EXPECT_TRUE(nodeSearchResults(*doc, QStringLiteral("zzqqxx")).empty());
+    // A category's title is a search word too: "deform" finds the first Deform node, "collision" a Collide one.
+    const std::vector<std::string> deform = nodeSearchResults(*doc, QStringLiteral("deform"));
+    ASSERT_FALSE(deform.empty());
+    EXPECT_EQ(doc->spec(deform.front())->value("category", std::string()), "deform") << deform.front();
+    const std::vector<std::string> collision = nodeSearchResults(*doc, QStringLiteral("collision"));
+    ASSERT_FALSE(collision.empty());
+    EXPECT_EQ(doc->spec(collision.front())->value("category", std::string()), "collide") << collision.front();
+    const std::vector<std::string> all = nodeSearchResults(*doc, {});
+    EXPECT_EQ(at(all, "Compound"), static_cast<long long>(all.size())) << "a hidden type in the search";
+    EXPECT_EQ(at(all, "Input"), static_cast<long long>(all.size()));
+    int lastCategory = -1;
+    for (const std::string& type : all) {
+        const int category = doc->spec(type)->value("categoryOrder", 0);
+        EXPECT_GE(category, lastCategory) << type;
+        lastCategory = category;
+    }
+    // The view: "<label>    <category>", the description under the list.
+    NodeGraphView view;
+    view.resize(1000, 700);
+    view.setDocument(doc.get());
+    view.setSearchText(QStringLiteral("linked"));
+    ASSERT_TRUE(view.searchOpen());
+    ASSERT_FALSE(view.searchRows().isEmpty());
+    EXPECT_TRUE(view.searchRows().front().startsWith(QStringLiteral("Linked Groom"))) << view.searchRows().front().toStdString();
+    EXPECT_EQ(view.searchTypes().front(), "Reference");
+    EXPECT_EQ(view.searchAbout(), QString::fromStdString(doc->spec("Reference")->value("description", std::string())));
+    view.setSearchText(QStringLiteral("zzqqxx"));
+    EXPECT_TRUE(view.searchRows().isEmpty());
+    EXPECT_TRUE(view.searchAbout().startsWith(QStringLiteral("No node matches")));
+    // The new categories have colors of their own.
+    EXPECT_NE(theme::nodeCategoryColor("deform"), theme::nodeCategoryColor("shape"));
+    EXPECT_NE(theme::nodeCategoryColor("collide"), theme::nodeCategoryColor("utility"));
+    EXPECT_TRUE(theme::nodeCategoryColor("games").isValid());
+    // A Reference node shows its label in the Node List and the Node Settings title.
+    std::string reference;
+    ASSERT_EQ(doc->addNode("Reference", 0.0f, 0.0f, &reference), "");
+    ParamPanel panel;
+    panel.setDocument(doc.get());
+    panel.showNode(reference);
+    bool titled = false;
+    for (const QLabel* label : panel.findChildren<QLabel*>()) titled = titled || label->text() == QString::fromStdString(reference + "  (Linked Groom)");
+    EXPECT_TRUE(titled);
+}
+
+TEST(AppPanels, NumbersShowTheSpecsDecimalsWithoutTrailingZeros) {
+    EXPECT_EQ(trimmedNumber(0.35, 3), QStringLiteral("0.35"));
+    EXPECT_EQ(trimmedNumber(1.0, 3), QStringLiteral("1"));
+    EXPECT_EQ(trimmedNumber(12.5, 1), QStringLiteral("12.5"));
+    EXPECT_EQ(trimmedNumber(-0.0001, 2), QStringLiteral("0"));
+    EXPECT_EQ(trimmedNumber(980.0, 1), QStringLiteral("980"));
+    // A fraction as a percentage: the spec's decimals less two, 0 to 1; degrees one; else the spec's.
+    const DisplayUnit fraction = displayUnit("fraction", false, 3);
+    EXPECT_DOUBLE_EQ(fraction.factor, 100.0);
+    EXPECT_EQ(fraction.suffix, QStringLiteral("%"));
+    EXPECT_EQ(fraction.decimals, 1);
+    EXPECT_EQ(displayUnit("fraction", false, 4).decimals, 1);
+    EXPECT_EQ(displayUnit("angle", false, 3).decimals, 1);
+    EXPECT_EQ(displayUnit("length", false, 2).decimals, 2);
+    EXPECT_TRUE(displayUnit("length", false, 2).suffix.isEmpty());
+    // In the panel: Simulate's gravity reads "<n> /s²"; a fraction 35% (not 35.0%); a length 0.35.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    std::string sim;
+    ASSERT_EQ(doc->addNode("Simulate", 0.0f, 0.0f, &sim), "");
+    ParamPanel panel;
+    panel.setDocument(doc.get());
+    panel.showNode(sim);
+    QWidget* gravityRow = panel.findChild<QWidget*>(QStringLiteral("paramRow_gravity"));
+    ASSERT_NE(gravityRow, nullptr);
+    const ValueSlider* gravity = gravityRow->findChild<ValueSlider*>();
+    ASSERT_NE(gravity, nullptr);
+    // (A new node's lengths are fitted to the scalp: the sample's small head pulls 98, not 980.)
+    const double g = doc->paramOrDefault(sim, "gravity").get<double>();
+    EXPECT_EQ(gravity->shownText(), trimmedNumber(g, 1) + QStringLiteral(" /s²"));
+    for (const ValueSlider* slider : panel.findChildren<ValueSlider*>()) {
+        const QString text = slider->shownText();
+        const QString number = text.section(QLatin1Char(' '), 0, 0).remove(QLatin1Char('%')).remove(QStringLiteral("°"));
+        if (number.contains(QLatin1Char('.'))) EXPECT_FALSE(number.endsWith(QLatin1Char('0'))) << text.toStdString();
+    }
+}
+
+namespace {
+
+// A node's index in the view (the document's order) and a port's in its spec.
+int indexOf(const GroomDocument& doc, const std::string& name) {
+    const std::vector<GroomDocument::NodeInfo> nodes = doc.nodes();
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].name == name) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+int portOf(const GroomDocument& doc, const std::string& node, const char* list, const std::string& port) {
+    const json* spec = doc.nodeSpec(node);
+    if (!spec) return -1;
+    const json ports = spec->value(list, json::array());
+    for (std::size_t i = 0; i < ports.size(); ++i) {
+        if (ports[i].value("name", std::string()) == port) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+// An input port's center in the view (the card's geometry: a 28 px header, 8 px padding, 18 px rows).
+QPoint inputAt(const NodeGraphView& view, const std::string& node, int port) {
+    const QRectF r = view.nodeRect(node);
+    const qreal s = view.viewScale();
+    return QPointF(r.left(), r.top() + (28.0 + 8.0 + 18.0 * (port + 0.5)) * s).toPoint();
+}
+
+void mouseMods(QWidget* w, QEvent::Type type, const QPoint& at, Qt::KeyboardModifiers mods) {
+    const Qt::MouseButtons held = type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::MouseButtons(Qt::LeftButton);
+    QMouseEvent event(type, QPointF(at), w->mapToGlobal(QPointF(at)), type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, held, mods);
+    QCoreApplication::sendEvent(w, &event);
+}
+
+}  // namespace
+
+TEST(AppPanels, NumbersDropTrailingZerosInSpinBoxesAndTheLookCard) {
+    // The vec3 spin boxes and the Look card's HairColor sliders as the sliders show numbers:
+    // the spec's decimals, trailing zeros dropped (0.35, not 0.350).
+    TrimmedSpinBox spin;
+    spin.setDecimals(3);
+    EXPECT_EQ(spin.textFromValue(0.35), QStringLiteral("0.35"));
+    EXPECT_EQ(spin.textFromValue(1.0), QStringLiteral("1"));
+    EXPECT_EQ(spin.textFromValue(0.125), QStringLiteral("0.125"));
+    LookCard card;
+    LookCard::GroomColor color;
+    color.node = "hairColor";
+    color.melanin = 0.35f;
+    color.redness = 0.2f;
+    color.roughness = 0.5f;
+    card.setGroomColor(color);
+    EXPECT_EQ(card.melaninSlider()->shownText(), QStringLiteral("0.35"));
+    EXPECT_EQ(card.rednessSlider()->shownText(), QStringLiteral("0.2"));
+    EXPECT_EQ(card.roughnessSlider()->shownText(), QStringLiteral("0.5"));
+    // A vec3 param (not a color) in the Node panel: no trailing zeros either.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    for (const std::string& type : doc->operatorTypes()) {
+        const json* spec = doc->spec(type);
+        if (!spec || spec->value("hidden", false)) continue;
+        for (const json& p : spec->value("params", json::array())) {
+            if (p.value("kind", std::string()) != "vec3" || p.value("unit", std::string()) == "color") continue;
+            std::string made;
+            if (doc->addNode(type, 0.0f, 0.0f, &made) != "") continue;
+            ParamPanel panel;
+            panel.setDocument(doc.get());
+            panel.showNode(made);
+            for (const TrimmedSpinBox* box : panel.findChildren<TrimmedSpinBox*>()) {
+                const QString text = box->textFromValue(box->value());
+                if (text.contains(QLatin1Char('.'))) EXPECT_FALSE(text.endsWith(QLatin1Char('0'))) << type << " " << text.toStdString();
+            }
+            EXPECT_FALSE(panel.findChildren<TrimmedSpinBox*>().isEmpty()) << type;
+            return;
+        }
+    }
+}
+
+TEST(AppPanels, TransferSymmetryFollowsTheGlossary) {
+    MainWindow window;
+    window.resize(1280, 720);
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    TransferWindow* tw = window.openTransferWindow();
+    ASSERT_NE(tw, nullptr);
+    bool found = false;
+    for (const QCheckBox* box : tw->findChildren<QCheckBox*>()) found = found || box->text() == QStringLiteral("Symmetry");
+    EXPECT_TRUE(found) << "the Transfer window's checkbox says Symmetry (docs/APP_PARITY.md's glossary)";
+    tw->close();
+}
+
+TEST(AppPanels, GraphShowsAFailingNodesErrorOnItsCardAndInTheNodePanel) {
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    // A Linked Groom reading a file that is not there, made the output: its evaluation fails.
+    std::string linked;
+    ASSERT_EQ(doc->addNode("Reference", 0.0f, 0.0f, &linked), "");
+    ASSERT_EQ(doc->setParam(linked, "path", "no_such_file.groom"), "");
+    ASSERT_EQ(doc->setOutputNode(linked), "");
+    ViewRequest request;
+    request.density = 0.2f;
+    doc->evaluate(request);
+    const auto errors = doc->nodeErrors();
+    ASSERT_FALSE(errors.empty()) << "the view's errors name the node";
+    EXPECT_EQ(errors.front().first, linked);
+    EXPECT_NE(errors.front().second.find("no groom file"), std::string::npos) << errors.front().second;
+    // The card's badge and tooltip text, and the Node panel's red line under the title.
+    NodeGraphView view;
+    view.resize(1200, 800);
+    view.setDocument(doc.get());
+    view.setNodeErrors(errors);
+    EXPECT_EQ(view.nodeError(linked), errors.front().second);
+    EXPECT_TRUE(view.nodeError(nodeOfType(*doc, "Scatter")).empty());
+    ParamPanel panel;
+    panel.setDocument(doc.get());
+    panel.showNode(linked);
+    EXPECT_TRUE(panel.error().contains(QStringLiteral("no groom file"))) << panel.error().toStdString();
+    panel.showNode(nodeOfType(*doc, "Scatter"));
+    EXPECT_TRUE(panel.error().isEmpty());
+    // The theme's error color, in every theme (the badge and the line).
+    EXPECT_TRUE(theme::graphError().isValid());
+    EXPECT_TRUE(theme::errorText().isValid());
+}
+
+TEST(AppPanels, GraphMultiSelectsDeletesCopiesAndPastes) {
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    std::string a, b;
+    ASSERT_EQ(doc->addNode("Noise", 900.0f, 600.0f, &a), "");
+    ASSERT_EQ(doc->addNode("Noise", 1100.0f, 600.0f, &b), "");
+    ASSERT_EQ(doc->connectNodes(a, "", b, "strands"), "");
+    const std::size_t nodes = doc->nodes().size(), links = doc->connections().size();
+    NodeGraphView view;
+    view.resize(1400, 900);
+    view.setDocument(doc.get());
+    // A click selects one; Ctrl+click adds (and toggles), Shift+click adds.
+    view.selectNode(a);
+    mouseMods(&view, QEvent::MouseButtonPress, view.nodeRect(b).center().toPoint(), Qt::ControlModifier);
+    mouseMods(&view, QEvent::MouseButtonRelease, view.nodeRect(b).center().toPoint(), Qt::ControlModifier);
+    EXPECT_EQ(view.selectedNodes(), (std::vector<std::string>{a, b}));
+    EXPECT_EQ(view.selectedNode(), b) << "the last one clicked is the current one";
+    mouseMods(&view, QEvent::MouseButtonPress, view.nodeRect(a).center().toPoint(), Qt::ControlModifier);
+    mouseMods(&view, QEvent::MouseButtonRelease, view.nodeRect(a).center().toPoint(), Qt::ControlModifier);
+    EXPECT_EQ(view.selectedNodes(), std::vector<std::string>{b});
+    // The rubber band over both cards selects both.
+    const QRectF band = view.nodeRect(a).united(view.nodeRect(b)).adjusted(-10, -10, 10, 10);
+    mouse(&view, QEvent::MouseButtonPress, band.topLeft().toPoint());
+    mouse(&view, QEvent::MouseMove, band.bottomRight().toPoint());
+    mouse(&view, QEvent::MouseButtonRelease, band.bottomRight().toPoint());
+    std::vector<std::string> picked = view.selectedNodes();
+    std::sort(picked.begin(), picked.end());
+    std::vector<std::string> both{a, b};
+    std::sort(both.begin(), both.end());
+    EXPECT_EQ(picked, both);
+    // Ctrl+C, Ctrl+V: both again, with the link between them, beside; one undo step.
+    key(&view, QEvent::KeyPress, Qt::Key_C, Qt::ControlModifier);
+    EXPECT_TRUE(QGuiApplication::clipboard()->text().contains(QStringLiteral("groomlabNodes")));
+    key(&view, QEvent::KeyPress, Qt::Key_V, Qt::ControlModifier);
+    EXPECT_EQ(doc->nodes().size(), nodes + 2);
+    EXPECT_EQ(doc->connections().size(), links + 1);
+    EXPECT_EQ(view.selectedNodes().size(), 2u) << "the pasted nodes are selected";
+    float ax = 0.0f, ay = 0.0f, px = 0.0f, py = 0.0f;
+    ASSERT_TRUE(doc->nodePosition(a, &ax, &ay));
+    const std::string pasted = view.selectedNodes().front();
+    ASSERT_TRUE(doc->nodePosition(pasted, &px, &py));
+    EXPECT_GT(px + py, ax + ay) << "pasted beside, not on top";
+    EXPECT_EQ(doc->undo(), "");
+    EXPECT_EQ(doc->nodes().size(), nodes);
+    // Delete removes the selection in one undo step.
+    view.refresh();
+    view.setSelection({a, b});
+    key(&view, QEvent::KeyPress, Qt::Key_Delete);
+    EXPECT_EQ(doc->nodes().size(), nodes - 2);
+    EXPECT_EQ(doc->undo(), "");
+    EXPECT_EQ(doc->nodes().size(), nodes);
+    // The output node never goes, nor is copied.
+    EXPECT_TRUE(doc->copyNodes({nodeOfType(*doc, "Output")}).empty());
+    EXPECT_NE(doc->removeNodes({nodeOfType(*doc, "Output")}), "");
+    EXPECT_NE(doc->pasteNodes("not nodes", 0.0f, 0.0f), "");
+}
+
+TEST(AppPanels, GraphGroupsIntoCompoundsAndOpensThem) {
+    // Ctrl+G groups the selection into one Compound (the core's collapse, Maya's too), one undo
+    // step; a double-click on it opens it (its nodes back), Ctrl+Shift+G too; Ctrl+Z each time.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    const std::string length = nodeOfType(*doc, "Length"), noise = nodeOfType(*doc, "Noise");
+    ASSERT_FALSE(length.empty());
+    ASSERT_FALSE(noise.empty());
+    const std::string before = doc->graphJson();
+    const std::size_t nodes = doc->nodes().size();
+    NodeGraphView view;
+    view.resize(1400, 900);
+    view.setDocument(doc.get());
+    view.setSelection({length, noise});
+    key(&view, QEvent::KeyPress, Qt::Key_G, Qt::ControlModifier);
+    EXPECT_EQ(doc->nodes().size(), nodes - 1);
+    const std::string compound = view.selectedNode();
+    ASSERT_EQ(doc->nodeSpec(compound) ? doc->nodeSpec(compound)->value("type", std::string()) : std::string(), "Compound");
+    EXPECT_EQ(doc->undoText(), "Undo group 2 nodes");
+    EXPECT_EQ(view.nodeCount(), static_cast<int>(nodes - 1));
+    // Opened by a double-click: the two nodes again, the same links, selected.
+    const QPoint at = view.nodeRect(compound).center().toPoint();
+    mouse(&view, QEvent::MouseButtonPress, at);
+    mouse(&view, QEvent::MouseButtonRelease, at);
+    mouse(&view, QEvent::MouseButtonDblClick, at);
+    EXPECT_EQ(doc->nodes().size(), nodes);
+    std::vector<std::string> picked = view.selectedNodes();
+    std::sort(picked.begin(), picked.end());
+    std::vector<std::string> both{length, noise};
+    std::sort(both.begin(), both.end());
+    EXPECT_EQ(picked, both);
+    EXPECT_EQ(doc->undoText(), "Undo ungroup " + compound);
+    EXPECT_EQ(doc->connections().size(), json::parse(before)["connections"].size());
+    // Undone, one step each: the compound, then the graph as it was.
+    EXPECT_EQ(doc->undo(), "");
+    view.refresh();
+    EXPECT_EQ(doc->nodes().size(), nodes - 1);
+    view.setSelection({compound});
+    key(&view, QEvent::KeyPress, Qt::Key_G, Qt::ControlModifier | Qt::ShiftModifier);
+    EXPECT_EQ(doc->nodes().size(), nodes);
+    EXPECT_EQ(doc->undo(), "");
+    EXPECT_EQ(doc->undo(), "");
+    EXPECT_EQ(json::parse(doc->graphJson())["connections"], json::parse(before)["connections"]);
+    // Two nodes feeding the rest cannot be one group: refused, the graph unchanged.
+    view.refresh();
+    view.setSelection({nodeOfType(*doc, "Scalp"), nodeOfType(*doc, "Guides")});
+    key(&view, QEvent::KeyPress, Qt::Key_G, Qt::ControlModifier);
+    EXPECT_EQ(doc->nodes().size(), nodes);
+}
+
+TEST(AppPanels, GraphBackdropsAreMadeNamedColoredMovedResizedAndDeleted) {
+    // As Maya's Graph Editor's: around the selection, named at once, a color from the menu's,
+    // moved by the title bar with the nodes on it, resized by the corner, Delete removes it.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    const std::string length = nodeOfType(*doc, "Length");
+    NodeGraphView view;
+    view.resize(1400, 900);
+    view.setDocument(doc.get());
+    view.setSelection({length});
+    view.addBackdrop();
+    ASSERT_EQ(view.backdropCount(), 1);
+    EXPECT_EQ(view.selectedBackdrop(), 0);
+    EXPECT_TRUE(view.backdropRect(0).contains(QRectF(view.nodeRect(length)).center() / view.viewScale() -
+                                              view.viewPan() / view.viewScale()));
+    EXPECT_EQ(doc->undoText(), "Undo add backdrop");
+    ASSERT_TRUE(view.promptOpen());
+    view.setPromptText("Shape");
+    view.acceptPrompt();
+    EXPECT_EQ(view.backdropTitle(0), QStringLiteral("Shape"));
+    EXPECT_EQ(doc->undoText(), "Undo rename backdrop");
+    view.setBackdropColor(0, QColor(70, 120, 80));
+    EXPECT_EQ(doc->graph()["backdrops"][0]["color"], json::array({70, 120, 80}));
+    EXPECT_EQ(view.backdropColor(0), QColor(70, 120, 80));
+    // Dragged by its title bar: it and the node on it move (no undo step, as node moves).
+    const QRectF card = view.nodeRect(length);  // laid out by the view (the sample keeps no positions)
+    const QRectF rect = view.backdropRect(0);
+    const QPoint grab = view.backdropTitleBar(0).center().toPoint();
+    mouse(&view, QEvent::MouseButtonPress, grab);
+    mouse(&view, QEvent::MouseMove, grab + QPoint(60, 40));
+    mouse(&view, QEvent::MouseButtonRelease, grab + QPoint(60, 40));
+    const qreal s = view.viewScale();
+    EXPECT_NEAR(view.backdropRect(0).x(), rect.x() + 60 / s, 1e-6);
+    EXPECT_NEAR(doc->graph()["backdrops"][0]["y"].get<double>(), rect.y() + 40 / s, 1e-6);
+    EXPECT_NEAR(view.nodeRect(length).x(), card.x() + 60, 1e-3) << "the node on it moved along";
+    float x1 = 0.0f, y1 = 0.0f;
+    ASSERT_TRUE(doc->nodePosition(length, &x1, &y1)) << "and keeps where it was put";
+    EXPECT_NEAR(x1, (card.x() + 60 - view.viewPan().x()) / s, 1e-3);
+    EXPECT_EQ(doc->undoText(), "Undo backdrop color");
+    // Resized by its corner, never smaller than Maya's least.
+    const QPoint corner = view.backdropGrip(0).center().toPoint();
+    mouse(&view, QEvent::MouseButtonPress, corner);
+    mouse(&view, QEvent::MouseMove, corner + QPoint(100, 50));
+    mouse(&view, QEvent::MouseButtonRelease, corner + QPoint(100, 50));
+    EXPECT_NEAR(doc->graph()["backdrops"][0]["w"].get<double>(), rect.width() + 100 / s, 1e-6);
+    mouse(&view, QEvent::MouseButtonPress, view.backdropGrip(0).center().toPoint());
+    mouse(&view, QEvent::MouseMove, view.backdropGrip(0).center().toPoint() - QPoint(2000, 2000));
+    mouse(&view, QEvent::MouseButtonRelease, view.backdropGrip(0).center().toPoint() - QPoint(2000, 2000));
+    EXPECT_EQ(view.backdropRect(0).size(), QSizeF(120, 80));
+    // Double-clicking the title bar renames it; Delete removes the selected one (one step).
+    mouse(&view, QEvent::MouseButtonDblClick, view.backdropTitleBar(0).center().toPoint());
+    EXPECT_TRUE(view.promptOpen());
+    view.setPromptText("Frizz");
+    view.acceptPrompt();
+    EXPECT_EQ(view.backdropTitle(0), QStringLiteral("Frizz"));
+    view.selectBackdrop(0);
+    key(&view, QEvent::KeyPress, Qt::Key_Delete);
+    EXPECT_EQ(view.backdropCount(), 0);
+    EXPECT_FALSE(doc->graph().contains("backdrops"));
+    EXPECT_EQ(doc->undo(), "");
+    view.refresh();
+    EXPECT_EQ(view.backdropCount(), 1);
+    EXPECT_EQ(view.backdropTitle(0), QStringLiteral("Frizz"));
+}
+
+TEST(AppPanels, GraphLinkDragsSayWhyAndRestoreOnARefusedDrop) {
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    NodeGraphView view;
+    view.resize(1400, 900);
+    view.setDocument(doc.get());
+    const std::string interpolate = nodeOfType(*doc, "Interpolate"), scatter = nodeOfType(*doc, "Scatter");
+    const std::string length = nodeOfType(*doc, "Length");
+    std::string guidesSource, scalpSource;
+    for (const GroomDocument::ConnectionInfo& c : doc->connections()) {
+        if (c.to == interpolate && c.input == "guides") guidesSource = c.from;
+        if (c.to == interpolate && c.input == "scalp") scalpSource = c.from;
+    }
+    ASSERT_FALSE(guidesSource.empty());
+    ASSERT_FALSE(scalpSource.empty());
+    // Mesh into a guides input: the types; a node downstream into its source: a loop; its own input: itself.
+    const int guidesIn = portOf(*doc, interpolate, "inputs", "guides"), scalpIn = portOf(*doc, interpolate, "inputs", "scalp");
+    const int strandsIn = portOf(*doc, interpolate, "inputs", "strands");
+    EXPECT_TRUE(view.connectionProblem(indexOf(*doc, scalpSource), 0, indexOf(*doc, interpolate), guidesIn).contains(QStringLiteral("takes")));
+    EXPECT_TRUE(view.connectionProblem(indexOf(*doc, length), 0, indexOf(*doc, interpolate), strandsIn).contains(QStringLiteral("loop")));
+    EXPECT_FALSE(view.connectionProblem(indexOf(*doc, interpolate), 0, indexOf(*doc, interpolate), strandsIn).isEmpty());
+    EXPECT_TRUE(view.connectionProblem(indexOf(*doc, scatter), 0, indexOf(*doc, length), 0).isEmpty()) << "strands into strands fit";
+    // The guides wire picked up from its input and dropped on the scalp input: refused, the link stays.
+    const auto before = doc->connections().size();
+    const QPoint from = inputAt(view, interpolate, guidesIn), to = inputAt(view, interpolate, scalpIn);
+    mouse(&view, QEvent::MouseButtonPress, from);
+    mouse(&view, QEvent::MouseMove, to);
+    EXPECT_FALSE(view.wireHint().isEmpty()) << "over a port it cannot feed, the reason by the cursor";
+    mouse(&view, QEvent::MouseButtonRelease, to);
+    EXPECT_TRUE(view.wireHint().isEmpty());
+    EXPECT_EQ(doc->connections().size(), before);
+    bool kept = false;
+    for (const GroomDocument::ConnectionInfo& c : doc->connections()) kept = kept || (c.to == interpolate && c.input == "guides" && c.from == guidesSource);
+    EXPECT_TRUE(kept) << "the picked-up wire went back";
+    EXPECT_FALSE(doc->canUndo()) << "nothing changed";
+}
+
+TEST(AppPanels, GraphBackwardLinksLoopUnderTheirNodes) {
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    std::string right, left;
+    ASSERT_EQ(doc->addNode("Noise", 800.0f, 0.0f, &right), "");
+    ASSERT_EQ(doc->addNode("Noise", 0.0f, 0.0f, &left), "");
+    ASSERT_EQ(doc->connectNodes(right, "", left, "strands"), "");
+    NodeGraphView view;
+    view.resize(1400, 900);
+    view.setDocument(doc.get());
+    const QRectF a = view.nodeRect(right), b = view.nodeRect(left);
+    const qreal lowest = (std::max(a.bottom(), b.bottom()) - view.viewPan().y()) / view.viewScale();  // scene units
+    bool found = false;
+    for (int i = 0; i < view.wireCount(); ++i) {
+        const QRectF bounds = view.wirePathOf(i).boundingRect();
+        // The wire from the right node's output (its x) to the left node's input.
+        if (std::abs(bounds.left() - 0.0) < 50.0 && bounds.right() > 800.0) {
+            found = true;
+            EXPECT_GT(bounds.bottom(), lowest) << "the backward link goes under both cards";
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST(AppPanels, GraphViewUpToHereShowsTheNodesResult) {
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    const std::string scatter = nodeOfType(*window.document(), "Scatter");
+    ASSERT_TRUE(window.selectUiNode(QString::fromStdString(scatter)));
+    NodeGraphView* graph = window.overlay()->graph();
+    key(graph, QEvent::KeyPress, Qt::Key_V);
+    EXPECT_EQ(graph->viewedNode(), scatter);
+    EXPECT_EQ(window.document()->lastView().viewedNode, scatter) << "the viewport shows the graph up to the node";
+    key(graph, QEvent::KeyPress, Qt::Key_V);
+    EXPECT_TRUE(graph->viewedNode().empty());
+    EXPECT_TRUE(window.document()->lastView().viewedNode.empty()) << "V again: the output";
+    // A node that gives no strands is not viewed.
+    std::string field;
+    ASSERT_EQ(window.document()->addNode("Map", 0.0f, 0.0f, &field), "");
+    window.overlay()->graph()->refresh();
+    graph->selectNode(field);
+    graph->toggleViewSelected();
+    EXPECT_TRUE(graph->viewedNode().empty());
+}
+
+TEST(AppPanels, GraphKeepsTheSelectedNodeClearOfTheNodePanelInLookMode) {
+    // Look mode at 1280x720: the Node panel left of the look card, on screen; the graph pans the
+    // selected node out from under it; the viewport dims behind the graph (drawn, not tested).
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    OverlayHost* host = window.overlay();
+    host->resize(1280, 720);
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    ASSERT_TRUE(window.setUiMode(QStringLiteral("look")));
+    window.setGraphShown(true);
+    ASSERT_TRUE(window.selectUiNode(QString::fromStdString(nodeOfType(*window.document(), "Interpolate"))));
+    const QRect panel = host->panel(OverlayHost::Panel::Node)->geometry();
+    EXPECT_TRUE(QRect(0, 0, 1280, 720).contains(panel)) << "the Node panel on screen";
+    EXPECT_LE(panel.right(), host->lookCard()->geometry().left()) << "beside the look card, not under it";
+    EXPECT_GE(panel.height(), 300);
+    const QRectF node = host->graph()->nodeRect(host->graph()->selectedNode());
+    EXPECT_FALSE(node.intersects(QRectF(panel))) << "the selected node under the panel";
+}
+
+TEST(AppPanels, EmptyStateDisablesWhatNeedsAGroomAndSaysWhatEachModeDoes) {
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    OverlayHost* host = window.overlay();
+    host->resize(1280, 720);
+    EXPECT_FALSE(host->graphPill()->isEnabled());
+    EXPECT_FALSE(host->presetsPill()->isEnabled());
+    EXPECT_FALSE(host->modes()->isEnabled());
+    QSet<QString> sentences;
+    for (const char* mode : {"groom", "look", "cards", "export"}) {
+        ASSERT_TRUE(window.setUiMode(QLatin1String(mode)));
+        sentences.insert(host->emptyText());
+        EXPECT_TRUE(host->emptyCard()->isVisibleTo(host)) << mode;
+        EXPECT_FALSE(host->cardsPanel()->isVisibleTo(host)) << mode << ": no zeros before a groom";
+        EXPECT_FALSE(host->exportPanel()->isVisibleTo(host)) << mode;
+        EXPECT_FALSE(host->lookCard()->isVisibleTo(host)) << mode;
+    }
+    EXPECT_EQ(sentences.size(), 4) << "a sentence per mode";
+    ASSERT_TRUE(window.setUiMode(QStringLiteral("cards")));
+    EXPECT_TRUE(host->emptyText().contains(QStringLiteral("cards")));
+    // A preset with no groom: a mesh first (no dialog in a scripted run), then the look on it.
+    EXPECT_FALSE(window.startFromPreset(QStringLiteral("curly")));
+    EXPECT_EQ(window.document(), nullptr);
+    const QString mesh = QString::fromStdString(std::string(GROOMLAB_TEST_DATA) + "/app/head_scalp.obj");
+    ASSERT_TRUE(window.startFromPreset(QStringLiteral("curly"), mesh));
+    ASSERT_NE(window.document(), nullptr);
+    EXPECT_GT(window.document()->nodes().size(), 3u);
+    EXPECT_FALSE(host->startHintShown()) << "a look applied: no bald-scalp hint";
+    EXPECT_TRUE(host->graphPill()->isEnabled());
+    EXPECT_TRUE(host->modes()->isEnabled());
+    EXPECT_TRUE(host->cardsPanel()->isVisibleTo(host)) << "Cards mode's panel once a groom is open";
+    // New Groom on Mesh: the next step on a card; Pick Place picks the Place brush and hides it.
+    ASSERT_TRUE(window.setUiMode(QStringLiteral("groom")));
+    ASSERT_TRUE(window.newGroomOnMesh(mesh));
+    EXPECT_TRUE(host->startHintShown());
+    RoundButton* place = nullptr;
+    for (RoundButton* b : host->startHint()->findChildren<RoundButton*>()) {
+        if (b->text() == QStringLiteral("Pick Place")) place = b;
+    }
+    ASSERT_NE(place, nullptr);
+    place->click();
+    EXPECT_FALSE(host->startHintShown());
+    EXPECT_EQ(window.brush().toolId(), "place");
+}
+
+TEST(AppPanels, RailLabelsStayShownWhenPinned) {
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    OverlayHost* host = window.overlay();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    EXPECT_FALSE(host->railLabels()) << "tests and scripted runs: no labels unless asked";
+    window.setRailLabels(true, false);
+    EXPECT_TRUE(host->rail()->expanded());
+    EXPECT_TRUE(host->panelRail()->expanded());
+    QEvent leave(QEvent::Leave);
+    QCoreApplication::sendEvent(host->rail(), &leave);
+    QCoreApplication::sendEvent(host->panelRail(), &leave);
+    EXPECT_TRUE(host->rail()->expanded()) << "the mouse leaving keeps the names";
+    EXPECT_TRUE(host->panelRail()->expanded());
+    QAction* toggle = window.findChild<QAction*>(QStringLiteral("railLabels"));
+    ASSERT_NE(toggle, nullptr);
+    EXPECT_TRUE(toggle->isChecked());
+    window.setRailLabels(false, false);
+    EXPECT_FALSE(host->rail()->expanded());
+    EXPECT_FALSE(toggle->isChecked());
+}
+
+TEST(AppPanels, FileMenuAddsPropsAndEyesAndSavesAnImage) {
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    for (const char* name : {"addProp", "addEye", "saveImage"}) EXPECT_NE(window.findChild<QAction*>(QLatin1String(name)), nullptr) << name;
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    const std::size_t props = window.props().size();
+    EXPECT_FALSE(window.addEyeText(QStringLiteral("1, 2, 3")));
+    EXPECT_TRUE(window.addEyeText(QStringLiteral("0, 0, 1, 0, 0, 1, 0.1")));
+    EXPECT_EQ(window.props().size(), props + 1);
+    EXPECT_TRUE(window.props().back()->isEye);
+    // Add Eye...: a glass prompt with a guess (never a dialog); Add Eye takes the line.
+    window.askEye();
+    ASSERT_TRUE(window.overlay()->promptShown());
+    EXPECT_EQ(window.overlay()->promptLine().split(QLatin1Char(',')).size(), 7);
+    ASSERT_TRUE(window.overlay()->choosePrompt(QStringLiteral("Add Eye")));
+    EXPECT_EQ(window.props().size(), props + 2);
+    // Save Image: the view to a PNG (when the platform gives an offscreen device).
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "groomlab_save_image.png";
+    std::filesystem::remove(out);
+    if (window.saveImage(QString::fromStdString(out.u8string()))) {
+        EXPECT_TRUE(std::filesystem::exists(out));
+        EXPECT_FALSE(QImage(QString::fromStdString(out.u8string())).isNull());
+    } else {
+        EXPECT_TRUE(window.lastReport().contains(QStringLiteral("offscreen"))) << window.lastReport().toStdString();
+    }
+    std::filesystem::remove(out);
+}
+
+TEST(AppPanels, ThemesGiveTheGraphStatusColors) {
+    const QString was = theme::currentTheme();
+    for (const QString& name : theme::themeNames()) {
+        ASSERT_TRUE(theme::setTheme(name));
+        for (const QColor& c : {theme::graphError(), theme::graphWarning(), theme::graphNote(), theme::graphDriven(), theme::graphReads(),
+                                theme::graphWrites(), theme::errorText(), theme::warningText(), theme::linkText(), theme::windowButton(),
+                                theme::windowButtonHover()}) {
+            EXPECT_TRUE(c.isValid()) << name.toStdString();
+        }
+        // Every theme is dark: the error words stay readable on its panels.
+        EXPECT_GT(theme::errorText().lightnessF(), theme::glassPanel().lightnessF() + 0.2) << name.toStdString();
+        EXPECT_TRUE(theme::nodeCategoryColor("deform").isValid());
+        EXPECT_TRUE(theme::nodeCategoryColor("collide").isValid());
+    }
+    theme::setTheme(was);
 }
 
 }  // namespace groomlab::app

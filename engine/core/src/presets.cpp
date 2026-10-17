@@ -580,7 +580,8 @@ const json* nodeIn(const json& graph, const std::string& name) {
 
 std::string categoryOf(const std::string& type) {
     const auto op = specs().find(type);
-    return op == specs().end() ? std::string() : op->value("category", std::string());
+    // The operator's role in a chain (a source or grow node starts a look), not the menu's category.
+    return op == specs().end() ? std::string() : op->value("role", std::string());
 }
 
 // The node a preset's look starts from: the first grow or source node up the Output's strands

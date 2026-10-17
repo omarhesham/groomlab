@@ -59,7 +59,11 @@
 // Walking the strand from the root, a point lower than its clearance (at its share of the
 // strand's length) is lifted along the field's normal to it, and the points after it follow it,
 // each kept its segment's length (follow the leader, as Collide does): the root and the lengths
-// stay, the strand comes out of the skin. A point already as high as its clearance is not moved,
+// stay, the strand comes out of the skin. The walk asks at most kClearanceAsked points of a strand
+// (every step-th and the tip, interpolateClearanceStep: every point of a strand of up to 17), each
+// following the one asked before it at their distance as they came; the points between move by the
+// moves of the two asked around them, blended by index (a clearance is a soft target: fur of 50
+// segments asks 13 points, not 50). A point already as high as its clearance is not moved,
 // nor is a strand none of whose points is below its clearance (to the bit); a point the last one
 // asked shows clear of its clearance (the field's bounds, the height changing at most about twice
 // as fast as the point moves) is not asked. Points deeper than kClearanceDepth of the scalp's size
@@ -67,7 +71,7 @@
 // edge, lower than half their distance from it either way) are clear of it. Strands not rooted on
 // the scalp are left as they are. The walk takes the field's answers alone (Probe::fieldOnly:
 // where the field does not blend, the closest point among the triangles around the closest points
-// it holds there), so the GPU preview, walking the field's tables with the guides' clearances
+// it holds there; Probe::relaxed: blended across creases up to about 26 degrees), so the GPU preview, walking the field's tables with the guides' clearances
 // (look.slang ClearanceCS), makes the same strands; over a scalp deformed away from its rest pose
 // the walk asks the rest pose's field vertex by vertex, the CPU's alone. The field's grid is the
 // world's and the distances go by the scalp's size rounded to an eighth of an octave: an edit of
@@ -199,6 +203,7 @@ struct Clearance {
         MeshDistanceField::Probe p;
         p.beside = beside;
         p.fieldOnly = true;
+        p.relaxed = true;  // a soft target: blended across gentle creases
         return p;
     }
 
@@ -755,7 +760,7 @@ struct Scratch {
     std::vector<float> weights, twists;
     std::vector<Vec3f> guided, blended;
     std::vector<float> blendedLayer, strandArc;
-    std::vector<float> clearance, lengths;  // keepClearance: the strand's blended clearance, its segments' lengths
+    std::vector<float> clearance;  // keepClearance: the strand's blended clearance
     void reserve(std::size_t stride) {
         if (rows.size() < 5 * stride) rows.resize(5 * stride);
         if (from.size() < kMaxCandidates) {
@@ -1789,43 +1794,76 @@ private:
                 const float wi = w[i];
                 for (std::size_t k = 0; k < samples; ++k) lift[k] += row[k] * wi;
             }
-            std::vector<float>& lengths = scratch.lengths;
-            lengths.resize(n);
             RestPoseCollision::Cursor cursor = clearance.surface.cursor(strandRoot, pts[0]);
-            bool moved = false;
-            auto keepLength = [&](std::size_t j) {  // (as Collide's)
-                const Vec3f d = pts[j] - pts[j - 1];
+            // The walk asks every `step`-th point and the tip (interpolateClearanceStep): each of
+            // those follows the one asked before it (once one moved) at their distance as it came,
+            // and is pushed up to its clearance; the points between two of them move by their
+            // moves, blended by index. At a step of 1, every point as it always was.
+            const std::size_t step = interpolateClearanceStep(n);
+            auto keepLength = [](const Vec3f& prev, const Vec3f& p, float wanted) {  // (as Collide's)
+                const Vec3f d = p - prev;
                 const float len = d.length();
-                if (len > 0.0f) pts[j] = pts[j - 1] + d * (lengths[j] / len);
+                return len > 0.0f ? prev + d * (wanted / len) : p;
             };
             // What the last point asked of the field learnt (its height and distance at least, at
             // `anchor`): a point it says is clear of its own clearance asks nothing (the height
             // changes at most about twice as fast as a point moves, the distance no faster).
             MeshDistanceField::Probe known = clearance.probe(), again = clearance.probe();
             Vec3f anchor;
-            bool knows = false;
-            for (std::size_t j = 1; j < n; ++j) {
-                if (moved) keepLength(j);
+            bool knows = false, moved = false;
+            std::size_t asked = 0;  // the point asked before (0: the root)
+            Vec3f movedBefore;      // its move (zero until one moved)
+            // Once a point moved, each next one asked keeps its distance from the one before as
+            // they came (the first after the moved one: from that one as its first push left it).
+            Vec3f lengthFrom = pts[0];
+            // Point j's clearance: the blend's at its share of the strand's length, the floor at least.
+            auto targetAt = [&](std::size_t j) {
                 const float x = static_cast<float>(j) / static_cast<float>(n - 1) * static_cast<float>(samples - 1);
                 const std::size_t k = std::min(static_cast<std::size_t>(x), samples - 2);
                 const float f = x - static_cast<float>(k);
-                const float target = std::max(lift[k] * (1.0f - f) + lift[k + 1] * f, clearance.floor) * influence;
+                return std::max(lift[k] * (1.0f - f) + lift[k + 1] * f, clearance.floor) * influence;
+            };
+            for (std::size_t j = std::min(step, n - 1);; j = std::min(j + step, n - 1)) {
+                const Vec3f came = pts[j];  // (the points after `asked` are as they came)
+                Vec3f p = came;
+                if (moved) p = keepLength(pts[asked], came, (came - lengthFrom).length());
+                const float target = targetAt(j);
+                bool asks = true;
                 if (knows) {
-                    const float d = (pts[j] - anchor).length() * 1.0001f + clearance.floor * 1e-3f;
-                    if (known.heightLow - 2.0f * d >= target || known.distanceLow - d > clearance.searchRadius) continue;
+                    const float d = (p - anchor).length() * 1.0001f + clearance.floor * 1e-3f;
+                    asks = !(known.heightLow - 2.0f * d >= target || known.distanceLow - d > clearance.searchRadius);
                 }
-                const Vec3f was = pts[j];
-                anchor = was;
-                knows = true;
-                if (!clearance.surface.pushOut(pts[j], target, clearance.depth, clearance.searchRadius, cursor, &known)) continue;
-                knows = false;  // (moved: what it learnt was of where it was)
-                if (!moved) {  // the segments from here out, as they were
-                    lengths[j] = (was - pts[j - 1]).length();
-                    for (std::size_t m = j + 1; m < n; ++m) lengths[m] = (pts[m] - pts[m - 1]).length();
-                    moved = true;
+                const bool movedEarlier = moved;
+                if (asks) {
+                    const Vec3f was = p;
+                    anchor = was;
+                    knows = true;
+                    if (clearance.surface.pushOut(p, target, clearance.depth, clearance.searchRadius, cursor, &known)) {
+                        knows = false;  // (moved: what it learnt was of where it was)
+                        float wanted = (came - lengthFrom).length();
+                        if (!moved) {  // the first: its distance as it came, the next from it as pushed
+                            wanted = (was - pts[asked]).length();
+                            lengthFrom = p;
+                            moved = true;
+                        }
+                        p = keepLength(pts[asked], p, wanted);
+                        clearance.surface.pushOut(p, target, clearance.depth, clearance.searchRadius, cursor, &again);
+                    }
                 }
-                keepLength(j);
-                clearance.surface.pushOut(pts[j], target, clearance.depth, clearance.searchRadius, cursor, &again);
+                if (movedEarlier) lengthFrom = came;
+                if (moved) {
+                    // The points between: their moves blended from the one before's to this one's.
+                    const Vec3f move = p - came;
+                    const float span = static_cast<float>(j - asked);
+                    for (std::size_t m = asked + 1; m < j; ++m) {
+                        const float t = static_cast<float>(m - asked) / span;
+                        pts[m] = pts[m] + (movedBefore + (move - movedBefore) * t);
+                    }
+                    pts[j] = p;
+                    movedBefore = move;
+                }
+                if (j == n - 1) break;
+                asked = j;
             }
         };
         if (last) {

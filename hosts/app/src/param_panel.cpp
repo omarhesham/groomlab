@@ -17,6 +17,7 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QResizeEvent>
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -25,6 +26,8 @@
 #include "groom_document.h"
 #include "param_editors.h"
 #include "theme.h"
+#include "groomlab/graph_io.h"
+#include "groomlab/node_catalog.h"
 #include "groomlab/simulation.h"
 
 namespace groomlab::app {
@@ -57,23 +60,25 @@ QString prettyName(const std::string& name) {
     return out;
 }
 
-// How a number shows: the spec's unit (graph.h ParamSpec::unit) as a suffix, a fraction as a
-// percentage. Scene units (length, width, density, perLength) show bare: the app has no unit
-// setting, and the file's units are the scalp's own.
-struct DisplayUnit {
-    double factor = 1.0;
-    QString suffix;
-    int decimals = 3;
-};
+}  // namespace
 
-DisplayUnit displayUnit(const std::string& unit, bool integer) {
-    if (unit == "fraction" && !integer) return {100.0, QStringLiteral("%"), 1};
+// How a number shows: the spec's unit (graph.h ParamSpec::unit) as a suffix, a fraction as a
+// percentage, with the spec's decimals (its "decimals": the same in every host; as a percentage
+// two fewer, 0 to 1; degrees 1) and the trailing zeros dropped when shown. Scene units (length,
+// width, density, perLength) show bare: the app has no unit setting, and the file's units are the
+// scalp's own; an acceleration in them (Simulate's gravity) shows "/s²" after the number.
+DisplayUnit displayUnit(const std::string& unit, bool integer, int specDecimals) {
+    const int decimals = specDecimals >= 0 ? specDecimals : 3;
+    if (unit == "fraction" && !integer) return {100.0, QStringLiteral("%"), std::clamp(decimals - 2, 0, 1)};
     if (unit == "angle") return {1.0, QStringLiteral("°"), 1};
-    if (unit == "turns") return {1.0, QStringLiteral(" turns"), 3};
-    if (unit == "seconds") return {1.0, QStringLiteral(" s"), 3};
-    if (unit == "pixels") return {1.0, QStringLiteral(" px"), 1};
-    return {};
+    if (unit == "turns") return {1.0, QStringLiteral(" turns"), decimals};
+    if (unit == "seconds") return {1.0, QStringLiteral(" s"), decimals};
+    if (unit == "pixels") return {1.0, QStringLiteral(" px"), integer ? 0 : decimals};
+    if (unit == "acceleration") return {1.0, QStringLiteral(" /s²"), decimals};
+    return {1.0, QString(), decimals};
 }
+
+namespace {
 
 const std::string kAdvanced = "Advanced";
 
@@ -108,6 +113,9 @@ std::map<std::pair<std::string, std::string>, bool>& foldedSections() {
 ParamPanel::ParamPanel(QWidget* parent) : QWidget(parent) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(6, 6, 6, 6);
+    // Its own spacing, not the platform style's (Windows' varies with the widgets' kinds), so
+    // sizeHint's sum is the height the rows take: the form never scrolls at the panel's own height.
+    layout->setSpacing(6);
     title_ = new QLabel(tr("No node"), this);
     title_->setStyleSheet(QStringLiteral("font-weight: bold"));
     title_->hide();  // shown with a node
@@ -143,6 +151,14 @@ ParamPanel::ParamPanel(QWidget* parent) : QWidget(parent) {
     connect(presets_, &QAbstractButton::clicked, this, [this] { showPresets(); });
     titleRow->addWidget(presets_);
     layout->addLayout(titleRow);
+    // The node's error from the last evaluation, red under its title (the graph's badge says it too).
+    error_ = new QLabel(this);
+    error_->setObjectName(QStringLiteral("nodeError"));
+    error_->setWordWrap(true);
+    error_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    error_->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(theme::errorText().name()));
+    error_->hide();
+    layout->addWidget(error_);
     // The operator's description (what Maya's Attribute Editor shows under the node's name).
     description_ = new QLabel(this);
     description_->setWordWrap(true);
@@ -152,7 +168,7 @@ ParamPanel::ParamPanel(QWidget* parent) : QWidget(parent) {
     note_ = new QLabel(this);
     note_->setObjectName(QStringLiteral("nodeNote"));
     note_->setWordWrap(true);
-    note_->setStyleSheet(QStringLiteral("color: #96999F;"));
+    note_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::graphNote().name()));
     note_->hide();
     layout->addWidget(note_);
     bypass_ = new QCheckBox(tr("Bypass"), this);
@@ -220,17 +236,56 @@ void ParamPanel::showNode(const std::string& node) {
 }
 
 void ParamPanel::refreshNote() {
-    std::string text;
+    std::string text, error;
     if (document_ && !node_.empty()) {
+        for (const auto& [name, why] : document_->nodeErrors()) {
+            if (name == node_) error = why;
+        }
         for (const auto& [name, note] : document_->nodeNotes()) {  // an attribute read that does not reach it too
             if (name == node_) text = note;
+        }
+        // A Scatter's or Resample's strand resolution: which Resample sets it (each branch its own).
+        const nlohmann::json graph = nlohmann::json::parse(document_->graphJson(), nullptr, false);
+        bool resamples = false;
+        if (graph.is_object() && graph.contains("nodes") && graph["nodes"].is_array()) {
+            for (const nlohmann::json& n : graph["nodes"]) {
+                const std::string type = n.value("type", std::string());
+                resamples = resamples || (n.value("name", std::string()) == node_ && (type == "Scatter" || type == "Resample"));
+            }
+        }
+        if (resamples) {
+            try {
+                const GraphDocument doc = loadGraphJson(document_->graphJson());
+                const std::string resolution = doc.graph.strandResolutionNote(doc.node(node_));
+                if (!resolution.empty()) text += (text.empty() ? "" : "\nⓘ ") + resolution;
+            } catch (const std::exception&) {
+            }
         }
     }
     note_->setText(text.empty() ? QString() : QStringLiteral("\u24d8 ") + QString::fromStdString(text));
     note_->setVisible(!text.empty());
+    error_->setText(error.empty() ? QString() : QStringLiteral("⚠ ") + QString::fromStdString(error));
+    error_->setToolTip(QString::fromStdString(error));
+    error_->setVisible(!error.empty());
+    fitWrappedLabels();
+}
+
+void ParamPanel::fitWrappedLabels() {
+    // The wrapped lines under the title keep every line: the rows' scroll area gives way, not them.
+    const int w = width() >= 212 && width() <= 432 ? width() - 12 : 300;  // (not laid out yet: the Node panel's)
+    for (QLabel* label : {description_, note_, error_}) {
+        label->setMinimumHeight(label->isHidden() || label->text().isEmpty() ? 0 : label->heightForWidth(w));
+    }
+}
+
+void ParamPanel::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    fitWrappedLabels();
 }
 
 QString ParamPanel::note() const { return note_->isVisible() ? note_->text() : QString(); }
+
+QString ParamPanel::error() const { return error_->isHidden() ? QString() : error_->text(); }
 
 void ParamPanel::clearForm() {
     while (QLayoutItem* item = list_->takeAt(0)) {
@@ -254,8 +309,9 @@ QWidget* ParamPanel::attributeEditor(Row& row, const json& p, const json& value,
     h->setSpacing(6);
     auto* chip = new QLabel(writes ? tr("Writes") : tr("Reads"), host);
     chip->setObjectName(QStringLiteral("attributeUse"));
-    chip->setStyleSheet(writes ? QStringLiteral("QLabel { background: #D69646; color: #1B1A18; border-radius: 6px; padding: 1px 6px; font-weight: 700; }")
-                               : QStringLiteral("QLabel { background: #5A96DC; color: #10161E; border-radius: 6px; padding: 1px 6px; font-weight: 700; }"));
+    const QColor chipFill = writes ? theme::graphWrites() : theme::graphReads();
+    chip->setStyleSheet(QStringLiteral("QLabel { background: %1; color: %2; border-radius: 6px; padding: 1px 6px; font-weight: 700; }")
+                            .arg(chipFill.name(), theme::readableOn(chipFill).name()));
     chip->setToolTip(writes ? tr("Writes the attribute named here: a value per strand that nodes after it read by name. A name a node "
                                  "upstream writes is overwritten from here on.")
                             : tr("Reads the attribute named here, written by a node upstream (the list shows those reaching this node "
@@ -308,7 +364,7 @@ QWidget* ParamPanel::attributeEditor(Row& row, const json& p, const json& value,
     }
     v->addLayout(h);
     QString note;
-    QString color = QStringLiteral("#96999F");
+    QString color = theme::graphNote().name();
     if (writes) {
         QString over;
         for (const json& o : channels.value("overwrites", json::array())) {
@@ -317,7 +373,7 @@ QWidget* ParamPanel::attributeEditor(Row& row, const json& p, const json& value,
         }
         if (!over.isEmpty()) {
             note = QStringLiteral("\u26a0 overwrites ") + over;
-            color = QStringLiteral("#EBAA3C");
+            color = theme::graphWarning().name();
         }
     } else {
         for (const json& r : channels.value("reads", json::array())) {
@@ -360,7 +416,9 @@ QWidget* ParamPanel::numberEditor(Row& row, const json& p, const json& value, co
     const bool unitHolds = unitWhen.is_null() || conditionHolds(unitWhen, document_->paramOrDefault(node_, unitWhen.value("param", std::string())));
     row.unit = unitHolds ? p.value("unit", std::string()) : std::string();
     row.unitWhen = unitWhen;
-    const DisplayUnit unit = displayUnit(row.unit, integer);
+    // Simulate's gravity is a length per second squared: its number carries "/s²" (scene units).
+    const std::string shownUnit = (row.unit == "length" && name == "gravity") ? std::string("acceleration") : row.unit;
+    const DisplayUnit unit = displayUnit(shownUnit, integer, p.value("decimals", -1));
     const double f = unit.factor;
     row.factor = f;
     const double defaultValue = (p.value("default", json(0.0)).is_number() ? p["default"].get<double>() : 0.0) * f;
@@ -379,13 +437,12 @@ QWidget* ParamPanel::numberEditor(Row& row, const json& p, const json& value, co
         slider->setStep(std::max(0.001, (range.second - range.first) / 200.0));
         slider->setLimits(lowest, highest);
     }
-    if (!unit.suffix.isEmpty()) {
-        const QString suffix = unit.suffix;
-        const int decimals = unit.decimals;
-        slider->setFormat([suffix, decimals, integer](double v) {
-            return (integer ? QString::number(std::lround(v)) : QString::number(v, 'f', decimals)) + suffix;
-        });
-    }
+    // The number with the spec's decimals, trailing zeros dropped (0.35, not 0.350), then the unit.
+    const QString suffix = unit.suffix;
+    const int decimals = unit.decimals;
+    slider->setFormat([suffix, decimals, integer](double v) {
+        return (integer ? QString::number(std::lround(v)) : trimmedNumber(v, decimals)) + suffix;
+    });
     slider->setValue(value.is_number() ? value.get<double>() * f : defaultValue);
     // A drag previews every step and records one edit from where it started when the mouse
     // goes up; a typed value or a wheel step comes as a press, a change and a release at once.
@@ -415,6 +472,7 @@ void ParamPanel::build() {
     updating_ = true;
     clearForm();
     note_->hide();  // shown again for a node with one
+    error_->hide();
     const json* spec = document_ && !node_.empty() ? document_->nodeSpec(node_) : nullptr;
     title_->setVisible(spec != nullptr);
     description_->setVisible(spec != nullptr);
@@ -433,11 +491,12 @@ void ParamPanel::build() {
         updateGeometry();
         return;
     }
-    title_->setText(QString::fromStdString(node_ + "  (" + spec->value("type", std::string()) + ")"));
+    // The type by its label ("Linked Groom" for a Reference node), as every host shows it.
+    title_->setText(QString::fromStdString(node_ + "  (" + nodeLabel(spec->value("type", std::string())) + ")"));
     const auto [saved, newest] = document_->nodeVersion(node_);
     if (saved < newest) {
         // Saved with an older behaviour of its operator: Upgrade gives it the newest.
-        const QString opType = QString::fromStdString(spec->value("type", std::string()));
+        const QString opType = QString::fromStdString(nodeLabel(spec->value("type", std::string())));
         upgrade_->setToolTip(tr("This %1 keeps the behaviour of version %2, as it was saved; %1 nodes are at version %3 now.\n"
                                 "Upgrade: it evaluates as new %1 nodes do (its result may change). One undo step.")
                                  .arg(opType)
@@ -613,10 +672,12 @@ void ParamPanel::build() {
             auto* host = new QWidget(formHost_);
             auto* h = new QHBoxLayout(host);
             h->setContentsMargins(0, 0, 0, 0);
+            // The spec's decimals (the catalog's, as every host shows them), trailing zeros dropped.
+            const int decimals = p.value("decimals", 3);
             for (int k = 0; k < 3; ++k) {
-                auto* spin = new QDoubleSpinBox(host);
+                auto* spin = new TrimmedSpinBox(host);
                 spin->setRange(-1e9, 1e9);
-                spin->setDecimals(3);
+                spin->setDecimals(std::max(0, decimals));
                 spin->setSingleStep(0.01);
                 spin->setKeyboardTracking(false);
                 spin->setMinimumWidth(56);
@@ -931,8 +992,13 @@ QSize ParamPanel::sizeHint() const {
     // As tall as the rows (the host sizes the floating panel to this, within the view; the rows
     // scroll past that): the title, the description and the bypass box over the form.
     int height = 12;
-    for (QWidget* w : {static_cast<QWidget*>(title_), static_cast<QWidget*>(description_), static_cast<QWidget*>(bypass_), static_cast<QWidget*>(empty_)}) {
+    for (QWidget* w : {static_cast<QWidget*>(title_), static_cast<QWidget*>(bypass_), static_cast<QWidget*>(evaluation_), static_cast<QWidget*>(empty_)}) {
         if (w->isVisibleTo(const_cast<ParamPanel*>(this))) height += w->sizeHint().height() + 6;
+    }
+    // The wrapped lines (the error, the description, the note) at the panel's width, every line.
+    const int w = width() >= 212 && width() <= 432 ? width() - 12 : 300;  // (not laid out yet: the Node panel's)
+    for (QLabel* label : {error_, description_, note_}) {
+        if (label->isVisibleTo(const_cast<ParamPanel*>(this)) && !label->text().isEmpty()) height += label->heightForWidth(w) + 6;
     }
     if (scroll_->isVisibleTo(const_cast<ParamPanel*>(this))) height += formHost_->sizeHint().height() + 6;
     return QSize(300, height);

@@ -58,6 +58,8 @@ QColor textDim();      // #B8B4AC, slider captions
 QColor textMuted();    // #8F8B84, shortcuts and counts; solid: ui.textDim
 QColor track();        // a slider's unfilled track: white at 12%
 QColor chip();         // a small button at rest: white at 8%
+QColor chipSoft();     // a quieter one (More settings): white at 6%
+QColor chipChecked();  // a glass button checked (a rail panel open, the Graph pill): white at 18%
 QColor divider();      // white at 12%
 QColor renderRed();    // the Render pill: #E5383B; solid: the accent (the primary action)
 QColor backdrop();     // the viewport's default clear color: #17181B; solid: ui.background
@@ -78,6 +80,13 @@ QColor sliderFill(const QColor& own);
 // solid theme the accent pill and the accent's text.
 QColor actionFill(const QColor& own);
 QColor actionText(const QColor& own);
+// Words that say something went wrong or needs a look (an export's failure, a node's error
+// line): the theme's ui.error and ui.warning, readable on the panels.
+QColor errorText();
+QColor warningText();
+QColor linkText();           // a link in rich text (About, the update notice)
+QColor windowButton();       // a window's plain button (Transfer, Guides from Photos): ui.raised
+QColor windowButtonHover();  // ... hovered: ui.hover
 // The theme's "ui" color of that key ("panel", "hover", "accent", "accentText"...); invalid for
 // an unknown one.
 QColor uiColor(const std::string& key);
@@ -120,6 +129,15 @@ QColor portColor(const std::string& type);
 QColor nodeBody();  // #2A2C31 (opaque: the groom shows between nodes, not through them)
 QColor nodeBorder();       // graph.nodeBorder: drawn when it differs from the body
 QColor nodeSelected();     // graph.selected: the selected node's ring and wire
+// The graph's status colors, as Maya's Graph Editor draws them: a failing node's badge
+// (graph.error), a warning, a note (it does nothing as set), a param driven by a port, and the
+// attribute chips (a param that reads a strand attribute, one that writes it).
+QColor graphError();
+QColor graphWarning();
+QColor graphNote();
+QColor graphDriven();
+QColor graphReads();
+QColor graphWrites();
 qreal nodeRadius();        // graph.cornerRadius (14 in Playful)
 bool tintedHeaders();      // graph.headerStyle "tinted": a wash and an accent bar, else filled
 
@@ -175,6 +193,7 @@ struct OverlayRequest {
     bool graphShown = false;   // the node graph is up: the close button joins the pills
     int graphToolsWidth = 0;   // the Presets pill (and, with the graph, the gap and the close button)
     bool barShown = true;      // the brush bar is up (Groom mode): it keeps clear of the pills
+    int railLabelsWidth = 0;   // the rail's width with its names shown (View > Rail Labels; 0: icons alone)
     QSize refine{160, 16};
 };
 OverlayLayout layoutOverlay(const OverlayRequest& request, const OverlayMetrics& metrics = OverlayMetrics());

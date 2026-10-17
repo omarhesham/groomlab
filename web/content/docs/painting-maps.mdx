@@ -5,14 +5,27 @@ description: Painting maps that drive node parameters - guide, vertex and textur
 
 <Example name="paint-maps.png" alt="A painted clump-strength map shown on the scalp, with the Paint tab" caption="Groom Tools > Paint: a map of clump strength, displayed on the scalp" />
 
+<Callout title="In the app and in Blender">
+  **App:** open **Maps** on the right rail (Groom mode). **New map** has the same **For** list;
+  **Create** makes the map and starts the brush on it. **Paint this map** paints any other map, and
+  **Show on scalp** shows it. A mappable param's **Paint** pill in **Node Settings** works like the
+  Graph Editor's **Paint** chip below. Convert, Fill on an existing map and image import or relink
+  are in Maya only for now ([GroomLab app](/docs/app#painting-maps)).
+
+  **Blender:** **N** > **GroomLab** tab > **Groom Tools** > **Paint** tab: **New Map** (with
+  **For**), the **Paint** tool, **Fill** and **Show on**. A mappable param's **Paint** button in the
+  Graph Editor's **Node** sidebar works the same way ([Blender](/docs/blender#paint-maps)).
+</Callout>
+
 ## Paint a parameter
 
 1. In Groom Tools > **Paint**, click **+ New Map** and set **For** to a setting: **Density**,
    **Width**, **Length**, **Clump strength**, **Curl**, **Noise amplitude**, **Flyaways**, or
    **Other setting...** to pick any mappable parameter of the graph. Choose where the map lives
    (**On the scalp's vertices** by default, **A texture**, or **On the guides**) and click OK.
-   Or, in the Graph Editor, right-click a parameter and choose **Paint** > **On Guides**,
-   **On Scalp Vertices** or **As Texture**: it does the same.
+   Or, in the Graph Editor, click the yellow **Paint** chip on a mappable parameter's row, or
+   right-click the parameter and choose **Paint** > **On Guides**, **On Scalp Vertices** or **As
+   Texture**: it does the same.
 2. A white map named `<node>_<parameter>` is created, a **Map** node connects it to the
    parameter, the map is selected and the **Paint** brush starts on it, all in one undo step. If
    the parameter already reads a map, that map is selected instead and nothing new is made.

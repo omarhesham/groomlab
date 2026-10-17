@@ -32,6 +32,17 @@ FIXED = {"fraction": ("percent", "%", 100.0), "angle": ("deg", u"°", 1.0), "tur
          "seconds": ("s", "s", 1.0), "pixels": ("px", "px", 1.0)}
 
 
+# Params whose number is a rate of their unit over time (the spec's unit measures the length part):
+# (node type, param) -> what follows the unit. Simulate's gravity is 980 cm/s², not 980 cm.
+PER_TIME = {("Simulate", "gravity"): u"/s²"}
+
+
+def param_label(kind, op_type=None, param=None):
+    """The unit shown after a param's field: label(kind), and "/s²" for an acceleration (PER_TIME)."""
+    text = label(kind)
+    return text + PER_TIME.get((op_type, param), "") if text else text
+
+
 def _var(kind):
     return "groomLabUnit_" + kind
 

@@ -35,6 +35,8 @@ global proc AEgroomLabColorReplace(string $attr) { python("import groomlab.ui.ae
 
 global proc AEgroomLabShapeTemplate(string $nodeName)
 {
+    // The Controls section's sliders (keyable ctl_ attributes Control nodes add): folded while there are none.
+    string $controls[] = `listAttr -userDefined -string "ctl_*" $nodeName`;
     editorTemplate -beginScrollLayout;
 
         // The groom at a glance, and the two windows everything is done in.
@@ -51,24 +53,17 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
         // What the groom is made from: always visible, and changeable here.
         editorTemplate -beginLayout "Inputs" -collapse 0;
             editorTemplate -callCustom "AEgroomLabInputsNew" "AEgroomLabInputsReplace" "inMesh";
-            editorTemplate -annotation ("Evaluate the groom on the rest mesh and carry each strand to the scalp by its root "
-                + "(a rigid turn and move, no stretch): the groom keeps its rest shape and only the carrying runs per "
-                + "frame. Needs a rest mesh. Guide curves and simulated or cached guides keep their place; colliders, "
-                + "ImportCurves, Wind's direction and world-space noise are read at rest (they do not follow the head).")
+            editorTemplate -annotation ("Evaluate on the rest mesh and carry each strand rigidly with its root: fast "
+                + "per frame, the rest shape kept. Needs a rest mesh. See the docs (Rigs and follow-the-scalp).")
                 -addControl "followScalp";
-            editorTemplate -annotation ("What the groom's scale follows (it grows with its scalp like a child object: lengths, "
-                + "widths, clumps and guide shapes grow with it, densities thin so the strand count stays). Surface Area: "
-                + "the scalp's world surface at the scene's start frame (scaling the transform, freezing it and a rig "
-                + "scaled at its root all count; editing or remodelling the mesh to another size scales the groom too). "
-                + "Transform Only: the scalp's transform and rig scale at the start frame alone (remodelling leaves the "
-                + "groom as it is; Freeze Transformations resets the transform's scale, so it scales the groom back). "
-                + "Surface Area survives Freeze Transformations; Transform Only survives remodelling. Off: the groom "
-                + "keeps its sizes in scene units.")
+            editorTemplate -annotation ("What the groom's sizes grow with. Surface Area: the scalp's surface at the start "
+                + "frame (survives Freeze Transformations). Transform Only: its transform and rig scale (survives "
+                + "remodelling). Off: fixed scene units.")
                 -addControl "scaleSource";
             editorTemplate -callCustom "AEgroomLabScaleNew" "AEgroomLabScaleReplace" "groomScale";
         editorTemplate -endLayout;
         // Sliders that Control nodes add (keyable ctl_ attributes).
-        editorTemplate -beginLayout "Controls" -collapse 0;
+        editorTemplate -beginLayout "Controls" -collapse (size($controls) == 0);
             editorTemplate -callCustom "AEgroomLabControlsNew" "AEgroomLabControlsReplace" "graph";
         editorTemplate -endLayout;
         // The hair's color: the HairColor node making the output, its everyday params here.
@@ -84,7 +79,6 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
             editorTemplate -addControl "displayInstances";
             editorTemplate -addSeparator;
             editorTemplate -addControl "strandColorMode";
-            editorTemplate -addControl "strandColorSource";
             editorTemplate -addControl "strandColorMin";
             editorTemplate -addControl "strandColorMax";
             editorTemplate -beginLayout "Guides" -collapse 1;
@@ -97,8 +91,6 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
                 editorTemplate -addControl "guideDisplaySegments";
                 editorTemplate -addControl "displayLevel";
                 editorTemplate -addControl "guideColorMode";
-                editorTemplate -addControl "guideColorLayer";
-                editorTemplate -addControl "hiddenGuideGroups";
             editorTemplate -endLayout;
             editorTemplate -beginLayout "Strand Shading" -collapse 1;
                 editorTemplate -addControl "displayLighting";
@@ -122,8 +114,6 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
             editorTemplate -addControl "sculptDisplay";
             editorTemplate -addControl "sculptDensity";
             editorTemplate -addControl "softSelectRadius";
-            editorTemplate -addControl "shotSculpt";
-            editorTemplate -addControl "shotLayer";
         editorTemplate -endLayout;
 
         editorTemplate -beginLayout "Game Cards" -collapse 1;
@@ -162,10 +152,12 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
         // Stored data and plumbing: edited through GroomLab's tools, not here.
         string $hidden[] = {"graph", "graphUi", "guideData", "partData", "guideSelection", "lastError", "brushTick",
                             "viewNode", "inMesh", "restMesh", "guideCurves", "simGuides", "guideCache",
-                            "guideCacheObject", "time", "outCards", "correctiveData", "flowData"};
+                            "guideCacheObject", "time", "outCards", "correctiveData", "flowData",
+                            // set by the Groom Tools (the groups' eyes, the color by layer, the shot's
+                            // sculpt), the display's color source by its mode: not settings to type
+                            "hiddenGuideGroups", "guideColorLayer", "strandColorSource", "shotSculpt", "shotLayer"};
         for ($attr in $hidden) editorTemplate -suppress $attr;
         // Controls show in their own section, not under Extra Attributes.
-        string $controls[] = `listAttr -userDefined -string "ctl_*" $nodeName`;
         for ($attr in $controls) editorTemplate -suppress $attr;
 
         AEshapeTemplate $nodeName;

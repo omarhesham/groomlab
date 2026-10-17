@@ -329,7 +329,7 @@ def _keymap_draw(prefs, context):
                 rna_keymap_ui.draw_kmi([], kc, km, kmi, col, 0)
     box = layout.box()
     box.label(text="While a GroomLab tool is active (Maya's keys):")
-    for keys, what in tool_ops.SHORTCUTS:
+    for keys, what in tool_ops.shortcuts():
         row = box.row()
         row.label(text=keys)
         row.label(text=what)

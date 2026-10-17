@@ -196,6 +196,8 @@ std::string GroomStats::toJson() const {
     out["instances"] = instances;
     out["restEvaluations"] = restEvaluations;
     out["distanceFieldsMade"] = distanceFieldsMade;
+    out["cacheBytes"] = cacheBytes;
+    out["cacheEvictions"] = cacheEvictions;
     out["strokeDocument"] = strokeDocument;
     nlohmann::json sims = nlohmann::json::object();
     for (const SimStatus& s : simulations) {
@@ -290,8 +292,11 @@ void GroomSession::installGraph(std::unique_ptr<GraphDocument> parsed) {
     ++docGeneration_;
     ++graphGeneration_;
     if (sculptDoc_) adopt(sculptDoc_);
+    ++strokeDocGeneration_;
     warmEvaluations_ = warmIncrementals_ = releasedEvaluations_ = releasedIncrementals_ = 0;  // counted since the graph was set
-    shown_[0] = shown_[1] = Shown{};  // other graphs: their serials say nothing of these
+    // (What was shown stays: the nodes the new graph takes on from the old keep their results'
+    // serials, Graph::adoptCache, so the strands a host holds go on incrementally across a param
+    // edit, a Width edit's changes saying the points stayed. Another node's serial never matches.)
     if (cardDoc_) adopt(cardDoc_);
     if (fullDoc_) adopt(fullDoc_);
     for (auto& [density, doc] : meshDocs_) adopt(doc);
@@ -425,6 +430,7 @@ void GroomSession::dropGraph(const std::string& graphJson, const std::string& er
     ++docGeneration_;
     ++graphGeneration_;
     sculptDoc_.reset();
+    ++strokeDocGeneration_;
     warmEvaluations_ = warmIncrementals_ = releasedEvaluations_ = releasedIncrementals_ = 0;
     shown_[0] = shown_[1] = Shown{};
     cardDoc_.reset();
@@ -1563,7 +1569,7 @@ const ViewResult& GroomSession::evaluate(const ViewRequest& request) {
             }
             // Following the scalp: from the rest pose to the scalp now, root by root (or handed on at
             // rest to a host that carries them itself, with what carries them).
-            if (following_ && request.hostCarries && strands && carriesPointsAlone(*strands)) {
+            if (following_ && request.hostCarries && strands && carriesPointsAndInstances(*strands)) {
                 out.strands = strands;
                 const bool same = previousFollow && previousFollow->rest() == strands && previousFollow->from() == followRest_ &&
                                   previousFollow->to() == scalp_;
@@ -1730,6 +1736,24 @@ StrandsPtr GroomSession::evaluate(float density, double seconds, bool buildCards
     const ViewResult& result = evaluate(request);
     if (failure_) std::rethrow_exception(failure_);
     return result.strands;
+}
+
+StrandsPtr GroomSession::viewedAsRendered(float density, double seconds) const {
+    const ViewResult& view = view_;
+    if (!doc_ || failure_ || !view.strands || !view.errors.empty() || hasPreview() || viewSculpt_ || !view.viewedNode.empty()) {
+        return nullptr;
+    }
+    const EvalContext& was = lastViewContext_;
+    if (was.previewDensity != density || was.time != seconds || was.buildCards) return nullptr;
+    const Graph& graph = doc_->graph;
+    for (const NodeId id : graph.nodeIds()) {
+        const Operator& op = graph.node(id);
+        const std::string type = op.typeName();
+        if (type == op::kCompound || type == op::kReference) return nullptr;
+        if (was.viewport && graph.evaluationMode(id) != EvaluationMode::Always) return nullptr;
+        if (was.maxPoints > 0.0 && op.thinnedLastRun()) return nullptr;
+    }
+    return view.placed();
 }
 
 void GroomSession::buildCards(const EvalContext& ctx, float cardDensity, std::vector<SessionMessage>& messages) {
@@ -1986,12 +2010,16 @@ std::shared_ptr<DetachedEvaluation> GroomSession::detachWarm(const ViewRequest& 
     job->warm_ = true;
     job->warmBase_ = sculptDoc_.get();
     job->warmBaseEvaluations_ = sculptDoc_->graph.evaluationCount();
+    job->warmBaseGeneration_ = strokeDocGeneration_;
     return job;
 }
 
 bool GroomSession::adoptWarm(DetachedEvaluation& run) {
     if (!run.warm_ || !run.ran() || run.error_ || !run.doc_ || !sculptDoc_ || hasPreview()) return false;
-    if (sculptDoc_.get() != run.warmBase_ || sculptDoc_->graph.evaluationCount() != run.warmBaseEvaluations_) return false;
+    if (sculptDoc_.get() != run.warmBase_ || sculptDoc_->graph.evaluationCount() != run.warmBaseEvaluations_ ||
+        strokeDocGeneration_ != run.warmBaseGeneration_) {
+        return false;
+    }
     // Not counted, as warmStroke's are not: the copy's evaluations join the warm ones.
     warmEvaluations_ += run.doc_->graph.evaluationCount();
     warmIncrementals_ += run.doc_->graph.incrementalCount();
@@ -2139,6 +2167,7 @@ void GroomSession::releaseStroke() {
     releasedIncrementals_ += sculptDoc_->graph.incrementalCount() - warmIncrementals_;
     warmEvaluations_ = warmIncrementals_ = 0;
     sculptDoc_.reset();
+    ++strokeDocGeneration_;
     viewSculpt_ = false;
     shown_[1] = Shown{};
 }
@@ -2401,6 +2430,8 @@ GroomStats GroomSession::stats() const {
     }
     if (doc_) {
         const GraphDocument& doc = *viewDoc();  // the times, notes and channels of the last view's evaluation
+        out.cacheBytes = doc.graph.cachedBytes();
+        out.cacheEvictions = doc.graph.cacheEvictions();
         activeHairColor(*doc_, &out.hairColor);
         activeNode(*doc_, "RenderData", &out.renderData);
         // Every color node making the output (HairColor, Bands, FeatherColor), in the same walk's
@@ -2427,14 +2458,22 @@ GroomStats GroomSession::stats() const {
     }
     out.scalpHistoryFrames = scalpHistoryFrames(v.viewedNode);
     // The instances whose strand the view has (what resolve would place), counted without placing them.
+    // Counted once per result (a host asks for stats after every evaluation, and between them).
     if (strands && strands->instances() && !strands->instances()->empty()) {
-        std::unordered_map<std::uint64_t, std::size_t> index;  // as InstanceSet::resolve finds a strand
-        index.reserve(strands->strandCount());
-        for (std::size_t s = 0; s < strands->strandCount(); ++s) index.emplace(strands->ids()[s], s);
-        for (const auto& placed : strands->instances()->instances) {
-            const auto it = index.find(placed.strand);
-            if (it != index.end() && strands->strandPointCount(it->second) > 0) ++out.instances;
+        if (instancesCountedOn_.lock() != strands || instancesCounted_.lock() != strands->instances()) {
+            std::unordered_map<std::uint64_t, std::size_t> index;  // as InstanceSet::resolve finds a strand
+            index.reserve(strands->strandCount());
+            for (std::size_t s = 0; s < strands->strandCount(); ++s) index.emplace(strands->ids()[s], s);
+            std::size_t count = 0;
+            for (const auto& placed : strands->instances()->instances) {
+                const auto it = index.find(placed.strand);
+                if (it != index.end() && strands->strandPointCount(it->second) > 0) ++count;
+            }
+            instancesCountedOn_ = strands;
+            instancesCounted_ = strands->instances();
+            instanceCount_ = count;
         }
+        out.instances = instanceCount_;
     }
     out.restEvaluations = restEvaluations();
     out.strokeDocument = sculptDoc_ != nullptr;

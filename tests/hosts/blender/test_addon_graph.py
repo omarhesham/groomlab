@@ -129,6 +129,15 @@ class GraphEditorTest(unittest.TestCase):
         offered = [item.label for c in ge._add_categories() for item in c.items(None)]
         self.assertIn("Clump", offered)
         self.assertNotIn("Compound", offered)
+        # The categories, labels and keys are the core's (node_catalog.h, shortcuts.h), not the add-on's.
+        specs = graph.operator_specs()
+        titles = [t for _, t in sorted({(s["categoryOrder"], s["categoryTitle"]) for s in specs.values()})]
+        self.assertEqual([t for t in gt.CATEGORY_TITLES if t in titles], titles)
+        self.assertIn("Linked Groom", offered)  # the Reference node's label
+        self.assertIn("Gravity", cats["Deform"])
+        tool_ops = importlib.import_module(bu.MODULE + ".tool_ops")
+        self.assertTrue(process.running())
+        self.assertEqual(tool_ops.shortcuts(), list(tool_ops.SHORTCUTS))  # the fallback matches the helper's
         self.assertGreater(groom.runtime(self.head).last["strandCount"], 100)
 
     def test_2_edits_in_the_tree(self):
@@ -171,7 +180,7 @@ class GraphEditorTest(unittest.TestCase):
         self.assertIn((name, "color", "strands"), {(c["from"], c["to"], c["input"]) for c in helper_graph(head)["connections"]})
         self.assert_tree_is_graph()
 
-        # Renamed (F2), muted (Disable), deleted (X): the helper's graph follows.
+        # Renamed (F2), muted (Bypass), deleted (X): the helper's graph follows.
         node_of(tree, name).name = "falling"
         settle(head)
         self.assertIn("falling", [n["name"] for n in helper_graph(head)["nodes"]])
@@ -428,7 +437,7 @@ class GraphEditorTest(unittest.TestCase):
         self.assertTrue(node_of(self.tree(), "interpolate").gl_is_output)
         bpy.ops.groomlab.graph_set_output(node=output)
         self.assert_tree_is_graph()
-        # Disable (B).
+        # Bypass (B).
         self.assertEqual(bpy.ops.groomlab.graph_bypass(node="interpolate"), {"FINISHED"})
         self.assertTrue(node_of(self.tree(), "interpolate").mute)
         bpy.ops.groomlab.graph_bypass(node="interpolate")

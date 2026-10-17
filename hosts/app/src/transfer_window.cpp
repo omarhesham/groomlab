@@ -52,7 +52,7 @@ Bounds boundsOf(const ScalpMesh& mesh) {
 // ---- TransferWindow -----------------------------------------------------------------------------
 
 TransferWindow::TransferWindow(MainWindow* main, QWidget* parent) : QWidget(parent, Qt::Window), main_(main) {
-    setWindowTitle(tr("Transfer Groom to Mesh"));
+    setWindowTitle(tr("Transfer Groom to Scalp"));
     setObjectName(QStringLiteral("transferWindow"));
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(10, 10, 10, 10);
@@ -117,7 +117,7 @@ TransferWindow::TransferWindow(MainWindow* main, QWidget* parent) : QWidget(pare
         edited(false);
     });
     options->addWidget(methodBox_);
-    symmetry_ = new QCheckBox(tr("Symmetry X"));
+    symmetry_ = new QCheckBox(tr("Symmetry"));
     symmetry_->setToolTip(tr("A click also adds its mirror across the mesh's middle (x), snapped onto the mesh, as the "
                              "next point on that side; deleting either deletes both"));
     options->addWidget(symmetry_);
@@ -190,8 +190,8 @@ TransferWindow::TransferWindow(MainWindow* main, QWidget* parent) : QWidget(pare
                       "QPushButton { color: %2; background: %3; border: none; border-radius: 8px; padding: 5px 12px; }"
                       "QPushButton:hover { background: %4; } QPushButton:disabled { color: %5; }"
                       "QPushButton:default { background: %6; color: white; }")
-                      .arg(theme::glassSolid().name(QColor::HexRgb), theme::text().name(), QStringLiteral("#3A3C42"),
-                           QStringLiteral("#46484F"), theme::textMuted().name(), theme::blue().name()));
+                      .arg(theme::glassSolid().name(QColor::HexRgb), theme::text().name(), theme::windowButton().name(),
+                           theme::windowButtonHover().name(), theme::textMuted().name(), theme::blue().name()));
     setAttribute(Qt::WA_StyledBackground, true);
     resize(1000, 660);
     methodBox_->setCurrentIndex(0);

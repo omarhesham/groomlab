@@ -3,6 +3,17 @@ title: Presets
 description: The shipped graph presets (hair, fur, feathers, scales, motion, techniques, add-ons), how they scale to your scalp, inserting a preset as a compound, saving your own and sharing a graph as text.
 ---
 
+<Callout title="In the app and in Blender">
+  **App:** the **Presets** pill beside the **Graph** pill (or **View > Graph Presets**, or **Start
+  from a preset** on the start card). Each preset has **Apply** and **Insert after selected node**;
+  **Save as Preset...**, **Copy Graph** and **Paste Graph** are in the same menu
+  ([GroomLab app](/docs/app#presets)).
+
+  **Blender:** **Presets** in the Graph Editor's header, in the sidebar's **GroomLab** tab and in
+  the top bar's **GroomLab** menu, with apply and insert as here. **Create Groom from Selection**
+  asks for a preset to start from ([Blender](/docs/blender#presets-and-the-graph)).
+</Callout>
+
 ## Load one
 
 In the Graph Editor, **Presets** lists the presets by category. Hover a preset for a one-line
@@ -21,7 +32,7 @@ the technique presets).
   strands (frizz is a Noise setting, not a separate node); `curlsControl` is a slider on the
   groom.
 - **Insert instead of replace.** Each preset's submenu has **Apply** (replaces the graph) and
-  **Insert after selected node**: the preset's look (every node between its sources and its
+  **Insert After Selected Node**: the preset's look (every node between its sources and its
   Output) is inserted as one Compound after the selected node (or before the Output), scaled to
   your scalp, in one undo step. The **Add-ons** below are small looks meant for this.
 - **Exposed controls.** An inserted Compound shows the look's main parameters on its own panel
@@ -88,7 +99,7 @@ the body with a Plume node. See [Fur & feathers](/docs/fur-and-feathers).
 
 ## Add-ons
 
-Small looks meant for **Insert after selected node**; each adds one effect to an existing groom.
+Small looks meant for **Insert After Selected Node**; each adds one effect to an existing groom.
 They can also be applied on their own.
 
 | Preset | What it adds |

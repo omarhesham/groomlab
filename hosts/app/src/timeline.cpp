@@ -222,7 +222,7 @@ Timeline::Timeline(QWidget* parent) : GlassPanel(parent, 24.0) {
     simLayout->setSpacing(6);
     auto* divider = new QWidget(sim_);
     divider->setFixedSize(1, 22);
-    divider->setStyleSheet(QStringLiteral("background: rgba(255, 255, 255, 31);"));
+    divider->setStyleSheet(QStringLiteral("background: %1;").arg(theme::divider().name(QColor::HexArgb)));
     simLayout->addWidget(divider);
     simulate_ = actionChip(tr("Simulate"), tr("Simulate the range: every frame into the cache (the emerald strip); scrubbing "
                                                "back reads it"), theme::emeraldChip(), theme::emeraldSoft(), sim_);
@@ -235,7 +235,10 @@ Timeline::Timeline(QWidget* parent) : GlassPanel(parent, 24.0) {
     simLayout->addWidget(clearSim_);
     sim_->hide();
     layout->addWidget(sim_);
-    connect(simulate_, &QAbstractButton::clicked, this, [this] { emit simulateRequested(); });
+    connect(simulate_, &QAbstractButton::clicked, this, [this] {
+        if (simBusy_) emit simulationCancelRequested();
+        else emit simulateRequested();
+    });
     connect(bakeSim_, &QAbstractButton::clicked, this, [this] { emit bakeRequested(); });
     connect(clearSim_, &QAbstractButton::clicked, this, [this] { emit invalidateRequested(); });
 
@@ -364,10 +367,13 @@ void Timeline::setSimulatedFrames(FrameScrubber::Runs cached, FrameScrubber::Run
 }
 
 void Timeline::setSimulationBusy(bool busy) {
-    simulate_->setEnabled(!busy);
+    // Busy, the Simulate button is the run's Cancel (the window lets its click through).
+    simBusy_ = busy;
     bakeSim_->setEnabled(!busy);
     clearSim_->setEnabled(!busy);
-    simulate_->setText(busy ? tr("Simulating") : tr("Simulate"));
+    simulate_->setText(busy ? tr("Cancel") : tr("Simulate"));
+    simulate_->setToolTip(busy ? tr("Stop the simulation (Esc): the frames made so far stay in the cache")
+                               : tr("Simulate the range: every frame into the cache (the emerald strip); scrubbing back reads it"));
 }
 
 void Timeline::refresh() {

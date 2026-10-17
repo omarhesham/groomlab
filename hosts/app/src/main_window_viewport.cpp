@@ -13,6 +13,9 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QImage>
 #include <QLabel>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -194,6 +197,83 @@ bool MainWindow::addEye(const QVector3D& center, const QVector3D& forward, float
     return true;
 }
 
+bool MainWindow::addEyeText(const QString& text) {
+    // As the command line's --eye: cx,cy,cz,fx,fy,fz,r.
+    const QStringList parts = QString(text).replace(QLatin1Char(';'), QLatin1Char(',')).split(QLatin1Char(','), Qt::SkipEmptyParts);
+    float v[7] = {};
+    bool ok = parts.size() == 7;
+    for (int i = 0; ok && i < 7; ++i) v[i] = parts[i].trimmed().toFloat(&ok);
+    if (!ok || v[6] <= 0.0f) {
+        report(tr("An eye takes its center, the way it looks and its radius: cx, cy, cz, fx, fy, fz, r (got %1)").arg(text));
+        return false;
+    }
+    if (!addEye(QVector3D(v[0], v[1], v[2]), QVector3D(v[3], v[4], v[5]), v[6], QString())) return false;
+    notify(tr("Added an eye (Look Settings > Surfaces sets its iris)"));
+    return true;
+}
+
+void MainWindow::chooseProp() {
+    if (!interactive_) {
+        report(tr("Add a prop from the command line in a scripted run: --prop mesh.obj"));
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(this, tr("Add Prop Mesh"), QString(), tr("Meshes (*.obj)"));
+    if (path.isEmpty()) return;
+    const BusyCursor wait;  // (its occlusion is baked)
+    if (addProp(path, QString())) notify(tr("Added the prop %1 (Look Settings > Surfaces shades it)").arg(QFileInfo(path).fileName()));
+}
+
+void MainWindow::askEye() {
+    // A guess in front of the scene (+z, as the heads the presets are made on face): a portrait's
+    // left eye, its radius an eighth of the scene's width; the numbers are the user's to fix.
+    const Bounds b = sceneBounds();
+    QString initial = QStringLiteral("0, 0, 1, 0, 0, 1, 0.12");
+    if (b.valid) {
+        const Vec3f size = b.hi - b.lo;
+        const Vec3f c = (b.lo + b.hi) * 0.5f;
+        auto n = [](float x) { return QString::number(x, 'g', 4); };
+        initial = QStringLiteral("%1, %2, %3, 0, 0, 1, %4")
+                      .arg(n(c.x + size.x * 0.17f), n(c.y - size.y * 0.05f), n(b.hi.z - size.z * 0.08f), n(size.x * 0.06f));
+    }
+    host_->showTextPrompt(tr("Add an eye"),
+                          tr("Its center, the way it looks and its radius (scene units): cx, cy, cz, fx, fy, fz, r. "
+                             "Add another for the other eye."),
+                          initial, tr("Add Eye"), [this](const QString& text) { addEyeText(text); });
+}
+
+void MainWindow::chooseSaveImage() {
+    if (!document_) return;
+    if (!interactive_) {
+        report(tr("Save an image from the command line in a scripted run: --screenshot out.png"));
+        return;
+    }
+    const QString base = document_->path().empty() ? QStringLiteral("groom") : QFileInfo(QString::fromStdString(document_->path())).completeBaseName();
+    const QString path = QFileDialog::getSaveFileName(this, tr("Save Image"), base + QStringLiteral(".png"), tr("Images (*.png *.jpg)"));
+    if (!path.isEmpty()) saveImage(path);
+}
+
+bool MainWindow::saveImage(const QString& path) {
+    if (!document_) {
+        report(tr("No groom open: no image to save"));
+        return false;
+    }
+    // The view at the viewport's size; refined over frames in Look mode (what Render accumulates).
+    const BusyCursor wait;
+    const QSize size = viewport_->size() * viewport_->devicePixelRatioF();
+    const int frames = host_->mode() == OverlayHost::Mode::Look ? 32 : 1;
+    const QImage image = renderOffscreen(size.isEmpty() ? QSize(1280, 720) : size, frames);
+    if (image.isNull()) {
+        report(tr("Cannot render the view to an image (no offscreen device)"));
+        return false;
+    }
+    if (!image.save(path)) {
+        report(tr("Cannot write the image %1").arg(path));
+        return false;
+    }
+    notify(tr("Saved the image %1 (%2x%3)").arg(QFileInfo(path).fileName()).arg(image.width()).arg(image.height()));
+    return true;
+}
+
 bool MainWindow::setPropParam(const QString& text) {
     const int equals = text.indexOf(QLatin1Char('='));
     if (props_.empty() || equals <= 0) {
@@ -227,7 +307,13 @@ void MainWindow::setScalpMaterial(const QString& preset) {
 void MainWindow::report(const QString& text, bool error) {
     lastReport_ = text;
     std::fprintf(stderr, "GroomLab: %s\n", qPrintable(text));
-    if (error && isVisible()) host_->toast(text);
+    if (error && isVisible()) host_->toast(text, true);
+}
+
+void MainWindow::notify(const QString& text) {
+    lastReport_ = text;
+    std::fprintf(stderr, "GroomLab: %s\n", qPrintable(text));
+    if (interactive_ && isVisible()) host_->toast(text, false);
 }
 
 void MainWindow::scheduleStats() {
@@ -259,11 +345,25 @@ void MainWindow::refreshBrushBar() {
     v.radius = s.screenRadius;
     v.strength = s.brush.strength;
     v.hardness = s.brush.hardness;
-    v.mirrorAxis = s.brush.mirrorTopology ? 0 : s.brush.mirrorAxis;
+    v.mirrorAxis = s.brush.mirrorTopology ? 3 : s.brush.mirrorAxis;
     v.pressure = s.pressure;
     host_->bar()->setValues(v);
     const Viewport::ToolMode mode = viewport_->toolMode();
     host_->setTool(mode == Viewport::ToolMode::Brush ? v.mode : std::string(), mode == Viewport::ToolMode::Select);
+}
+
+void MainWindow::toggleSymmetry() {
+    BrushToolSettings& s = brush_.settings();
+    const bool on = s.brush.mirrorTopology || s.brush.mirrorAxis >= 0;
+    if (on) lastSymmetry_ = s.symmetryName();
+    s.setSymmetry(on ? std::string("none") : lastSymmetry_);
+    const std::string name = on ? lastSymmetry_ : s.symmetryName();
+    const QString shown = name == "topology" ? tr("Topology") : tr("World %1").arg(QString::fromStdString(name).toUpper());
+    viewport_->syncView();
+    viewport_->refreshOverlay();
+    brushPanel_->refresh();
+    refreshBrushBar();
+    notify(on ? tr("Symmetry: %1 off").arg(shown) : tr("Symmetry: %1 on").arg(shown));
 }
 
 void MainWindow::setTurntable(bool on) {

@@ -131,10 +131,15 @@ class GraphApiTest(unittest.TestCase):
         # core's, every host's); the new params of Curl, Clump, Noise, Width and Collide are there,
         # choices and all, and a graph using them evaluates on a groom.
         from groomlab.ui import graph_editor as ge
-        shape = dict(ge.categories(self.catalog))["Shape"]
-        for t in ("Gravity", "Displace", "Mirror"):
-            self.assertIn(t, shape)
-            self.assertEqual(ge.category_of(t, self.catalog), "Shape")
+        cats = dict(ge.categories(self.catalog))
+        for t, category in (("Gravity", "Deform"), ("Displace", "Deform"), ("Mirror", "Shape"), ("Collide", "Collide"),
+                            ("Twist", "Look"), ("Cull", "Grow"), ("ToGuides", "Convert"), ("Cards", "Games")):
+            self.assertIn(t, cats[category])  # the core's node catalog: every host lists them so
+            self.assertEqual(ge.category_of(t, self.catalog), category)
+        self.assertEqual(list(cats)[:5], ["Sources", "Grow", "Shape", "Deform", "Collide"])
+        self.assertNotIn("Compound", sum(cats.values(), []))
+        self.assertEqual(ge.label_of("Reference", self.catalog), "Linked Groom")  # files keep "Reference"
+        self.assertEqual(ge.label_of("BlendNeighbors", self.catalog), "Blend Neighbors")
         for t in self.catalog.types():
             self.assertTrue(ge.describe(t, self.catalog), t)  # every node says what it does
         self.assertEqual(ge.describe("NoSuchNode", self.catalog), "")

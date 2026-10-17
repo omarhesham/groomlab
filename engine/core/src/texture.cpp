@@ -28,6 +28,7 @@
 
 #include "groomlab/parallel.h"
 #include "groomlab/random.h"
+#include "groomlab/process_caches.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_FAILURE_USERMSG
@@ -387,6 +388,18 @@ public:
         }
     }
 
+    // Every decode let go (releaseProcessCaches), freed outside the lock.
+    void clear() {
+        std::map<std::string, Entry> drop;
+        std::lock_guard<std::mutex> lock(mutex_);
+        drop.swap(entries_);
+        order_.clear();
+    }
+    std::size_t bytes() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return total();
+    }
+
 private:
     struct Entry {
         std::uint64_t stamp = 0;
@@ -428,6 +441,9 @@ private:
 
 TextureCache& textureCache() {
     static TextureCache cache;
+    static const bool registered =
+        (registerProcessCache("textures", [] { cache.clear(); }, [] { return cache.bytes(); }), true);
+    (void)registered;
     return cache;
 }
 

@@ -68,7 +68,10 @@
 // Flow (the field and scalp its last evaluation traced along, FlowState: the field baked at the
 // vertices, its pins and sinks asked where it asks the field itself; each step's closest point down
 // the scalp's mesh as Tie's routes find them; not over a scalp deformed away from its rest pose), in
-// any order. (Mirror adds and drops strands, new IDs rooted again: the CPU's.)
+// any order. (Mirror adds and drops strands, new IDs rooted again: the CPU's.) A Merge without a
+// seam to blend: the run goes on up its input a, its stages on a's strands alone (the first of the
+// base's: the Merge's cached result with a's points as the first stage up there takes them), b's
+// strands handed on as the Merge last made them; one Merge a run (a drag on b's side is the CPU's).
 // Jiggle with motion to lag behind (its springs over the scalp and history its last evaluation read,
 // operator_state.h jiggleState: each strand's root lag and face's turn made on the CPU as JiggleOp
 // makes them, again for a dragged frequency, damping or history; the strands turned about their
@@ -122,9 +125,12 @@ enum class StageKind {
     // The shapers reading their neighbours or a reference (look_chain.cpp's section of them).
     Smooth, RestoreLength, BlendNeighbors, Tangle, Flow,
     // Jiggle with motion (motion_ops.cpp JiggleOp); MeshCut (mesh_cut_op.cpp).
-    Jiggle, MeshCut
+    Jiggle, MeshCut,
+    // A Merge without a seam to blend (look_ops.cpp MergeOp): the run goes up its input a; b's strands,
+    // as cached, follow a's in the base and are handed on (LookStage::prefix).
+    Merge
 };
-constexpr int kStageKinds = 27;
+constexpr int kStageKinds = 28;
 const char* stageName(StageKind kind);
 constexpr std::size_t kNoStage = static_cast<std::size_t>(-1);
 
@@ -140,6 +146,9 @@ struct LookStage {
     NodeId node = 0;
     std::size_t from = kNoStage, from2 = kNoStage;
     int level = -1;  // a Wet's level (a Clump stage); -1: the node's own stage
+    // Up a Merge's input a (a stage before the chain's Merge): it runs on a's strands alone, the
+    // first of the base's (StageParams::strands); b's follow them as cached.
+    bool prefix = false;
 };
 
 // The run of GPU nodes ending the graph. `base` feeds the first of them: its cached strands are
@@ -231,6 +240,7 @@ std::size_t firstOverridden(const GraphDocument& doc, const LookChain& chain, co
 //           more[0-1] and [2-3]); flag[0] history (the frames it reads, the lags made of them:
 //           JiggleInputs); ramp: the profile (RampAlong).
 //   MeshCut: value[0] offset; flag[0] 1 keep inside (the mesh a hull), 0 outside (an obstacle).
+//   Merge: flag[0] the strands of its input a (the base's first; b's after them, handed on as cached).
 // The shapers reading their neighbours or a reference:
 //   Smooth: value[0] strength (mapped, per strand), [1] scale (0-1); flag[0] its cells (smoothCells);
 //           ramp: the profile.
@@ -248,6 +258,9 @@ struct StageParams {
     float value2[4] = {};
     int flag2[4] = {};
     float more[16] = {};  // more numbers (Transform's vectors), in the constants' octave seeds' rows
+    // The strands it runs on: the base's first strands (a stage up a Merge's input a: LookStage::
+    // prefix; its inputs and mapped values are a's), 0 every one.
+    std::size_t strands = 0;
     std::uint64_t seed = 0;
     Ramp ramp;
     bool tabled = false;  // the ramp by point index (RampAlong; Width's and Interpolate's are not)

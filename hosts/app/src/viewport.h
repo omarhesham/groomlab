@@ -8,8 +8,8 @@
 // frame, a resize, a hover) and, in refine mode, again after each frame while the renderer says
 // another would improve the image, so the picture keeps converging while nothing moves.
 //
-// Keys: B enters brush mode (held: a left drag sets the radius, Shift+drag the strength), S
-// select mode, Escape the camera. Alt with any button is always the camera (Maya's); without
+// Keys: B enters brush mode (held: a left drag sets the radius, Shift+drag the strength), M
+// held: a left drag sets the strength (brush mode too), S select mode, Escape the camera. Alt with any button is always the camera (Maya's); without
 // Alt the plain buttons orbit, pan and dolly in camera mode. In brush mode a left drag strokes
 // (Ctrl: the opposite, Shift: smooth, Shift+click: solo the guide and pick its level), the middle button sets the
 // radius (Shift: the strength), the right orbits; in select mode a left click or box picks
@@ -122,6 +122,7 @@ private:
     float dragStart_ = 0.0f;  // the radius or strength when its drag started
     bool bHeld_ = false;      // B is down: a left drag sizes the brush
     bool bDragged_ = false;   // ... and did, so releasing B keeps the mode
+    bool mHeld_ = false;      // M is down: a left drag sets the brush strength
     float tabletPressure_ = 1.0f;
     bool tabletDown_ = false;  // a pen is pressed: its pressure scales the stroke
     bool initialized_ = false;

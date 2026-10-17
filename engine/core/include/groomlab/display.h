@@ -375,6 +375,10 @@ struct DisplayInputs {
     // written again only where the strands changed (DisplayItem::updated). 0: not known.
     std::uint64_t strandsSerial = 0, changesBase = 0;
     ChangesPtr strandsChanges;
+    // Following the scalp: `strands` handed on at rest, which the host carries to the scalp now
+    // itself (ViewResult::follow: Maya's viewport, on the GPU). What rides on them that the builder
+    // draws, the instances, it places on their strands carried. Null: the strands are where they are.
+    FollowCarryPtr follow;
     bool stroke = false;  // a brush stroke is live (sculptDisplay)
     // Guide selection weights (1 selected, below soft) and a hash of what they come from: asked
     // only when the selection rebuilds.
@@ -695,6 +699,14 @@ private:
     // their hash: hashed once per set of centers, not on every update.
     std::shared_ptr<const std::vector<Vec3f>> clumpCentersHashed_;
     std::uint64_t clumpCentersHash_ = 0;
+    // The instances as last built (buildInstances): their set (held, so the pointer names it), the
+    // strands' serial they sit on, a key of those strands' points (kept while later strands hold the
+    // same points: StrandChanges::pointsKept) and a digest of their widths (scaled by width).
+    std::shared_ptr<const InstanceSet> instancesOf_;
+    std::uint64_t instancesSerial_ = 0, instancesVersion_ = 0, instancesPoints_ = 0, instancesWidths_ = 0;
+    // Following the scalp (DisplayInputs::follow): the strands at rest holding instances (a subset
+    // of instancedFrom_'s), carried to the scalp on every update the instances are placed again.
+    StrandsPtr instancedFrom_, instancedRest_;
     std::uint64_t strandShape_ = ~std::uint64_t{0};
     std::uint64_t pullVersion_ = ~std::uint64_t{0};
     std::uint64_t counter_ = 0;

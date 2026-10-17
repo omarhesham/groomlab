@@ -4,11 +4,17 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
+#include <tuple>
 
+#include <QClipboard>
 #include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QCursor>
+#include <QGuiApplication>
+#include <QHelpEvent>
 #include <QKeyEvent>
+#include <QToolTip>
 #include <QMenu>
 #include <QLabel>
 #include <QLineF>
@@ -26,6 +32,9 @@
 #include "theme.h"
 #include "viewport.h"
 
+#include "groomlab/graph.h"
+#include "groomlab/node_catalog.h"
+
 namespace groomlab::app {
 
 namespace {
@@ -41,6 +50,17 @@ constexpr qreal kRowGap = 120.0;
 // Dark words on a bright header (yellow, white, emerald), white on the others; a tinted header
 // (a wash of the category color) takes the theme's text.
 QColor headerText(const QColor& fill) { return theme::tintedHeaders() ? theme::text() : theme::readableOn(fill); }
+
+// Where pasted and duplicated nodes go: beside what they were copied from (Maya's paste offset).
+constexpr qreal kPasteOffsetX = 40.0, kPasteOffsetY = 60.0;
+
+// A backdrop's title bar and its resize grip (the corner), scene units, as Maya's BackdropItem.
+constexpr qreal kBackdropHeader = 28.0, kBackdropGrip = 14.0;
+// Its colors as Maya's backdrop menu offers them.
+const std::pair<const char*, QColor> kBackdropColors[] = {
+    {QT_TRANSLATE_NOOP("NodeGraphView", "Blue"), QColor(70, 90, 120)},     {QT_TRANSLATE_NOOP("NodeGraphView", "Green"), QColor(70, 120, 80)},
+    {QT_TRANSLATE_NOOP("NodeGraphView", "Purple"), QColor(110, 80, 130)}, {QT_TRANSLATE_NOOP("NodeGraphView", "Amber"), QColor(140, 110, 50)},
+    {QT_TRANSLATE_NOOP("NodeGraphView", "Gray"), QColor(90, 92, 98)}};
 
 }  // namespace
 
@@ -60,10 +80,21 @@ NodeGraphView::NodeGraphView(QWidget* parent) : QWidget(parent) {
     searchEdit_->setFont(theme::uiFont(14, 600));
     searchList_ = new QListWidget(search_);
     searchList_->setFont(theme::uiFont(13, 500));
+    // The current type's description under the list (Maya's search shows it there too).
+    searchAbout_ = new QLabel(search_);
+    searchAbout_->setWordWrap(true);
+    searchAbout_->setFont(theme::uiFont(11, 500));
+    searchAbout_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
+    searchAbout_->setMinimumHeight(44);
+    searchAbout_->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     layout->addWidget(searchEdit_);
     layout->addWidget(searchList_, 1);
-    search_->resize(260, 320);
+    layout->addWidget(searchAbout_);
+    search_->resize(320, 380);
     search_->hide();
+    connect(searchList_, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item, QListWidgetItem*) {
+        if (item) searchAbout_->setText(item->toolTip());
+    });
     connect(searchEdit_, &QLineEdit::textChanged, this, &NodeGraphView::filterSearch);
     connect(searchEdit_, &QLineEdit::returnPressed, this, &NodeGraphView::addFromSearch);
     connect(searchList_, &QListWidget::itemActivated, this, [this](QListWidgetItem*) { addFromSearch(); });
@@ -124,6 +155,7 @@ void NodeGraphView::setDocument(GroomDocument* document) {
     document_ = document;
     laidOut_.clear();
     selected_.clear();
+    selection_.clear();
     selectedWire_ = -1;
     fitted_ = false;
     refresh();
@@ -159,6 +191,7 @@ void NodeGraphView::rebuild() {
             backdrops_.push_back(std::move(drop));
         }
     }
+    if (selectedBackdrop_ >= static_cast<int>(backdrops_.size())) selectedBackdrop_ = -1;
     for (const GroomDocument::NodeInfo& info : document_->nodes()) {
         Node node;
         node.name = info.name;
@@ -211,14 +244,17 @@ void NodeGraphView::rebuild() {
             if (to.inputs[i].name == c.input) wire.input = static_cast<int>(i);
         }
         if (wire.input < 0) continue;  // a Field port the spec does not list: not drawn
-        wire.path = wirePath(outputPos(from, wire.output), inputPos(to, wire.input));
+        wire.path = wirePathFor(wire);
         wires_.push_back(wire);
     }
     if (selectedWire_ >= static_cast<int>(wires_.size())) selectedWire_ = -1;
+    selection_.erase(std::remove_if(selection_.begin(), selection_.end(), [&](const std::string& n) { return index(n) < 0; }), selection_.end());
     if (!selected_.empty() && index(selected_) < 0) {
-        selected_.clear();
+        selected_ = selection_.empty() ? std::string() : selection_.back();
         emit selectionChanged(selected_);
     }
+    // A viewed node gone (removed, renamed): the output shows again.
+    if (!viewed_.empty() && index(viewed_) < 0) setViewedNode({});
 }
 
 void NodeGraphView::autoLayout() {
@@ -279,11 +315,56 @@ QPointF NodeGraphView::outputPos(const Node& node, int port) const {
     return QPointF(node.pos.x() + node.size.width(), node.pos.y() + kHeader + kBodyPadding + kRow * (port + 0.5));
 }
 
-QPainterPath NodeGraphView::wirePath(const QPointF& from, const QPointF& to) const {
+QPainterPath NodeGraphView::wirePath(const QPointF& from, const QPointF& to, qreal below) const {
     QPainterPath path(from);
-    const qreal dx = std::max(60.0, std::abs(to.x() - from.x()) * 0.5);
-    path.cubicTo(from + QPointF(dx, 0), to - QPointF(dx, 0), to);
+    if (to.x() >= from.x() + 30.0) {
+        const qreal dx = std::max(60.0, std::abs(to.x() - from.x()) * 0.5);
+        path.cubicTo(from + QPointF(dx, 0), to - QPointF(dx, 0), to);
+        return path;
+    }
+    // Backwards (the input left of the output): out to the right, down under both nodes, back
+    // along under them, up into the input from its left, so the wire never crosses the cards.
+    const qreal y = std::isnan(below) ? std::max(from.y(), to.y()) + 60.0 : below + 24.0;
+    constexpr qreal r = 40.0;
+    path.cubicTo(from + QPointF(r, 0), QPointF(from.x() + r, y), QPointF(from.x(), y));
+    path.lineTo(to.x(), y);
+    path.cubicTo(QPointF(to.x() - r, y), to - QPointF(r, 0), to);
     return path;
+}
+
+QPainterPath NodeGraphView::wirePathFor(const Wire& wire) const {
+    const Node& from = nodes_[wire.from];
+    const Node& to = nodes_[wire.to];
+    const qreal below = std::max(from.pos.y() + from.size.height(), to.pos.y() + to.size.height());
+    return wirePath(outputPos(from, wire.output), inputPos(to, wire.input), below);
+}
+
+int NodeGraphView::nodeIndex(const std::string& name) const {
+    for (std::size_t i = 0; i < nodes_.size(); ++i) {
+        if (nodes_[i].name == name) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool NodeGraphView::isSelected(const std::string& name) const {
+    return std::find(selection_.begin(), selection_.end(), name) != selection_.end();
+}
+
+QRectF NodeGraphView::nodeRect(const std::string& node) const {
+    const int i = nodeIndex(node);
+    if (i < 0) return {};
+    return QRectF(toWidget(nodes_[i].pos), nodes_[i].size * scale_);
+}
+
+void NodeGraphView::keepSelectedClearOf(const QRect& area) {
+    // The current node under the Node panel: the graph pans left (and up or down no further than
+    // the view) until the node is beside the panel, as Maya keeps the selection in sight.
+    const QRectF node = nodeRect(selected_);
+    if (node.isEmpty() || !node.intersects(QRectF(area))) return;
+    const qreal shift = node.right() - area.left() + 24.0;
+    if (node.left() - shift < 8.0 && node.width() + 32.0 > area.left()) return;  // no room left of the panel
+    pan_.rx() -= shift;
+    update();
 }
 
 void NodeGraphView::fitAll() {
@@ -303,17 +384,77 @@ void NodeGraphView::fitAll() {
     update();
 }
 
+void NodeGraphView::frameSelected() {
+    int index = -1;
+    for (std::size_t i = 0; i < nodes_.size(); ++i) {
+        if (nodes_[i].name == selected_) index = static_cast<int>(i);
+    }
+    if (index < 0 || width() <= 0 || height() <= 0) {
+        fitAll();
+        return;
+    }
+    const QRectF bounds = QRectF(nodes_[index].pos, nodes_[index].size).adjusted(-60, -60, 60, 60);
+    const QRectF view(fitMargins_.left(), fitMargins_.top(), std::max(100, width() - fitMargins_.left() - fitMargins_.right()),
+                      std::max(100, height() - fitMargins_.top() - fitMargins_.bottom()));
+    scale_ = std::clamp(std::min(view.width() / bounds.width(), view.height() / bounds.height()), 0.55, 1.0);
+    pan_ = view.center() - bounds.center() * scale_;
+    fitted_ = true;
+    update();
+}
+
 void NodeGraphView::setFitMargins(const QMargins& margins) {
+    if (margins == fitMargins_) return;
     fitMargins_ = margins;
     if (fitted_ && isVisible()) fitAll();
 }
 
 void NodeGraphView::selectNode(const std::string& name) {
-    if (name == selected_) return;
-    selected_ = name;
+    const std::vector<std::string> only = name.empty() ? std::vector<std::string>() : std::vector<std::string>{name};
+    if (selectedBackdrop_ >= 0) {
+        selectedBackdrop_ = -1;
+        update();
+    }
+    if (name == selected_ && selection_ == only) return;
+    selection_ = only;
     selectedWire_ = -1;
     update();
+    if (name == selected_) return;
+    selected_ = name;
     emit selectionChanged(selected_);
+}
+
+void NodeGraphView::setSelection(const std::vector<std::string>& names) {
+    std::vector<std::string> kept;
+    for (const std::string& n : names) {
+        if (nodeIndex(n) >= 0 && std::find(kept.begin(), kept.end(), n) == kept.end()) kept.push_back(n);
+    }
+    selection_ = kept;
+    selectedWire_ = -1;
+    selectedBackdrop_ = -1;
+    update();
+    const std::string current = kept.empty() ? std::string() : kept.back();
+    if (current == selected_) return;
+    selected_ = current;
+    emit selectionChanged(selected_);
+}
+
+void NodeGraphView::selectInRect(const QRectF& widgetRect, bool add) {
+    const QRectF scene(toScene(widgetRect.topLeft()), toScene(widgetRect.bottomRight()));
+    std::vector<std::string> names = add ? selection_ : std::vector<std::string>();
+    for (const Node& n : nodes_) {
+        if (QRectF(n.pos, n.size).intersects(scene.normalized()) && std::find(names.begin(), names.end(), n.name) == names.end()) {
+            names.push_back(n.name);
+        }
+    }
+    // The current node stays current when it is still selected (its params keep showing).
+    if (!selected_.empty()) {
+        const auto it = std::find(names.begin(), names.end(), selected_);
+        if (it != names.end()) {
+            names.erase(it);
+            names.push_back(selected_);
+        }
+    }
+    setSelection(names);
 }
 
 int NodeGraphView::nodeAt(const QPointF& scene) const {
@@ -360,6 +501,28 @@ QRectF NodeGraphView::bypassButtonRect(const Node& node) const {
     return QRectF(node.pos.x() + node.size.width() - 26, node.pos.y() + 5, 18, 18);
 }
 
+int NodeGraphView::backdropTitleAt(const QPointF& scene, bool* grip) const {
+    for (int i = static_cast<int>(backdrops_.size()) - 1; i >= 0; --i) {
+        const QRectF& r = backdrops_[i].rect;
+        if (QRectF(r.right() - kBackdropGrip, r.bottom() - kBackdropGrip, kBackdropGrip, kBackdropGrip).contains(scene)) {
+            if (grip) *grip = true;
+            return i;
+        }
+        if (QRectF(r.topLeft(), QSizeF(r.width(), kBackdropHeader)).contains(scene)) {
+            if (grip) *grip = false;
+            return i;
+        }
+    }
+    return -1;
+}
+
+int NodeGraphView::backdropAt(const QPointF& scene) const {
+    for (int i = static_cast<int>(backdrops_.size()) - 1; i >= 0; --i) {
+        if (backdrops_[i].rect.contains(scene)) return i;
+    }
+    return -1;
+}
+
 bool NodeGraphView::bypassButtonAt(const QPointF& scene, int* node) const {
     for (std::size_t i = 0; i < nodes_.size(); ++i) {
         if (bypassButtonRect(nodes_[i]).contains(scene)) {
@@ -374,6 +537,7 @@ bool NodeGraphView::bypassButtonAt(const QPointF& scene, int* node) const {
 
 void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected) {
     const QRectF rect(node.pos, node.size);
+    const bool failed = errors_.count(node.name) > 0;
     const QColor color = theme::nodeCategoryColor(node.category);
     const qreal radius = theme::nodeRadius();
     painter.setOpacity(node.bypass ? 0.5 : 1.0);
@@ -418,20 +582,21 @@ void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected)
         const QString ms = t->second < 10.0 ? QString::number(t->second, 'f', 1) : QString::number(std::lround(t->second));
         painter.drawText(QRectF(rect.x(), rect.y(), rect.width() - 30, kHeader), Qt::AlignVCenter | Qt::AlignRight, ms + QStringLiteral(" ms"));
     }
-    // A note (the node does nothing as set): a grey "i" on the node's corner.
+    // A note (the node does nothing as set): a grey "i" on the node's corner (left of the error
+    // badge when the node failed too).
     if (notes_.count(node.name)) {
-        const QPointF corner(rect.right(), rect.top());
+        const QPointF corner(rect.right() - (failed ? 20.0 : 0.0), rect.top());
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(128, 132, 140));
+        painter.setBrush(theme::graphNote());
         painter.drawEllipse(corner, 8.0, 8.0);
         painter.setFont(theme::uiFont(10, 800));
-        painter.setPen(QColor(245, 245, 245));
+        painter.setPen(theme::readableOn(theme::graphNote()));
         painter.drawText(QRectF(corner.x() - 8.0, corner.y() - 8.0, 16.0, 16.0), Qt::AlignCenter, QStringLiteral("i"));
     }
     // When it runs, unless always: a tag under the card.
     if (node.evaluation == "viewportOnly" || node.evaluation == "renderOnly") {
         painter.setFont(theme::uiFont(10, 600));
-        painter.setPen(QColor(142, 150, 158));
+        painter.setPen(theme::textMuted());
         painter.drawText(QRectF(rect.x() + 4, rect.bottom() + 2, rect.width() - 8, 16), Qt::AlignLeft | Qt::AlignVCenter,
                          node.evaluation == "viewportOnly" ? tr("viewport only") : tr("render only"));
     }
@@ -464,11 +629,39 @@ void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected)
         // Room under the ports for the type, dim.
         painter.setPen(theme::textMuted());
         painter.setFont(theme::uiFont(10, 600));
-        painter.drawText(QRectF(rect.x(), rect.bottom() - 16, rect.width(), 14), Qt::AlignCenter, QString::fromStdString(node.type));
+        painter.drawText(QRectF(rect.x(), rect.bottom() - 16, rect.width(), 14), Qt::AlignCenter, QString::fromStdString(nodeLabel(node.type)));
     }
     painter.setOpacity(1.0);
+    // Failed (its evaluation threw): a red ring and a red "!" on the corner, as Maya's error badge.
+    if (failed) {
+        painter.setPen(QPen(theme::graphError(), 2.0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), radius + 3, radius + 3);
+        const QPointF corner(rect.right(), rect.top());
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::graphError());
+        painter.drawEllipse(corner, 9.0, 9.0);
+        painter.setFont(theme::uiFont(12, 900));
+        painter.setPen(theme::readableOn(theme::graphError()));
+        painter.drawText(QRectF(corner.x() - 9.0, corner.y() - 9.0, 18.0, 18.0), Qt::AlignCenter, QStringLiteral("!"));
+    }
+    // Viewed (View Up to Here): a tag over the card, the viewport shows the graph up to here.
+    if (node.name == viewed_) {
+        painter.setFont(theme::uiFont(10, 800));
+        const QString tag = tr("VIEWING");
+        const qreal w = QFontMetricsF(painter.font()).horizontalAdvance(tag) + 14.0;
+        const QRectF pill(rect.x() + 10, rect.y() - 20, w, 16);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::blueLight());
+        painter.drawRoundedRect(pill, 8, 8);
+        painter.setPen(theme::readableOn(theme::blueLight()));
+        painter.drawText(pill, Qt::AlignCenter, tag);
+        painter.setPen(QPen(theme::blueLight(), 1.5, Qt::DashLine));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(rect.adjusted(-5, -5, 5, 5), radius + 5, radius + 5);
+    }
     if (selected) {
-        painter.setPen(QPen(theme::nodeSelected(), 2.0));
+        painter.setPen(QPen(theme::nodeSelected(), node.name == selected_ ? 2.5 : 1.5));
         painter.setBrush(Qt::NoBrush);
         painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), radius + 1, radius + 1);
     }
@@ -478,18 +671,40 @@ void NodeGraphView::paintEvent(QPaintEvent* /*event*/) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
+    // The viewport dims behind the graph, so the cards and wires read over a busy groom.
+    QColor dim = theme::backdrop();
+    dim.setAlpha(110);
+    painter.fillRect(rect(), dim);
+    painter.save();
     painter.translate(pan_);
     painter.scale(scale_, scale_);
-    // The backdrops first: a tinted frame with its title, the groom still showing through.
-    for (const Backdrop& b : backdrops_) {
+    // The backdrops first: a tinted frame with its title bar and resize grip (as Maya's), the
+    // groom still showing through; the selected one ringed.
+    for (std::size_t i = 0; i < backdrops_.size(); ++i) {
+        const Backdrop& b = backdrops_[i];
+        const bool selected = static_cast<int>(i) == selectedBackdrop_;
+        const qreal radius = theme::nodeRadius();
         QColor fill = b.color;
         fill.setAlpha(46);
-        painter.setPen(QPen(QColor(b.color.red(), b.color.green(), b.color.blue(), 120), 1.5));
+        painter.setPen(selected ? QPen(theme::nodeSelected(), 2.0) : QPen(QColor(b.color.red(), b.color.green(), b.color.blue(), 120), 1.5));
         painter.setBrush(fill);
-        painter.drawRoundedRect(b.rect, theme::nodeRadius(), theme::nodeRadius());
+        painter.drawRoundedRect(b.rect, radius, radius);
+        QPainterPath frame;
+        frame.addRoundedRect(b.rect, radius, radius);
+        painter.save();
+        painter.setClipPath(frame);
+        QColor header = b.color;
+        header.setAlpha(120);
+        painter.fillRect(QRectF(b.rect.topLeft(), QSizeF(b.rect.width(), kBackdropHeader)), header);
+        painter.restore();
         painter.setFont(theme::uiFont(14, 800));
         painter.setPen(theme::textSoft());
-        painter.drawText(b.rect.adjusted(14, 8, -14, -8), Qt::AlignTop | Qt::AlignLeft, b.title);
+        const QRectF title(b.rect.left() + 12, b.rect.top(), b.rect.width() - 24, kBackdropHeader);
+        painter.drawText(title, Qt::AlignVCenter | Qt::AlignLeft, QFontMetricsF(painter.font()).elidedText(b.title, Qt::ElideRight, title.width()));
+        painter.setPen(QPen(b.color.lighter(130), 1.5));
+        for (const qreal k : {4.0, 8.0, 12.0}) {
+            painter.drawLine(QPointF(b.rect.right() - k, b.rect.bottom() - 2), QPointF(b.rect.right() - 2, b.rect.bottom() - k));
+        }
     }
     // The wires, the one being dragged with them, then the nodes, the selected one last.
     for (std::size_t i = 0; i < wires_.size(); ++i) {
@@ -508,15 +723,39 @@ void NodeGraphView::paintEvent(QPaintEvent* /*event*/) {
         painter.setBrush(Qt::NoBrush);
         painter.drawPath(wirePath(outputPos(nodes_[dragWireFrom_], dragWirePort_), dragWireTo_));
     }
-    int selectedIndex = -1;
-    for (std::size_t i = 0; i < nodes_.size(); ++i) {
-        if (nodes_[i].name == selected_) {
-            selectedIndex = static_cast<int>(i);
-            continue;
-        }
-        drawNode(painter, nodes_[i], false);
+    // The nodes, the selected ones last (the current one on top).
+    for (const Node& n : nodes_) {
+        if (!isSelected(n.name)) drawNode(painter, n, false);
     }
-    if (selectedIndex >= 0) drawNode(painter, nodes_[selectedIndex], true);
+    for (const Node& n : nodes_) {
+        if (isSelected(n.name) && n.name != selected_) drawNode(painter, n, true);
+    }
+    if (const int current = nodeIndex(selected_); current >= 0) drawNode(painter, nodes_[current], true);
+    painter.restore();
+    // The rubber band.
+    if (drag_ == Drag::Band && !band_.isNull()) {
+        QColor fill = theme::nodeSelected();
+        fill.setAlpha(28);
+        painter.setPen(QPen(theme::nodeSelected(), 1.0, Qt::DashLine));
+        painter.setBrush(fill);
+        painter.drawRect(band_.normalized());
+    }
+    // Why the dragged wire cannot connect here, by the cursor.
+    if (drag_ == Drag::Wire && !wireHint_.isEmpty()) {
+        painter.setFont(theme::uiFont(12, 700));
+        const QFontMetricsF metrics(painter.font());
+        const QPointF at = toWidget(dragWireTo_) + QPointF(14, 14);
+        QRectF box(at, QSizeF(std::min(360.0, metrics.horizontalAdvance(wireHint_) + 20.0), 26.0));
+        if (box.right() > width() - 8) box.moveRight(width() - 8);
+        QColor fill = theme::glassSolid();
+        fill.setAlpha(235);
+        painter.setPen(QPen(theme::graphError(), 1.2));
+        painter.setBrush(fill);
+        painter.drawRoundedRect(box, 8, 8);
+        painter.setPen(theme::errorText());
+        painter.drawText(box.adjusted(10, 0, -10, 0), Qt::AlignVCenter | Qt::AlignLeft,
+                         metrics.elidedText(wireHint_, Qt::ElideRight, box.width() - 20));
+    }
 }
 
 // ---- Mouse ---------------------------------------------------------------------------------------
@@ -578,14 +817,55 @@ void NodeGraphView::mousePressEvent(QMouseEvent* event) {
     }
     node = nodeAt(pressScene_);
     if (node >= 0) {
+        const std::string& name = nodes_[node].name;
+        const Qt::KeyboardModifiers mods = event->modifiers();
+        if (mods.testFlag(Qt::ControlModifier) || mods.testFlag(Qt::ShiftModifier)) {
+            // Ctrl toggles the node in the selection, Shift adds it; no move.
+            std::vector<std::string> names = selection_;
+            const auto it = std::find(names.begin(), names.end(), name);
+            if (it != names.end() && mods.testFlag(Qt::ControlModifier)) names.erase(it);
+            else if (it == names.end()) names.push_back(name);
+            else {
+                names.erase(it);
+                names.push_back(name);  // Shift on a selected node: it becomes the current one
+            }
+            setSelection(names);
+            return;
+        }
         drag_ = Drag::Move;
         dragNode_ = node;
-        selectNode(nodes_[node].name);
+        moveStart_ = nodes_[node].pos;
+        // A node of the selection drags the whole selection; another one is selected alone.
+        if (isSelected(name)) {
+            std::vector<std::string> names = selection_;
+            names.erase(std::find(names.begin(), names.end(), name));
+            names.push_back(name);
+            setSelection(names);
+        } else {
+            selectNode(name);
+        }
+        return;
+    }
+    // A backdrop's title bar: selected and moved with the nodes on it; its corner: resized.
+    bool grip = false;
+    if (const int b = backdropTitleAt(pressScene_, &grip); b >= 0) {
+        selectBackdrop(b);
+        drag_ = grip ? Drag::BackdropResize : Drag::Backdrop;
+        dragBackdrop_ = b;
+        backdropStart_ = backdrops_[b].rect;
+        carried_.clear();
+        if (!grip) {
+            for (std::size_t i = 0; i < nodes_.size(); ++i) {
+                if (backdropStart_.contains(QRectF(nodes_[i].pos, nodes_[i].size).center())) carried_.push_back(static_cast<int>(i));
+            }
+        }
         return;
     }
     const int wire = wireAt(pressScene_);
     if (wire >= 0) {
         selectedWire_ = wire;
+        selectedBackdrop_ = -1;
+        selection_.clear();
         if (!selected_.empty()) {
             selected_.clear();
             emit selectionChanged(selected_);
@@ -593,9 +873,12 @@ void NodeGraphView::mousePressEvent(QMouseEvent* event) {
         update();
         return;
     }
-    drag_ = Drag::Pan;
+    // Empty space: a rubber band (a click alone deselects, unless Ctrl or Shift keeps the selection).
+    drag_ = Drag::Band;
+    band_ = QRectF(last_, last_);
+    bandAdds_ = event->modifiers().testFlag(Qt::ControlModifier) || event->modifiers().testFlag(Qt::ShiftModifier);
     selectedWire_ = -1;
-    selectNode({});
+    if (!bandAdds_) selectNode({});
     update();
 }
 
@@ -613,17 +896,49 @@ void NodeGraphView::mouseMoveEvent(QMouseEvent* event) {
             break;
         case Drag::Move:
             if (dragNode_ >= 0) {
-                nodes_[dragNode_].pos += delta / scale_;
-                // The wires follow the card.
+                // The selection moves together (the pressed node is one of it); the wires follow.
+                std::vector<int> moved;
+                for (std::size_t i = 0; i < nodes_.size(); ++i) {
+                    if (static_cast<int>(i) == dragNode_ || isSelected(nodes_[i].name)) moved.push_back(static_cast<int>(i));
+                }
+                for (int i : moved) nodes_[i].pos += delta / scale_;
                 for (Wire& w : wires_) {
-                    if (w.from == dragNode_ || w.to == dragNode_) w.path = wirePath(outputPos(nodes_[w.from], w.output), inputPos(nodes_[w.to], w.input));
+                    if (std::find(moved.begin(), moved.end(), w.from) != moved.end() || std::find(moved.begin(), moved.end(), w.to) != moved.end()) {
+                        w.path = wirePathFor(w);
+                    }
                 }
                 update();
             }
             break;
         case Drag::Wire:
             dragWireTo_ = toScene(now);
+            updateWireHint(dragWireTo_);
             update();
+            break;
+        case Drag::Band:
+            band_.setBottomRight(now);
+            update();
+            break;
+        case Drag::Backdrop:
+        case Drag::BackdropResize:
+            if (dragBackdrop_ >= 0 && dragBackdrop_ < static_cast<int>(backdrops_.size())) {
+                const QPointF moved = toScene(now) - pressScene_;
+                QRectF& rect = backdrops_[dragBackdrop_].rect;
+                if (drag_ == Drag::BackdropResize) {
+                    rect.setSize(QSizeF(std::max(120.0, backdropStart_.width() + moved.x()), std::max(80.0, backdropStart_.height() + moved.y())));
+                } else {
+                    const QPointF step = backdropStart_.topLeft() + moved - rect.topLeft();
+                    rect.moveTopLeft(backdropStart_.topLeft() + moved);
+                    for (int i : carried_) nodes_[i].pos += step;
+                    for (Wire& w : wires_) {
+                        if (std::find(carried_.begin(), carried_.end(), w.from) != carried_.end() ||
+                            std::find(carried_.begin(), carried_.end(), w.to) != carried_.end()) {
+                            w.path = wirePathFor(w);
+                        }
+                    }
+                }
+                update();
+            }
             break;
         case Drag::None:
             break;
@@ -639,11 +954,35 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
         return;
     }
     event->accept();
+    if (drag == Drag::Band) {
+        band_.setBottomRight(event->position());
+        if (band_.width() * band_.width() + band_.height() * band_.height() > 16.0) selectInRect(band_, bandAdds_);
+        band_ = QRectF();
+        update();
+        return;
+    }
+    if ((drag == Drag::Backdrop || drag == Drag::BackdropResize) && dragBackdrop_ >= 0 && document_) {
+        // Where it was put, and the nodes it carried (not undo steps, as node moves).
+        if (dragBackdrop_ < static_cast<int>(backdrops_.size()) && backdrops_[dragBackdrop_].rect != backdropStart_) {
+            const QRectF& r = backdrops_[dragBackdrop_].rect;
+            document_->setBackdropRect(dragBackdrop_, r.x(), r.y(), r.width(), r.height());
+            for (int i : carried_) {
+                document_->setNodePosition(nodes_[i].name, static_cast<float>(nodes_[i].pos.x()), static_cast<float>(nodes_[i].pos.y()));
+                laidOut_.erase(nodes_[i].name);
+            }
+        }
+        dragBackdrop_ = -1;
+        carried_.clear();
+        return;
+    }
     if (drag == Drag::Move && dragNode_ >= 0 && document_) {
-        const Node& n = nodes_[dragNode_];
-        if ((n.pos - pressScene_).manhattanLength() > 0.0) {
-            document_->setNodePosition(n.name, static_cast<float>(n.pos.x()), static_cast<float>(n.pos.y()));
-            laidOut_.erase(n.name);
+        // Every moved node keeps where it was put (not an undo step, as Maya's moves).
+        if ((nodes_[dragNode_].pos - moveStart_).manhattanLength() > 0.0) {
+            for (const Node& n : nodes_) {
+                if (n.name != nodes_[dragNode_].name && !isSelected(n.name)) continue;
+                document_->setNodePosition(n.name, static_cast<float>(n.pos.x()), static_cast<float>(n.pos.y()));
+                laidOut_.erase(n.name);
+            }
         }
         dragNode_ = -1;
         return;
@@ -653,25 +992,77 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
         int node = -1, port = -1;
         bool output = false;
         std::string error;
-        if (portAt(at, &node, &port, &output) && !output && node != dragWireFrom_) {
-            const Node& from = nodes_[dragWireFrom_];
-            const Node& to = nodes_[node];
-            const bool first = dragWirePort_ == 0;
-            if (dragWireInputNode_ == node && dragWireInputPort_ == port) {
-                // Dropped back where it was.
+        if (portAt(at, &node, &port, &output)) {
+            if (output || (dragWireInputNode_ == node && dragWireInputPort_ == port)) {
+                // On an output, or back where it was: nothing changes (a picked-up wire goes back).
+                if (output && node != dragWireFrom_) error = tr("Drop the wire on an input (the ports on a node's left)").toStdString();
+            } else if (const QString problem = connectionProblem(dragWireFrom_, dragWirePort_, node, port); !problem.isEmpty()) {
+                error = problem.toStdString();  // refused: the wire as it was
             } else {
+                const Node& from = nodes_[dragWireFrom_];
+                const Node& to = nodes_[node];
+                const bool first = dragWirePort_ == 0;
                 error = document_->connectNodes(from.name, first ? std::string() : from.outputs[dragWirePort_].name, to.name,
                                                 to.inputs[port].name);
                 if (error.empty()) emit edited();
             }
+        } else if (nodeAt(at) >= 0) {
+            // On a card but no port: nothing changes (a picked-up wire is not lost by a near miss).
+            if (dragWireInputNode_ < 0) error = tr("Drop the wire on an input port").toStdString();
         } else if (dragWireInputNode_ >= 0) {
             error = document_->disconnectInput(nodes_[dragWireInputNode_].name, nodes_[dragWireInputNode_].inputs[dragWireInputPort_].name);
             if (error.empty()) emit edited();
         }
         if (!error.empty()) emit message(QString::fromStdString(error));
         dragWireFrom_ = dragWirePort_ = dragWireInputNode_ = dragWireInputPort_ = -1;
+        wireHint_.clear();
         refresh();
     }
+}
+
+QString NodeGraphView::connectionProblem(int fromNode, int fromPort, int toNode, int toPort) const {
+    if (fromNode < 0 || toNode < 0 || fromNode >= nodeCount() || toNode >= nodeCount()) return {};
+    const Node& from = nodes_[fromNode];
+    const Node& to = nodes_[toNode];
+    if (fromPort < 0 || fromPort >= static_cast<int>(from.outputs.size()) || toPort < 0 || toPort >= static_cast<int>(to.inputs.size())) return {};
+    if (fromNode == toNode) return tr("A node can't feed itself");
+    const Port& out = from.outputs[fromPort];
+    const Port& in = to.inputs[toPort];
+    try {
+        if (!portTypesMatch(portTypeFromName(out.type), portTypeFromName(in.type))) {
+            return tr("%1.%2 takes %3, %4 gives %5")
+                .arg(QString::fromStdString(to.name), QString::fromStdString(in.name), QString::fromStdString(in.type).toLower(),
+                     QString::fromStdString(from.name), QString::fromStdString(out.type).toLower());
+        }
+    } catch (const std::exception&) {
+        // A type the core does not name: the document's own checks say.
+    }
+    // A loop: the target feeds the source already (directly or not).
+    std::vector<int> stack{toNode};
+    std::vector<bool> seen(nodes_.size(), false);
+    while (!stack.empty()) {
+        const int at = stack.back();
+        stack.pop_back();
+        if (at == fromNode) return tr("That would make a loop: %1 feeds %2 already").arg(QString::fromStdString(to.name), QString::fromStdString(from.name));
+        if (seen[at]) continue;
+        seen[at] = true;
+        for (const Wire& w : wires_) {
+            if (w.from == at) stack.push_back(w.to);
+        }
+    }
+    return {};
+}
+
+void NodeGraphView::updateWireHint(const QPointF& scene) {
+    int node = -1, port = -1;
+    bool output = false;
+    wireHint_.clear();
+    if (dragWireFrom_ < 0 || !portAt(scene, &node, &port, &output)) return;
+    if (output) {
+        if (node != dragWireFrom_) wireHint_ = tr("Outputs don't connect to outputs: drop it on an input");
+        return;
+    }
+    wireHint_ = connectionProblem(dragWireFrom_, dragWirePort_, node, port);
 }
 
 void NodeGraphView::wheelEvent(QWheelEvent* event) {
@@ -722,6 +1113,109 @@ void NodeGraphView::setNodeTimes(const std::vector<std::pair<std::string, double
     update();
 }
 
+void NodeGraphView::setNodeErrors(const std::vector<std::pair<std::string, std::string>>& errors) {
+    errors_.clear();
+    for (const auto& [name, error] : errors) errors_[name] = error;
+    update();
+}
+
+std::string NodeGraphView::nodeError(const std::string& node) const {
+    const auto it = errors_.find(node);
+    return it == errors_.end() ? std::string() : it->second;
+}
+
+void NodeGraphView::setViewedNode(const std::string& node) {
+    if (node == viewed_) return;
+    viewed_ = node;
+    update();
+    emit viewNodeChanged(viewed_);
+}
+
+void NodeGraphView::toggleViewSelected() {
+    // V: the selected node shown; again (or with nothing selected), the output.
+    if (selected_.empty() || selected_ == viewed_) {
+        if (!viewed_.empty()) emit message(tr("Viewing the graph's output again"));
+        setViewedNode({});
+        return;
+    }
+    const int i = nodeIndex(selected_);
+    if (i < 0) return;
+    const bool strands = std::any_of(nodes_[i].outputs.begin(), nodes_[i].outputs.end(), [](const Port& p) {
+        return p.type == "strands" || p.type == "Strands" || p.type == "curves" || p.type == "Curves";
+    });
+    if (!strands) {
+        emit message(tr("%1 gives no strands to view: pick a node with a strands output").arg(QString::fromStdString(selected_)));
+        return;
+    }
+    setViewedNode(selected_);
+    emit message(tr("Viewing up to %1 (V again: the output)").arg(QString::fromStdString(selected_)));
+}
+
+void NodeGraphView::copySelected() {
+    if (!document_) return;
+    std::vector<std::string> names = selection_;
+    if (names.empty() && !selected_.empty()) names.push_back(selected_);
+    const std::string text = document_->copyNodes(names);
+    if (text.empty()) {
+        emit message(tr("Select the nodes to copy (the output node is one of a kind)"));
+        return;
+    }
+    QGuiApplication::clipboard()->setText(QString::fromStdString(text));
+    emit message(tr("Copied %n node(s)", "", static_cast<int>(nlohmann::json::parse(text)["nodes"].size())));
+}
+
+void NodeGraphView::paste() {
+    if (!document_) return;
+    std::vector<std::string> made;
+    const std::string error = document_->pasteNodes(QGuiApplication::clipboard()->text().toStdString(), static_cast<float>(kPasteOffsetX),
+                                                    static_cast<float>(kPasteOffsetY), &made);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        return;
+    }
+    emit edited();
+    refresh();
+    setSelection(made);
+}
+
+void NodeGraphView::deleteSelected() {
+    if (!document_) return;
+    std::string error;
+    if (selectedBackdrop_ >= 0) {
+        removeBackdrop(selectedBackdrop_);
+        return;
+    }
+    if (selectedWire_ >= 0 && selectedWire_ < static_cast<int>(wires_.size())) {
+        const Wire& w = wires_[selectedWire_];
+        error = document_->disconnectInput(nodes_[w.to].name, nodes_[w.to].inputs[w.input].name);
+        selectedWire_ = -1;
+    } else if (!selection_.empty()) {
+        error = document_->removeNodes(selection_);
+    } else {
+        return;
+    }
+    if (!error.empty()) emit message(QString::fromStdString(error));
+    else emit edited();
+    refresh();
+}
+
+bool NodeGraphView::event(QEvent* event) {
+    // A node's tooltip: its error, else its note (the badges' text).
+    if (event->type() == QEvent::ToolTip) {
+        auto* help = static_cast<QHelpEvent*>(event);
+        const int node = nodeAt(toScene(QPointF(help->pos())));
+        QString tip;
+        if (node >= 0) {
+            const std::string error = nodeError(nodes_[node].name), note = nodeNote(nodes_[node].name);
+            tip = !error.empty() ? QString::fromStdString(error) : QString::fromStdString(note);
+        }
+        if (tip.isEmpty()) QToolTip::hideText();
+        else QToolTip::showText(help->globalPos(), tip, this);
+        return true;
+    }
+    return QWidget::event(event);
+}
+
 void NodeGraphView::setNodeNotes(const std::vector<std::pair<std::string, std::string>>& notes) {
     notes_.clear();
     for (const auto& [name, note] : notes) notes_[name] = note;
@@ -745,6 +1239,7 @@ void NodeGraphView::renameSelected() {
             return;
         }
         selected_ = to.trimmed().toStdString();
+        selection_ = {selected_};
         emit edited();
         refresh();
         emit selectionChanged(selected_);
@@ -754,6 +1249,21 @@ void NodeGraphView::renameSelected() {
 
 void NodeGraphView::duplicateSelected() {
     if (!document_ || selected_.empty()) return;
+    if (selection_.size() > 1) {
+        // Several: copied and pasted beside, with the links between them (not the clipboard's).
+        std::vector<std::string> pasted;
+        const std::string text = document_->copyNodes(selection_);
+        const std::string error = text.empty() ? std::string("the output node is one of a kind")
+                                               : document_->pasteNodes(text, static_cast<float>(kPasteOffsetX), static_cast<float>(kPasteOffsetY), &pasted);
+        if (!error.empty()) {
+            emit message(QString::fromStdString(error));
+            return;
+        }
+        emit edited();
+        refresh();
+        setSelection(pasted);
+        return;
+    }
     std::string made;
     const std::string error = document_->duplicateNode(selected_, &made);
     if (!error.empty()) {
@@ -789,6 +1299,133 @@ void NodeGraphView::tidyLayout() {
     refresh();
 }
 
+void NodeGraphView::groupSelected() {
+    if (!document_) return;
+    std::vector<std::string> names = selection_;
+    if (names.empty() && !selected_.empty()) names.push_back(selected_);
+    if (names.empty()) {
+        emit message(tr("Select the nodes to group"));
+        return;
+    }
+    // Nodes the view laid out keep where they show, so the compound goes among them and opening
+    // it puts them back there.
+    for (const std::string& n : names) {
+        const int i = nodeIndex(n);
+        float x = 0.0f, y = 0.0f;
+        if (i >= 0 && !document_->nodePosition(n, &x, &y)) {
+            document_->setNodePosition(n, static_cast<float>(nodes_[i].pos.x()), static_cast<float>(nodes_[i].pos.y()));
+        }
+    }
+    std::string made;
+    const std::string error = document_->collapseNodes(names, &made);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        return;
+    }
+    emit edited();
+    refresh();
+    selectNode(made);
+    emit message(tr("Grouped %n node(s) into %1 (double-click or Ctrl+Shift+G opens it)", "", static_cast<int>(names.size()))
+                     .arg(QString::fromStdString(made)));
+}
+
+void NodeGraphView::ungroupSelected() {
+    if (!document_) return;
+    std::vector<std::string> compounds;
+    for (const std::string& n : selection_) {
+        const int i = nodeIndex(n);
+        if (i >= 0 && nodes_[i].type == "Compound") compounds.push_back(n);
+    }
+    if (compounds.empty()) {
+        emit message(tr("Select the Compound nodes to ungroup"));
+        return;
+    }
+    std::vector<std::string> made;
+    const std::string error = document_->expandNodes(compounds, &made);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        return;
+    }
+    emit edited();
+    refresh();
+    setSelection(made);
+}
+
+void NodeGraphView::addBackdrop(const QPointF& at) {
+    if (!document_) return;
+    // Around the selected nodes (Maya's margins: room for the title above), else a frame at the point.
+    QRectF rect;
+    for (const std::string& n : selection_) {
+        const int i = nodeIndex(n);
+        if (i >= 0) rect |= QRectF(nodes_[i].pos, nodes_[i].size);
+    }
+    if (!rect.isNull()) {
+        rect.adjust(-30, -50, 30, 30);
+    } else {
+        const QPointF center = toScene(std::isnan(at.x()) ? QPointF(width() / 2.0, height() / 2.0) : at);
+        rect = QRectF(center.x() - 200, center.y() - 120, 400, 240);
+    }
+    int index = -1;
+    const std::string error = document_->addBackdrop("Backdrop", rect.x(), rect.y(), rect.width(), rect.height(), &index);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        return;
+    }
+    refresh();
+    selectBackdrop(index);
+    renameBackdrop(index);  // named at once (Escape keeps "Backdrop")
+}
+
+void NodeGraphView::selectBackdrop(int index) {
+    selectNode({});
+    selectedWire_ = -1;
+    selectedBackdrop_ = index >= 0 && index < backdropCount() ? index : -1;
+    update();
+}
+
+QString NodeGraphView::backdropTitle(int index) const { return index >= 0 && index < backdropCount() ? backdrops_[index].title : QString(); }
+
+QColor NodeGraphView::backdropColor(int index) const { return index >= 0 && index < backdropCount() ? backdrops_[index].color : QColor(); }
+
+QRectF NodeGraphView::backdropRect(int index) const { return index >= 0 && index < backdropCount() ? backdrops_[index].rect : QRectF(); }
+
+QRectF NodeGraphView::backdropTitleBar(int index) const {
+    if (index < 0 || index >= backdropCount()) return {};
+    const QRectF& r = backdrops_[index].rect;
+    return QRectF(toWidget(r.topLeft()), QSizeF(r.width(), kBackdropHeader) * scale_);
+}
+
+QRectF NodeGraphView::backdropGrip(int index) const {
+    if (index < 0 || index >= backdropCount()) return {};
+    const QRectF& r = backdrops_[index].rect;
+    return QRectF(toWidget(QPointF(r.right() - kBackdropGrip, r.bottom() - kBackdropGrip)), QSizeF(kBackdropGrip, kBackdropGrip) * scale_);
+}
+
+void NodeGraphView::renameBackdrop(int index) {
+    if (!document_ || index < 0 || index >= backdropCount()) return;
+    promptName(tr("Backdrop title"), tr("Title"), [this, index](const QString& title) {
+        const std::string error = document_->setBackdropTitle(index, title.toStdString());
+        if (!error.empty()) emit message(QString::fromStdString(error));
+        refresh();
+    });
+    setPromptText(backdrops_[index].title);
+}
+
+void NodeGraphView::setBackdropColor(int index, const QColor& color) {
+    if (!document_) return;
+    const std::string error = document_->setBackdropColor(index, color.red(), color.green(), color.blue());
+    if (!error.empty()) emit message(QString::fromStdString(error));
+    refresh();
+}
+
+void NodeGraphView::removeBackdrop(int index) {
+    if (!document_) return;
+    const std::string error = document_->removeBackdrop(index);
+    if (!error.empty()) emit message(QString::fromStdString(error));
+    selectedBackdrop_ = -1;
+    refresh();
+}
+
 void NodeGraphView::mouseDoubleClickEvent(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton || event->modifiers().testFlag(Qt::AltModifier)) {
         QWidget::mouseDoubleClickEvent(event);
@@ -796,10 +1433,18 @@ void NodeGraphView::mouseDoubleClickEvent(QMouseEvent* event) {
     }
     const QPointF scene = toScene(event->position());
     const int node = nodeAt(scene);
-    if (node >= 0 && scene.y() - nodes_[node].pos.y() <= kHeader) {
+    if (node >= 0 && nodes_[node].type == "Compound") {
+        // A Compound opens: its nodes back in the graph to see and edit (Ctrl+Z groups them again).
+        drag_ = Drag::None;
+        selectNode(nodes_[node].name);
+        ungroupSelected();
+    } else if (node >= 0 && scene.y() - nodes_[node].pos.y() <= kHeader) {
         drag_ = Drag::None;
         selectNode(nodes_[node].name);
         renameSelected();
+    } else if (const int b = node < 0 ? backdropTitleAt(scene) : -1; b >= 0) {
+        drag_ = Drag::None;
+        renameBackdrop(b);
     }
     event->accept();
 }
@@ -810,14 +1455,36 @@ void NodeGraphView::contextMenuEvent(QContextMenuEvent* event) {
     const int node = nodeAt(scene);
     QMenu menu(this);
     if (node >= 0) {
-        selectNode(nodes_[node].name);
-        const bool output = nodes_[node].type == "Output";
-        menu.addAction(tr("Rename..."), this, [this] { renameSelected(); });
-        menu.addAction(tr("Duplicate"), this, [this] { duplicateSelected(); })->setEnabled(!output);
+        // A node of the selection keeps the selection (Delete and Copy act on it all).
+        if (!isSelected(nodes_[node].name)) selectNode(nodes_[node].name);
+        else if (selected_ != nodes_[node].name) {
+            std::vector<std::string> names = selection_;
+            names.erase(std::find(names.begin(), names.end(), nodes_[node].name));
+            names.push_back(nodes_[node].name);
+            setSelection(names);
+        }
+        const bool output = nodes_[node].type == "Output" && selection_.size() <= 1;
+        // Each with its key shown (the graph's keyPressEvent handles them; shown here only).
+        const auto shown = [](QAction* action, const QKeySequence& key) {
+            action->setShortcut(key);
+            action->setShortcutContext(Qt::WidgetShortcut);  // (the menu's own: never the window's)
+            return action;
+        };
+        shown(menu.addAction(tr("Rename..."), this, [this] { renameSelected(); }), QKeySequence(Qt::Key_F2));
+        shown(menu.addAction(tr("Duplicate"), this, [this] { duplicateSelected(); }), QKeySequence(Qt::CTRL | Qt::Key_D))->setEnabled(!output);
         menu.addAction(tr("Set as Output"), this, [this] { setSelectedAsOutput(); });
-        menu.addAction(nodes_[node].bypass ? tr("Enable") : tr("Bypass"), this, [this, name = nodes_[node].name, on = !nodes_[node].bypass] {
-            setBypass(name, on);
-        });
+        // Bypass, checked while it is: again turns the node back on.
+        QAction* bypass = shown(menu.addAction(tr("Bypass"), this,
+                                               [this, name = nodes_[node].name, on = !nodes_[node].bypass] { setBypass(name, on); }),
+                                QKeySequence(Qt::Key_B));
+        bypass->setCheckable(true);
+        bypass->setChecked(nodes_[node].bypass);
+        // View Up to Here (checked while the viewport shows this node).
+        QAction* view = shown(menu.addAction(tr("View Up to Here"), this, [this] { toggleViewSelected(); }), QKeySequence(Qt::Key_V));
+        view->setCheckable(true);
+        view->setChecked(viewed_ == nodes_[node].name);
+        shown(menu.addAction(tr("Frame"), this, [this] { frameSelected(); }), QKeySequence(Qt::Key_F));
+        shown(menu.addAction(tr("Copy"), this, [this] { copySelected(); }), QKeySequence(Qt::CTRL | Qt::Key_C))->setEnabled(!output || selection_.size() > 1);
         // When it runs: exports skip a viewport-only node, the viewport a render-only one.
         QMenu* evaluate = menu.addMenu(tr("Evaluate"));
         const std::pair<const char*, QString> modes[] = {
@@ -830,17 +1497,47 @@ void NodeGraphView::contextMenuEvent(QContextMenuEvent* event) {
             action->setChecked(nodes_[node].evaluation == mode);
         }
         menu.addSeparator();
-        menu.addAction(tr("Delete"), this, [this] {
-            if (!document_ || selected_.empty()) return;
-            const std::string error = document_->removeNode(selected_);
-            if (!error.empty()) emit message(QString::fromStdString(error));
-            else emit edited();
-            refresh();
-        })->setEnabled(!output);
+        // Compounds, as Maya's Graph Editor: the selection grouped, a Compound opened.
+        const bool anyCompound = std::any_of(selection_.begin(), selection_.end(), [this](const std::string& n) {
+            const int i = nodeIndex(n);
+            return i >= 0 && nodes_[i].type == "Compound";
+        });
+        if (anyCompound) {
+            shown(menu.addAction(tr("Ungroup Compound"), this, [this] { ungroupSelected(); }), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G))
+                ->setToolTip(tr("Put the compound's nodes back in the graph, to see and edit them (Ctrl+Z groups them again)"));
+        }
+        shown(menu.addAction(tr("Group into Compound"), this, [this] { groupSelected(); }), QKeySequence(Qt::CTRL | Qt::Key_G))
+            ->setToolTip(tr("Collapse the selected nodes into one Compound node"));
+        menu.addAction(tr("Add Backdrop Around Selection"), this, [this] { addBackdrop(); });
+        menu.addSeparator();
+        shown(menu.addAction(selection_.size() > 1 ? tr("Delete %1 Nodes").arg(selection_.size()) : tr("Delete"), this,
+                             [this] { deleteSelected(); }),
+              QKeySequence(Qt::Key_Delete))
+            ->setEnabled(!output);
+    } else if (const int b = backdropAt(scene); b >= 0) {
+        // A backdrop's menu (Maya's): its title, its color, gone.
+        selectBackdrop(b);
+        menu.addAction(tr("Rename..."), this, [this, b] { renameBackdrop(b); });
+        QMenu* colors = menu.addMenu(tr("Color"));
+        for (const auto& [label, color] : kBackdropColors) {
+            QAction* action = colors->addAction(tr(label), this, [this, b, c = color] { setBackdropColor(b, c); });
+            action->setCheckable(true);
+            action->setChecked(backdrops_[b].color == color);
+        }
+        menu.addSeparator();
+        QAction* remove = menu.addAction(tr("Delete Backdrop"), this, [this, b] { removeBackdrop(b); });
+        remove->setShortcut(QKeySequence(Qt::Key_Delete));
+        remove->setShortcutContext(Qt::WidgetShortcut);
     } else {
-        menu.addAction(tr("Add node..."), this, [this] { openSearch(); });
-        menu.addAction(tr("Tidy layout"), this, [this] { tidyLayout(); });
-        menu.addAction(tr("Fit"), this, [this] { fitAll(); });
+        const auto shown = [](QAction* action, const QKeySequence& key) {
+            action->setShortcut(key);
+            action->setShortcutContext(Qt::WidgetShortcut);
+        };
+        shown(menu.addAction(tr("Add Node..."), this, [this] { openSearch(); }), QKeySequence(Qt::Key_Tab));
+        shown(menu.addAction(tr("Paste"), this, [this] { paste(); }), QKeySequence(Qt::CTRL | Qt::Key_V));
+        menu.addAction(tr("Add Backdrop"), this, [this, at = QPointF(event->pos())] { addBackdrop(at); });
+        shown(menu.addAction(tr("Tidy Layout"), this, [this] { tidyLayout(); }), QKeySequence(Qt::CTRL | Qt::Key_L));
+        shown(menu.addAction(tr("Frame All"), this, [this] { fitAll(); }), QKeySequence(Qt::Key_A));
     }
     menu.exec(event->globalPos());
     event->accept();
@@ -848,6 +1545,12 @@ void NodeGraphView::contextMenuEvent(QContextMenuEvent* event) {
 
 void NodeGraphView::keyPressEvent(QKeyEvent* event) {
     if (event->modifiers().testFlag(Qt::ControlModifier)) {
+        if (event->key() == Qt::Key_G) {
+            if (event->modifiers().testFlag(Qt::ShiftModifier)) ungroupSelected();
+            else groupSelected();
+            event->accept();
+            return;
+        }
         if (event->key() == Qt::Key_D) {
             duplicateSelected();
             event->accept();
@@ -855,6 +1558,16 @@ void NodeGraphView::keyPressEvent(QKeyEvent* event) {
         }
         if (event->key() == Qt::Key_L) {
             tidyLayout();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_C) {
+            copySelected();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_V) {
+            paste();
             event->accept();
             return;
         }
@@ -870,34 +1583,41 @@ void NodeGraphView::keyPressEvent(QKeyEvent* event) {
             event->accept();
             return;
         case Qt::Key_F:
+            frameSelected();  // (the window's F reaches it as a shortcut: View > Frame All)
+            event->accept();
+            return;
+        case Qt::Key_A:
             fitAll();
             event->accept();
             return;
-        case Qt::Key_B:
-            for (const Node& n : nodes_) {
-                if (n.name == selected_) setBypass(n.name, !n.bypass);
-            }
+        case Qt::Key_F2:
+            if (!selected_.empty()) renameSelected();
             event->accept();
             return;
-        case Qt::Key_Delete:
-        case Qt::Key_Backspace: {
-            if (!document_) break;
-            std::string error;
-            if (selectedWire_ >= 0 && selectedWire_ < static_cast<int>(wires_.size())) {
-                const Wire& w = wires_[selectedWire_];
-                error = document_->disconnectInput(nodes_[w.to].name, nodes_[w.to].inputs[w.input].name);
-                selectedWire_ = -1;
-            } else if (!selected_.empty()) {
-                error = document_->removeNode(selected_);
-            } else {
-                break;
+        case Qt::Key_B: {
+            // Every selected node, each to the current node's opposite (as Maya's B).
+            const int current = nodeIndex(selected_);
+            if (current >= 0) {
+                const bool on = !nodes_[current].bypass;
+                const std::vector<std::string> names = selection_;
+                for (const std::string& n : names) setBypass(n, on);
             }
-            if (!error.empty()) emit message(QString::fromStdString(error));
-            else emit edited();
-            refresh();
             event->accept();
             return;
         }
+        case Qt::Key_V:
+            if (event->modifiers() == Qt::NoModifier) {
+                toggleViewSelected();
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_Delete:
+        case Qt::Key_Backspace:
+            if (!document_ || (selectedWire_ < 0 && selection_.empty() && selectedBackdrop_ < 0)) break;
+            deleteSelected();
+            event->accept();
+            return;
         default:
             break;
     }
@@ -908,7 +1628,10 @@ bool NodeGraphView::searchOpen() const { return !search_->isHidden(); }
 
 void NodeGraphView::openSearch() {
     const QPointF at = mapFromGlobal(QCursor::pos());
-    const QPointF where = rect().contains(at.toPoint()) ? at : QPointF(width() / 2.0, height() / 2.0);
+    openSearchAt(rect().contains(at.toPoint()) ? at : QPointF(width() / 2.0, height() / 2.0));
+}
+
+void NodeGraphView::openSearchAt(const QPointF& where) {
     searchScene_ = toScene(where);
     search_->move(std::clamp(static_cast<int>(where.x()), 0, std::max(0, width() - search_->width())),
                   std::clamp(static_cast<int>(where.y()), 0, std::max(0, height() - search_->height())));
@@ -924,22 +1647,116 @@ void NodeGraphView::closeSearch() {
     setFocus();
 }
 
+namespace {
+
+// A param name as words: "guideRadius" reads "guide radius" (Maya's pretty(), lowercase).
+QString spacedName(const QString& name) {
+    QString out;
+    for (int i = 0; i < name.size(); ++i) {
+        const QChar ch = name[i];
+        if (ch == QLatin1Char('_')) {
+            out += QLatin1Char(' ');
+            continue;
+        }
+        if (i > 0 && ch.isUpper() && (name[i - 1].isLower() || name[i - 1].isDigit())) out += QLatin1Char(' ');
+        out += ch;
+    }
+    return out.toLower();
+}
+
+bool allIn(const QStringList& words, const QString& text, const QString& orIn) {
+    for (const QString& w : words) {
+        if (!text.contains(w) && !orIn.contains(w)) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+int nodeSearchRank(const QString& search, const nlohmann::json& spec) {
+    const QString text = search.trimmed().toLower();
+    if (text.isEmpty()) return 5;
+    const std::string type = spec.value("type", std::string());
+    const QString name = QString::fromStdString(type).toLower();
+    const std::string label = spec.value("label", std::string());
+    const QString shown = QString::fromStdString(label.empty() ? nodeLabel(type) : label).toLower();
+    if (name.startsWith(text) || shown.startsWith(text)) return 0;
+    if (name.contains(text) || shown.contains(text) || name.contains(QString(text).remove(QLatin1Char(' ')))) return 1;
+    const QStringList words = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    // Rank 2's words: the search keywords and the menu category's title ("deform" finds Bend first).
+    const QString keywords = (QString::fromStdString(spec.value("keywords", std::string())) + QLatin1Char(' ') +
+                              QString::fromStdString(spec.value("categoryTitle", std::string())))
+                                 .toLower();
+    QString params, details;
+    for (const nlohmann::json& p : spec.value("params", nlohmann::json::array())) {
+        const QString pname = QString::fromStdString(p.value("name", std::string()));
+        params += pname.toLower() + QLatin1Char(' ') + spacedName(pname) + QLatin1Char(' ');
+        details += QString::fromStdString(p.value("description", std::string())).toLower() + QLatin1Char(' ');
+    }
+    const QString about =
+        (QString::fromStdString(spec.value("categoryTitle", std::string())) + QLatin1Char(' ') + QString::fromStdString(spec.value("description", std::string())))
+            .toLower();
+    if (allIn(words, keywords, name)) return 2;
+    if (allIn(words, params, name)) return 3;
+    if (allIn(words, about, name)) return 4;
+    const QString everything = name + QLatin1Char(' ') + keywords + QLatin1Char(' ') + params + QLatin1Char(' ') + about + QLatin1Char(' ') + details;
+    if (allIn(words, everything, everything)) return 5;
+    return -1;
+}
+
+std::vector<std::string> nodeSearchResults(const GroomDocument& document, const QString& text) {
+    std::vector<std::tuple<int, int, int, std::string>> ranked;  // rank, category order, order, type
+    for (const std::string& type : document.operatorTypes()) {
+        const nlohmann::json* spec = document.spec(type);
+        if (!spec || spec->value("hidden", false)) continue;
+        const int rank = nodeSearchRank(text, *spec);
+        if (rank < 0) continue;
+        ranked.emplace_back(rank, spec->value("categoryOrder", std::numeric_limits<int>::max()),
+                            spec->value("order", std::numeric_limits<int>::max()), type);
+    }
+    std::sort(ranked.begin(), ranked.end());
+    std::vector<std::string> types;
+    types.reserve(ranked.size());
+    for (const auto& r : ranked) types.push_back(std::get<3>(r));
+    return types;
+}
+
 void NodeGraphView::filterSearch(const QString& text) {
     searchList_->clear();
+    searchAbout_->clear();
     if (!document_) return;
-    const QString needle = text.trimmed().toLower();
-    for (const std::string& type : document_->operatorTypes()) {
-        const QString name = QString::fromStdString(type);
-        if (!needle.isEmpty() && !name.toLower().contains(needle)) continue;
-        auto* item = new QListWidgetItem(name, searchList_);
+    // Maya's ranking; each type by its label, its menu category after it in the category's color.
+    for (const std::string& type : nodeSearchResults(*document_, text)) {
         const nlohmann::json* spec = document_->spec(type);
-        const std::string category = spec ? spec->value("category", std::string()) : std::string();
-        item->setForeground(theme::nodeCategoryColor(category).lighter(130));
-        item->setData(Qt::UserRole, name);
-        item->setToolTip(spec ? QString::fromStdString(spec->value("description", std::string())) : QString());
+        const std::string label = spec->value("label", std::string());
+        const QString shown = QString::fromStdString(label.empty() ? nodeLabel(type) : label);
+        auto* item = new QListWidgetItem(shown + QStringLiteral("    ") + QString::fromStdString(spec->value("categoryTitle", std::string())), searchList_);
+        item->setForeground(theme::nodeCategoryColor(spec->value("category", std::string())).lighter(130));
+        item->setData(Qt::UserRole, QString::fromStdString(type));
+        item->setToolTip(QString::fromStdString(spec->value("description", std::string())));
     }
     if (searchList_->count() > 0) searchList_->setCurrentRow(0);
+    else searchAbout_->setText(tr("No node matches. Try what it does: symmetry, density, frizz, collision..."));
 }
+
+void NodeGraphView::setSearchText(const QString& text) {
+    if (!searchOpen()) openSearch();
+    searchEdit_->setText(text);
+}
+
+QStringList NodeGraphView::searchRows() const {
+    QStringList rows;
+    for (int i = 0; i < searchList_->count(); ++i) rows << searchList_->item(i)->text();
+    return rows;
+}
+
+std::vector<std::string> NodeGraphView::searchTypes() const {
+    std::vector<std::string> types;
+    for (int i = 0; i < searchList_->count(); ++i) types.push_back(searchList_->item(i)->data(Qt::UserRole).toString().toStdString());
+    return types;
+}
+
+QString NodeGraphView::searchAbout() const { return searchAbout_->text(); }
 
 void NodeGraphView::addFromSearch() {
     QListWidgetItem* item = searchList_->currentItem();

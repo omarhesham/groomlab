@@ -106,5 +106,10 @@ std::size_t interpolateStrandBindCount();
 // the blend one point at a time) instead of by its faster paths, which must give the same
 // strands bit for bit.
 void setInterpolateReferencePaths(bool reference);
+// Tests: Collide asks every surface at every point (off) instead of skipping, for a strand, a surface
+// its field's bounds settle (on, the default), which must give the same strands bit for bit; and how
+// many (strand, surface) walks skipped one so far.
+void setCollideStrandBounds(bool on);
+std::size_t collideSkippedSurfaces();
 
 }  // namespace groomlab

@@ -3,6 +3,8 @@
 
 #include "main_window_internal.h"
 
+#include <QFileInfo>
+
 #include <cmath>
 #include <vector>
 
@@ -45,7 +47,7 @@ void MainWindow::buildPanels() {
     split->addWidget(params_);
     split->setStretchFactor(1, 1);
     nodesLayout->addWidget(split);
-    host_->setPanelContent(OverlayHost::Panel::Nodes, tr("Nodes"), theme::blue(), nodesHost);
+    host_->setPanelContent(OverlayHost::Panel::Nodes, tr("Node List"), theme::blue(), nodesHost);
     connect(nodes_, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* item, QListWidgetItem*) {
         params_->showNode(item ? item->data(Qt::UserRole).toString().toStdString() : std::string());
     });
@@ -56,7 +58,7 @@ void MainWindow::buildPanels() {
             [this](const std::string& node, const std::string& name) { paintParam(QString::fromStdString(node), QString::fromStdString(name)); });
 
     graphParams_ = new ParamPanel();
-    host_->setPanelContent(OverlayHost::Panel::Node, tr("Node"), theme::blue(), graphParams_);
+    host_->setPanelContent(OverlayHost::Panel::Node, tr("Node Settings"), theme::blue(), graphParams_);
     connect(graphParams_, &ParamPanel::edited, this, [this] { graphEdited(); });
     connect(graphParams_, &ParamPanel::dragging, this, [this](bool on) { paramDragged(on); });
     connect(graphParams_, &ParamPanel::message, this, [this](const QString& text) { report(text); });
@@ -311,7 +313,7 @@ void MainWindow::buildPanels() {
     });
 
     look_ = new LookPanel();
-    host_->setPanelContent(OverlayHost::Panel::Look, tr("Look"), theme::yellow(), look_);
+    host_->setPanelContent(OverlayHost::Panel::Look, tr("Look Settings"), theme::yellow(), look_);
     brushPanel_ = new BrushPanel();
     host_->setPanelContent(OverlayHost::Panel::Brush, tr("Brush"), theme::blue(), brushPanel_);
     help_ = new QLabel();
@@ -389,7 +391,14 @@ void MainWindow::wireOverlay() {
     // The empty-state card and a file dropped on the window.
     connect(host_, &OverlayHost::openRequested, this, [this] { chooseOpen(); });
     connect(host_, &OverlayHost::newRequested, this, [this] { chooseMesh(); });
-    connect(host_, &OverlayHost::fileDropped, this, [this](const QString& path) { openPath(path); });
+    connect(host_, &OverlayHost::placeRequested, this, [this] {
+        setUiMode(QStringLiteral("groom"));
+        emit host_->rail()->brushChosen(std::string("place"));
+    });
+    // A dropped or recent file asks first when the open groom has unsaved edits.
+    connect(host_, &OverlayHost::fileDropped, this, [this](const QString& path) {
+        confirmDiscard(tr("opening %1").arg(QFileInfo(path).fileName()), [this, path] { openPath(path); });
+    });
     host_->setRecentFiles(recentFiles());
     connect(host_, &OverlayHost::renderRequested, this, [this] {
         // Refine mode from a clean slate: the frames accumulate again until the picture converges.
@@ -433,10 +442,10 @@ void MainWindow::wireOverlay() {
         s.setScreenRadius(v.radius);
         s.brush.strength = v.strength;
         s.setHardness(v.hardness);
-        // The Sym chip: world X on or off (from topological symmetry too, which it shows as on).
-        if (v.mirrorAxis != (s.brush.mirrorTopology ? 0 : s.brush.mirrorAxis)) {
-            s.brush.mirrorAxis = v.mirrorAxis;
-            s.brush.mirrorTopology = false;
+        // The Symmetry chip: off, or back on as it was (World X, Y, Z or Topology).
+        if (v.mirrorAxis != (s.brush.mirrorTopology ? 3 : s.brush.mirrorAxis)) {
+            static const char* const names[] = {"x", "y", "z", "topology"};
+            s.setSymmetry(v.mirrorAxis >= 0 && v.mirrorAxis <= 3 ? names[v.mirrorAxis] : "none");
         }
         s.pressure = v.pressure;
         viewport_->syncView();
@@ -560,8 +569,19 @@ void MainWindow::wireOverlay() {
         }
         const nlohmann::json* spec = document_ ? document_->nodeSpec(node) : nullptr;
         const std::string category = spec ? spec->value("category", std::string()) : std::string();
-        host_->setNodePanelTitle(QString::fromStdString(node), theme::nodeCategoryColor(category));
+        // "Node Settings" in the node's category color (the node's name and type head the panel).
+        host_->setNodePanelTitle(tr("Node Settings"), theme::nodeCategoryColor(category));
         host_->showPanel(OverlayHost::Panel::Node, true);
+        // The node in sight: the graph pans it out from under the panel.
+        if (FloatingPanel* panel = host_->panel(OverlayHost::Panel::Node); panel && panel->isVisible()) {
+            graph_->keepSelectedClearOf(panel->geometry());
+        }
+    });
+    // View Up to Here (V): the viewport shows the graph's result at that node.
+    connect(graph_, &NodeGraphView::viewNodeChanged, this, [this](const std::string& node) {
+        if (node == viewNode_) return;
+        viewNode_ = node;
+        if (document_) reevaluate();
     });
     connect(graph_, &NodeGraphView::edited, this, [this] { graphEdited(); });
     connect(graph_, &NodeGraphView::message, this, [this](const QString& text) { report(text); });
@@ -590,6 +610,7 @@ void MainWindow::wireTimelineCardsAndExport() {
     connect(timeline, &Timeline::simulateRequested, this, [this] { simulateTo(); });
     connect(timeline, &Timeline::bakeRequested, this, [this] { bakeSimulation(); });
     connect(timeline, &Timeline::invalidateRequested, this, [this] { invalidateSimulation(); });
+    connect(timeline, &Timeline::simulationCancelRequested, this, [this] { cancelJob(); });
 
     CardsPanel* cards = host_->cardsPanel();
     connect(cards, &CardsPanel::edited, this, [this](bool live) {
@@ -616,7 +637,7 @@ void MainWindow::wireTimelineCardsAndExport() {
 
     ExportPanel* exports = host_->exportPanel();
     connect(exports, &ExportPanel::exportRequested, this, [this] { runExport(); });
-    connect(exports, &ExportPanel::cancelRequested, this, [this] { exportCancel_ = true; });
+    connect(exports, &ExportPanel::cancelRequested, this, [this] { cancelJob(); });
     connect(exports, &ExportPanel::browseRequested, this, [this] { chooseExportPath(); });
     connect(exports, &ExportPanel::saveRequested, this, [this] { save(); });
     connect(exports, &ExportPanel::saveAsRequested, this, [this] { saveAs(); });

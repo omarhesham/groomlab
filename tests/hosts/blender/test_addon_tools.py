@@ -261,14 +261,14 @@ class ToolsTest(unittest.TestCase):
         log = draw_classes([bpy.types.GROOMLAB_MT_main])
         texts_ = [e[2] for e in log if e[0] == "op_text"] + [e[1] for e in log if e[0] == "menu"]
         for item in ("Groom Tools", "Graph Editor", "Create Groom from Selection", "Paint", "Support GroomLab",
-                     "Check for Updates...", "GroomLab Hotkeys..."):
+                     "Open Download Page", "Keyboard Shortcuts..."):
             self.assertIn(item, texts_)
         self.assertIn(("menu", "GROOMLAB_MT_graph_presets"), log)
         self.assertIn(("menu", "GROOMLAB_MT_export"), log)
         order = [e[2] for e in log if e[0] == "op_text"]
         self.assertLess(order.index("Groom Tools"), order.index("Graph Editor"))
         self.assertLess(order.index("Graph Editor"), order.index("Create Groom from Selection"))
-        self.assertLess(order.index("Check for Updates..."), order.index("Support GroomLab"))
+        self.assertLess(order.index("Open Download Page"), order.index("Support GroomLab"))
         for cls in (bpy.types.GROOMLAB_MT_files, bpy.types.GROOMLAB_MT_export, bpy.types.GROOMLAB_MT_help):
             draw_classes([cls])
 

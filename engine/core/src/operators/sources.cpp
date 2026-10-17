@@ -2,7 +2,9 @@
 // Source operators: bring host-supplied data (ExternalInputs) into the graph.
 
 #include <algorithm>
+#include <mutex>
 #include <set>
+#include <unordered_map>
 
 #include "groomlab/graph.h"
 #include "groomlab/operators.h"
@@ -204,37 +206,149 @@ public:
         return {params().getString("input"), params().getString("hierarchy")};
     }
 
+    // The hierarchy keyed by the guides this node takes from it (its groups', or its level's, as
+    // they come out: points, roots, IDs, attributes), not by all of it: a stroke on one group
+    // leaves the Guides node of another, and its whole branch, cached.
+    std::uint64_t externalKey(const std::string& name, const ExternalInputs::Entry& entry) const override {
+        if (name != params().getString("hierarchy") || name == params().getString("input")) return entry.hash;
+        const HierarchyPtr hierarchy = valueAs<HierarchyPtr>(entry.value);
+        if (!hierarchy || hierarchy->guides().empty()) return entry.hash;
+        const std::uint64_t memoKey = hashCombine(entry.hash, params().hash());
+        {
+            const std::lock_guard<std::mutex> lock(memo_->mutex);
+            if (memo_->keyKnown && memo_->keyOf == memoKey) return memo_->keyValue;
+        }
+        const std::uint64_t key = pickedKey(*hierarchy, entry.hash);
+        const std::lock_guard<std::mutex> lock(memo_->mutex);
+        memo_->keyKnown = true;
+        memo_->keyOf = memoKey;
+        memo_->keyValue = key;
+        return key;
+    }
+
     Value evaluate(const EvalContext& ctx, const std::vector<Value>&) const override {
         const GuidesPtr flat = valueAs<GuidesPtr>(ctx.external(params().getString("input")));
         const HierarchyPtr hierarchy = valueAs<HierarchyPtr>(ctx.external(params().getString("hierarchy")));
         if (!hierarchy || hierarchy->guides().empty()) return flat;
+        const std::shared_ptr<const GuideSet> fromHierarchy = picked(*hierarchy);
+        if (!flat) return GuidesPtr(fromHierarchy);
+        GuideSet set = *fromHierarchy;
+        for (const Guide& g : flat->guides()) {
+            Guide& added = set.add(g.id, g.points);
+            added.root = g.root;
+            added.attributes = g.attributes;
+            added.pointAttributes = g.pointAttributes;
+        }
+        return GuidesPtr(std::make_shared<GuideSet>(std::move(set)));
+    }
 
+private:
+    // The guides taken from `hierarchy` as the params pick them, made once per hierarchy content
+    // and params (the key and the evaluation share them). Throws GraphError for a missing group.
+    std::shared_ptr<const GuideSet> picked(const GuideHierarchy& hierarchy) const {
+        const std::uint64_t key = hashCombine(hierarchy.contentHash(), params().hash());
+        {
+            const std::lock_guard<std::mutex> lock(memo_->mutex);
+            if (memo_->set && memo_->key == key) return memo_->set;
+        }
+        auto made = std::make_shared<const GuideSet>(pick(hierarchy));
+        const std::lock_guard<std::mutex> lock(memo_->mutex);
+        memo_->key = key;
+        memo_->set = made;
+        return made;
+    }
+
+    GuideSet pick(const GuideHierarchy& hierarchy) const {
         const std::vector<std::string> groupNames = splitNames(params().getString("group"));
         GuideSet set;
         if (!groupNames.empty()) {
             std::set<std::uint64_t> seen;  // a group listed twice counts once
             for (const std::string& groupName : groupNames) {
-                const GroupId id = hierarchy->findGroup(groupName);
+                const GroupId id = hierarchy.findGroup(groupName);
                 if (id == kNoGroup) throw GraphError("Guides: no guide group named '" + groupName + "'");
-                const GuideSet one = hierarchy->flattenGroup(id);  // kept alive for the loop
+                const GuideSet one = hierarchy.flattenGroup(id);  // kept alive for the loop
                 for (const Guide& g : one.guides()) {
                     if (seen.insert(g.id).second) set.guides().push_back(g);
                 }
             }
         } else {
-            set = hierarchy->flatten(static_cast<int>(params().getInt("level")));
+            set = hierarchy.flatten(static_cast<int>(params().getInt("level")));
         }
-        excludeGroups(*hierarchy, params().getString("exclude"), set);
-        if (flat) {
-            for (const Guide& g : flat->guides()) {
-                Guide& added = set.add(g.id, g.points);
-                added.root = g.root;
-                added.attributes = g.attributes;
-                added.pointAttributes = g.pointAttributes;
+        excludeGroups(hierarchy, params().getString("exclude"), set);
+        return set;
+    }
+
+    // What pick() makes from `hierarchy`, hashed without making it (a brush dab asks on every
+    // dab): each guide it takes as it comes out (ID, root, points, its own attributes and layers
+    // and those of the guides it hangs from, which its effective ones are made of), in order.
+    // `whole` (the hierarchy's hash) where the params name a group it lacks: evaluate says so.
+    std::uint64_t pickedKey(const GuideHierarchy& hierarchy, std::uint64_t whole) const {
+        std::vector<GroupId> excluded;
+        for (const std::string& name : splitNames(params().getString("exclude"))) {
+            const GroupId id = hierarchy.findGroup(name);
+            if (id == kNoGroup) return whole;
+            excluded.push_back(id);
+        }
+        auto isExcluded = [&](GroupId group) {
+            for (int depth = 0; group != kNoGroup && depth < 64 && !excluded.empty(); ++depth) {
+                if (std::find(excluded.begin(), excluded.end(), group) != excluded.end()) return true;
+                const GuideGroup* g = hierarchy.group(group);
+                group = g ? g->parent : kNoGroup;
+            }
+            return false;
+        };
+        auto hashLayers = [](std::uint64_t h, const HierarchyGuide& g) {
+            h = hashCombine(h, g.attributes.size());
+            for (const auto& [k, v] : g.attributes) h = hashFloat(hashString(h, k), v);
+            h = hashCombine(h, g.pointAttributes.size());
+            for (const auto& [k, values] : g.pointAttributes) {
+                h = hashCombine(hashString(h, k), values.size());
+                for (const float v : values) h = hashFloat(h, v);
+            }
+            return h;
+        };
+        std::uint64_t key = hash64(0x6C1DE5u);
+        auto take = [&](const HierarchyGuide& g) {
+            key = hashCombine(hashCombine(key, g.id), static_cast<std::uint64_t>(static_cast<std::int64_t>(g.root.face)));
+            key = hashFloat(hashFloat(key, g.root.u), g.root.v);
+            key = hashCombine(key, g.points.size());
+            for (const Vec3f& p : g.points) key = hashFloat(hashFloat(hashFloat(key, p.x), p.y), p.z);
+            key = hashLayers(key, g);
+            const HierarchyGuide* up = hierarchy.guide(g.parent);
+            for (int depth = 0; up && depth < 64; ++depth, up = hierarchy.guide(up->parent)) {
+                key = hashLayers(hashCombine(key, up->id), *up);
+            }
+        };
+        const std::vector<std::string> groupNames = splitNames(params().getString("group"));
+        if (!groupNames.empty()) {
+            std::set<std::uint64_t> seen;  // a group listed twice counts once
+            for (const std::string& name : groupNames) {
+                const GroupId id = hierarchy.findGroup(name);
+                if (id == kNoGroup) return whole;
+                for (const HierarchyGuide& g : hierarchy.guides()) {
+                    if (g.group == id && g.points.size() >= 2 && !isExcluded(g.group) && seen.insert(g.id).second) take(g);
+                }
+            }
+        } else {
+            int level = static_cast<int>(params().getInt("level"));
+            if (level < 0) level = hierarchy.maxDepth();
+            std::unordered_map<GroupId, int> depths;
+            for (const GuideGroup& grp : hierarchy.groups()) depths[grp.id] = hierarchy.groupDepth(grp.id);
+            for (const HierarchyGuide& g : hierarchy.guides()) {
+                if (depths[g.group] == level && g.points.size() >= 2 && !isExcluded(g.group)) take(g);
             }
         }
-        return GuidesPtr(std::make_shared<GuideSet>(std::move(set)));
+        return key;
     }
+
+    struct Memo {
+        std::mutex mutex;
+        std::uint64_t key = 0;  // picked's
+        std::shared_ptr<const GuideSet> set;
+        bool keyKnown = false;  // externalKey's, for the hierarchy and params it was worked out for
+        std::uint64_t keyOf = 0, keyValue = 0;
+    };
+    std::shared_ptr<Memo> memo_ = std::make_shared<Memo>();  // (shared by copies: the same params)
 };
 
 }  // namespace

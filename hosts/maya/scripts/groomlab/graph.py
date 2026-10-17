@@ -791,84 +791,22 @@ class GraphModel(object):
     # -- Compounds (PG-6) ------------------------------------------------
 
     def collapse(self, names, compound=None):
-        """Replace nodes with one Compound node holding them; returns its name.
+        """Replace nodes with one Compound node holding them; returns its name (the core's
+        GraphEdit.collapse, the app's Group too).
 
         Connections from outside become the compound's inputs (one per
         source node and output); exactly one of the nodes may feed nodes
         outside, from its first output, and it becomes the compound's output
-        (a compound has one output).
+        (a compound has one output). Inner nodes keep every field (params,
+        exposed params, bypass, position) so Ungroup gives them back. A group
+        that cannot be made raises and leaves the graph as it was.
         """
-        names = [n for n in self.order if n in set(names)]
-        if not names:
-            raise GraphError("nothing to collapse")
-        inside = set(names)
-        incoming = [c for c in self.connections if c["to"] in inside and c["from"] not in inside]
-        outgoing = [c for c in self.connections if c["from"] in inside and c["to"] not in inside]
-        feeders = sorted({c["from"] for c in outgoing})
-        if len(feeders) > 1:
-            raise GraphError("only one of the nodes may feed the rest of the graph (%s do)" % ", ".join(feeders))
-        other = next((c for c in outgoing if c.get("output")), None)
-        if other is not None:
-            raise GraphError("%s feeds the rest of the graph from its output %r: a group gives its node's first "
-                             "output only" % (other["from"], other["output"]))
-        if feeders:
-            inner_output = feeders[0]
-        else:
-            sinks = [n for n in names if not any(c["from"] == n and c["to"] in inside for c in self.connections)]
-            if self.output in inside:
-                sinks = [self.output]
-            if len(sinks) != 1:
-                raise GraphError("the nodes need one output node")
-            inner_output = sinks[0]
-
-        # One compound input per outside source. Inner nodes keep every field
-        # (params, exposed params, bypass, position) so Ungroup gives them back.
-        inputs, input_names = [], {}
-        inner_nodes = []
-        for n in names:
-            entry = {"name": n}
-            entry.update(node_fields(self.nodes[n]))
-            inner_nodes.append(entry)
-        inner_links = [dict(c) for c in self.connections if c["from"] in inside and c["to"] in inside]
-        for c in incoming:
-            src = (c["from"], c.get("output"))  # one input per source node and output
-            if src not in input_names:
-                taken = [i["name"] for i in inputs]
-                port = c["input"] if c["input"] not in taken else "_".join(n for n in src if n)
-                input_names[src] = port
-                kind = self.output_type(src[0], src[1])
-                inputs.append({"name": port, "type": kind})
-                inner_nodes.append({"name": "in_" + port, "type": "Input", "params": {"name": port, "type": kind}})
-            inner_links.append({"from": "in_" + input_names[src], "to": c["to"], "input": c["input"]})
-        definition = {"graph": {"version": 1, "nodes": inner_nodes, "connections": inner_links,
-                                "output": inner_output},
-                      "inputs": inputs, "expose": {}}
-
-        xs = [self.position(n)[0] for n in names]
-        ys = [self.position(n)[1] for n in names]
-        was_output = self.output in inside
-        snapshot = self._snapshot()
-        try:
-            for n in names:
-                self.remove_node(n)
-            name = self.add_node("Compound", name=compound or self.unique_name("compound"),
-                                 params={"definition": definition}, pos=(sum(xs) / len(xs), sum(ys) / len(ys)))
-            for (src, output), port in input_names.items():
-                self.connect(src, name, port, output=output)
-            for c in outgoing:
-                self.connect(name, c["to"], c["input"])
-        except GraphError:
-            self._restore(snapshot)
-            raise
-        if was_output:
-            self.output = name
+        edit = self._edit()
+        with _core_errors():
+            name = edit.collapse(list(names), compound or "")
+        self._take(edit)
+        self.renamed = {k: v for k, v in self.renamed.items() if v in self.nodes}
         return name
-
-    def _snapshot(self):
-        return copy.deepcopy((self.nodes, self.order, self.connections, self.output, self.renamed))
-
-    def _restore(self, snapshot):
-        self.nodes, self.order, self.connections, self.output, self.renamed = copy.deepcopy(snapshot)
 
     def expose(self, compound, name, target):
         """Show an inner param ("node.param") as the compound param `name`."""
@@ -884,75 +822,18 @@ class GraphModel(object):
 
     def expand(self, compound):
         """Replace a Compound node with the nodes it holds (exposed values applied, every field
-        kept); returns their names. A definition that cannot be expanded (an unknown type, a
-        link that fits nothing) raises and leaves the graph as it was."""
+        kept); returns their names (the core's GraphEdit.expand, the app's Ungroup too). A
+        definition that cannot be expanded (an unknown type, a link that fits nothing) raises and
+        leaves the graph as it was."""
         node = self._node(compound)
         if node["type"] != "Compound":
             raise GraphError("%s is not a Compound" % compound)
-        definition = copy.deepcopy(node["params"].get("definition") or {})
-        inner = definition.get("graph", {})
-        inner_nodes = inner.get("nodes", [])
-        for n in inner_nodes:
-            self.catalog.spec(n["type"])  # an unknown type: refused before anything changes
-        for exposed, target in definition.get("expose", {}).items():
-            if exposed in node["params"]:
-                inner_name, _, param = target.partition(".")
-                for n in inner_nodes:
-                    if n["name"] == inner_name:
-                        n.setdefault("params", {})[param] = copy.deepcopy(node["params"][exposed])
-        real = [n for n in inner_nodes if n["type"] != "Input"]
-        if inner.get("output") not in [n["name"] for n in real]:
-            raise GraphError("%s has no output node inside" % compound)
-        sources = {c["input"]: (c["from"], c.get("output")) for c in self.connections if c["to"] == compound}
-        consumers = [c for c in self.connections if c["from"] == compound]
-        x, y = self.position(compound)
-        was_output = self.output == compound
-
-        # Where they were when grouped, moved with the compound; nodes without a position fan out.
-        placed = [n["ui"] for n in real if "ui" in n]
-        if placed:
-            cx = sum(u.get("x", 0.0) for u in placed) / len(placed)
-            cy = sum(u.get("y", 0.0) for u in placed) / len(placed)
-        else:
-            cx, cy = x, y
-
-        snapshot = self._snapshot()
-        try:
-            self.remove_node(compound)
-            renamed, inputs = {}, {}
-            for i, n in enumerate(inner_nodes):
-                if n["type"] == "Input":
-                    inputs[n["name"]] = sources.get(n.get("params", {}).get("name", "strands"), (None, None))
-                    continue
-                new = self.unique_name(n["name"])
-                fields = node_fields(n)
-                ui = fields.pop("ui", None)
-                if ui is not None:
-                    pos = (ui.get("x", 0.0) - cx + x, ui.get("y", 0.0) - cy + y)
-                else:
-                    pos = (x + 40 * i, y + 40 * i)
-                fields["ui"] = {"x": float(pos[0]), "y": float(pos[1])}
-                self.nodes[new] = fields
-                self.order.append(new)
-                renamed[n["name"]] = new
-            for c in inner.get("connections", []):
-                if c["from"] in inputs:
-                    src, output = inputs[c["from"]]
-                else:
-                    src, output = renamed.get(c["from"]), c.get("output")
-                if c["to"] not in renamed:
-                    raise GraphError("%s links %s to a node it does not hold (%s)" % (compound, c["from"], c["to"]))
-                if src:
-                    self.connect(src, renamed[c["to"]], c["input"], output=output)
-            out = renamed[inner["output"]]
-            for c in consumers:
-                self.connect(out, c["to"], c["input"])
-        except GraphError:
-            self._restore(snapshot)
-            raise
-        if was_output:
-            self.output = out
-        return list(renamed.values())
+        edit = self._edit()
+        with _core_errors():
+            made = edit.expand(compound)
+        self._take(edit)
+        self.renamed = {k: v for k, v in self.renamed.items() if v in self.nodes}
+        return list(made)
 
     # -- Checks and layout -------------------------------------------------
 

@@ -248,7 +248,7 @@ To use scales elsewhere:
 - **Unreal, instanced:** **GroomLab > Export > Scales Instancer (USD)...** writes a USD
   PointInstancer of the plates, which Unreal's USD Importer brings in as instanced static meshes.
   Instancers do not bend the plates over the body.
-- **Baked maps:** **GroomLab > Export > Bake Scale Maps** bakes the scales into the body's UVs as a
+- **Baked maps:** **GroomLab > Utilities > Bake Scale Maps** bakes the scales into the body's UVs as a
   normal map (OpenGL +Y; flip green in Unreal), a 16-bit height map and a color map, one tile per
   UDIM: for distant or tiny scales without geometry.
 
@@ -278,8 +278,9 @@ Arnold uses them in both render modes, and exports use them when asked (`render_
 
 ## Farm renders from a groom file
 
-**GroomLab > Export > Render from Groom File...** exports a `.groom` file with its scalp cache and
-switches the groom's `renderMode` to `groomFile`. Exported `.ass` files then contain a
+**GroomLab > Render > Render from Groom File...** exports a `.groom` file with its scalp cache and
+switches the groom's `renderMode` to `groomFile` (Maya's progress bar counts the frames; Esc
+cancels and removes the half-written file). Exported `.ass` files then contain a
 `groomlab_procedural` node that evaluates the groom at render time without Maya, producing the
 same curves and user data as the translator.
 
@@ -294,8 +295,10 @@ limit on render nodes.
 ## Caches for other packages
 
 - **Alembic** and **USD**: **GroomLab > Export > Alembic...** or **USD...** write linear curves
-  with widths, strand IDs, root UVs and the strand attributes ([above](#strand-attributes)). To
-  render them in RenderMan, Redshift or V-Ray, see [Other renderers](/docs/other-renderers).
+  with widths, strand IDs, root UVs and the strand attributes ([above](#strand-attributes)).
+  Maya's progress bar counts the frames; Esc cancels and removes the half-written file, and a
+  message says what was written. To render them in RenderMan, Redshift or V-Ray, see
+  [Other renderers](/docs/other-renderers).
 - **Headless:** `groomlab-cli eval hair.groom -o hair.usda -f 1-48` evaluates a groom file without
   Maya (`--scales instancer` writes the scales as a PointInstancer; `groomlab-cli bake-scales
   hair.groom -o maps/hair_` bakes their skin maps).

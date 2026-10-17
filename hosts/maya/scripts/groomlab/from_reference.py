@@ -526,7 +526,7 @@ def _insert_at_color(model, chain):
 
 
 # ---------------------------------------------------------------------------
-# What Groom Tools > Reference > Guides from Reference does
+# What Groom Tools > Photos > Guides from Photos does
 
 
 def view_mask(groom, camera):
@@ -556,14 +556,14 @@ def clear_reference_strokes(groom, camera):
 
 
 def generate(groom, cameras=None, guide_count=300, symmetry="auto", max_length=None, select=True, **options):
-    """Guides from Reference as the Groom Tools run it: every reference camera (or `cameras`), each
+    """Guides from Photos as the Groom Tools run it: every reference camera (or `cameras`), each
     with the mask and the flow strokes the groom keeps for it, into the fromReference group
     (replaced). The measured look is kept on the groom for apply_measured_look. With `select`,
     the new guides are selected. Returns guides_from_reference's result."""
     from groomlab import reference
     cameras = cameras or reference.list_references()
     if not cameras:
-        raise ValueError("no reference photos: import one (Groom Tools > Reference)")
+        raise ValueError("no reference photos: import one (Groom Tools > Photos)")
     views = [{"camera": c, "mask": view_mask(groom, c)} for c in cameras]
     with undo_chunk("guides from reference"):  # the guides, the measured look and the selection: one step
         result = guides_from_reference(groom, views, guide_count=guide_count, symmetry=symmetry, max_length=max_length,

@@ -47,12 +47,13 @@ BrushPanel::BrushPanel(QWidget* parent) : QWidget(parent) {
     // settings of the active one.
     auto* brush = new QGroupBox(tr("Brush"), host);
     new QFormLayout(brush);
-    slider(brush, tr("Radius (px)"), 5.0, 400.0, 5.0, 2000.0, 0, [this] { return session_->settings().screenRadius; },
+    slider(brush, tr("Radius"), 5.0, 400.0, 5.0, 2000.0, 0, [this] { return session_->settings().screenRadius; },
          [this](double v) { session_->settings().setScreenRadius(static_cast<float>(v)); },
-         tr("The brush circle in pixels (B held + drag, or middle-drag, sets it)"));
+         withShortcut(tr("The brush circle in pixels (middle-drag sets it too)"), "brush.radius"))
+        ->setFormat([](double v) { return QString::number(std::lround(v)) + QStringLiteral(" px"); });
     slider(brush, tr("Strength"), 0.0, 2.0, -10.0, 10.0, 2, [this] { return session_->settings().brush.strength; },
          [this](double v) { session_->settings().brush.strength = static_cast<float>(v); },
-         tr("Comb: the fraction of the drag; others: the effect per stamp (Shift+middle-drag sets it)"));
+         withShortcut(tr("Comb: the fraction of the drag; others: the effect per stamp (Shift+middle-drag sets it too)"), "brush.strength"));
     // Falloff as the catalog names it in both hosts: 0 hard to the edge, 1 soft from the center
     // (the core's hardness is 1 - falloff).
     const groomlab::BrushSettingSpec* falloff = brushSettingSpec("falloff");
@@ -69,11 +70,12 @@ BrushPanel::BrushPanel(QWidget* parent) : QWidget(parent) {
     check(brush, tr("Pen pressure"), [this] { return session_->settings().pressure; },
           [this](bool on) { session_->settings().pressure = on; }, tr("A pen's pressure scales the strength"));
     symmetry_ = new QComboBox(brush);
-    // none, x, y, z (a world plane at the center), topology (across the scalp's own surface).
-    symmetry_->addItems({tr("none"), tr("x"), tr("y"), tr("z"), tr("topology")});
+    // Off, World X, Y, Z (a world plane at the center), Topology (across the scalp's own surface).
+    symmetry_->addItems({tr("Off"), tr("World X"), tr("World Y"), tr("World Z"), tr("Topology")});
     symmetry_->setObjectName(QStringLiteral("symmetry"));
-    symmetry_->setToolTip(QString::fromStdString(brushSettingSpec("symmetry")->hint) +
-                          tr(" (x, y, z: across the plane where that coordinate is the center)"));
+    symmetry_->setToolTip(withShortcut(QString::fromStdString(brushSettingSpec("symmetry")->hint) +
+                                           tr(" (World X, Y, Z: across the plane where that coordinate is the center)"),
+                                       "brush.symmetry"));
     formOf(brush)->addRow(tr("Symmetry"), symmetry_);
     connect(symmetry_, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (updating_ || !session_) return;

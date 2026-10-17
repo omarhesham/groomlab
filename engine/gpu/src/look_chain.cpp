@@ -10,6 +10,7 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <set>
 #include <unordered_map>
 #include <variant>
@@ -129,6 +130,7 @@ bool stageOf(const std::string& type, StageKind* kind) {
     else if (type == op::kFlow) *kind = StageKind::Flow;
     else if (type == op::kJiggle) *kind = StageKind::Jiggle;
     else if (type == op::kMeshCut) *kind = StageKind::MeshCut;
+    else if (type == op::kMerge) *kind = StageKind::Merge;
     else return false;
     return true;
 }
@@ -175,10 +177,11 @@ bool jiggleHandsOn(const Graph& graph, NodeId id) {
 // and Cards (its card layer, made from the strands it takes, or nothing where no cards are wanted)
 // too: their channels and cards stay as the last evaluation made them while the GPU previews, and
 // the commit makes them again from the committed strands. StrandMesh hands its strands on as they
-// are (hosts make its mesh).
+// are (hosts make its mesh). Instance too: its instances (where each sits on its strand) stay as the
+// last evaluation placed them while the GPU previews the strands, and the commit places them again.
 bool channelsOnly(const std::string& type) {
     return type == op::kHairColor || type == op::kBands || type == op::kFeatherColor || type == op::kAttribute ||
-           type == op::kRenderData || type == op::kCards || type == op::kStrandMesh;
+           type == op::kRenderData || type == op::kCards || type == op::kStrandMesh || type == op::kInstance;
 }
 
 // A Bands node whose colors depend on the strands' shapes: guard hairs picked as the longest (its
@@ -256,6 +259,7 @@ const char* stageName(StageKind kind) {
         case StageKind::Flow: return "flow";
         case StageKind::Jiggle: return "jiggle";
         case StageKind::MeshCut: return "meshCut";
+        case StageKind::Merge: return "merge";
     }
     return "?";
 }
@@ -466,6 +470,13 @@ Role roleOf(const GraphDocument& doc, NodeId id, StageKind* kind, std::string* w
         dryWet(graph, id)) {
         return Role::PassOn;
     }
+    if (type == op::kMerge) {
+        // Nothing on b: a handed on as it came. A seam blended (b's strands lean toward a's): the CPU's.
+        const StrandsPtr out = cachedStrands(graph, id), a = cachedStrands(graph, upstream(graph, id, 0));
+        if (out && a && out == a) return Role::PassOn;
+        const ParamSet& p = graph.node(id).params();
+        if (p.getDouble("blend") > 0.0 && p.getDouble("match") > 0.0) return Role::End;
+    }
     if (stageOf(type, kind) && (*kind != StageKind::Interpolate || upstream(graph, id, 1)) &&
         (*kind != StageKind::Collide || !collidesWithADeformedMesh(graph, id)) && (*kind != StageKind::Curl || !curlAddsPoints(graph, id))) {
         return Role::Stage;
@@ -550,10 +561,15 @@ bool findLookChainTo(const GraphDocument& doc, NodeId end, LookChain* chain, std
     // other node: the base. A Blend's looks up to where they part (look b's nodes first: the list
     // is reversed), the walk going on from there.
     std::vector<LookStage> stages;  // output first
+    std::size_t merged = kNoStage;  // the Merge's place among stages (those pushed after it are up its input a)
     for (int guard = 0; guard < 256; ++guard) {
         StageKind kind;
-        const Role role = roleOf(doc, id, &kind, why);
+        Role role = roleOf(doc, id, &kind, why);
         if (role == Role::Refuse) return false;
+        if (role == Role::Stage && kind == StageKind::Merge) {
+            if (merged != kNoStage) role = Role::End;  // one Merge a run
+            else merged = stages.size();
+        }
         if (role == Role::End) {
             c.base = id;
             break;
@@ -598,6 +614,9 @@ bool findLookChainTo(const GraphDocument& doc, NodeId end, LookChain* chain, std
     if (stages.empty()) {
         *why = std::string("the graph ends with ") + graph.node(c.base).typeName() + ", which the GPU does not run";
         return false;
+    }
+    if (merged != kNoStage) {
+        for (std::size_t k = merged + 1; k < stages.size(); ++k) stages[k].prefix = true;
     }
     c.stages.assign(stages.rbegin(), stages.rend());
     linkStages(graph, &c);
@@ -711,11 +730,23 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
                     std::string* why) {
     const Graph& graph = doc.graph;
     LookParams p;
+    // A Merge's input a: the strands the stages up it run on (the base's first).
+    std::size_t mergedA = 0;
+    for (const LookStage& stage : chain.stages) {
+        if (stage.kind != StageKind::Merge) continue;
+        const StrandsPtr a = cachedStrands(graph, upstream(graph, stage.node, 0));
+        if (!a) {
+            *why = "not evaluated";
+            return false;
+        }
+        mergedA = a->strandCount();
+    }
     for (const LookStage& stage : chain.stages) {
         const NodeId id = stage.node;
         const ParamSet params = evaluatedParams(graph, id);
         StageParams s;
         s.stage = stage;
+        if (stage.prefix) s.strands = mergedA;
         // Within the spec's hard limits, a dragged number as the stored one (ParamSet clamps it).
         auto number = [&](const std::string& name) {
             if (const double* v = overriddenNumber(doc, overrides, id, name)) return graph.node(id).params().clamped(name, *v);
@@ -1229,6 +1260,7 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
                 s.flag[0] = params.getString("keep") == "inside" ? 1 : 0;
                 break;
             }
+            case StageKind::Merge: s.flag[0] = static_cast<int>(mergedA); break;
         }
         // ---- Affect masks ----
         // Restricted by its affect (or one dragged): its result mixed back by it after its last stage
@@ -1246,6 +1278,52 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
     return true;
 }
 
+namespace {
+
+// The base of a run through a Merge (its stage `merge`): the Merge's cached result, its input a's
+// strands (the first) with the points `a` holds (what the run's first stage up there takes), b's as
+// the Merge made them; null with *why when `a` is not laid out as the Merge's first strands. Kept
+// for the next run of the same strands (a drag's every step plans again).
+StrandsPtr mergedBase(const Graph& graph, NodeId merge, const StrandsPtr& a, std::string* why) {
+    const StrandsPtr merged = cachedStrands(graph, merge);
+    const StrandsPtr input = cachedStrands(graph, upstream(graph, merge, 0));
+    if (!merged || !input) {
+        *why = "not evaluated";
+        return nullptr;
+    }
+    static std::mutex keptMutex;
+    static std::weak_ptr<const StrandSet> keptA, keptMerged;
+    static StrandsPtr kept;
+    {
+        const std::lock_guard<std::mutex> lock(keptMutex);
+        if (kept && keptA.lock() == a && keptMerged.lock() == merged) return kept;
+    }
+    const std::size_t n = a->strandCount();
+    bool laidOut = n == input->strandCount() && n <= merged->strandCount() && a->pointCount() <= merged->pointCount() &&
+                   std::equal(a->offsets().begin(), a->offsets().end(), merged->offsets().begin()) &&
+                   std::equal(a->ids().begin(), a->ids().end(), merged->ids().begin());
+    if (!laidOut) {
+        *why = "the strands the GPU starts from up a Merge's input a are not laid out as its first";
+        return nullptr;
+    }
+    auto out = std::make_shared<StrandSet>(*merged);
+    Vec3f* to = out->overwritePositions().data();
+    const Vec3f* fromA = a->positions().data();
+    const Vec3f* fromMerged = merged->positions().data();
+    const std::size_t pointsA = a->pointCount(), points = merged->pointCount();
+    parallelFor(0, (points + 65535) / 65536, [&](std::size_t c) {
+        const std::size_t begin = c * 65536, end = std::min(points, begin + 65536);
+        for (std::size_t i = begin; i < end; ++i) to[i] = i < pointsA ? fromA[i] : fromMerged[i];
+    }, 1);
+    const std::lock_guard<std::mutex> lock(keptMutex);
+    keptA = a;
+    keptMerged = merged;
+    kept = out;
+    return out;
+}
+
+}  // namespace
+
 bool lookStrands(const GraphDocument& doc, const LookChain& chain, StrandsPtr* base, StrandsPtr* output, std::string* why) {
     const Graph& graph = doc.graph;
     *base = cachedStrands(graph, chain.base);
@@ -1253,6 +1331,12 @@ bool lookStrands(const GraphDocument& doc, const LookChain& chain, StrandsPtr* b
     if (!*base || !made) {
         *why = "not evaluated";
         return false;
+    }
+    for (const LookStage& s : chain.stages) {
+        if (s.kind != StageKind::Merge) continue;
+        // (As made: hidden core strands in it, preview_core.h, as the Merge's roles channel says.)
+        *base = mergedBase(graph, s.node, *base, why);
+        if (!*base) return false;
     }
     // The output as the viewport was handed it: without the roles' channel and, in a preview under
     // its core share, without the core strands it holds hidden (preview_core.h), which the engine
@@ -1703,7 +1787,8 @@ bool readLookFields(const GraphDocument& doc, const LookChain& chain, const Scal
             case StageKind::RestoreLength: break;
             case StageKind::Flow: ok = read("lift", false, &v[0]); break;
             case StageKind::Jiggle: ok = read("strength", false, &v[0]); break;
-            case StageKind::MeshCut: break;
+            case StageKind::MeshCut:
+            case StageKind::Merge: break;
         }
         if (!ok) return false;
     }
@@ -1731,8 +1816,8 @@ bool lookFieldsHold(const GraphDocument& doc, const LookChain& chain, const Look
                                                        // The shapers reading their neighbours or a reference.
                                                        {"strength", ""}, {"", ""}, {"strength", ""},
                                                        {"strength", ""}, {"lift", ""},
-                                                       // Jiggle, MeshCut
-                                                       {"strength", ""}, {"", ""}};
+                                                       // Jiggle, MeshCut, Merge
+                                                       {"strength", ""}, {"", ""}, {"", ""}};
     bool interpolateBefore = false, widthBefore = false, channelsBefore = false;
     for (std::size_t k = 0; k < chain.stages.size(); ++k) {
         const LookStage& stage = chain.stages[k];
@@ -3467,6 +3552,7 @@ LookBounds lookBounds(const LookParams& p, const LookFields& fields, const std::
             }
             case StageKind::Length:
             case StageKind::MeshCut: break;  // trimmed: within the strand
+            case StageKind::Merge: break;    // b's strands as cached: within the base's box
             case StageKind::Clump: {
                 // Between each point and its center's (the centers' box grown by the lock).
                 const ClumpInputs* in = k < inputs.size() ? inputs[k].clump.get() : nullptr;

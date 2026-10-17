@@ -175,6 +175,43 @@ class GraphEditorTest(unittest.TestCase):
         self.assertEqual(self.editor.scene.selectedItems(), [])  # no rubber band from the port drag
         self.editor.hide()
 
+    def test_tab_added_nodes_wire_after_the_selection(self):
+        self.editor.items["length"].setSelected(True)
+        search = self.ge.NodeSearch(self.editor, (321.0, 654.0))
+        search.choose("Curl")
+        name = [n for n in self.editor.model.order if self.editor.model.node_type(n) == "Curl"][0]
+        self.assertEqual(self.editor.model.source_of(name, "strands"), "length")
+        self.assertEqual(self.editor.model.source_of("width", "strands"), name)
+        self.assertEqual(self.editor.model.position(name), (321.0, 654.0))  # where Tab was pressed
+        self.assertIn("after length", self.editor.status.text())
+
+    def test_an_invalid_link_drop_says_why_and_keeps_the_link(self):
+        from PySide2 import QtCore, QtWidgets
+        self.editor.resize(1200, 600)
+        self.editor.show()
+        QtWidgets.QApplication.processEvents()
+        try:
+            view = self.editor.view
+            # Pick up interpolate's guides link and drop it on the scalp's mesh input of a Scatter
+            # (Guides can't go there): it says why and the link stays.
+            src = view.mapFromScene(self.editor.items["interpolate"].inputs["guides"].scene_center())
+            scene = self.editor.scene
+            port = self.editor.items["guides"].output
+            ports = scene.ports()
+
+            def lonely(p):  # can't take Guides, and no port nearby that could (the drop would snap there)
+                return scene.incompatible_reason(port, p) and not p.is_output and not any(
+                    scene.compatible(port, q) and QtCore.QLineF(q.scene_center(), p.scene_center()).length()
+                    < self.ge.SNAP * 2 for q in ports)
+            target = next(p for p in ports if lonely(p))
+            dst = view.mapFromScene(target.scene_center())
+            self.assertIn("Guides", scene.incompatible_reason(port, target))
+            drag(view.viewport(), src, dst)
+            self.assertEqual(self.editor.model.source_of("interpolate", "guides"), "guides")  # restored
+            self.assertIn("Not linked", self.editor.status.text())
+        finally:
+            self.editor.hide()
+
     def test_a_map_node_links_from_the_output_dragged(self):
         # A Map node shows one labelled port per output (luminance, r, g, b, a) down its right
         # edge; a link dragged from g reads g, is drawn from g, and one undo takes it away.
@@ -467,9 +504,9 @@ class GraphEditorTest(unittest.TestCase):
         self.assertFalse(cmds.getAttr(self.groom + ".displayCardTextures"))
         textures[0].setChecked(True)
         self.assertTrue(cmds.getAttr(self.groom + ".displayCardTextures"))
-        self._action("Export for Unreal...")
-        self._action("Export for Unity...")  # present only: a click opens a file dialog
-        self._action("Export glTF...")
+        self._action("Export Unreal Cards...")
+        self._action("Export Unity Cards...")  # present only: a click opens a file dialog
+        self._action("Export glTF Cards...")
         self._action("Bake Scalp")
         # StrandMesh: its mesh shows (displayStrandMesh); Mesh in Scene puts a Maya mesh on outStrandMesh.
         strand_mesh = self.editor.add_node("StrandMesh")
@@ -627,6 +664,12 @@ class GraphEditorTest(unittest.TestCase):
         paint = next((a.menu() for a in menu.actions() if a.text() == "Paint" and a.menu()), None)
         self.assertIsNotNone(paint)
         self.assertEqual([a.text() for a in paint.actions()], ["On Guides", "On Scalp Vertices", "As Texture"])
+        # The row's yellow Paint chip (the app's pill) offers the same choices.
+        from PySide2 import QtWidgets
+        self.editor.params.show_node("scatter")
+        chips = self.editor.params.widget().findChildren(QtWidgets.QToolButton, "paintChip")
+        self.assertTrue(chips)
+        self.assertEqual([a.text() for a in chips[0].menu().actions()], ["On Guides", "On Scalp Vertices", "As Texture"])
         before = self.editor.model.param("scatter", "density")
         self.editor.params.paint_param("scatter", "density", "guides")
         self.assertIn("no guides", self.editor.status.text())  # nothing to paint on yet
@@ -801,7 +844,7 @@ class GraphEditorTest(unittest.TestCase):
         self.editor.resize(1200, 600)
         self.editor.show()
         QtWidgets.QApplication.processEvents()
-        # Header toggles: Focus and Disable, clicked like buttons.
+        # Header toggles: Focus and Bypass, clicked like buttons.
         item = self.editor.items["length"]
         rects = item.toggle_rects()
         view = self.editor.view
@@ -924,8 +967,8 @@ class GraphEditorTest(unittest.TestCase):
             self.assertEqual(basics.toolTip(), info["description"])
             self.assertEqual(basics.statusTip(), info["description"])
             self.assertTrue(hair.toolTipsVisible())
-            # Each preset: Apply beside Insert after selected node.
-            self.assertEqual([a.text() for a in basics.menu().actions()], ["Apply", "Insert after selected node"])
+            # Each preset: Apply beside Insert After Selected Node.
+            self.assertEqual([a.text() for a in basics.menu().actions()], ["Apply", "Insert After Selected Node"])
             loose = [a for a in actions if a.data() == "my_look"]
             self.assertEqual([a.text() for a in loose], ["My look"])
             self.assertIn("Add-ons", [m.title() for m in subs])
@@ -1758,9 +1801,13 @@ class GraphEditorTest(unittest.TestCase):
         self.assertGreaterEqual(view.transform().m11(), view.READABLE * theme.scale() - 1e-6)
         output = view.mapFromScene(self.editor.items["output"].sceneBoundingRect()).boundingRect()
         self.assertTrue(view.viewport().rect().contains(output))
-        view.frame_all()  # A: everything
+        view.frame_all()  # A: everything that fits at a readable zoom, centered on the graph
+        self.assertGreaterEqual(view.transform().m11(), view.READABLE * theme.scale() - 1e-6)
+        middle = view.mapFromScene(self.editor.scene.itemsBoundingRect().center())
+        self.assertTrue(view.viewport().rect().contains(middle))
         framed = view.mapFromScene(self.editor.scene.itemsBoundingRect()).boundingRect()
-        self.assertTrue(view.viewport().rect().contains(framed))
+        if view.transform().m11() > view.READABLE * theme.scale() + 1e-6:  # it fit: all of it shows
+            self.assertTrue(view.viewport().rect().contains(framed))
         # Panning isn't held to the nodes: the view goes well past them.
         far = self.editor.scene.itemsBoundingRect().bottomRight() + QtCore.QPointF(3000, 3000)
         view.centerOn(far)
@@ -2053,11 +2100,42 @@ class ExpressionPanelTest(unittest.TestCase):
         # The library: an example loads text, variables and range.
         from groomlab import expressions
         example = expressions.find_expression("Near a point")
-        self.panel.load(example)
+        # The node's own code is replaced only once confirmed (no: nothing changes).
+        asked = []
+        self.panel.ask = lambda question: asked.append(question) or False
+        self.assertFalse(self.panel.load(example))
+        self.assertEqual(len(asked), 1)
+        self.panel.ask = lambda question: asked.append(question) or True
+        def stored():
+            return [n for n in groomlab.get_graph(self.groom)["nodes"] if n["name"] == self.node][0]["params"]
+        self.editor.apply()
+        before = stored()
+        self.assertTrue(self.panel.load(example))
         wait(50)
         self.assertEqual(self.editor.model.param(self.node, "expression"), example["expression"])
         self.assertEqual(json.loads(self.editor.model.param(self.node, "variables")), example["variables"])
+        # One undo step takes the whole entry back.
+        self.assertEqual(stored().get("expression"), example["expression"])
+        cmds.undo()
+        self.assertEqual(stored(), before)
+        cmds.redo()
+        self.editor.reload()
+        self.editor.items[self.node].setSelected(True)
+        wait(50)
         self.panel = self.editor.params.expression  # the panel is rebuilt to show the new min and max
+        # Saving: one form (name and what it does); an existing name is replaced only once confirmed.
+        import tempfile
+        before_dir = os.environ.get("GROOMLAB_USER_EXPRESSIONS")
+        os.environ["GROOMLAB_USER_EXPRESSIONS"] = tempfile.mkdtemp()
+        self.panel.ask = lambda question: False
+        try:
+            self.assertTrue(self.panel.save("batch3 probe", "a test"))
+            self.assertIsNone(self.panel.save("batch3 probe", "again"))  # not replaced: asked, said no
+        finally:
+            if before_dir is None:
+                os.environ.pop("GROOMLAB_USER_EXPRESSIONS", None)
+            else:
+                os.environ["GROOMLAB_USER_EXPRESSIONS"] = before_dir
         self.panel.fill_library()
         names = [a.text() for a in self.panel.library_menu.actions()]
         self.assertIn("Stripes around the scalp", names)
@@ -2599,8 +2677,8 @@ class DockableWindowsTest(unittest.TestCase):
             button = [b for b in window.findChildren(QtWidgets.QToolButton) if b.text().startswith("Add Node")][0]
             menu = button.menu()
             self.assertIsNotNone(menu)
-            fields = [a.menu() for a in menu.actions() if a.text() == "Fields & Curves"][0]
-            [a for a in fields.actions() if a.text() == "FieldNoise"][0].trigger()
+            fields = [a.menu() for a in menu.actions() if a.text().replace("&&", "&") == "Fields & Curves"][0]
+            [a for a in fields.actions() if a.text() == "Field Noise" and a.data() == "FieldNoise"][0].trigger()  # the label
             self.assertIn("FieldNoise", [window.model.node_type(n) for n in window.model.order])
             # The canvas menu places the node where you clicked.
             placed = window.build_add_menu(at=(1234.0, 567.0))
@@ -2679,9 +2757,11 @@ class DockableWindowsTest(unittest.TestCase):
         was = links.OPEN_URL
         links.OPEN_URL = lambda url: opened.append(url) or True
         try:
-            menu.install()
-            item = next(menu.MENU + "|" + i for i in cmds.menu(menu.MENU, query=True, itemArray=True)
-                        if cmds.menuItem(i, query=True, label=True) == "Support GroomLab")
+            menu.install()  # Help > Support GroomLab
+            help_menu = next(menu.MENU + "|" + i for i in cmds.menu(menu.MENU, query=True, itemArray=True)
+                             if cmds.menuItem(i, query=True, label=True) == "Help")
+            item = next(help_menu + "|" + i for i in cmds.menu(help_menu, query=True, itemArray=True)
+                        if cmds.menuItem(help_menu + "|" + i, query=True, label=True) == "Support GroomLab")
             self.assertIn(menu.DONATE_URL, cmds.menuItem(item, query=True, annotation=True))
             self.assertEqual(menu.open_donate(), menu.DONATE_URL)
             window = menu.show_about()
@@ -2710,29 +2790,45 @@ class DockableWindowsTest(unittest.TestCase):
         try:
             labels = [cmds.menuItem(i, query=True, label=True) for i in cmds.menu(menu.MENU, query=True, itemArray=True)
                       if not cmds.menuItem(i, query=True, divider=True)]
-            self.assertEqual(labels, ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Guides", "Groom Files",
-                                      "Import", "Add", "Simulate (GroomLab)", "nHair (legacy)", "Review", "Export", "Utilities",
-                                      "Theme", "Install GroomLab Hotkeys", "Check for Updates...", "Help", "Support GroomLab"])
+            self.assertEqual(labels, ["Groom Tools", "Graph Editor", "Create Groom from Selection",
+                                      "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate",
+                                      "Review", "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys",
+                                      "Help"])
 
-            def entries_of(label, tooltips=True):
-                sub = next(menu.MENU + "|" + i for i in cmds.menu(menu.MENU, query=True, itemArray=True)
-                           if cmds.menuItem(i, query=True, label=True) == label)
+            def entries_of(label, tooltips=True, parent=menu.MENU):
+                sub = next(parent + "|" + i for i in cmds.menu(parent, query=True, itemArray=True)
+                           if cmds.menuItem(parent + "|" + i if parent != menu.MENU else i, query=True,
+                                            label=True) == label)
                 self.assertTrue(cmds.menuItem(sub, query=True, subMenu=True))
                 found = [sub + "|" + i for i in cmds.menu(sub, query=True, itemArray=True)
-                         if not cmds.menuItem(i, query=True, divider=True)]
+                         if not cmds.menuItem(sub + "|" + i, query=True, divider=True)]
                 for entry in found if tooltips else []:
                     self.assertTrue(cmds.menuItem(entry, query=True, annotation=True), entry)  # a tooltip each
                 return [cmds.menuItem(i, query=True, label=True) for i in found]
-            # The graph's building blocks, the two simulations apart, the Unreal cards, help.
-            self.assertEqual(entries_of("Add"), ["Feathers...", "Braid on Curves", "Cards", "Collider", "Wind", "Jiggle",
-                                                 "Simulation"])
-            self.assertEqual(entries_of("Simulate (GroomLab)"), ["Add Simulate Node", "Simulate Range", "Bake Simulation",
-                                                                 "Clear Simulation"])
-            self.assertEqual(entries_of("nHair (legacy)"), ["Simulate Guides (nHair)...", "Bake Simulation to Cache...",
-                                                            "Remove Simulation", "Export Guides for Simulation...",
-                                                            "Load Guide Cache..."])
-            self.assertIn("Unreal Cards...", entries_of("Export", tooltips=False))  # the older entries have none
-            self.assertEqual(entries_of("Help"), ["Docs", "Keyboard Shortcuts", "About GroomLab"])
+            # The graph's building blocks, one Simulate menu (nHair under Legacy), the renders, the
+            # exports, help; a tooltip on every item.
+            self.assertEqual(entries_of("Add"), ["Feathers...", "Braid on Curves...", "Cards", "Collider", "Wind",
+                                                 "Jiggle"])
+            self.assertEqual(entries_of("Simulate"), ["Add Simulate Node", "Simulate Range", "Bake Simulation",
+                                                      "Clear Simulation", "Legacy"])
+            simulate = next(menu.MENU + "|" + i for i in cmds.menu(menu.MENU, query=True, itemArray=True)
+                            if cmds.menuItem(i, query=True, label=True) == "Simulate")
+            self.assertEqual(entries_of("Legacy", parent=simulate),
+                             ["Simulate Guides (nHair)...", "Bake Simulation to Cache...", "Remove Simulation",
+                              "Export Guides for Simulation...", "Load Guide Cache..."])
+            self.assertEqual(entries_of("Review"), ["Density Heatmap", "Strand Count HUD", "Turntable",
+                                                    "Render Turntable..."])
+            for item in (menu.HEATMAP_ITEM, menu.HUD_ITEM):  # check items, their state as the menu opens
+                self.assertIn(cmds.menuItem(item, query=True, checkBox=True), (True, False))
+            menu._sync_review_items()
+            self.assertEqual(cmds.menuItem(menu.HUD_ITEM, query=True, checkBox=True), bool(groomlab.review.hud_visible()))
+            self.assertEqual(entries_of("Render"), ["Render from Groom File...", "Render as Curves"])
+            exports = entries_of("Export")
+            self.assertIn("Unreal Cards...", exports)
+            self.assertNotIn("Groom File...", exports)
+            self.assertNotIn("Bake Scale Maps", exports)
+            self.assertEqual(entries_of("Help"), ["Docs", "Keyboard Shortcuts", "Check for Updates...", "Support GroomLab",
+                                                  "About GroomLab"])
             self.assertTrue(menu.docs_folder().endswith("docs"))
             self.assertIn("B + drag", menu.shortcuts_text())
             self.assertIn("GroomLab", menu.about_text())
@@ -2741,9 +2837,11 @@ class DockableWindowsTest(unittest.TestCase):
             # Grooms to and from .groom files (the standalone app's round trip), a tooltip each.
             files = next(menu.MENU + "|" + i for i in cmds.menu(menu.MENU, query=True, itemArray=True)
                          if cmds.menuItem(i, query=True, label=True) == "Groom Files")
-            entries = [files + "|" + i for i in cmds.menu(files, query=True, itemArray=True)]
+            entries = [files + "|" + i for i in cmds.menu(files, query=True, itemArray=True)
+                       if not cmds.menuItem(files + "|" + i, query=True, divider=True)]
             self.assertEqual([cmds.menuItem(i, query=True, label=True) for i in entries],
-                             ["Import Groom File...", "Reload from Groom File", "Save to Groom File"])
+                             ["Import Groom File...", "Reload from Groom File", "Save to Groom File",
+                              "Save Groom File As..."])
             for entry in entries:
                 self.assertTrue(cmds.menuItem(entry, query=True, annotation=True))
             menu._sims()  # Remove Simulation's scene callbacks
@@ -2765,8 +2863,8 @@ class DockableWindowsTest(unittest.TestCase):
                        if not cmds.menuItem(i, query=True, divider=True)]
             self.assertEqual([cmds.menuItem(i, query=True, label=True) for i in entries],
                              ["Guides to Curves", "Curves to Guides...", "Strands to Curves...", "Strands to Mesh...",
-                              "Bake Node to Guides...", "Transfer Groom to Scalp...", "Copy Graph to Other Grooms...",
-                              "Find Missing Files..."])
+                              "Bake Node to Guides...", "Bake Scale Maps", "Transfer Groom to Scalp...",
+                              "Copy Graph to Other Grooms...", "Find Missing Files..."])
             for entry in entries:
                 self.assertTrue(cmds.menuItem(entry, query=True, annotation=True))  # a tooltip each
         finally:
@@ -2778,7 +2876,7 @@ class DockableWindowsTest(unittest.TestCase):
         made = menu.guides_to_curves_action()
         self.assertEqual(made["count"], 1)
         self.assertEqual(cmds.ls(selection=True, long=True), [made["group"]])
-        # The Graph Editor's Bake to Guides (a node's right-click menu), given the group.
+        # The Graph Editor's Bake Node to Guides (a node's right-click menu), given the group.
         from groomlab.ui import graph_editor
         editor = graph_editor.GraphEditor(self.groom)
         try:
@@ -2824,6 +2922,53 @@ class DockableWindowsTest(unittest.TestCase):
         self.assertIs(palette.show(), tools)
         tools.close()
 
+    def test_output_strip_and_alembic_curves_import(self):
+        """Groom Tools' Output strip runs the GroomLab menu's items (one table); Import > Alembic
+        Curves... makes the file's curves the groom's guides in one undo step."""
+        import tempfile
+        from PySide2 import QtWidgets
+        from groomlab import sim
+        from groomlab.ui import menu, palette
+        cmds.select(self.groom)
+        tools = palette.show()
+        try:
+            self.assertTrue(tools.output_section.expanded())
+            self.assertTrue(tools.output_strip.isVisibleTo(tools))
+            labels = [c.text() for c in tools.output_chips]
+            self.assertEqual([t.split("  ")[0] for t in labels], ["Simulate Range", "Export", "Render", "Transfer...",
+                                                                  "Import"])
+
+            def actions(kind):
+                chip = tools.findChild(QtWidgets.QToolButton, "output_" + kind)
+                return [a.text() for a in chip.menu().actions() if not a.isSeparator()]
+            exports = actions("export")
+            for label in ("Alembic...", "USD...", "Unreal Groom...", "Unity Strands (.abc)...", "glTF Cards..."):
+                self.assertIn(label, exports)
+            self.assertNotIn("Scales Mesh (FBX)...", exports)  # the menu's long list only
+            self.assertIn("Alembic Curves...", actions("import"))
+            self.assertIn("Render Turntable...", actions("render"))
+            # The menu shows the same table, without the strip's shortcuts.
+            menu_exports = [i[0] for i in menu.shown_items("export", menu.MENU_ONLY) if i]
+            self.assertIn("Scales Mesh (FBX)...", menu_exports)
+            self.assertNotIn("Save Groom File As...", menu_exports)
+            self.assertIn("Alembic Curves...", [i[0] for i in menu.shown_items("import", menu.MENU_ONLY) if i])
+            self.assertIsNot(menu.shown_items("render", menu.MENU_ONLY)[-1], None)  # no trailing divider
+        finally:
+            tools.close()
+        # Import > Alembic Curves...: an ImportCurves node in place of the Guides node; undo restores it.
+        curves = [cmds.curve(degree=1, point=[(0, 1, 0), (0.1, 1.5, 0), (0.2, 2.0, 0)]),
+                  cmds.curve(degree=1, point=[(0, -1, 0), (0.1, -1.5, 0), (0.2, -2.0, 0)])]
+        groomlab.guides_from_curves(self.groom, curves)
+        path = os.path.join(tempfile.mkdtemp(), "curves.abc").replace("\\", "/")
+        sim.export_guides(self.groom, path, "primary", start=1, end=1)
+        before = groomlab.get_graph(self.groom)
+        self.assertEqual(menu.import_alembic_curves_dialog(path=path, groom=self.groom), self.groom)
+        guides = [n for n in groomlab.get_graph(self.groom)["nodes"] if n["name"] == "guides"][0]
+        self.assertEqual(guides["type"], "ImportCurves")
+        self.assertTrue(guides["params"]["path"].endswith("curves.abc"))
+        cmds.undo()
+        self.assertEqual(groomlab.get_graph(self.groom), before)
+
     def test_tool_palette_drives_the_brush(self):
         from groomlab.ui import palette, widgets
         from PySide2 import QtCore
@@ -2836,6 +2981,7 @@ class DockableWindowsTest(unittest.TestCase):
             rows = [window.grooms.itemData(i) for i in range(window.grooms.count())]
             self.assertIn(self.groom, rows)  # the groom choice
             self.assertFalse(window.empty.isVisibleTo(window))  # a groom to work on: no "start a groom" card
+            self.assertTrue(window.work.isVisibleTo(window))  # and the tabs and tools
             for tool in ("place", "draw", "comb", "twist", "erase", "paint"):
                 window.buttons[tool].click()
                 self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), tool,
@@ -3278,7 +3424,7 @@ class ReferenceTabTest(unittest.TestCase):
         cmds.setFocus(self.panel)
         self.tools = palette.ToolPalette()
         self.tools.show()
-        self.tools.show_tab("reference")
+        self.tools.show_tab("photos")
         self.tools.poll()
         self.tab = self.tools.reference_tab
 
@@ -3295,7 +3441,11 @@ class ReferenceTabTest(unittest.TestCase):
     def test_the_tab_lists_references_and_drives_them(self):
         from groomlab import reference
         from groomlab.ui import palette
-        self.assertEqual(palette.TABS, ["tools", "paint", "sculpt", "reference"])
+        self.assertEqual(palette.TABS, ["tools", "paint", "correctives", "photos"])
+        self.tools.show_tab("sculpt")  # the old ids still work
+        self.assertEqual(self.tools.tabs.currentIndex(), palette.TABS.index("correctives"))
+        self.tools.show_tab("reference")
+        self.assertEqual(self.tools.tabs.currentIndex(), palette.TABS.index("photos"))
         self.assertTrue(self.tab.isVisibleTo(self.tools))
         self.assertFalse(self.tab.look.isEnabled())  # nothing to look through yet
         cam = self.tab.import_photo(self.photo)
@@ -3378,7 +3528,7 @@ class ReferenceTabTest(unittest.TestCase):
         self.assertIn("0 of 6 pairs", self.tab.align_about.text())
         for p in points:
             reference.add_pick(cam, "mesh", p)
-        self.tab.poll()
+        self.tab.poll(full=True)  # picks made elsewhere: the full tick shows them
         self.assertIn("7 of 6 pairs", self.tab.align_about.text())
         self.tab.keep_focal.setChecked(True)
         self.assertIn("7 of 4 pairs", self.tab.align_about.text())

@@ -13,6 +13,51 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.14.0 (October 17, 2026)
+
+- **Each branch sets its own strand resolution.** A Scatter now grows its strands with the most
+  segments a Resample *after it* asks for (a Resample fed nothing sets the default; without either,
+  8), not the most any Resample in the graph asks for. Fur no longer carries the 51 points a
+  whisker branch's Resample asks for: lighter, and much faster to evaluate. The Graph Editor (and
+  the app's parameter panel) says on each Scatter and Resample which Resample sets its resolution.
+- **Faster edits and playback with Instance nodes.** Param drags upstream of an Instance preview on
+  the GPU (the instances follow at release), Follow Scalp carries instanced grooms on the GPU, and
+  the instances' meshes are built again only when their strands move.
+- **Width and color edits stay quick.** A Width or HairColor change keeps the points of every node
+  after it (Collide, Merge, Instance): only the widths and colors are made again.
+- **Quicker exports.** An Alembic or USD export of the frame the viewport shows takes the viewport's
+  evaluation instead of evaluating the groom again, and a one-frame USD file is written in one pass.
+- **Compounds and backdrops in the app.** The app's Graph Editor groups the selected nodes into a
+  Compound (**Ctrl+G**) and opens one again (double-click, or **Ctrl+Shift+G**), one undo step
+  each, exactly as Maya's Graph Editor does. Backdrops can be added, renamed, recolored, moved with
+  their nodes, resized and deleted. The app's Node Settings panel takes the window's height when it
+  needs it, and the rail labels of a first run no longer cover the stats and the Graph pill.
+- **Faster brushing and guide edits.** Guides are re-made only for the group a stroke touches,
+  Merge updates only the side that changed, and Follow Scalp carries strands on every core. Brush
+  strokes start warm after the previous one, and caches are freed when a scene closes.
+- **Keep Clearance is much quicker.** Interpolate pushes strands clear of the scalp at the guides'
+  sample points instead of every point (on the CPU and the GPU), Collide skips surfaces far from a
+  strand, Merge previews on the GPU, and Scatter randomness edits are faster. The process caches
+  hold at most 2 GB (`GROOMLAB_CACHE_LIMIT_MB` sets another limit).
+- **Clearer feedback.** Long exports show progress (Esc cancels) and say when they're done; XGen
+  and Yeti imports, Guides from Photos, Transfer and card bakes show they're busy; errors say what
+  went wrong in plain words, and a node in error shows it under its header.
+- **Easier to find things.** Add Node and Tab search show labels, categories and descriptions and
+  find nodes by what they do ("symmetry" finds Mirror). Groom Tools has an **Output** section
+  (simulate, export, render) and **Import > Alembic Curves...**; the Sculpt tab is now
+  **Correctives**, the Reference tab **Photos**, and the Reference node **Linked Groom**. Symmetry
+  is always visible in the Group row. A **Paint** chip on mappable params adds a map in one click.
+  New docs page: [Common tasks](/docs/common-tasks).
+- **One set of shortcuts.** Maya, the app and Blender share one shortcut table; tooltips show the
+  keys, and the app gains M+drag, Alt+Shift+X, B to bypass, and F/A in the graph.
+- **The app.** It asks before closing, opening or reloading over unsaved changes; success messages
+  show; menus follow the theme. The graph gets multi-select, copy and paste, View Up to Here (V),
+  error badges and link-refusal reasons. **File > Add Prop Mesh...**, **Add Eye...** and **Save
+  Image...** are new, and empty states say what to do next.
+
+Grooms saved before: a Resample now only sets the resolution of its own branch; add a Resample to a
+branch that relied on another's.
+
 ## 0.13.0 (October 16, 2026)
 
 - **Scale with scalp.** A groom now scales with its mesh like a child object: scale the head (its
@@ -334,7 +379,7 @@ Smooth's `iterations` is gone: set `scale` (the default, 0.09, looks like the ol
   **Pick** on the **Scalps** row of the Attribute Editor's Inputs. See
   [Node graph](/docs/node-graph#several-scalps).
 - **Library looks.** The **Reference** node brings in another groom file's strands or guides.
-  See [Node graph](/docs/node-graph#reference-node).
+  See [Node graph](/docs/node-graph#linked-groom-node).
 - **Render overrides.** `renderDensity`, `renderWidthScale` and `renderLengthScale` change the
   render without touching the viewport. See [Rendering](/docs/rendering#render-overrides).
 - **Viewport fixes.** Cards are shaded like the strands they stand for, light hair stays bright

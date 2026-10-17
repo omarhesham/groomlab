@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""GroomLab updates in Maya: GroomLab > Check for Updates..., and a quiet daily check at startup.
+"""GroomLab updates in Maya: GroomLab > Help > Check for Updates..., and a quiet daily check at startup.
 
     groomlab.updates.check()          {"ok", "reached", "newer", "current", "latest", "notes", "info",
                                       "message"}: the newest release against this install's
@@ -628,7 +628,7 @@ def note_text(result=None):
     result = result or _available
     if not result:
         return ""
-    return "GroomLab %s is available — GroomLab > Check for Updates" % result["latest"]
+    return "GroomLab %s is available — GroomLab > Help > Check for Updates" % result["latest"]
 
 
 def check_in_background(url=None, module=None, done=None):

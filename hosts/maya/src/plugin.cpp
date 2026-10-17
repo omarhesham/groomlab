@@ -2,6 +2,7 @@
 #include <maya/MDrawRegistry.h>
 #include <maya/MFnPlugin.h>
 #include <maya/MCallbackIdArray.h>
+#include <maya/MConditionMessage.h>
 #include <maya/MGlobal.h>
 #include <maya/MSceneMessage.h>
 
@@ -13,6 +14,7 @@
 #include "gpu_preview.h"
 #include "groom_draw_override.h"
 #include "groom_shape.h"
+#include "groomlab/process_caches.h"
 #include "groomlab/version.h"
 #include "guides_cmd.h"
 #include "import_cmd.h"
@@ -184,6 +186,33 @@ PLUGIN_EXPORT MStatus initializePlugin(MObject obj) {
             }
         }));
     }
+    // The process-wide caches (a distance field per collider surface, surface graphs, subdivision
+    // plans, decoded textures, the array pools: process_caches.h) outlive the grooms that filled
+    // them: let go before a new or opened scene (the closing scene's grooms free what they hold).
+    // After a new scene everything again (the closing grooms' arrays went to the pools as they
+    // were freed); after an open, the pools alone (the opened grooms may have made their fields).
+    for (const MSceneMessage::Message m : {MSceneMessage::kBeforeNew, MSceneMessage::kBeforeOpen, MSceneMessage::kAfterNew}) {
+        gCallbacks.append(MSceneMessage::addCallback(m, [](void*) {
+            try {
+                groomlab::releaseProcessCaches();
+            } catch (...) {
+            }
+        }));
+    }
+    gCallbacks.append(MSceneMessage::addCallback(MSceneMessage::kAfterOpen, [](void*) {
+        try {
+            groomlab::releaseArrayPools();
+        } catch (...) {
+        }
+    }));
+    // Playback stopped: a hair grid made every few frames while playing is made for this frame.
+    gCallbacks.append(MConditionMessage::addConditionCallback("playingBack", [](bool playing, void*) {
+        if (playing) return;
+        try {
+            groomlab::maya::hairGridsPlaybackStopped();
+        } catch (...) {
+        }
+    }));
     // Before the save: a Save As has renamed the scene by then, and the grooms repointed at
     // the new scene's files are what the file stores.
     gCallbacks.append(MSceneMessage::addCallback(MSceneMessage::kBeforeSave, [](void*) {

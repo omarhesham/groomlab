@@ -2166,8 +2166,37 @@ public:
         const StrandChanges* changesA = someStrandsChanged(incremental, 0);
         const StrandChanges* changesB = someStrandsChanged(incremental, 1);
         const StrandsPtr last = valueAs<StrandsPtr>(incremental.previous);
-        if (!changesA || !changesB || !last || last->strandCount() != a->strandCount() + b->strandCount() ||
+        if (!last || last->strandCount() != a->strandCount() + b->strandCount() ||
             last->pointCount() != a->pointCount() + b->pointCount()) {
+            return false;
+        }
+        // Only widths or channels changed on a side (a Width or HairColor edit on a branch), the
+        // other as it was or so too: the last result's points, each changed side's widths and
+        // channels written over its range.
+        if (inputPointsKept(incremental, 0) && inputPointsKept(incremental, 1) &&
+            (!inputUnchanged(incremental, 0) || !inputUnchanged(incremental, 1))) {
+            if (StrandsPtr made = attributesOver(*a, *b, last, !inputUnchanged(incremental, 0), !inputUnchanged(incremental, 1))) {
+                *result = std::move(made);
+                *changed = StrandChanges{};
+                return true;
+            }
+        }
+        // One side made anew (a branch evaluated in full: a whisker group's guides edited) while the
+        // other's changes are known: that side's every strand, when it holds the strands it held
+        // (each strand's IDs, roots and point count, its channels and their defaults, no instances,
+        // cards or feathers of its own), so the nodes after go on incrementally.
+        StrandChanges wholeA, wholeB;
+        if (!changesA && changesB && sameLayoutAs(*a, *last, 0, 0, true)) {
+            wholeA = everyStrand(a->strandCount());
+            changesA = &wholeA;
+        } else if (changesA && !changesB && sameLayoutAs(*b, *last, a->strandCount(), a->pointCount(), false)) {
+            wholeB = everyStrand(b->strandCount());
+            changesB = &wholeB;
+        }
+        if (!changesA || !changesB) return false;
+        // A side made anew holding most strands: no faster than the full merge.
+        if ((changesA == &wholeA || changesB == &wholeB) &&
+            2 * (changesA->strands.size() + changesB->strands.size()) > last->strandCount()) {
             return false;
         }
         if (changesA->none() && changesB->none()) {
@@ -2206,6 +2235,117 @@ public:
         writeStrands(*out, merged, at);
         *result = StrandsPtr(out);
         *changed = StrandChanges::listed(std::move(at));
+        return true;
+    }
+
+private:
+    // The merge of a and b where each side holds the points it held when `last` was made
+    // (StrandChanges::pointsKept), `changedA`/`changedB` its widths or channels changed: `last`'s
+    // arrays, the changed sides' widths and channel values written over their ranges, as the full
+    // merge lays them (a side's own values; b's groups numbered on from a's). Null where a changed
+    // side lacks a channel the merge has (filled in from the other side's: the full merge's), or a's
+    // groups changed (b's numbering would).
+    static StrandsPtr attributesOver(const StrandSet& a, const StrandSet& b, const StrandsPtr& last, bool changedA, bool changedB) {
+        const bool perPoint = a.widths().size() == a.pointCount() && b.widths().size() == b.pointCount() &&
+                              last->widths().size() == last->pointCount();
+        if (!perPoint) return nullptr;
+        const std::vector<std::string> strandNames = last->strandChannelNames(), pointNames = last->pointChannelNames();
+        auto holdsAll = [&](const StrandSet& side) {
+            if (side.strandChannelNames() != strandNames || side.pointChannelNames() != pointNames) return false;
+            for (const std::string& name : strandNames) {
+                if (side.strandChannelDefault(name) != last->strandChannelDefault(name)) return false;
+            }
+            for (const std::string& name : pointNames) {
+                if (side.pointChannelDefault(name) != last->pointChannelDefault(name)) return false;
+            }
+            return true;
+        };
+        if ((changedA && !holdsAll(a)) || (changedB && !holdsAll(b))) return nullptr;
+        if (changedA) {
+            for (const char* name : kGroupIdChannels) {
+                const std::vector<float>* now = a.strandChannel(name);
+                const std::vector<float>* before = last->strandChannel(name);
+                if (now && (!before || std::memcmp(now->data(), before->data(), now->size() * sizeof(float)) != 0)) return nullptr;
+            }
+        }
+        // b as the full merge appends it: its groups numbered on from a's.
+        StrandSet bOut = b;
+        if (changedB) offsetGroupIds(a, bOut);
+        auto out = std::make_shared<StrandSet>(*last);
+        std::vector<float>* widths = nullptr;
+        std::map<std::string, std::vector<float>*> strandWritten, pointWritten;
+        // `from` over `to` from element `at`, where it differs (each array taken for writing once).
+        auto over = [](const std::vector<float>& from, std::size_t at, const std::vector<float>& before, const auto& writable) {
+            if (from.empty() || std::memcmp(from.data(), before.data() + at, from.size() * sizeof(float)) == 0) return;
+            std::vector<float>& to = writable();
+            detail::copyBytesParallel(to.data() + at, from.data(), from.size() * sizeof(float));
+        };
+        const StrandSet* sides[2] = {&a, &bOut};
+        const bool changedSide[2] = {changedA, changedB};
+        const std::size_t firstStrand[2] = {0, a.strandCount()}, firstPoint[2] = {0, a.pointCount()};
+        for (int side = 0; side < 2; ++side) {
+            if (!changedSide[side]) continue;
+            const StrandSet& own = *sides[side];
+            over(own.widths(), firstPoint[side], last->widths(), [&]() -> std::vector<float>& {
+                if (!widths) widths = &out->copyWidthsFrom(*last);
+                return *widths;
+            });
+            for (const std::string& name : strandNames) {
+                over(*own.strandChannel(name), firstStrand[side], *last->strandChannel(name), [&]() -> std::vector<float>& {
+                    std::vector<float>*& to = strandWritten[name];
+                    if (!to) to = out->copyStrandChannelFrom(name, *last);
+                    return *to;
+                });
+            }
+            for (const std::string& name : pointNames) {
+                over(*own.pointChannel(name), firstPoint[side], *last->pointChannel(name), [&]() -> std::vector<float>& {
+                    std::vector<float>*& to = pointWritten[name];
+                    if (!to) to = out->copyPointChannelFrom(name, *last);
+                    return *to;
+                });
+            }
+        }
+        return out;
+    }
+    static StrandChanges everyStrand(std::size_t count) {
+        std::vector<std::uint32_t> all(count);
+        for (std::size_t s = 0; s < count; ++s) all[s] = static_cast<std::uint32_t>(s);
+        return StrandChanges::listed(std::move(all));
+    }
+    // Whether `side` holds the strands `last` holds from strand `first` (point `firstPoint`) on, as
+    // a merge of it would: the same IDs (b's: kept as they come, none renamed), roots and point
+    // counts, the channels' defaults `last` has, no instances, card or feather layers of its own;
+    // a's groups (kGroupIdChannels) as before, so b's numbered on from them stay.
+    static bool sameLayoutAs(const StrandSet& side, const StrandSet& last, std::size_t first, std::size_t firstPoint, bool isA) {
+        const std::size_t n = side.strandCount();
+        if (first + n > last.strandCount() || (side.instances() && !side.instances()->empty()) || !side.cardLayers().empty() ||
+            !side.featherLayers().empty()) {
+            return false;
+        }
+        if (n == 0) return true;
+        if (std::memcmp(side.ids().data(), last.ids().data() + first, n * sizeof(StrandId)) != 0 ||
+            std::memcmp(side.roots().data(), last.roots().data() + first, n * sizeof(StrandRoot)) != 0) {
+            return false;
+        }
+        const std::vector<std::size_t>& mine = side.offsets();
+        const std::vector<std::size_t>& theirs = last.offsets();
+        for (std::size_t s = 0; s <= n; ++s) {
+            if (theirs[first + s] - firstPoint != mine[s]) return false;
+        }
+        for (const std::string& name : side.strandChannelNames()) {
+            if (!last.strandChannel(name) || last.strandChannelDefault(name) != side.strandChannelDefault(name)) return false;
+        }
+        for (const std::string& name : side.pointChannelNames()) {
+            if (!last.pointChannel(name) || last.pointChannelDefault(name) != side.pointChannelDefault(name)) return false;
+        }
+        if (isA) {
+            for (const char* name : kGroupIdChannels) {
+                const std::vector<float>* now = side.strandChannel(name);
+                const std::vector<float>* before = last.strandChannel(name);
+                if (!now) continue;
+                if (!before || std::memcmp(now->data(), before->data(), n * sizeof(float)) != 0) return false;
+            }
+        }
         return true;
     }
 };

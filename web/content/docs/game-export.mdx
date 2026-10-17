@@ -12,7 +12,8 @@ cards, or run `groomlab.create_cards(groom, lod="mid")`. Cards are placed along 
 and shape, and their textures are baked from the groom's own strands.
 
 The node's panel shows the cards' cost and has **Show cards**, **Show textures**, **LOD**,
-**Bake Maps**, **Bake Scalp** and the exports.
+**Bake Maps**, **Bake Scalp** and the exports. While a bake runs, the panel shows a wait cursor,
+greys out its buttons and says what it is baking.
 
 - **LODs:** Hero, Mid and Low set a triangle budget (about 50k, 15k and 4k) and a matching card
   layout. Lower levels use fewer cards of the same size, so the silhouette is preserved.
@@ -32,7 +33,7 @@ The node's panel shows the cards' cost and has **Show cards**, **Show textures**
 
 | Target | Menu | Output |
 | --- | --- | --- |
-| **Unreal** cards | Cards node > Export for Unreal... | `_cards.fbx`, the six maps, the hair cap and a JSON describing the channels |
+| **Unreal** cards | Cards node > Export Unreal Cards... (or GroomLab > Export > Unreal Cards...) | `_cards.fbx`, the six maps, the hair cap and a JSON describing the channels |
 | **Unreal** strands | GroomLab > Export > Unreal Groom... | Alembic in Unreal's groom schema, with guides for simulation |
 | **Unity** cards | GroomLab > Export > Unity Cards... | FBX (Y up, meters), PNG maps and suggested HDRP and URP materials |
 | **Unity** strands | GroomLab > Export > Unity Strands (.abc)... | Alembic for Unity's strand hair package |

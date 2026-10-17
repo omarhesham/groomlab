@@ -268,7 +268,7 @@ A Scalp node whose `input` is a name reads that scalp alone. Absent for a groom 
 | The scalp: points, triangles, polygons, rest pose, UVs, color sets (vertex maps) | `scalpCache`, `guideCache`: Alembic caches of an animated scalp and guides |
 | Instance prototypes, colliders | `simCaches`: Alembic bakes of Simulate nodes |
 | | `cardBake`: card textures (`.tga`), an atlas (`.json`) and a preview (`.png`) |
-| | Other groom files: a Reference node's `path` (resolved as texture paths are) |
+| | Other groom files: a Linked Groom node's `path` (its type is `Reference` in the file; resolved as texture paths are) |
 
 Relative paths of caches and bakes are relative to the groom file's folder. Environment variables
 (`$VAR`, `${VAR}`, `%VAR%`) are expanded. Relative texture paths in the graph resolve against the

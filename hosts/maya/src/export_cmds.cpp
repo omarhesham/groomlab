@@ -27,6 +27,7 @@
 #include <maya/MStringArray.h>
 #include <maya/MVectorArray.h>
 #include <maya/MColorArray.h>
+#include <maya/MComputation.h>
 #include <maya/MGlobal.h>
 #include <maya/MSelectionList.h>
 #include <maya/MTime.h>
@@ -135,11 +136,50 @@ MStatus frameRange(const char* command, const MArgDatabase& db, FrameRange* r) {
     return MS::kSuccess;
 }
 
+// Maya's main progress bar over a frame loop, with the wait cursor; Esc cancels after the frame being
+// written (the command then fails with "cancelled", the caller removing the partial file). One
+// frame: no bar. Ends with the scope.
+class FrameProgress {
+public:
+    FrameProgress(const char* command, unsigned frames) : command_(command), frames_(frames) {
+        if (frames_ < 2) return;
+        computation_.beginComputation(true, true, true);
+        computation_.setProgressRange(0, static_cast<int>(frames_));
+        status(0);
+        active_ = true;
+    }
+    ~FrameProgress() {
+        if (active_) computation_.endComputation();
+    }
+    FrameProgress(const FrameProgress&) = delete;
+    FrameProgress& operator=(const FrameProgress&) = delete;
+
+    // Frame `done` (0-based count of frames written) reached; false when Esc asked to stop.
+    bool step(unsigned done) {
+        if (!active_) return true;
+        computation_.setProgress(static_cast<int>(done));
+        status(done);
+        return !computation_.isInterruptRequested();
+    }
+    MStatus cancelled(unsigned done) const {
+        return fail(command_, MString("cancelled (Esc) after ") + done + " of " + frames_ + " frames");
+    }
+
+private:
+    void status(unsigned done) { computation_.setProgressStatus(MString("GroomLab: writing frame ") + (done + 1) + " of " + frames_ + " (Esc cancels)"); }
+
+    const char* command_;
+    unsigned frames_;
+    bool active_ = false;
+    MComputation computation_;
+};
+
 // Evaluates the groom at each frame of the range and hands the strands (and
-// the scalp they grew on) to `write`. Returns the total strand count.
+// the scalp they grew on) to `write`. Returns the total strand count. Maya's progress bar counts
+// the frames; Esc stops after the current one (the command fails with "cancelled").
 MStatus forEachFrame(const char* command, const MDagPath& path, const FrameRange& range,
                      const std::function<void(double frame, const StrandSet&, const MeshPtr&, NodeEvaluator&)>& write,
-                     std::size_t* strandTotal) {
+                     std::size_t* strandTotal, bool fromView = false) {
     const MTime::Unit unit = MTime::uiUnit();
     *strandTotal = 0;
     NodeEvaluator evaluator(path.node(), range.count() > 1);  // parsed once; the cache carries between frames
@@ -151,7 +191,23 @@ MStatus forEachFrame(const char* command, const MDagPath& path, const FrameRange
         overrides.lengthScale = fn.findPlug("renderLengthScale", true).asFloat();
     }
     const float density = overrides.densityTimes(static_cast<float>(range.density));
+    // One frame, the one the viewport shows, at its density (`fromView`: a writer reading nothing
+    // of the evaluator): the viewport's evaluation, when it evaluated the groom as an export does
+    // (GroomSession::viewedAsRendered), instead of a second one of the whole groom.
+    auto* shape = fromView && range.count() == 1 ? dynamic_cast<GroomShape*>(MFnDagNode(path).userNode()) : nullptr;
+    if (shape && range.start == MAnimControl::currentTime().as(unit)) {
+        shape->ensureEvaluated();
+        const GroomSession& session = shape->session();
+        if (const StrandsPtr viewed = session.viewedAsRendered(density, mayaSeconds(MTime(range.start, unit)))) {
+            const StrandsPtr strands = applyRenderOverrides(viewed, overrides);
+            write(range.start, *strands, session.last().scalp, evaluator);
+            *strandTotal = strands->strandCount();
+            return MS::kSuccess;
+        }
+    }
+    FrameProgress progress(command, range.count());
     for (unsigned i = 0; i < range.count(); ++i) {
+        if (!progress.step(i)) return progress.cancelled(i);
         const double frame = range.start + i * range.step;
         MDGContext context(MTime(frame, unit));
         MDGContextGuard guard(context);
@@ -472,7 +528,9 @@ MStatus ExportAlembicCmd::doIt(const MArgList& args) {
                                        options);
             if (guides) {
                 GuideFrames frames;
+                FrameProgress progress(kName, range.count());
                 for (unsigned i = 0; i < range.count(); ++i) {
+                    if (!progress.step(i)) return progress.cancelled(i);
                     MDGContext context(MTime(range.start + i * range.step, unit));
                     MDGContextGuard guard(context);
                     StrandSet curves;
@@ -490,7 +548,7 @@ MStatus ExportAlembicCmd::doIt(const MArgList& args) {
                         const auto mesh = withScales ? scales.build(strands, scalp) : nullptr;
                         writer.writeFrame(strands, scalp.get(), mesh.get());
                     },
-                    &strandTotal);
+                    &strandTotal, true);
                 if (!status) return status;
             }
             writer.close();
@@ -548,7 +606,7 @@ MStatus ExportUsdCmd::doIt(const MArgList& args) {
                     const auto mesh = withScales ? scales.build(strands, scalp) : nullptr;
                     writer.writeFrame(frame, strands, scalp.get(), mesh.get());
                 },
-                &strandTotal);
+                &strandTotal, true);
             if (!status) return status;
             writer.close();
         } catch (const UsdError& e) {

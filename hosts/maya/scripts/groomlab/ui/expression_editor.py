@@ -551,36 +551,78 @@ class ExpressionPanel(QtWidgets.QWidget):
                 action.setToolTip("%s\n\n%s" % (e["description"], e["expression"]))
         menu.setToolTipsVisible(True)
         menu.addSeparator()
-        menu.addAction("Save to Library...", self.save)
+        menu.addAction("Save to Library...", lambda: self.save())
         menu.addAction("Open Library Folder", self.open_folder)
 
+    def ask(self, question):
+        """Yes or no before replacing something (tests answer instead of a dialog)."""
+        return QtWidgets.QMessageBox.question(self, "Expression Library", question) == QtWidgets.QMessageBox.Yes
+
     def load(self, entry):
+        """A library entry into the node: its code, variables and range in one undo step; the node's
+        own code (typed, not an untouched default or another entry) only replaced once confirmed."""
         params = expressions.params_for(entry, node=self.node)
+        current = self.code.text().strip()
+        default = (self.editor.model.param_spec(self.node, "expression") or {}).get("default", "")
+        loaded = [e["expression"].strip() for e in expressions.list_expressions()]
+        if current and current != params["expression"].strip() and current != str(default).strip() \
+                and current not in loaded and not self.ask("Replace this node's expression with %s?" % entry["name"]):
+            return False
         self.code.set_text(params["expression"])
         self.variables.variables = json.loads(params["variables"])
         self.variables.fill()
         self.update_completions()
+        model = self.editor.model
         for key in ("expression", "variables", "min", "max"):
-            self.set_param(key, params[key])
-        self.editor.report("expression: %s" % entry["name"])
+            model.set_param(self.node, key, params[key])
+        self.editor.changed()  # one write to the groom: one undo step
+        self.editor.report("expression: %s (Ctrl+Z goes back)" % entry["name"])
         # min and max have their own sliders below: show the new values.
         QtCore.QTimer.singleShot(0, lambda: self.editor.params.show_node(self.node))
+        return True
 
-    def save(self):
-        name, ok = QtWidgets.QInputDialog.getText(self, "Save Expression", "Name (in the library, for every scene):")
-        if not (ok and name.strip()):
-            return
-        about, _ = QtWidgets.QInputDialog.getText(self, "Save Expression", "What it does (optional):")
+    def save_form(self):
+        """Save to Library's one form: the name and what it does. (name, about) or None."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Save to Library")
+        form = QtWidgets.QFormLayout(dialog)
+        name = QtWidgets.QLineEdit()
+        name.setObjectName("expressionName")
+        name.setPlaceholderText("in the library, for every scene")
+        about = QtWidgets.QLineEdit()
+        about.setObjectName("expressionAbout")
+        about.setPlaceholderText("optional")
+        form.addRow("Name", name)
+        form.addRow("What it does", about)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        theme.style(dialog)
+        from groomlab.ui import qt
+        if qt.exec_(dialog) != QtWidgets.QDialog.Accepted or not name.text().strip():
+            return None
+        return name.text().strip(), about.text().strip()
+
+    def save(self, name=None, about=""):
+        """Save to Library...: the node's code, variables and range under a name (one form); an
+        existing entry of that name only replaced once confirmed. Returns the file, None if not saved."""
+        if name is None:
+            picked = self.save_form()
+            if not picked:
+                return None
+            name, about = picked
         model = self.editor.model
         values = dict(expression=self.code.text(), variables=self.variables.variables, description=about,
                       minimum=model.param(self.node, "min"), maximum=model.param(self.node, "max"))
         try:
-            path = expressions.save_expression(name.strip(), **values)
+            path = expressions.save_expression(name, **values)
         except ValueError as e:
-            if QtWidgets.QMessageBox.question(self, "Save Expression", "%s. Replace it?" % e) != QtWidgets.QMessageBox.Yes:
-                return
-            path = expressions.save_expression(name.strip(), overwrite=True, **values)
-        self.editor.report("saved %s to %s" % (name.strip(), path))
+            if not self.ask("%s. Replace it?" % e):
+                return None
+            path = expressions.save_expression(name, overwrite=True, **values)
+        self.editor.report("saved %s to %s" % (name, path))
+        return path
 
     def open_folder(self):
         import os

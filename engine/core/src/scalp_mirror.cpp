@@ -10,6 +10,7 @@
 
 #include "groomlab/point_index.h"
 #include "groomlab/random.h"
+#include "groomlab/process_caches.h"
 
 namespace groomlab {
 
@@ -66,6 +67,13 @@ std::shared_ptr<const ScalpMirror> ScalpMirror::of(const ScalpMesh& scalp) {
     // The last few scalps' mirrors (a stroke asks per stamp; a host may brush two scalps).
     static std::mutex mutex;
     static std::vector<std::shared_ptr<const ScalpMirror>> kept;
+    static const bool registered = (registerProcessCache("scalp mirrors", [] {
+                                        std::vector<std::shared_ptr<const ScalpMirror>> drop;
+                                        const std::lock_guard<std::mutex> lock(mutex);
+                                        drop.swap(kept);
+                                    }),
+                                    true);
+    (void)registered;
     const std::uint64_t key = scalp.restSurfaceHash();
     {
         const std::lock_guard<std::mutex> lock(mutex);

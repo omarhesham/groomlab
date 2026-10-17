@@ -9,6 +9,7 @@
 #include "operators/internal.h"
 #include "schema_internal.h"
 
+#include "groomlab/node_catalog.h"
 #include "groomlab/operators.h"
 
 namespace groomlab {
@@ -352,6 +353,32 @@ std::string saveGraphJson(const GraphDocument& doc) {
     return root.dump(2);
 }
 
+namespace {
+
+// How many decimals a host shows a number param with (the spec's "decimals"): none for an int or
+// pixels, one for degrees, else by its slider's span (a fraction as 0 to 1: one decimal as a
+// percentage). Every host formats the same value the same way.
+int paramDecimals(const ParamSpec& p, const char* kind) {
+    if (std::string(kind) == "int" || p.unit == "pixels") return 0;
+    if (p.unit == "angle") return 1;
+    if (p.unit == "fraction" || p.unit == "color") return 3;
+    if (p.unit == "turns" || p.unit == "seconds") return 2;
+    double span = 0.0;
+    const auto lo = p.softMin ? p.softMin : p.min;
+    const auto hi = p.softMax ? p.softMax : p.max;
+    if (lo && hi) {
+        span = *hi - *lo;
+    } else if (const double* d = std::get_if<double>(&p.defaultValue)) {
+        span = std::abs(*d) * 2.0;
+    }
+    if (span >= 100.0) return 1;
+    if (span >= 10.0) return 2;
+    if (span >= 0.1 || span <= 0.0) return 3;
+    return 4;
+}
+
+}  // namespace
+
 std::string operatorSpecsJson() {
     const char* kinds[] = {"bool", "int", "float", "string", "vec3", "ramp", "map"};  // ParamValue order
     const OperatorRegistry& registry = OperatorRegistry::instance();
@@ -379,6 +406,9 @@ std::string operatorSpecsJson() {
                           {"vectorExpression", p.vectorExpression},
                           {"colorField", p.colorField},
                           {"channel", channelUseName(p.channel)}};
+            if (p.defaultValue.index() == 1 || p.defaultValue.index() == 2 || p.defaultValue.index() == 4) {
+                param["decimals"] = paramDecimals(p, kinds[p.defaultValue.index()]);
+            }
             // Limits and slider ranges only where set; the slider's falls back to the limits.
             if (p.min) param["min"] = *p.min;
             if (p.max) param["max"] = *p.max;
@@ -400,10 +430,33 @@ std::string operatorSpecsJson() {
         for (const ChannelWrite& w : op->channelWrites()) {
             if (w.param.empty()) fixedChannels.push_back(w.name);
         }
+        // The add-node menu's category and label (node_catalog.h); the operator's own category
+        // is its role in a chain (presets: where a look starts).
+        const NodeCatalogEntry* entry = nodeCatalogEntry(type);
+        const std::string category = entry ? entry->category : op->category();
+        std::string categoryTitle = category;
+        int categoryOrder = static_cast<int>(nodeCategories().size());
+        for (std::size_t i = 0; i < nodeCategories().size(); ++i) {
+            if (nodeCategories()[i].id == category) {
+                categoryTitle = nodeCategories()[i].title;
+                categoryOrder = static_cast<int>(i);
+            }
+        }
+        int order = static_cast<int>(nodeCatalog().size());
+        for (std::size_t i = 0; i < nodeCatalog().size(); ++i) {
+            if (nodeCatalog()[i].type == type) order = static_cast<int>(i);
+        }
         ops.push_back({{"type", type},
                        {"fixedChannels", fixedChannels},
                        {"version", op->version()},
-                       {"category", op->category()},
+                       {"category", category},
+                       {"categoryTitle", categoryTitle},
+                       {"categoryOrder", categoryOrder},
+                       {"order", order},
+                       {"role", op->category()},
+                       {"label", nodeLabel(type)},
+                       {"keywords", entry ? entry->keywords : std::string()},
+                       {"hidden", entry ? entry->hidden : false},
                        {"description", operatorDescription(type)},
                        {"inputs", inputs},
                        {"output", portJson(out, false)},

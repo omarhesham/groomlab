@@ -15,7 +15,7 @@ views show the meshes only). The rules (the core's TransferMarkerEditor, transfe
   - click on the mesh adds a point at the end of that side's list (a ray against the mesh);
     click-drag on a point slides it over the surface; Ctrl+click on a point deletes it and its
     partner at the same index (both lists renumber). Hovering a point lights it and its partner.
-  - Symmetry X: a click also adds the mirror (across x = the mesh's bounding-box center, snapped
+  - Symmetry: a click also adds the mirror (across x = the mesh's bounding-box center, snapped
     onto the mesh) as the next point on that side; deleting either deletes both and their partners.
   - Ctrl+Z / Ctrl+Y in the window undo and redo marker edits (the window's own stack, not Maya's).
   - complete pairs are stored on the groom on every edit (transferMarkers: the transfer and the
@@ -139,7 +139,7 @@ class TransferWindow(QtWidgets.QWidget):
             "Matching UVs: both meshes laid out alike in UV; each root at its UV.")
         self.method_box.currentIndexChanged.connect(self._method_changed)
         options.addWidget(self.method_box)
-        self.symmetry = QtWidgets.QCheckBox("Symmetry X")
+        self.symmetry = QtWidgets.QCheckBox("Symmetry")
         self.symmetry.setToolTip("A click also adds its mirror across the mesh's middle (x), snapped onto the mesh, as "
                                  "the next point on that side; deleting either deletes both")
         options.addWidget(self.symmetry)
@@ -355,7 +355,7 @@ class TransferWindow(QtWidgets.QWidget):
         return groomlab_core.MarkerPoint(point=point)
 
     def add_point(self, side, world_point):
-        """A point (snapped onto the side's mesh) at the end of the side's list; with Symmetry X its
+        """A point (snapped onto the side's mesh) at the end of the side's list; with Symmetry its
         mirror after it. Returns the new point's index."""
         side = self._side(side)
         p = self._marker_point(side, world_point)
@@ -612,10 +612,12 @@ class TransferWindow(QtWidgets.QWidget):
         # One undo step (transfer_groom's chunk): nothing undoable happens here outside it; the
         # window's redraws after it (marker sets, isolation, cameras) stay out of the undo queue.
         try:
-            result = utils.transfer_to_scalp(self.groom, self.scalp(), maps=self.maps.isChecked(),
-                                             color_sets=self.color_sets.isChecked(), method=method, markers=markers,
-                                             keep_lengths=self.keep_lengths.isChecked(),
-                                             fit_size=self.fit_size.isChecked())
+            with widgets.busy([self.transfer_button], self.message,
+                              "Transferring %s onto %s..." % (self.groom.split("|")[-1], self.scalp().split("|")[-1])):
+                result = utils.transfer_to_scalp(self.groom, self.scalp(), maps=self.maps.isChecked(),
+                                                 color_sets=self.color_sets.isChecked(), method=method, markers=markers,
+                                                 keep_lengths=self.keep_lengths.isChecked(),
+                                                 fit_size=self.fit_size.isChecked())
         except (ValueError, RuntimeError) as e:
             self.message.setText(str(e).strip())
             self._redraw()

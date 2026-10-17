@@ -113,6 +113,27 @@ public:
     // strands coincide; two Instances or Flyaways: they pick the same strands), as warnings.
     std::vector<std::string> seedWarnings() const;
 
+    // ---- Compounds (graph_compound.cpp): every host's Group (Ctrl+G) and Ungroup (Ctrl+Shift+G)
+    // Replaces the nodes `names` (unknown names dropped) with one Compound node holding them,
+    // named `compound` ("": uniqueName("compound")) and placed at their mean position. Each
+    // outside source (a node and its output) feeding them becomes one input of the compound (named
+    // after the first input it fed, else <node>_<output>) and an Input node inside ("in_<input>");
+    // Value and Field ports (exposed params) alike. Exactly one of the nodes may feed the rest of
+    // the graph, from its first output: it is the compound's output (none feeding out: the
+    // graph's output when it is one of them, else their one sink). The inner nodes keep every
+    // field (params, paramInputs, paramControls, bypass, position), so expand gives them back; the
+    // graph's output follows. Returns the compound's name. GraphError, the graph unchanged, when
+    // it cannot (nothing to group, two nodes feeding out, a node feeding out from another output).
+    std::string collapse(const std::vector<std::string>& names, const std::string& compound = {});
+    // Replaces a Compound node with the nodes it holds, the values of its exposed params applied
+    // to them and every field kept, each named afresh when its name is taken (uniqueName); they go
+    // where they were when grouped, moved with the compound (no position: fanned out from it).
+    // What fed the compound feeds them, what it fed their output; the graph's output follows.
+    // Returns their names (the definition's order). GraphError, the graph unchanged, for a node
+    // that is not a Compound or a definition that cannot be expanded (an unknown type, no output
+    // node inside, a link that fits nothing).
+    std::vector<std::string> expand(const std::string& compound);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

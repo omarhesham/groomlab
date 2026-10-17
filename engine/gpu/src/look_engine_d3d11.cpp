@@ -406,10 +406,10 @@ protected:
             if (want_[i] && out_[i] && bytes) context_->CopySubresourceRegion(want_[i], 0, 0, 0, 0, out_[i]->buffer.get(), 0, &box);
         }
     }
-    void copy(int from, int to, std::size_t bytes) override {
+    void copy(int from, int to, std::size_t bytes, std::size_t offset) override {
         if (!bytes) return;
-        const D3D11_BOX box{0, 0, 0, static_cast<UINT>(bytes), 1, 1};
-        context_->CopySubresourceRegion(buffer(to).buffer.get(), 0, 0, 0, 0, buffer(from).buffer.get(), 0, &box);
+        const D3D11_BOX box{static_cast<UINT>(offset), 0, 0, static_cast<UINT>(offset + bytes), 1, 1};
+        context_->CopySubresourceRegion(buffer(to).buffer.get(), 0, static_cast<UINT>(offset), 0, 0, buffer(from).buffer.get(), 0, &box);
     }
     void setConstants(const void* slots, std::size_t count, std::size_t slotBytes) override {
         while (constants_.size() < count) {

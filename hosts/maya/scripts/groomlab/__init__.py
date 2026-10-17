@@ -97,7 +97,7 @@ from groomlab.files import (  # noqa: F401
 
 # Review tools (density heatmap, HUD, turntable) live in their own module.
 from groomlab.review import density_heatmap, groom_stats, render_turntable, show_hud, turntable  # noqa: F401
-# Reference photos as cameras (Groom Tools > Reference): groomlab.reference.
+# Reference photos as cameras (Groom Tools > Photos): groomlab.reference.
 from groomlab import reference  # noqa: F401
 from groomlab.from_reference import guides_from_reference  # noqa: F401  (a prototype: guides from the reference photos)
 # GroomLab > Utilities (guides and strands to and from curves and meshes, copying a look): groomlab.utils.

@@ -289,7 +289,7 @@ maya, mayaVersions, mayaBeta, platform: `mayaVersions` every Maya the zip has a 
 `mayaBeta` those not yet tested in their Maya, `maya` the tested one, 2022, which releases before
 `mayaVersions` read alone).
 `--notes "..."` or `--notes-file notes.txt` sets the release notes (a few lines; empty by default)
-that GroomLab > Check for Updates shows. `--dry-run` shows what it would upload.
+that GroomLab > Help > Check for Updates shows. `--dry-run` shows what it would upload.
 It reads R2_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY (an R2 token for the bucket only;
 R2_BUCKET defaults to groomlab-downloads) from the environment: never commit them.
 
@@ -708,7 +708,7 @@ through RfM's own generic `RenderManProcedural` node, so no GroomLab translator 
   Params are set through `_set`, which handles RfM's string, enum and number attributes. The
   shading group takes `outColor` on `surfaceShader`. If a step fails, it's a warning that points
   here, and the network above (this section's "The shading network") is the reference.
-- **Menu:** **GroomLab > Export > RenderMan Procedural (experimental)**. The Export submenu's
+- **Menu:** **GroomLab > Render > RenderMan Procedural (experimental)**. The Render submenu's
   `postMenuCommand` adds the item while `cmds.pluginInfo("RenderMan_for_Maya", loaded=True)` and
   removes it otherwise, so RfM can load after GroomLab. Without RfM, as in Maya 2022, nothing shows
   and nothing changes.
@@ -1080,10 +1080,10 @@ what fed it), dragging a fed input picks its wire up (dropped on empty space it 
 a click on a wire selects it, Delete removes the selected wire or node (the output node stays),
 B bypasses the selected node, Tab opens the add-node search at the cursor (Enter adds the type,
 fed by the selected node when their ports match), F fits the graph, a double click on a node's
-header renames it (a glass prompt), Ctrl+D duplicates the selected node beside it (its params
+header (or F2) renames it (a glass prompt), Ctrl+D duplicates the selected node beside it (its params
 copied, its own seed), Ctrl+L tidies the layout (every position dropped and laid out afresh), and
 the right button's menu offers the same on a node (Rename, Duplicate, Set as Output, Bypass,
-Delete) or the canvas (Add node, Tidy layout, Fit). The graph's backdrops (a preset's, Maya's
+Delete, each with its key) or the canvas (Add Node, Tidy Layout, Frame All). The graph's backdrops (a preset's, Maya's
 Graph Editor's: the graph JSON's `"backdrops"`) draw as tinted frames behind the nodes, each
 node's header shows the time of its last run (the session's `nodeTimes`), and while the graph is
 up the Graph pill shows in every mode with the Presets pill and a round close button beside it

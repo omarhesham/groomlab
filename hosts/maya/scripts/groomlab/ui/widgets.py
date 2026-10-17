@@ -108,6 +108,40 @@ def alive(widget):
     return qt.shiboken.isValid(widget)
 
 
+class busy(object):
+    """While a window's long action runs (Generate, Transfer, Bake Maps...): its buttons disabled, the
+    wait cursor, and `text` in its status label, repainted before the work starts. Everything back
+    after, whatever happens.
+
+        with widgets.busy([self.generate_button], self.message, "Generating the guides..."):
+            ...
+    """
+
+    def __init__(self, buttons=(), label=None, text=None):
+        self.buttons = [b for b in buttons if b is not None]
+        self.label, self.text = label, text
+        self.was = []
+
+    def __enter__(self):
+        self.was = [b.isEnabled() for b in self.buttons]
+        for b in self.buttons:
+            b.setEnabled(False)
+        if self.label is not None and self.text:
+            self.label.setText(self.text)
+            self.label.repaint()
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        # Paint the disabled buttons and the text now: the work holds the event loop.
+        QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+        return self
+
+    def __exit__(self, *_exc):
+        QtWidgets.QApplication.restoreOverrideCursor()
+        for b, on in zip(self.buttons, self.was):
+            if alive(b):
+                b.setEnabled(on)
+        return False
+
+
 def repolish(widget):
     """Apply the theme's style sheet to `widget` again: after a dynamic property its rules select
     on changed (role, done). Setting the style sheet again is Qt's way to have it recomputed.
@@ -118,6 +152,38 @@ def repolish(widget):
     wrapper's C++ pointers when it reaches it first and then crashes reading them again through
     the widget's reference."""
     widget.setStyleSheet(widget.styleSheet())
+
+
+def shrinkable(root):
+    """Let the fields under `root` shrink with a narrow panel instead of pushing it wider than its
+    view (where the right side would be cut off): spin boxes (their width otherwise fits the
+    largest number of their range), sliders, drop-downs (their longest entry) and ramps get small
+    minimum widths; a field of a fixed width keeps it."""
+    def free(w):
+        return w.minimumWidth() != w.maximumWidth()  # not setFixedWidth'd
+    for box in root.findChildren(QtWidgets.QAbstractSpinBox):
+        if free(box):
+            box.setMinimumWidth(theme_px(44))
+            box.setSizePolicy(QtWidgets.QSizePolicy.Expanding, box.sizePolicy().verticalPolicy())
+    for slider in root.findChildren(QtWidgets.QSlider):
+        if free(slider):
+            slider.setMinimumWidth(theme_px(36))
+    for combo in root.findChildren(QtWidgets.QComboBox):
+        if free(combo):
+            combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(min(combo.minimumContentsLength() or 6, 6))
+            combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, combo.sizePolicy().verticalPolicy())
+    for line in root.findChildren(QtWidgets.QLineEdit):
+        if free(line) and not isinstance(line.parentWidget(), (QtWidgets.QAbstractSpinBox, QtWidgets.QComboBox)):
+            line.setMinimumWidth(theme_px(48))
+    for ramp in root.findChildren(RampEditor):
+        if free(ramp):
+            ramp.setMinimumWidth(theme_px(140))
+
+
+def theme_px(value):
+    from groomlab.ui import theme
+    return theme.px(value)
 
 
 # -- Maya quitting -------------------------------------------------------------------------------
@@ -438,51 +504,76 @@ class Section(QtWidgets.QWidget):
         return self.header.isChecked()
 
 
-def theme_menu(parent):
-    """A Theme menu: the themes (the active one checked), New Theme from Current...,
-    Reload Theme and Open Themes Folder."""
+def _theme_run(fn, *args):
+    """A theme action; a theme file that can't be read is said (no dialog), the theme kept."""
+    from groomlab.ui import messages
+    try:
+        fn(*args)
+    except (ValueError, IOError, OSError) as e:
+        messages.say("theme not applied: %s" % messages.plain(e))
+
+
+def new_theme_from_current(parent=None):
+    """Theme > New Theme from Current...: a copy of the active theme in the user's themes folder,
+    made active and its folder opened to edit it."""
+    from groomlab.ui import messages, theme
+    name, ok = QtWidgets.QInputDialog.getText(parent, "New Theme", "Theme name:", text="my_theme")
+    if not ok or not name:
+        return None
+    try:
+        path = theme.create_theme(name)
+    except (ValueError, IOError, OSError) as e:
+        messages.say("no new theme: %s" % messages.plain(e))
+        return None
+    theme.set_theme(name)
+    messages.done("made %s from the current theme: edit its colors, then Theme > Reload Theme" % path, seconds=6)
+    QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(os.path.dirname(path)))
+    return path
+
+
+def open_themes_folder():
     from groomlab.ui import theme
+    folder = theme.user_dir()
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+    QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(folder))
+
+
+def theme_menu_items(parent=None):
+    """Every Theme menu's items, one list for GroomLab > Theme and the windows' own menus: (label,
+    action, checked) with checked True/False for a theme (the active one True) and None for an
+    action; None for a divider."""
+    from groomlab.ui import theme
+    try:
+        entries = theme.menu_entries()
+    except (ValueError, IOError, OSError):
+        entries = []
+    items = [(label, (lambda n=name: _theme_run(theme.set_theme, n)), bool(active)) for name, label, active in entries]
+    items += [None,
+              ("New Theme from Current...", lambda: new_theme_from_current(parent), None),
+              ("Reload Theme", lambda: _theme_run(theme.reload), None),
+              ("Open Themes Folder", open_themes_folder, None)]
+    return items
+
+
+def theme_menu(parent):
+    """A Theme menu (Qt): theme_menu_items, the active theme checked."""
     menu = QtWidgets.QMenu("Theme", parent)
 
     def fill():
         menu.clear()
         group = qt.QActionGroup(menu)
-        for name, label, active in theme.menu_entries():
+        for item in theme_menu_items(parent):
+            if item is None:
+                menu.addSeparator()
+                continue
+            label, run, checked = item
             action = menu.addAction(label)
-            action.setCheckable(True)
-            action.setChecked(active)
-            group.addAction(action)
-            action.triggered.connect(lambda _=False, n=name: _run(theme.set_theme, n))
-        menu.addSeparator()
-        menu.addAction("New Theme from Current...", new_theme)
-        menu.addAction("Reload Theme", lambda: _run(theme.reload))
-        menu.addAction("Open Themes Folder", open_folder)
-
-    def _run(fn, *args):
-        try:
-            fn(*args)
-        except (ValueError, IOError, OSError) as e:
-            QtWidgets.QMessageBox.warning(parent, "Theme", str(e))
-
-    def new_theme():
-        name, ok = QtWidgets.QInputDialog.getText(parent, "New Theme", "Theme name:", text="my_theme")
-        if ok and name:
-            try:
-                path = theme.create_theme(name)
-            except (ValueError, IOError, OSError) as e:
-                QtWidgets.QMessageBox.warning(parent, "Theme", str(e))
-                return
-            theme.set_theme(name)
-            QtWidgets.QMessageBox.information(
-                parent, "New Theme", "Made %s from the current theme.\n\nEdit its colors, then Theme > Reload "
-                                     "Theme to see them." % path)
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(os.path.dirname(path)))
-
-    def open_folder():
-        folder = theme.user_dir()
-        if not os.path.isdir(folder):
-            os.makedirs(folder)
-        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(folder))
+            action.triggered.connect(lambda _=False, run=run: run())
+            if checked is not None:
+                action.setCheckable(True)
+                action.setChecked(checked)
+                group.addAction(action)
 
     menu.aboutToShow.connect(fill)
     return menu
@@ -575,10 +666,14 @@ def forget_range(key):
 
 
 class CompactSpinBox(QtWidgets.QDoubleSpinBox):
-    """A number field showing 0.5 or 100 rather than 0.500000 or 100.000000."""
+    """A number field showing 0.5 or 100 rather than 0.500000 or 100.000000. With display_decimals
+    (the spec's "decimals", as every host shows the param), at most that many, trailing zeros
+    dropped: 0.35, not 0.350; the value itself keeps its precision."""
+
+    display_decimals = None
 
     def textFromValue(self, value):
-        return "%.6g" % value
+        return format_number(value, self.display_decimals)
 
     def valueFromText(self, text):
         try:
@@ -597,6 +692,46 @@ class CompactSpinBox(QtWidgets.QDoubleSpinBox):
             return QtGui.QValidator.Invalid, text, pos
 
 
+def format_number(value, decimals=None):
+    """A number as every GroomLab host shows it: `decimals` places at most (the spec's), trailing zeros
+    dropped (0.35, 12, 980); None: six significant digits."""
+    if decimals is None:
+        return "%.6g" % value
+    text = "%.*f" % (max(0, int(decimals)), value)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in ("-0", "") else text
+
+
+def with_unit(field, unit, tip=None):
+    """`field` with its unit after it (px, cm, %...), as the Graph Editor shows units; the field
+    itself when there is no unit. The row keeps the field as .field."""
+    if not unit:
+        return field
+    w = QtWidgets.QWidget()
+    row = QtWidgets.QHBoxLayout(w)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(4)
+    row.addWidget(field, 1)
+    label = QtWidgets.QLabel(unit)
+    label.setProperty("role", "about")
+    if tip:
+        label.setToolTip(tip)
+    row.addWidget(label)
+    w.field, w.unit = field, label
+    return w
+
+
+def display_decimals(spec_decimals, factor=1.0):
+    """The decimals for a value shown `factor` times larger than the spec's (a fraction as a
+    percentage, a width in micrometers): fewer by the factor's decades, 0 to 6."""
+    import math
+    if spec_decimals is None:
+        return None
+    shift = int(round(math.log10(abs(factor)))) if factor else 0
+    return max(0, min(6, int(spec_decimals) - shift))
+
+
 class SoftSlider(QtWidgets.QWidget):
     """Slider + number field with a soft, stretchable range.
 
@@ -610,7 +745,7 @@ class SoftSlider(QtWidgets.QWidget):
     STEPS = 1000
 
     def __init__(self, value=0.0, lo=None, hi=None, integer=False, minimum=None, maximum=None, decimals=3,
-                 key=None, default=None, parent=None, accent=None):
+                 key=None, default=None, parent=None, accent=None, shown_decimals=None):
         super(SoftSlider, self).__init__(parent)
         self.integer = integer
         self.key = key
@@ -631,6 +766,7 @@ class SoftSlider(QtWidgets.QWidget):
         if not integer:
             self.field.setDecimals(max(decimals, 6))
             self.field.setSingleStep(0.01)
+            self.field.display_decimals = shown_decimals  # the spec's, as every host shows it
         low = minimum if minimum is not None else -1e9
         high = maximum if maximum is not None else 1e9
         if integer:
@@ -860,8 +996,8 @@ class RampEditor(QtWidgets.QWidget):
         painter.drawPath(path)
         for i, (p, v) in enumerate(self.keys):
             hot = i in (self._drag, self._hover)
-            painter.setPen(QtGui.QPen(QtGui.QColor(20, 20, 20), 1))
-            painter.setBrush(QtGui.QColor(255, 255, 255) if hot else curve)
+            painter.setPen(QtGui.QPen(t.qcolor("ui.border"), 1))
+            painter.setBrush(t.qcolor("ui.text") if hot else curve)
             painter.drawEllipse(self.to_screen(p, v), 5 if hot else 4, 5 if hot else 4)
         painter.setPen(t.qcolor("ui.textDim"))
         lo, hi = self.value_range()

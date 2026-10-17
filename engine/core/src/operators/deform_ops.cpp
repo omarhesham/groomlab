@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <mutex>
 #include <vector>
@@ -23,6 +24,10 @@
 namespace groomlab {
 
 namespace {
+
+// Tests: setCollideStrandBounds, collideSkippedSurfaces.
+std::atomic<bool> collideStrandBounds{true};
+std::atomic<std::size_t> collideSkipped{0};
 
 // Turns each segment of a strand toward `dir` by amount x the profile there,
 // keeping segment lengths (Part's opening); the root stays. Reads each original point before
@@ -175,6 +180,16 @@ private:
             *result = in;
             return true;
         }
+        // Only widths or channels changed (a Width or HairColor edit before it): each strand is
+        // walked by its points alone, never its widths or channels, so its last points stand.
+        if (incremental && incremental->inputs.size() > 0 && incremental->inputs[0] && incremental->inputs[0]->pointsKept &&
+            inputUnchanged(*incremental, 1) && inputUnchanged(*incremental, 2)) {
+            if (const StrandsPtr last = previousStrandsFor(*incremental, *in)) {
+                *result = withPointsOf(*in, *last);
+                *changed = *incremental->inputs[0];
+                return true;
+            }
+        }
         const auto offset = static_cast<float>(params().getDouble("offset"));
         const auto maxDepth = static_cast<float>(params().getDouble("maxDepth"));
         const auto iterations = static_cast<int>(params().getInt("iterations"));
@@ -216,12 +231,37 @@ private:
         if (last) {
             positionsOfLast(*out, last, *incremental);  // the strands left alone, as they were made
         } else {
-            out->mutablePositions();  // cloned once here, not by whichever thread writes first
+            out->overwritePositions();  // made its own here, each strand copied in by the thread walking it
         }
+        // Per field: the margin its blend may answer below a point's height by (two of its cells'
+        // diagonals), for the per-strand test below.
+        std::vector<float> fieldMargins(meshes.size(), 0.0f);
+        for (std::size_t m = 0; m < meshes.size(); ++m) {
+            if (fields[m]) fieldMargins[m] = 2.0f * 1.7320508f * fields[m]->cellSize();
+        }
+        // Each still mesh's field asked once for a whole strand first (MeshDistanceField::bounds at
+        // its root, out to its farthest point and the push's reach): a mesh those bounds settle every
+        // push for (the strand well above it, or beyond the search: its field would leave each of
+        // those points alone) is not asked at the strand's points while they stay that near the root
+        // (one a push of the other mesh moved farther is asked). look.slang CollideCS does the same.
         auto collide = [&](std::size_t s) {
             const std::size_t n = out->strandPointCount(s);
             if (n < 2) return;
             Vec3f* pts = out->strandPoints(s);
+            std::array<float, 2> skipWithin{-1.0f, -1.0f};  // per mesh: skipped while points are this near the root
+            if (collideStrandBounds.load(std::memory_order_relaxed)) {
+                float farthest = 0.0f;
+                for (std::size_t i = 1; i < n; ++i) farthest = std::max(farthest, (pts[i] - pts[0]).length());
+                const float within = farthest * 1.001f + reach + 1e-6f;
+                for (std::size_t m = 0; m < meshes.size(); ++m) {
+                    float heightLow = 0.0f, distanceLow = 0.0f;
+                    if (fields[m] && fields[m]->bounds(pts[0], within, &heightLow, &distanceLow) &&
+                        (heightLow >= reach + fieldMargins[m] || distanceLow > searchRadius + fieldMargins[m])) {
+                        skipWithin[m] = within;
+                        collideSkipped.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            }
             thread_local std::vector<float> lengths;  // scratch, reused across strands
             lengths.assign(n, 0.0f);
             for (std::size_t i = 1; i < n; ++i) lengths[i] = (pts[i] - pts[i - 1]).length();
@@ -247,6 +287,7 @@ private:
             };
             // `soft`: the push eased by the softness (softPush), asked to `reach`; else to the offset.
             auto pushOut = [&](std::size_t m, std::size_t i, bool soft) {
+                if (skipWithin[m] >= 0.0f && (pts[i] - pts[0]).length() <= skipWithin[m]) return false;  // settled for the strand
                 const float to = soft ? reach : offset;
                 // Through a rest pose, the mesh's bound first: it costs less than the walk to the
                 // point's vertex, and the answer (a miss) is the mesh's own.
@@ -378,7 +419,10 @@ private:
             });
             *changed = *changes;
         } else {
-            parallelFor(0, out->strandCount(), collide);
+            parallelFor(0, out->strandCount(), [&](std::size_t s) {
+                copyStrandPoints(*out, *in, s);
+                collide(s);
+            });
         }
         *result = StrandsPtr(out);
         return true;
@@ -812,5 +856,8 @@ void registerDeformOperators(OperatorRegistry& registry) {
     registry.registerType(op::kGravity, [] { return std::make_unique<GravityOp>(); });
     registry.registerType(op::kDisplace, [] { return std::make_unique<DisplaceOp>(); });
 }
+
+void setCollideStrandBounds(bool on) { collideStrandBounds = on; }
+std::size_t collideSkippedSurfaces() { return collideSkipped.load(); }
 
 }  // namespace groomlab

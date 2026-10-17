@@ -5,8 +5,12 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <mutex>
+#include <set>
+#include <unordered_map>
 
 #include <type_traits>
 
@@ -284,7 +288,7 @@ std::uint64_t EvalContext::hash() const {
     std::uint64_t h = hashBytes(0, &previewDensity, sizeof previewDensity);
     h = hashBytes(h, &maxPoints, sizeof maxPoints);
     if (scale != 1.0) h = hashBytes(h, &scale, sizeof scale);
-    return hashBytes(h, &strandSegments, sizeof strandSegments);
+    return h;
 }
 
 // ---------------------------------------------------------------------------
@@ -832,6 +836,146 @@ bool Graph::inputSource(NodeId dst, std::size_t inputSlot, NodeId* src, std::siz
     return true;
 }
 
+std::map<NodeId, Graph::Resolution> Graph::strandResolutions(bool viewport) const {
+    // What each Resample asks for (a bypassed one, or one fed guides, nothing), and who reads each node.
+    std::map<NodeId, int> asks;
+    std::map<NodeId, std::vector<NodeId>> readers;
+    Resolution fallback;
+    for (const auto& [id, node] : nodes_) {
+        for (const NodeId src : node.inputs) {
+            if (src != kNoNode) readers[src].push_back(id);
+        }
+        if (node.op->typeName() != op::kResample || off(node, viewport)) continue;
+        PortType type = PortType::Curves;
+        try {
+            type = outputType(id);
+        } catch (const GraphError&) {
+        }
+        if (type == PortType::Guides) continue;
+        const int segments = static_cast<int>(std::clamp<std::int64_t>(node.op->params().getInt("segments"), 0, 256));
+        asks[id] = segments;
+        // One fed nothing sets the graph's default: what a Scatter with no Resample after it takes.
+        if ((node.inputs.empty() || node.inputs[0] == kNoNode) && segments > fallback.segments) fallback = {segments, id};
+    }
+    // Downstream first: each node takes the most any reader asks for or takes (the first such
+    // reader's Resample, by ID, on a tie).
+    std::map<NodeId, Resolution> out;
+    std::set<NodeId> visiting;
+    std::function<Resolution(NodeId)> resolve = [&](NodeId id) -> Resolution {
+        if (const auto it = out.find(id); it != out.end()) return it->second;
+        Resolution best;
+        if (!visiting.insert(id).second) return best;  // (a cycle: never connected)
+        if (const auto r = readers.find(id); r != readers.end()) {
+            std::vector<NodeId> after = r->second;
+            std::sort(after.begin(), after.end());
+            after.erase(std::unique(after.begin(), after.end()), after.end());
+            for (const NodeId reader : after) {
+                const auto a = asks.find(reader);
+                if (a != asks.end() && a->second > best.segments) best = {a->second, reader};
+                const Resolution further = resolve(reader);
+                if (further.segments > best.segments) best = further;
+            }
+        }
+        visiting.erase(id);
+        out[id] = best;
+        return best;
+    };
+    for (const auto& [id, node] : nodes_) resolve(id);
+    for (auto& [id, r] : out) {
+        if (r.segments <= 0) r = fallback;
+    }
+    return out;
+}
+
+Graph::Resolution Graph::strandResolution(NodeId id, bool viewport) const {
+    nodeRecord(id);  // (an unknown node throws)
+    return strandResolutions(viewport)[id];
+}
+
+std::string Graph::strandResolutionNote(NodeId id, bool viewport) const {
+    const Node& node = nodeRecord(id);
+    const std::string type = node.op->typeName();
+    if ((type != op::kScatter && type != op::kResample) || off(node, viewport)) return {};
+    const std::map<NodeId, Resolution> all = strandResolutions(viewport);
+    auto name = [&](NodeId n) {
+        const std::string& label = nodeRecord(n).label;
+        return "'" + (label.empty() ? "#" + std::to_string(n) : label) + "'";
+    };
+    auto points = [](int segments) {
+        return std::to_string(segments) + " segments (" + std::to_string(segments + 1) + " points)";
+    };
+    auto fedNothing = [&](NodeId n) {
+        const Node& r = nodeRecord(n);
+        return r.inputs.empty() || r.inputs[0] == kNoNode;
+    };
+    if (type == op::kScatter) {
+        const Resolution& r = all.at(id);
+        if (r.from == kNoNode || r.segments <= 0) {
+            return "Its strands grow with " + points(8) + ": no Resample after this Scatter sets their resolution (add one to its "
+                   "branch)";
+        }
+        if (fedNothing(r.from)) {
+            return "Its strands grow with " + points(r.segments) + ", set by Resample " + name(r.from) +
+                   " (fed nothing, it sets the default: no Resample after this Scatter does)";
+        }
+        return "Its strands grow with " + points(r.segments) + ", set by Resample " + name(r.from) +
+               " (the most segments any Resample after it asks for)";
+    }
+    try {
+        if (outputType(id) == PortType::Guides) return {};
+    } catch (const GraphError&) {
+        return {};
+    }
+    if (fedNothing(id)) {
+        std::string list;
+        for (const auto& [n, r] : all) {
+            if (r.from == id && nodeRecord(n).op->typeName() == op::kScatter && !off(nodeRecord(n), viewport)) {
+                list += (list.empty() ? "" : ", ") + name(n);
+            }
+        }
+        return list.empty() ? std::string("Fed nothing: it sets the default resolution, which no Scatter takes (each has a Resample "
+                                          "after it, or another Resample fed nothing asks for more)")
+                            : "Fed nothing: it sets the default resolution, " +
+                                  points(static_cast<int>(std::clamp<std::int64_t>(node.op->params().getInt("segments"), 0, 256))) +
+                                  ", of every Scatter with no Resample after it (Scatter " + list + ")";
+    }
+    // The Scatters before it, and the ones it sets.
+    std::vector<NodeId> scatters, sets;
+    std::vector<NodeId> stack(node.inputs.begin(), node.inputs.end());
+    std::set<NodeId> seen;
+    while (!stack.empty()) {
+        const NodeId n = stack.back();
+        stack.pop_back();
+        if (n == kNoNode || !seen.insert(n).second) continue;
+        const Node& up = nodeRecord(n);
+        if (up.op->typeName() == op::kScatter && !off(up, viewport)) {
+            scatters.push_back(n);
+            if (all.at(n).from == id) sets.push_back(n);
+        }
+        stack.insert(stack.end(), up.inputs.begin(), up.inputs.end());
+    }
+    std::sort(scatters.begin(), scatters.end());
+    std::sort(sets.begin(), sets.end());
+    if (scatters.empty()) return "No Scatter comes before it: it sets no Scatter's resolution (a Resample sets only its own branch's)";
+    if (sets.empty()) {
+        const NodeId wins = all.at(scatters.front()).from;
+        return wins == kNoNode ? std::string("Sets no Scatter's resolution (0 segments keeps each strand's)")
+                               : "Sets no Scatter's resolution: Resample " + name(wins) + " after it asks for more";
+    }
+    std::string list;
+    for (const NodeId n : sets) list += (list.empty() ? "" : ", ") + name(n);
+    return "Sets the resolution of Scatter " + list + ": " + points(all.at(sets.front()).segments) +
+           " (a Resample sets only its own branch's)";
+}
+
+EvalContext Graph::nodeContext(NodeId id, const EvalContext& ctx, const Keys& keys) const {
+    if (keys.segments.empty()) return ctx;
+    EvalContext out = ctx;
+    const auto it = keys.segments.find(id);
+    out.strandSegments = it == keys.segments.end() ? 0 : it->second.segments;
+    return out;
+}
+
 std::uint64_t Graph::computeKey(NodeId id, const EvalContext& ctx, Keys& memo) const {
     if (auto it = memo.full.find(id); it != memo.full.end()) return it->second;
 
@@ -856,12 +1000,12 @@ std::uint64_t Graph::computeKey(NodeId id, const EvalContext& ctx, Keys& memo) c
     // A node kept at an older behaviour (Operator::nodeVersion) is another result.
     if (node.op->nodeVersion() != node.op->version()) key = hashCombine(key, 0x7E5000u + static_cast<unsigned>(node.op->nodeVersion()));
     key = hashCombine(key, node.op->cacheSalt());
-    key = hashCombine(key, node.op->contextSalt(ctx));
+    key = hashCombine(key, node.op->contextSalt(nodeContext(id, ctx, memo)));
     key = hashCombine(key, mapParamsKey(node.op->params(), ctx));
     for (const std::string& name : node.op->externalInputs()) {
         const ExternalInputs::Entry* e = ctx.externals ? ctx.externals->find(name) : nullptr;
         key = hashString(key, name);
-        key = hashCombine(key, e ? e->hash : 0);
+        key = hashCombine(key, e ? node.op->externalKey(name, *e) : 0);
     }
     // Its own key: everything but what its inputs bring (and which of their outputs it reads).
     std::uint64_t own = hashCombine(key, node.inputs.size());
@@ -1034,6 +1178,35 @@ Value detachedPrevious(const Value& previous) {
     return StrandsPtr(copy);
 }
 
+// Whether `next` holds the very points of `previous` (StrandChanges::pointsKept): the same
+// positions array (two live sets share one only as copies of each other), the same strands (IDs,
+// roots, offsets: shared, or equal byte for byte) and the same instances, card and feather layers.
+bool samePointsAs(const StrandsPtr& previous, const StrandsPtr& next) {
+    if (!previous || !next) return false;
+    if (previous == next) return true;
+    if (previous->pointCount() != next->pointCount() || previous->strandCount() != next->strandCount() ||
+        previous->positions().data() != next->positions().data() || previous->instances() != next->instances() ||
+        previous->cardLayers() != next->cardLayers() || previous->featherLayers() != next->featherLayers()) {
+        return false;
+    }
+    const std::vector<std::string> strandNames = next->strandChannelNames(), pointNames = next->pointChannelNames();
+    if (previous->strandChannelNames() != strandNames || previous->pointChannelNames() != pointNames ||
+        (previous->widths().size() == previous->pointCount()) != (next->widths().size() == next->pointCount())) {
+        return false;
+    }
+    for (const std::string& name : strandNames) {
+        if (previous->strandChannelDefault(name) != next->strandChannelDefault(name)) return false;
+    }
+    for (const std::string& name : pointNames) {
+        if (previous->pointChannelDefault(name) != next->pointChannelDefault(name)) return false;
+    }
+    auto same = [](const auto& x, const auto& y) {
+        return x.data() == y.data() ||
+               (x.size() == y.size() && (x.empty() || std::memcmp(x.data(), y.data(), x.size() * sizeof(x[0])) == 0));
+    };
+    return same(previous->offsets(), next->offsets()) && same(previous->ids(), next->ids()) && same(previous->roots(), next->roots());
+}
+
 }  // namespace
 
 void Graph::setIncrementalEvaluation(bool on) { incrementalOn = on; }
@@ -1092,14 +1265,17 @@ struct Graph::Transient {
     std::map<NodeId, std::vector<Value>> results;  // held until the last use
 };
 
-std::vector<Value> Graph::evaluateWithKeys(NodeId id, const EvalContext& ctx, Keys& keys, Transient* transient) {
+std::vector<Value> Graph::evaluateWithKeys(NodeId id, const EvalContext& graphCtx, Keys& keys, Transient* transient) {
     Node& node = nodeRecord(id);
+    // The context its operator runs with: its own strand segments (its branch's).
+    const EvalContext nodeCtx = nodeContext(id, graphCtx, keys);
+    const EvalContext& ctx = nodeCtx;
     std::uint64_t key = 0;
     if (transient) {
         auto it = transient->results.find(id);
         if (it != transient->results.end()) return it->second;
     } else {
-        key = computeKey(id, ctx, keys);
+        key = computeKey(id, graphCtx, keys);
         // A source handing on an external keyed by less than all of it (the scalp, by its surface):
         // the same key, the external as it is now.
         auto fresh = [&]() -> const std::vector<Value>& {
@@ -1131,7 +1307,7 @@ std::vector<Value> Graph::evaluateWithKeys(NodeId id, const EvalContext& ctx, Ke
                 continue;
             }
             // The source runs once for all its outputs; this slot takes the one it is linked to.
-            std::vector<Value> outs = evaluateWithKeys(src, ctx, keys, transient);
+            std::vector<Value> outs = evaluateWithKeys(src, graphCtx, keys, transient);
             const std::size_t output = node.inputOutputs[slot];
             inputValues.push_back(output < outs.size() ? std::move(outs[output]) : Value{});
             if (!transient) {
@@ -1354,6 +1530,23 @@ std::vector<Value> Graph::evaluateWithKeys(NodeId id, const EvalContext& ctx, Ke
                                 : first             ? "full " + count
                                                     : std::string("full");
         }
+        // Its points the very ones of its last result (a Width, a HairColor, a Collide or Merge
+        // after one): said, so the nodes after take their last points too (StrandChanges::pointsKept).
+        if (!transient && node.hasCache) {
+            for (std::size_t o = 0; o < result.size() && o < node.cachedValues.size(); ++o) {
+                const StrandsPtr now = valueAs<StrandsPtr>(result[o]);
+                const StrandsPtr before = valueAs<StrandsPtr>(node.cachedValues[o]);
+                if (!now || now == before) continue;
+                const bool kept = samePointsAs(before, now);
+                ChangesPtr said = o < changes.size() ? changes[o] : nullptr;
+                if (said && said->pointsKept == kept) continue;
+                if (!said && !kept) continue;
+                StrandChanges marked = said ? *said : StrandChanges{};
+                marked.pointsKept = kept;
+                changes.resize(std::max(changes.size(), o + 1));
+                changes[o] = std::make_shared<const StrandChanges>(std::move(marked));
+            }
+        }
         std::string note;
         if (!passThrough) {
             note = notes.text();
@@ -1445,7 +1638,24 @@ void Graph::adoptCache(const Graph& previous) {
     }
     for (auto& [id, node] : nodes_) {
         const auto it = node.label.empty() ? byLabel.end() : byLabel.find(node.label);
-        if (it != byLabel.end() && it->second->op->typeName() == node.op->typeName()) node.op->adoptKeptWork(*it->second->op);
+        if (it == byLabel.end() || it->second->op->typeName() != node.op->typeName()) continue;
+        node.op->adoptKeptWork(*it->second->op);
+        // The same node's last result, under its old key: an evaluation keying it alike serves it
+        // (as the adopted results above), one keying it otherwise makes it again, from it
+        // incrementally where only its inputs changed (its own key the same: a param edited
+        // upstream, the graph parsed again). Its serial and what it was made from are its own, so
+        // the nodes after go on incrementally too (StrandChanges::pointsKept after a Width edit).
+        const Node& was = *it->second;
+        if (!was.hasCache || node.hasCache) continue;
+        node.cachedKey = was.cachedKey;
+        node.cachedValues = was.cachedValues;
+        node.hasCache = true;
+        node.serial = was.serial;
+        node.ownKey = was.ownKey;
+        node.consumed = was.consumed;
+        node.changes.clear();
+        node.changesBase = 0;
+        node.passedOn = was.passedOn;
     }
 }
 
@@ -1493,6 +1703,16 @@ Graph Graph::clone() const {
         copy.changes = node.changes;
         copy.changesBase = node.changesBase;
         copy.passedOn = node.passedOn;
+        // What the preview showed of its result (shownValues), so the copy's changesSince of a
+        // preview holding hidden strands answers as the original's (a stroke document warmed on a
+        // copy and adopted: GroomSession::adoptWarm).
+        copy.shown = node.shown;
+        copy.shownFrom = node.shownFrom;
+        copy.shownAt = node.shownAt;
+        for (int k = 0; k < 2; ++k) {
+            copy.hiddenSerial[k] = node.hiddenSerial[k];
+            copy.hiddenHash[k] = node.hiddenHash[k];
+        }
         out.nodes_.emplace(id, std::move(copy));
     }
     out.nextId_ = nextId_;
@@ -1502,6 +1722,7 @@ Graph Graph::clone() const {
     out.lastNotes_ = lastNotes_;
     out.adopted_ = adopted_;
     out.cacheIntermediates_ = cacheIntermediates_;
+    out.cacheLimit_ = cacheLimit_;
     return out;
 }
 
@@ -1519,29 +1740,19 @@ Value Graph::evaluateOutput(NodeId id, std::size_t output, const EvalContext& ct
 }
 
 std::vector<Value> Graph::evaluateOutputs(NodeId id, const EvalContext& ctx) {
-    if (ctx.strandSegments <= 0) {
-        // Strand resolution is the Resample node's: Scatter only places roots and
-        // grows them with the most segments any Resample asks for (8 without),
-        // whichever node is being evaluated (viewNode too, so a node viewed
-        // before the Resample shows what the output is made from), and an
-        // unconnected one sets it as well. Not a bypassed one, nor one fed
-        // guides: those don't resample the strands.
-        EvalContext resolved = ctx;
-        std::int64_t segments = 0;
-        for (const auto& [nodeId, node] : nodes_) {
-            if (node.op->typeName() != op::kResample || off(node, ctx.viewport) || outputType(nodeId) == PortType::Guides) continue;
-            segments = std::max(segments, node.op->params().getInt("segments"));
-        }
-        resolved.strandSegments = static_cast<int>(std::clamp<std::int64_t>(segments > 0 ? segments : 8, 1, 256));
-        return evaluateOutputs(id, resolved);
-    }
+    // Strand resolution is the Resample node's: Scatter only places roots and grows them with the
+    // most segments any Resample downstream of it asks for (8 without), whichever node is being
+    // evaluated (viewNode too, so a node viewed before the Resample shows what the output is made
+    // from). Each branch its own: a Resample on the whiskers leaves the fur as it is. A Resample
+    // fed nothing sets the default of Scatters with none after them.
+    Keys keys;
+    if (ctx.strandSegments <= 0) keys.segments = strandResolutions(ctx.viewport);
     const ScopedPathResolver paths(ctx.paths);  // operators and cache keys resolve file paths through it
     const ScopedFileStamps stamps;  // and read each file's stamp once (keys and texture loads alike)
     // Expressions compiled by the operators read this evaluation's time and the groom's maps.
     const ExpressionEnvironment environment = expressionEnvironment(ctx);
     const ExpressionEnvironmentScope expressions(&environment);
     applyControls(ctx);  // keyed params take this evaluation's values (so they key the cache too)
-    Keys keys;
     std::set<NodeId> valuesSet;
     if (cacheIntermediates_) {
         // What matched is cached on the nodes after this; the rest of the old graph's
@@ -1554,6 +1765,12 @@ std::vector<Value> Graph::evaluateOutputs(NodeId id, const EvalContext& ctx) {
         applyValueInputs(id, ctx, keys, nullptr, valuesSet);
         std::vector<Value> result = evaluateWithKeys(id, ctx, keys, nullptr);
         if (!ctx.keepPreviewCore) result = shownValues(id, std::move(result), true);
+        // The nodes it reached (each keyed), for the cache limit's age; then the limit.
+        ++tick_;
+        for (const auto& [reached, key] : keys.full) {
+            if (auto it = nodes_.find(reached); it != nodes_.end()) it->second.usedTick = tick_;
+        }
+        if (cacheLimit_) trimCache(id);
         if (!adopted_.empty()) {
             // Nodes this evaluation did not run or reach (upstream of an adopted result, or not
             // feeding this output) keep their adopted results too, for the next edit or swap.
@@ -1648,17 +1865,107 @@ StrandsPtr Graph::evaluateStrands(NodeId id, const EvalContext& ctx) {
     return nullptr;
 }
 
+void Graph::dropCache(Node& node) {
+    node.hasCache = false;
+    node.cachedValues.clear();
+    node.consumed.clear();
+    node.changes.clear();
+    node.changesBase = 0;
+    node.passedOn = false;
+    node.shown.clear();
+    node.shownFrom.clear();
+    node.shownAt.reset();
+}
+
 void Graph::clearCache() {
-    for (auto& [id, node] : nodes_) {
-        node.hasCache = false;
-        node.cachedValues.clear();
-        node.consumed.clear();
-        node.changes.clear();
-        node.changesBase = 0;
-        node.passedOn = false;
-        node.shown.clear();
-        node.shownFrom.clear();
-        node.shownAt.reset();
+    for (auto& [id, node] : nodes_) dropCache(node);
+}
+
+std::size_t Graph::defaultCacheLimit() {
+    static const std::size_t limit = [] {
+        const char* text = std::getenv("GROOMLAB_CACHE_LIMIT_MB");  // NOLINT(concurrency-mt-unsafe): read once
+        if (!text || !*text) return kDefaultCacheLimit;
+        char* end = nullptr;
+        const double mb = std::strtod(text, &end);
+        if (end == text || !(mb >= 0.0)) return kDefaultCacheLimit;
+        return static_cast<std::size_t>(mb * 1048576.0);
+    }();
+    return limit;
+}
+
+namespace {
+
+// Each array a node's cached strands (and what its callers were handed of them) hold, once.
+void nodeArrays(const std::vector<Value>& values, const std::vector<Value>& shown, std::unordered_map<const void*, std::size_t>* arrays) {
+    for (const std::vector<Value>* list : {&values, &shown}) {
+        for (const Value& v : *list) {
+            if (const StrandsPtr strands = valueAs<StrandsPtr>(v)) {
+                strands->forEachArray([&](const void* data, std::size_t bytes) { (*arrays)[data] = bytes; });
+            }
+        }
+    }
+}
+
+}  // namespace
+
+std::size_t Graph::cachedBytes() const {
+    std::unordered_map<const void*, std::size_t> arrays;
+    for (const auto& [id, node] : nodes_) {
+        if (node.hasCache) nodeArrays(node.cachedValues, node.shown, &arrays);
+    }
+    std::size_t total = 0;
+    for (const auto& [data, bytes] : arrays) total += bytes;
+    return total;
+}
+
+void Graph::trimCache(NodeId keep) {
+    // Each node's arrays, and how many nodes hold each.
+    struct Held {
+        NodeId id;
+        std::vector<std::pair<const void*, std::size_t>> arrays;
+        std::size_t bytes = 0;  // its arrays' bytes
+    };
+    std::vector<Held> held;
+    std::unordered_map<const void*, std::size_t> holders, sizes;
+    for (const auto& [id, node] : nodes_) {
+        if (!node.hasCache) continue;
+        std::unordered_map<const void*, std::size_t> own;
+        nodeArrays(node.cachedValues, node.shown, &own);
+        Held h{id, {own.begin(), own.end()}, 0};
+        for (const auto& [data, bytes] : own) {
+            ++holders[data];
+            sizes[data] = bytes;
+            h.bytes += bytes;
+        }
+        held.push_back(std::move(h));
+    }
+    std::size_t total = 0;
+    for (const auto& [data, bytes] : sizes) total += bytes;
+    if (total <= cacheLimit_) return;
+    // The order they go in: not reached by the last evaluation first (the longest unused first),
+    // then the cheapest to make again for their bytes (their last run's milliseconds a byte).
+    auto cost = [&](const Held& h) {
+        const auto t = lastRunTimes_.find(h.id);
+        return (t == lastRunTimes_.end() ? 0.0 : t->second) / static_cast<double>(std::max<std::size_t>(h.bytes, 1));
+    };
+    std::sort(held.begin(), held.end(), [&](const Held& a, const Held& b) {
+        const std::uint64_t ua = nodes_.at(a.id).usedTick, ub = nodes_.at(b.id).usedTick;
+        if (ua != ub) return ua < ub;
+        const double ca = cost(a), cb = cost(b);
+        if (ca != cb) return ca < cb;
+        return a.id < b.id;
+    });
+    for (const Held& h : held) {
+        if (total <= cacheLimit_) break;
+        if (h.id == keep) continue;
+        // (A result whose arrays others hold too frees nothing: it stays.)
+        std::size_t freed = 0;
+        for (const auto& [data, bytes] : h.arrays) freed += holders[data] == 1 ? bytes : 0;
+        if (freed == 0) continue;
+        for (const auto& [data, bytes] : h.arrays) --holders[data];
+        dropCache(nodes_.at(h.id));
+        ++evictions_;
+        total -= std::min(total, freed);
     }
 }
 

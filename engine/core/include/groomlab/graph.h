@@ -564,10 +564,12 @@ struct EvalContext {
     // true, as the nodes made them (a Compound's inner graph, whose result its own node hands on).
     // Not part of the hash: the cache holds the nodes' results either way.
     bool keepPreviewCore = false;
-    // Segments each Scatter grows its strands with (points = segments + 1).
-    // 0: the graph's Resample nodes set it: the most "segments" any of them
-    // asks for (8 without), wherever it sits (before or after the evaluated
-    // node, or unconnected), except one bypassed or fed guides.
+    // Segments each Scatter grows its strands with (points = segments + 1), for every Scatter.
+    // 0: each Scatter's own branch sets it (Graph::strandResolution): the most "segments" any
+    // Resample downstream of it asks for, except one bypassed or fed guides; without one, the
+    // most a Resample fed nothing asks for (the graph's default), else 8. The graph hands each
+    // node its own (a Compound its inner graph's Scatters, 0 when it has none: they go by the
+    // inner graph's Resamples).
     int strandSegments = 0;
     // The groom's scale (GroomSession::groomScale: a groom scaled with its scalp): the sizes
     // operators take from the whole scalp or all the strands and round to 1% steps for edit
@@ -576,11 +578,12 @@ struct EvalContext {
     // at 1x scaled, not one rounded otherwise. 1: anchored at 1 (decades, as a scene in other units).
     double scale = 1.0;
 
-    // Hash of density, point budget and segments (and the scale, when not 1). Time is left out (time-varying
+    // Hash of density and point budget (and the scale, when not 1). Time is left out (time-varying
     // data arrives as hashed externals), and so is buildCards: the operators
     // that read either (ImportCurves and Wind the time, Cards buildCards) salt
     // their own keys with it (Operator::contextSalt), so only they and what is
-    // downstream of them re-evaluate from frame to frame.
+    // downstream of them re-evaluate from frame to frame. So are the segments: each Scatter
+    // salts its key with its own (a Resample's edit makes only its own branch again).
     std::uint64_t hash() const;
 
     Value external(const std::string& name) const {
@@ -608,9 +611,16 @@ public:
 // hold the same strands (count, IDs, roots, point counts, channel names and defaults, instances,
 // card and feather layers) and only the listed strands' points, widths and channel values may
 // differ; an empty list: nothing does. For a Guides result only `all` is ever said.
+// `pointsKept` (with `all` or a list): the points are the very ones of the result before, bit for
+// bit (the same strands, IDs, roots, point counts and positions, channel names and defaults, the
+// same instances, card and feather layers): only widths and channel values may differ (a Width or
+// HairColor edit). The
+// graph says it (Graph::evaluateWithKeys, from the arrays the two results share), never an
+// operator: what one makes of its inputs' (a Collide keeping its last points) it finds again.
 struct StrandChanges {
     bool all = true;
     std::vector<std::uint32_t> strands;  // sorted, each once (when not all)
+    bool pointsKept = false;
 
     bool none() const { return !all && strands.empty(); }
     static StrandChanges listed(std::vector<std::uint32_t> strands) {
@@ -714,6 +724,11 @@ public:
     // Names of ExternalInputs entries this operator reads. Their hashes join
     // the operator's cache key.
     virtual std::vector<std::string> externalInputs() const { return {}; }
+    // What of external `name` (one of externalInputs, present) joins the cache key: its hash by
+    // default. A node whose result depends on a piece of a large external keys by that piece
+    // (Guides: the guides of its own groups of the hierarchy), so an edit elsewhere in it leaves
+    // the node's result, and everything made from it, cached. Called on every evaluation: memoize.
+    virtual std::uint64_t externalKey(const std::string& /*name*/, const ExternalInputs::Entry& entry) const { return entry.hash; }
 
     // Extra cache-key input for state outside params and inputs, such as a
     // file's modification time. Must be cheap; called on every evaluation.
@@ -730,6 +745,10 @@ public:
     // Something to tell the user about this evaluation that is not an error (Jiggle without the
     // scalp's motion history: it passes the strands through). Graph::lastNotes collects them.
     virtual std::string note(const EvalContext&) const { return {}; }
+    // Whether its last evaluation thinned its strands to the viewport's point budget
+    // (EvalContext::maxPoints: a Scatter's): a render may take a preview's result only when no
+    // node did (GroomSession::rendersAsViewed).
+    virtual bool thinnedLastRun() const { return false; }
 
     // Whether input `slot` reaches the output as it is set (a Switch reads only the input it
     // picks). Graph::forEachActiveUpstream walks only these.
@@ -910,6 +929,21 @@ public:
     const std::map<NodeId, std::string>& lastRunKinds() const { return lastRunKinds_; }
     // Each node's Operator::note from the last time it ran (nodes with none are absent).
     const std::map<NodeId, std::string>& lastNotes() const { return lastNotes_; }
+    // The strand resolution a node is evaluated with when the context leaves it to the graph
+    // (EvalContext::strandSegments 0): the most segments any Resample downstream of it asks for
+    // (one not bypassed in the viewport or in renders, as `viewport` says, nor fed guides), else
+    // the most a Resample fed nothing asks for (the graph's default), and the Resample asking it
+    // (`segments` 0 and `from` 0: none, a Scatter there grows 8).
+    struct Resolution {
+        int segments = 0;
+        NodeId from = 0;  // (kNoNode)
+    };
+    Resolution strandResolution(NodeId id, bool viewport = true) const;
+    // Every node's (strandResolution), in one pass.
+    std::map<NodeId, Resolution> strandResolutions(bool viewport) const;
+    // A Scatter's or a Resample's resolution in plain words, for the graph editors (empty for any
+    // other node, a bypassed one, or a Resample fed guides).
+    std::string strandResolutionNote(NodeId id, bool viewport = true) const;
     // A node's output type as connected (its output `output`, the primary by default): a Curves
     // output takes the type of what feeds its first Curves input (Curves while that is
     // unconnected). Throws GraphError for an output the node does not have.
@@ -962,7 +996,7 @@ public:
     // (shared: values are immutable), so the copy's first evaluation reuses whatever is still
     // valid. From then on the two caches are their own. Operators' own kept work for the results
     // the copy shares comes along (Operator::adoptKeptWork: an Interpolate's binding, a Clump's
-    // center choice); a Scatter's relaxed roots start afresh in the copy. Cheaper than writing
+    // center choice, a Scatter's relaxed roots). Cheaper than writing
     // the graph's JSON and loading it again: hosts keeping several documents of one graph (a
     // card, rachis or rest evaluation) copy the first.
     Graph clone() const;
@@ -971,6 +1005,20 @@ public:
     // soon as its last consumer has used it, which keeps peak memory near two
     // strand sets (render-time expansion, where nothing re-evaluates).
     void setCacheIntermediates(bool enabled);
+
+    // A byte limit for the cached results (0: none). After each evaluation, while the arrays the
+    // nodes' cached strands hold come to more (each array once: a result sharing another's points
+    // adds nothing for them), results go: first those the evaluation did not reach, the longest unused
+    // first, then those it reached, the cheapest to make again for the bytes they free first (by their
+    // last run's time); never the evaluated node's. A node let go evaluates in full when next asked,
+    // as do the nodes after it (they have no changes to go on). By default GROOMLAB_CACHE_LIMIT_MB
+    // megabytes from the environment, else kDefaultCacheLimit.
+    static constexpr std::size_t kDefaultCacheLimit = std::size_t{2048} << 20;
+    void setCacheLimit(std::size_t bytes) { cacheLimit_ = bytes; }
+    std::size_t cacheLimit() const { return cacheLimit_; }
+    // The bytes the cached strands hold, as the limit counts them; how many results it let go so far.
+    std::size_t cachedBytes() const;
+    std::size_t cacheEvictions() const { return evictions_; }
 
     // Number of Operator::evaluate calls so far (cache effectiveness, tests).
     std::size_t evaluationCount() const { return evaluationCount_; }
@@ -1043,6 +1091,7 @@ private:
         std::vector<ChangesPtr> changes;  // per output (missing: unknown)
         std::uint64_t changesBase = 0;
         bool passedOn = false;
+        std::uint64_t usedTick = 0;  // the last evaluation reaching it (the cache limit's age)
         // What the callers were handed of the result (preview_core.h: shownStrands): per output,
         // the shown strands made from cachedValues (by identity), and for the result's serial
         // and the one before, which strands were hidden (a hash; 0: none), so changesSince
@@ -1079,7 +1128,12 @@ private:
     // Every node's key in one evaluation, and its own key (all but its inputs' keys).
     struct Keys {
         std::map<NodeId, std::uint64_t> full, own;
+        // Each node's strand segments (strandResolutions), when the context leaves them to the
+        // graph; empty when it sets them for every node.
+        std::map<NodeId, Resolution> segments;
     };
+    // The context node `id` is evaluated (and keyed) with: its own strand segments.
+    EvalContext nodeContext(NodeId id, const EvalContext& ctx, const Keys& keys) const;
     std::uint64_t computeKey(NodeId id, const EvalContext& ctx, Keys& memo) const;
     struct Transient;  // per-evaluation results when not caching
     // Sets the params of `id` and every node upstream of it that a Value input drives, from those
@@ -1114,6 +1168,14 @@ private:
     std::unordered_map<std::uint64_t, Adopted> adopted_;
     static void adopt(Node& node, const Adopted& adopted, std::uint64_t key, std::uint64_t ownKey);
     bool cacheIntermediates_ = true;
+    // The cache limit (setCacheLimit): the evaluations so far, the results it let go.
+    static std::size_t defaultCacheLimit();
+    std::size_t cacheLimit_ = defaultCacheLimit();
+    std::uint64_t tick_ = 0;
+    std::size_t evictions_ = 0;
+    // Lets results go while the cache holds more than the limit (never node `keep`'s).
+    void trimCache(NodeId keep);
+    static void dropCache(Node& node);
 };
 
 }  // namespace groomlab

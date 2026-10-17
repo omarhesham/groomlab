@@ -802,6 +802,22 @@ TEST(AppTheme, OverlayLayoutHasNoOverlapsAtSmallSizes) {
     EXPECT_GT(l.stats.left(), l.rail.right());
     EXPECT_GT(l.graphPill.left(), l.rail.right());
     EXPECT_GE(l.rail.top(), 60);
+    // A first run's rail labels (the rail as wide as its names): the stats and the pills go
+    // right of the names, the brush bar still clear of them.
+    for (const bool graph : {false, true}) {
+        theme::OverlayRequest labels = request;
+        labels.graphShown = graph;
+        labels.graphToolsWidth = graph ? 162 : 110;
+        labels.barWidth = 740;
+        labels.stats = QSize(300, 18);
+        labels.railLabelsWidth = 140;
+        const theme::OverlayLayout k = theme::layoutOverlay(labels);
+        const QRect named(k.rail.topLeft(), QSize(140, k.rail.height()));
+        EXPECT_FALSE(named.intersects(k.stats)) << "the names over the stats";
+        EXPECT_FALSE(named.intersects(k.graphPill)) << "the names over the Graph pill";
+        EXPECT_FALSE(k.bar.intersects(k.graphPill) || k.bar.intersects(k.graphTools) || k.bar.intersects(k.stats)) << "the bar over the pills";
+        EXPECT_TRUE(QRect(QPoint(0, 0), labels.view).contains(k.bar)) << "the bar leaves the view";
+    }
 }
 
 TEST(AppPresets, ShippedPresetsApplySaveCopyAndPaste) {

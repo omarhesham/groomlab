@@ -746,14 +746,15 @@ TEST(Incremental, SplitHandsEachOutputItsOwnChangedStrands) {
         // TestDiff, Split, Noise, Curl, Length and both Merges.
         EXPECT_EQ(chain->graph.incrementalCount() - before, 7u) << "dab " << dab;
     }
-    // A param edit on one branch after Split: that branch and the merges in full, with the dab;
-    // Split and the other branch go on incrementally, and the next dab is incremental throughout.
+    // A param edit on one branch after Split: that branch in full, with the dab; Split and the
+    // other branch go on incrementally, and so do the merges (the branch made anew holds the
+    // strands it held: they write all of its strands); the next dab is incremental throughout.
     const ChainEdit curlier = [](Chain& c) { c.node("curl").params().set("radius", 0.04); };
     curlier(*chain);
     std::size_t before = chain->graph.incrementalCount();
     strands = dabbed(*strands, 6, rng);
     EXPECT_EQ(chain->run(strands)->contentHash(), fresh(strands, curlier));
-    EXPECT_EQ(chain->graph.incrementalCount() - before, 3u);  // TestDiff, Split, Noise
+    EXPECT_EQ(chain->graph.incrementalCount() - before, 5u);  // TestDiff, Split, Noise and both Merges
     before = chain->graph.incrementalCount();
     strands = dabbed(*strands, 6, rng);
     EXPECT_EQ(chain->run(strands)->contentHash(), fresh(strands, curlier));
@@ -1290,6 +1291,93 @@ TEST(Incremental, AStrokeAfterAGraphEditIsAsIncrementalAsWithout) {
         return (session.evaluationCount() - evaluations) - (session.incrementalCount() - incrementals);
     };
     EXPECT_EQ(inFull(true), inFull(false));
+}
+
+TEST(Incremental, AWidthOrColorEditKeepsThePointsOfWhatFollows) {
+    // A Width or HairColor edit changes no point (StrandChanges::pointsKept): Merge, Collide and
+    // Instance after it keep their last points (the very arrays) and make only the widths and
+    // channels again; every view as a fresh session's, each incremental result checked against a
+    // full evaluation. An Instance whose probability reads a channel the edit changes is placed again.
+    const Verified verified;
+    const std::string graph = R"({"version": 1, "output": "out",
+      "nodes": [
+        {"name": "scalp", "type": "Scalp"}, {"name": "guides", "type": "Guides"},
+        {"name": "scatter", "type": "Scatter", "params": {"density": 600.0}},
+        {"name": "interp", "type": "Interpolate"},
+        {"name": "noise", "type": "Noise", "params": {"amplitude": 0.05, "frequency": 3.0}},
+        {"name": "width", "type": "Width", "params": {"width": 0.01, "randomness": 0.3}},
+        {"name": "color", "type": "HairColor", "params": {"melanin": 0.4}},
+        {"name": "whiskers", "type": "Scatter", "params": {"density": 40.0, "seed": 5}},
+        {"name": "whiskerInterp", "type": "Interpolate"},
+        {"name": "whiskerColor", "type": "HairColor", "params": {"melanin": 0.1}},
+        {"name": "merge", "type": "Merge"},
+        {"name": "collide", "type": "Collide", "params": {"offset": 0.05}},
+        {"name": "snow", "type": "Instance", "params": {"probability": 0.3, "tMin": 0.4, "scaleByWidth": true}},
+        {"name": "resample", "type": "Resample", "params": {"segments": 7}},
+        {"name": "out", "type": "Output"}],
+      "connections": [
+        {"from": "scalp", "to": "scatter", "input": "scalp"}, {"from": "scatter", "to": "interp", "input": "strands"},
+        {"from": "guides", "to": "interp", "input": "guides"}, {"from": "scalp", "to": "interp", "input": "scalp"},
+        {"from": "interp", "to": "noise", "input": "strands"}, {"from": "noise", "to": "width", "input": "strands"},
+        {"from": "width", "to": "color", "input": "strands"},
+        {"from": "scalp", "to": "whiskers", "input": "scalp"}, {"from": "whiskers", "to": "whiskerInterp", "input": "strands"},
+        {"from": "guides", "to": "whiskerInterp", "input": "guides"}, {"from": "scalp", "to": "whiskerInterp", "input": "scalp"},
+        {"from": "whiskerInterp", "to": "whiskerColor", "input": "strands"},
+        {"from": "color", "to": "merge", "input": "a"}, {"from": "whiskerColor", "to": "merge", "input": "b"},
+        {"from": "merge", "to": "collide", "input": "strands"}, {"from": "scalp", "to": "collide", "input": "scalp"},
+        {"from": "collide", "to": "snow", "input": "strands"}, {"from": "snow", "to": "out", "input": "strands"}]})";
+    GroomSession session(sphereGroom(graph, 24, 0));
+    ViewRequest request;
+    ASSERT_TRUE(session.evaluate(request).strands);
+    auto cached = [&](const char* name) {
+        const GraphDocument& doc = *session.viewDocument();
+        return valueAs<StrandsPtr>(doc.graph.cachedValue(doc.nodesByName.at(name)));
+    };
+    auto kind = [&](const char* name) {
+        const GraphDocument& doc = *session.viewDocument();
+        const auto it = doc.graph.lastRunKinds().find(doc.nodesByName.at(name));
+        return it == doc.graph.lastRunKinds().end() ? std::string("cached") : it->second;
+    };
+    auto edit = [&](std::string& text, const std::string& from, const std::string& to) {
+        const std::size_t at = text.find(from);
+        ASSERT_NE(at, std::string::npos) << from;
+        text.replace(at, from.size(), to);
+    };
+    std::string edited = graph;
+    const std::pair<std::string, std::string> edits[] = {
+        {R"("width": 0.01,)", R"("width": 0.013,)"},                     // the fur's widths
+        {R"("melanin": 0.4)", R"("melanin": 0.55)"},                     // the fur's color
+        {R"("melanin": 0.1)", R"("melanin": 0.2)"}};                     // the whiskers' (merge's b)
+    for (const auto& [from, to] : edits) {
+        SCOPED_TRACE(to);
+        const StrandsPtr collided = cached("collide"), snowed = cached("snow");
+        ASSERT_TRUE(collided && snowed && snowed->instances() && !snowed->instances()->empty());
+        edit(edited, from, to);
+        session.setGraphJson(edited);
+        const ViewResult& view = session.evaluate(request);
+        ASSERT_TRUE(view.strands);
+        EXPECT_EQ(view.strands->contentHash(), freshView(session, request));
+        for (const char* name : {"merge", "collide", "snow"}) EXPECT_EQ(kind(name).rfind("incremental", 0), 0u) << name << ": " << kind(name);
+        EXPECT_EQ(cached("collide")->positions().data(), collided->positions().data());  // the very points
+        EXPECT_EQ(cached("snow")->instances(), snowed->instances());                       // and instances
+        EXPECT_NE(cached("snow"), snowed);
+        ASSERT_TRUE(view.strandsChanges) << "the view says how its strands changed";
+        EXPECT_TRUE(view.strandsChanges->pointsKept);
+    }
+    // A probability read from a channel the edit changes: the instances placed again.
+    std::string byColor = edited;
+    edit(byColor, R"("probability": 0.3)", R"("probability": {"attribute": "melanin", "min": 0.0, "max": 0.8})");
+    session.setGraphJson(byColor);
+    ASSERT_TRUE(session.evaluate(request).strands);
+    const auto placedBefore = cached("snow")->instances();
+    edit(byColor, R"("melanin": 0.55)", R"("melanin": 0.7)");
+    session.setGraphJson(byColor);
+    const ViewResult& recolored = session.evaluate(request);
+    ASSERT_TRUE(recolored.strands);
+    EXPECT_EQ(recolored.strands->contentHash(), freshView(session, request));
+    EXPECT_EQ(kind("snow").rfind("full", 0), 0u) << kind("snow");
+    EXPECT_NE(cached("snow")->instances(), placedBefore);
+    EXPECT_EQ(kind("collide").rfind("incremental", 0), 0u) << kind("collide");
 }
 
 TEST(Incremental, PartsPosesAndDensityChanges) {
@@ -1907,6 +1995,211 @@ TEST(Incremental, TheParityNodesFollowRandomDabs) {
         // TestDiff and the 7 operators after it (Output hands its input on).
         EXPECT_EQ(chain->graph.incrementalCount() - before, 8u) << "dab " << dab;
     }
+}
+
+// Fur grown from one guide group, whiskers made of another (ToStrands), merged, then a Width:
+// the wolf's layout (Guides by group, Merge, a node after it).
+const char* kTwoGroupGraph = R"({"version": 1, "output": "out",
+  "nodes": [
+    {"name": "scalp", "type": "Scalp"},
+    {"name": "furGuides", "type": "Guides", "params": {"group": "fur"}},
+    {"name": "scatter", "type": "Scatter", "params": {"density": 400.0}},
+    {"name": "interp", "type": "Interpolate"},
+    {"name": "whiskerGuides", "type": "Guides", "params": {"group": "whiskers"}},
+    {"name": "toStrands", "type": "ToStrands"},
+    {"name": "whiskerWidth", "type": "Width", "params": {"width": 0.002}},
+    {"name": "merge", "type": "Merge"},
+    {"name": "width", "type": "Width", "params": {"width": 0.004}},
+    {"name": "out", "type": "Output"}],
+  "connections": [
+    {"from": "scalp", "to": "scatter", "input": "scalp"},
+    {"from": "scatter", "to": "interp", "input": "strands"},
+    {"from": "furGuides", "to": "interp", "input": "guides"},
+    {"from": "scalp", "to": "interp", "input": "scalp"},
+    {"from": "whiskerGuides", "to": "toStrands", "input": "guides"},
+    {"from": "toStrands", "to": "whiskerWidth", "input": "strands"},
+    {"from": "interp", "to": "merge", "input": "a"},
+    {"from": "whiskerWidth", "to": "merge", "input": "b"},
+    {"from": "merge", "to": "width", "input": "strands"},
+    {"from": "width", "to": "out", "input": "strands"}]})";
+
+GuideHierarchy twoGroups(const ScalpMesh& scalp) {
+    GuideHierarchy h;
+    const GroupId fur = h.addGroup("fur"), whiskers = h.addGroup("whiskers");
+    Rng rng(9);
+    for (int i = 0; i < 24; ++i) {
+        const Vec3f n = Vec3f(rng.uniform(-1, 1), rng.uniform(0.2f, 1), rng.uniform(-1, 1)).normalized();
+        h.addGuide(fur, test::straightCurve(n, n * 0.6f + Vec3f(0.1f, -0.1f, 0.0f), 6));
+    }
+    for (int i = 0; i < 4; ++i) {
+        const Vec3f n = Vec3f(0.3f * static_cast<float>(i) - 0.45f, 0.4f, 1.0f).normalized();
+        h.addGuide(whiskers, test::straightCurve(n, n * 0.9f, 8));
+    }
+    h.evaluate(&scalp);
+    // Bound again from where they sit, as a brushed guide is (setPoints): the roots an edit binds
+    // them to from then on, to the bit (bound from the curves as drawn, the first time, they may
+    // differ in the last bits).
+    for (const HierarchyGuide& g : std::vector<HierarchyGuide>(h.guides())) h.setPoints(g.id, g.points);
+    h.evaluate(&scalp);
+    return h;
+}
+
+// The hierarchy with every guide of `group` moved a little (more toward the tip).
+std::shared_ptr<GuideHierarchy> movedGroup(const GuideHierarchy& from, const std::string& group, float by) {
+    auto h = std::make_shared<GuideHierarchy>(from);
+    const GroupId id = h->findGroup(group);
+    for (const HierarchyGuide& g : from.guides()) {
+        if (g.group != id) continue;
+        std::vector<Vec3f> points = g.points;
+        for (std::size_t k = 1; k < points.size(); ++k) points[k] += Vec3f(by * static_cast<float>(k), 0.0f, 0.0f);
+        h->setPoints(g.id, std::move(points));
+    }
+    return h;
+}
+
+TEST(Incremental, AGuidesNodeIsKeyedByItsOwnGroups) {
+    // A dab on the whiskers' guides (a brush's preview guides) leaves the fur's Guides node and its
+    // branch cached (their key is the fur group's guides, not the whole hierarchy's), and the other
+    // way round; Merge and the Width after it go on incrementally, writing the side that changed.
+    const Verified verified;
+    const auto scalp = test::makeSphere(24, 48, 1.0f);
+    const GuideHierarchy base = twoGroups(*scalp);
+    GroomData data;
+    data.scalp = scalp;
+    data.graphJson = kTwoGroupGraph;
+    GroomSession session(data);
+    session.setHierarchy(std::make_shared<const GuideHierarchy>(base));
+    // A fresh session's view of the same guides (every node in full).
+    auto fresh = [&](const std::shared_ptr<GuideHierarchy>& h) {
+        GroomSession other(data);
+        other.setHierarchy(std::make_shared<const GuideHierarchy>(base));
+        other.setPreviewHierarchy(std::make_shared<GuideHierarchy>(*h));
+        const ViewResult& view = other.evaluate(ViewRequest{});
+        EXPECT_TRUE(view.errors.empty());
+        return view.strands ? view.strands->contentHash() : 0;
+    };
+    ViewRequest request;
+    const ViewResult& first = session.evaluate(request);
+    ASSERT_TRUE(first.errors.empty()) << first.errors[0];
+    const std::size_t whiskerStrands = 4, all = first.strands->strandCount();
+    ASSERT_GT(all, 10 * whiskerStrands);
+
+    auto runOf = [&](const std::string& node) {
+        const auto runs = session.stats().runs;
+        const auto it = runs.find(node);
+        return it == runs.end() ? std::string() : it->second;
+    };
+    // The whiskers moved: their branch made again; the fur's is not looked at past Merge's input.
+    // The guides as the session shows them (a stroke's preview starts from them), previewed as
+    // they are first (the press).
+    const GuideHierarchy shown = *session.hierarchy();
+    session.setPreviewHierarchy(std::make_shared<GuideHierarchy>(shown));
+    ASSERT_TRUE(session.evaluate(request).errors.empty());
+    std::size_t evaluations = session.evaluationCount();
+    const auto whiskersMoved = movedGroup(shown, "whiskers", 0.01f);
+    session.setPreviewHierarchy(std::make_shared<GuideHierarchy>(*whiskersMoved));
+    const ViewResult& whiskers = session.evaluate(request);
+    ASSERT_TRUE(whiskers.errors.empty()) << whiskers.errors[0];
+    EXPECT_EQ(whiskers.strands->contentHash(), fresh(whiskersMoved));
+    EXPECT_EQ(runOf("merge"), "incremental " + std::to_string(whiskerStrands)) << "the whiskers' side, every strand of it";
+    EXPECT_EQ(runOf("width"), "incremental " + std::to_string(whiskerStrands));
+    EXPECT_EQ(runOf("whiskerGuides").rfind("full", 0), 0u) << runOf("whiskerGuides");
+    // whiskerGuides, toStrands, whiskerWidth, merge, width (and Output).
+    EXPECT_LE(session.evaluationCount() - evaluations, 6u) << "the fur's branch stays cached";
+
+    // The fur moved: the whiskers' branch cached, Merge writes the fur strands Interpolate made again.
+    evaluations = session.evaluationCount();
+    const auto furMoved = movedGroup(*whiskersMoved, "fur", 0.005f);
+    session.setPreviewHierarchy(std::make_shared<GuideHierarchy>(*furMoved));
+    const ViewResult& fur = session.evaluate(request);
+    ASSERT_TRUE(fur.errors.empty()) << fur.errors[0];
+    EXPECT_EQ(fur.strands->contentHash(), fresh(furMoved));
+    EXPECT_EQ(runOf("whiskerWidth"), "cached");
+    EXPECT_EQ(runOf("furGuides").rfind("full", 0), 0u) << runOf("furGuides");
+    EXPECT_EQ(runOf("merge").rfind("incremental", 0), 0u) << runOf("merge");
+    EXPECT_LE(session.evaluationCount() - evaluations, 6u) << "furGuides, interp, merge, width (the whiskers' branch cached)";
+
+    // A whisker added: Merge's sides no longer hold the strands its last result held (in full).
+    auto added = std::make_shared<GuideHierarchy>(*furMoved);
+    const Vec3f n = Vec3f(0.6f, 0.3f, 1.0f).normalized();
+    added->addGuide(added->findGroup("whiskers"), test::straightCurve(n, n * 0.8f, 8));
+    added->evaluate(scalp.get());
+    session.setPreviewHierarchy(std::make_shared<GuideHierarchy>(*added));
+    const ViewResult& more = session.evaluate(request);
+    ASSERT_TRUE(more.errors.empty()) << more.errors[0];
+    EXPECT_EQ(more.strands->strandCount(), all + 1);
+    EXPECT_EQ(more.strands->contentHash(), fresh(added));
+    EXPECT_EQ(runOf("merge").rfind("full", 0), 0u) << runOf("merge");
+}
+
+// Hands on the strands the host set as the external "other" (a second side's).
+class HeldOtherOp : public HeldStrandsOp {
+public:
+    std::string typeName() const override { return "TestHeldOther"; }
+    std::vector<std::string> externalInputs() const override { return {"other"}; }
+    Value evaluate(const EvalContext& ctx, const std::vector<Value>&) const override { return ctx.external("other"); }
+};
+
+TEST(Incremental, MergeWritesASideMadeAnewAsThatSidesStrands) {
+    // One side of a Merge made in full (a node of its branch edited: no list of its changes) while
+    // the other is unchanged: Merge lists that side's strands, as they are the strands it held, so
+    // the node after it goes on incrementally. A side holding most strands merges in full (no
+    // faster), so does one holding other strands (a count).
+    const Verified verified;
+    Graph g;
+    std::map<std::string, NodeId> ids;
+    auto& registry = OperatorRegistry::instance();
+    auto add = [&](const std::string& name, std::unique_ptr<Operator> op) {
+        ids[name] = g.addNode(std::move(op));
+        g.setLabel(ids[name], name);
+    };
+    add("held", std::make_unique<HeldStrandsOp>());
+    add("other", std::make_unique<HeldOtherOp>());
+    add("noiseA", registry.create(op::kNoise));
+    add("noiseB", registry.create(op::kNoise));
+    add("merge", registry.create(op::kMerge));
+    add("width", registry.create(op::kWidth));
+    g.connect(ids["held"], ids["noiseA"], 0);
+    g.connect(ids["noiseA"], ids["merge"], 0);
+    g.connect(ids["other"], ids["noiseB"], 0);
+    g.connect(ids["noiseB"], ids["merge"], 1);
+    g.connect(ids["merge"], ids["width"], 0);
+    g.node(ids["noiseA"]).params().set("amplitude", 0.01);
+    g.node(ids["noiseB"]).params().set("amplitude", 0.01);
+    g.node(ids["width"]).params().set("width", 0.003);
+
+    // a: 12 strands (IDs from 1000), b: 200 of their own IDs (none renamed by the merge).
+    const auto a = someStrands(12, 5);
+    auto b = std::make_shared<StrandSet>(*someStrands(200, 6));
+    for (std::size_t s = 0; s < b->strandCount(); ++s) b->mutableIds()[s] = 5000 + s;
+    ExternalInputs ext;
+    EvalContext ctx;
+    ctx.externals = &ext;
+    auto run = [&](const StrandsPtr& sideA, const StrandsPtr& sideB) {
+        ext.set("strands", sideA, sideA->contentHash());
+        ext.set("other", sideB, sideB->contentHash());
+        // (Each incremental result checked against the operator's full one: Verified.)
+        return g.evaluateStrands(ids["width"], ctx);
+    };
+    auto kind = [&](const char* node) { return g.lastRunKinds().at(ids[node]); };
+    ASSERT_TRUE(run(a, b));
+
+    // a's Noise edited: a made anew (12 of 212 strands), b unchanged.
+    g.node(ids["noiseA"]).params().set("amplitude", 0.02);
+    run(a, b);
+    EXPECT_EQ(kind("noiseA").rfind("full", 0), 0u) << kind("noiseA");
+    EXPECT_EQ(kind("merge"), "incremental 12");
+    EXPECT_EQ(kind("width"), "incremental 12");
+
+    // b's Noise edited: b made anew, but it holds most strands: in full.
+    g.node(ids["noiseB"]).params().set("amplitude", 0.02);
+    run(a, b);
+    EXPECT_EQ(kind("merge").rfind("full", 0), 0u) << kind("merge");
+
+    // a with a strand fewer: other strands, in full (and right).
+    g.node(ids["noiseA"]).params().set("amplitude", 0.03);
+    run(someStrands(11, 5), b);
+    EXPECT_EQ(kind("merge").rfind("full", 0), 0u) << kind("merge");
 }
 
 }  // namespace

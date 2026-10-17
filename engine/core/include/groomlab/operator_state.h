@@ -199,6 +199,13 @@ struct InterpolateClearance {
     std::shared_ptr<const std::vector<std::uint32_t>> walk;
 };
 std::shared_ptr<const InterpolateClearance> interpolateClearance(const ParamSet& params, const MeshPtr& scalp, std::string* why);
+// Which points of a strand of `points` points the walk asks of the field: every step-th and the
+// tip, at most 16 asked (a strand of up to 17 points: every point); the points between move by the
+// moves of the two asked around them, blended by index (look.slang CLEAR_ASKED).
+constexpr std::size_t kClearanceAsked = 16;
+inline std::size_t interpolateClearanceStep(std::size_t points) {
+    return points > kClearanceAsked + 1 ? (points - 1 + kClearanceAsked - 1) / kClearanceAsked : 1;
+}
 
 // ---- Part ---------------------------------------------------------------------------------------
 

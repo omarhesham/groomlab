@@ -867,9 +867,9 @@ protected:
         return want[0] != 0;
     }
     void copyToTargets(bool, std::size_t) override {}  // written in place
-    void copy(int from, int to, std::size_t bytes) override {
+    void copy(int from, int to, std::size_t bytes, std::size_t offset) override {
         if (!bytes) return;
-        gl_.CopyNamedBufferSubData(nameOf(from), nameOf(to), 0, 0, static_cast<GLsizeiptr>(bytes));
+        gl_.CopyNamedBufferSubData(nameOf(from), nameOf(to), static_cast<GLintptr>(offset), static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(bytes));
         gl_.MemoryBarrier(kShaderStorageBarrier | kBufferUpdateBarrier);
     }
     void setConstants(const void* slots, std::size_t count, std::size_t slotBytes) override {

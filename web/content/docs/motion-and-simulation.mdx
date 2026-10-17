@@ -15,6 +15,18 @@ On an animated character, also turn on [Follow Scalp](#follow-the-scalp): the gr
 once on the rest pose and carried by the skin, which makes playback, caches and motion blur much
 cheaper.
 
+<Callout title="In the app and in Blender">
+  **App:** add **Wind**, **Jiggle** or **Simulate** with **Tab** in the Graph Editor. An animated
+  groom shows a timeline at the bottom (play, scrub, loop); **Follow** turns follow-the-scalp on or
+  off. With a Simulate node the timeline has **Simulate**, **Bake** and **Clear**; while it runs,
+  **Simulate** reads **Cancel**. **Correctives** on the right rail holds the shot fixes. nHair and
+  keys on params are Maya's ([GroomLab app](/docs/app#the-layout)).
+
+  **Blender:** **Wind** works. **Jiggle** and **Simulate** are not supported yet: Jiggle passes the
+  strands through and Simulate isn't fed the scalp's motion. **Follow Scalp** is on by default.
+  Correctives are not in Blender yet ([Blender](/docs/blender#animation)).
+</Callout>
+
 ## Procedural motion
 
 Two nodes (Add Node > Motion) animate the groom without simulation or caching. Each frame is
@@ -64,7 +76,8 @@ the standalone app, groom files and on the farm, with the same results.
 - **Playback:** playing or scrubbing past the simulated frames steps the simulation forward from
   the last one; scrubbing back reads the cached frames. Changing a setting, or editing the guides,
   restarts the simulation from the start frame.
-- **Simulate, bake, render:** **Simulate Range** fills the frames of the playback range; **Bake
+- **Simulate, bake, render:** **Simulate Range** (**GroomLab > Simulate**, or the Groom Tools'
+  **Output** section) fills the frames of the playback range; **Bake
   Simulation** writes them to an Alembic guide cache (one per Simulate node, next to the scene or
   the groom file) that renders, exports and the farm read instead of simulating. A bake made with
   different settings from the node's current ones is ignored (with a message) and the node
@@ -194,7 +207,7 @@ can read it like any attribute: map a Clump's `strength` to `{"attribute": "wetn
 gathers into locks, and HairColor's `tipStrength` (with a dark `tipColor` and a flat
 `tipProfile`) to darken it. Bakes include the wetness, so renders use it too.
 
-In Maya: **GroomLab > Simulation > Add Simulate Node**, **Simulate Range**, **Bake Simulation**,
+In Maya: **GroomLab > Simulate > Add Simulate Node**, **Simulate Range**, **Bake Simulation**,
 **Clear Simulation**. In the standalone app the timeline shows **Simulate**, **Bake** and
 **Clear** when the graph has a Simulate node, and a strip under the scrubber shows the frames
 simulated (emerald) and baked (blue); a saved groom references its bakes.
@@ -239,8 +252,8 @@ groomlab.set_follow_scalp(groom, True)
 
 ## nHair in Maya
 
-nHair remains available alongside the Simulate node: **GroomLab > Simulation > Simulate Guides
-(nHair)** creates nHair curves for the primary guides, with follicles on the scalp. Children
+nHair remains available alongside the Simulate node: **GroomLab > Simulate > Legacy > Simulate
+Guides (nHair)...** creates nHair curves for the primary guides, with follicles on the scalp. Children
 follow their simulated parents, so the whole groom moves.
 
 - **Presets:** `fur`, `short`, `long`, `bouncy` and `wet`.
@@ -258,7 +271,8 @@ sim.bake_sim(groom, "shot010.guides.abc", made)
 ## Houdini and other packages
 
 1. **Export Guides for Simulation...** writes the guides to Alembic. Each curve carries its guide
-   ID as a per-curve `strandId` attribute; keep that attribute through the simulation.
+   ID as a per-curve `strandId` attribute; keep that attribute through the simulation. Maya's
+   progress bar counts the frames; Esc cancels and removes the half-written file.
 2. Simulate in the other package.
 3. **Load Guide Cache...** loads the result, matching curves to guides by `strandId`. The cache
    is interpolated between samples, so motion-blur subframes are smooth.
@@ -278,6 +292,6 @@ sim.set_guide_cache(groom, "sim.abc")
 
 ## Shot fixes
 
-**Correctives** (Groom Tools > Sculpt) are sculpt layers applied on top of the groom. **Fix
+**Correctives** (Groom Tools > Correctives) are sculpt layers applied on top of the groom. **Fix
 Frame** creates one that blends in and out around the current frame, with keyable weights;
 renders include them.

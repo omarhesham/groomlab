@@ -71,6 +71,8 @@ def main():
         tools.resize(theme.px(420), theme.px(900))
         tools.show()
         settle()
+        tools.work.setVisible(True)  # the tabs and tools, as with a groom (no groom here: the empty state)
+        settle()
         path = os.path.join(args.out, "maya_groom_tools_%s.png" % name)
         tools.grab().save(path)
         written.append(path)

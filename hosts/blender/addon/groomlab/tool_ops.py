@@ -14,7 +14,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from . import display, groom, icons, process, props, tools
-from .helper_client import HelperError
+from .helper_client import HelperError, sentence
 
 # hosts/maya/scripts/groomlab/ui/hotkeys.py's marking menu: the brushes reached for most around it.
 RADIAL = [("N", "comb"), ("NE", "slide"), ("E", "smooth"), ("SE", "cut"),
@@ -22,21 +22,36 @@ RADIAL = [("N", "comb"), ("NE", "slide"), ("E", "smooth"), ("SE", "cut"),
 # Blender lays a pie's items out in this order of directions.
 PIE_ORDER = ("W", "E", "S", "N", "NW", "NE", "SW", "SE")
 PIE_KEY = "Y"
-# Maya's Help > Keyboard Shortcuts, as the Blender tool has them.
+# The keys every host shares (the core's shortcuts.h, the helper's "shortcuts"): Blender's rows, kept
+# here for when the helper isn't running (Preferences); a test checks them against the helper's.
 SHORTCUTS = (
+    ("Ctrl+Z / Ctrl+Shift+Z", "Undo / redo the groom's edits"),
     ("B + drag", "The brush radius"),
     ("M + drag", "The brush strength"),
     ("Ctrl (stroke)", "The opposite effect (Ctrl+Length shrinks, Ctrl+Lift lays down...)"),
     ("Shift (stroke)", "Smooth instead"),
-    ("Shift + click", "Pick the guide's level"),
+    ("Shift + click", "Solo a guide and brush its group (off a guide: unfreeze all)"),
     ("S", "Select guides (Shift: toggle, Ctrl: deselect)"),
+    ("Page Up / Page Down", "The brush level (parents / children)"),
+    ("Y", "The pie menu: every brush"),
     ("Esc / right-click", "Cancel the stroke; Esc again leaves the tool"),
-    ("Page Up / Page Down", "The brush level"),
-    ("Y", "The pie menu (Maya's marking menu)"),
-    ("Ctrl+Z / Ctrl+Shift+Z", "Undo / redo the groom's edits"),
-    ("Tab (Graph Editor)", "Add a node at the cursor"),
-    ("B / V (Graph Editor)", "Bypass; view up to the node"),
+    ("Tab", "Add a node at the cursor"),
+    ("B", "Bypass the selected nodes (again: turn them back on)"),
+    ("V", "View the groom up to the node"),
 )
+
+
+def shortcuts():
+    """[(keys, what)]: the helper's rows of the shared table when it runs, else SHORTCUTS."""
+    from . import process
+    if process.running():
+        try:
+            return [(r["keys"], r["action"]) for r in process.call("shortcuts")["shortcuts"]]
+        except Exception:
+            pass
+    return list(SHORTCUTS)
+
+
 # (keymap, operator, (property, value) or None): the add-on's keys the preferences show.
 KEYMAP_ITEMS = (("Object Mode", "wm.call_menu_pie", ("name", "GROOMLAB_MT_pie")),)
 NAV_PASS = {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE", "WHEELINMOUSE", "WHEELOUTMOUSE", "TRACKPADPAN",
@@ -45,7 +60,7 @@ SLIDER_KEYS = {"B": "radius", "M": "strength", "F": "radius"}
 
 
 def _fail(op, e):
-    op.report({"ERROR"}, e.message if isinstance(e, HelperError) else str(e))
+    op.report({"ERROR"}, sentence(e.message if isinstance(e, HelperError) else str(e)))
     return {"CANCELLED"}
 
 
@@ -493,8 +508,8 @@ class GROOMLAB_OT_tool(bpy.types.Operator):
             return _fail(self, e)
         s = active(context)
         if s is not None and not tools.is_hierarchy(s):
-            self.report({"WARNING"}, "this groom's guides are Blender curves (sculpt them with Sculpt Guides); "
-                                     "GroomLab's tools work on grooms made with Create Groom")
+            self.report({"WARNING"}, "This groom's guides are Blender curves: sculpt them with Sculpt Guides. "
+                                     "GroomLab's tools work on grooms made with Create Groom from Selection")
             return {"CANCELLED"}
         try:
             tools.pick(context, self.tool)
@@ -562,7 +577,7 @@ class GROOMLAB_OT_group_new(GroomToolOperator):
 
     def execute(self, context):
         if not self.name.strip():
-            self.report({"ERROR"}, "name the group")
+            self.report({"ERROR"}, "No group name: type a name for the group")
             return {"CANCELLED"}
         args = {"name": self.name.strip()}
         if self.parent.strip():
@@ -616,7 +631,7 @@ class GROOMLAB_OT_group_edit(GroomToolOperator):
         scalp = active(context)
         group = self.group or context.scene.groomlab_tools.group
         if not group or group == tools.ALL_GROUPS:
-            self.report({"ERROR"}, "pick a group")
+            self.report({"ERROR"}, "No group picked: pick a group first")
             return {"CANCELLED"}
         try:
             if self.action == "RENAME":
@@ -684,12 +699,12 @@ class GROOMLAB_OT_guides_edit(GroomToolOperator):
                 tools.guides_edit(scalp, "mirror_all", axis="x", center=0.0, fromPositive=a == "SYNC_POS")
             elif a == "MIRROR_GROUP":
                 if not group:
-                    self.report({"ERROR"}, "pick a root group")
+                    self.report({"ERROR"}, "No group picked: pick a root group to mirror")
                     return {"CANCELLED"}
                 tools.guides_edit(scalp, "mirror_group", group=group, axis="x", center=0.0, fromPositive=True)
             elif a in ("LOCK", "UNLOCK", "FREEZE", "UNFREEZE", "DELETE"):
                 if not t.selected_count:
-                    self.report({"ERROR"}, "select some guides first (the Select tool, or a group's Select)")
+                    self.report({"ERROR"}, "No guides selected: select some first (the Select tool, or a group's Select)")
                     return {"CANCELLED"}
                 op = {"LOCK": "lock", "UNLOCK": "unlock", "FREEZE": "freeze", "UNFREEZE": "unfreeze",
                       "DELETE": "delete_guides"}[a]
@@ -859,7 +874,7 @@ class GROOMLAB_OT_map_fill(GroomToolOperator):
         scene = context.scene
         m = tools.current_map(scene)
         if m is None or m.kind != "guides":
-            self.report({"ERROR"}, "Fill sets a map on the guides; paint scalp and texture maps")
+            self.report({"ERROR"}, "Fill works on guide maps only: paint scalp and texture maps with the brush")
             return {"CANCELLED"}
         scalp = active(context)
         try:

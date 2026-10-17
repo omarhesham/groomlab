@@ -4,7 +4,7 @@ groom's graph as nodes with typed, colored ports (graph_tree.py keeps it in step
 the selected node's params in the sidebar's Node tab (collapsible groups, Advanced folded,
 showWhen, units, Upgrade, notes and errors), presets (apply, or insert as a Compound), View (a
 node's strands in the viewport instead of the output's), and Maya's keys: Tab adds, F frames, V
-views, B disables, Ctrl+D duplicates, Delete deletes."""
+views, B bypasses, Ctrl+D duplicates, Delete deletes."""
 
 import json
 import re
@@ -14,7 +14,7 @@ from bpy.props import BoolProperty, EnumProperty, StringProperty
 
 from . import graph, graph_tree, groom, process, units
 from .graph_tree import TREE, ours
-from .helper_client import HelperError
+from .helper_client import HelperError, sentence
 
 _folded = {}       # (operator type, section) -> folded, for the session (Maya: unset = Advanced folded)
 _deferred = {}     # key -> (fn, args): run once from a timer (not while Blender draws)
@@ -225,7 +225,7 @@ class _EditorOperator(bpy.types.Operator):
 
 
 def _fail(op, e):
-    op.report({"ERROR"}, e.message if isinstance(e, HelperError) else str(e))
+    op.report({"ERROR"}, sentence(e.message if isinstance(e, HelperError) else str(e)))
     return {"CANCELLED"}
 
 
@@ -324,21 +324,21 @@ class GROOMLAB_OT_graph_view_node(_GraphOperator):
         tree = graph_tree.tree_of(scalp)
         node = next((n for n in tree.nodes if ours(n) and n.gl_name == name), None) if tree else None
         if node is None:
-            self.report({"INFO"}, "select the node to view")
+            self.report({"INFO"}, "No node selected: select the node to view, then press V")
             return {"CANCELLED"}
         if not _viewable(node):
-            self.report({"INFO"}, "%s gives no strands to view" % name)
+            self.report({"INFO"}, "Nothing to view: %s gives no strands. Pick a node that outputs strands or curves" % name)
             return {"CANCELLED"}
         graph_tree.view_node(scalp, "" if scalp.groomlab.view_node == name else name)
         if scalp.groomlab.view_node:
-            self.report({"INFO"}, "viewing %s (renders use the output)" % name)
+            self.report({"INFO"}, "Viewing %s (renders use the output)" % name)
         return {"FINISHED"}
 
 
 class GROOMLAB_OT_graph_bypass(_GraphOperator):
-    """Disable: pass the selected nodes' input straight through (B; Blender's M mutes the same way)"""
+    """Bypass: pass the selected nodes' input straight through (B; Blender's M mutes the same way)"""
     bl_idname = "groomlab.graph_bypass"
-    bl_label = "Disable"
+    bl_label = "Bypass"
     bl_options = {"REGISTER", "UNDO"}
 
     node: StringProperty(options={"SKIP_SAVE"}, description="The node (empty: the selected ones)")
@@ -427,7 +427,7 @@ class GROOMLAB_OT_graph_upgrade_node(_GraphOperator):
         except HelperError as e:
             return _fail(self, e)
         if not done:
-            self.report({"INFO"}, "%s is the newest version already" % name)
+            self.report({"INFO"}, "Already the newest version: %s" % name)
         return {"FINISHED"}
 
 
@@ -535,7 +535,7 @@ class GROOMLAB_OT_graph_preset(_GraphOperator):
                 r = graph.apply_preset(scalp, self.name)
                 missing = [m["name"] for m in r.get("missingMaps", [])]
                 if missing:
-                    self.report({"WARNING"}, "the preset reads maps this groom has not painted: %s" % ", ".join(missing))
+                    self.report({"WARNING"}, "The preset reads maps this groom has not painted: %s. Paint them in Groom Tools > Paint" % ", ".join(missing))
             else:
                 node = active_node(context)
                 after = node.gl_name if node is not None and node.select and not node.gl_is_output and _strands_output(node) else None
@@ -547,7 +547,7 @@ class GROOMLAB_OT_graph_preset(_GraphOperator):
                         n.select = ours(n) and n.gl_name == made
                         if n.select:
                             tree.nodes.active = n
-                self.report({"INFO"}, "inserted %s as %s after %s" % (self.name, made, after or "the last node"))
+                self.report({"INFO"}, "Inserted %s as %s after %s" % (self.name, made, after or "the last node"))
         except HelperError as e:
             return _fail(self, e)
         return {"FINISHED"}
@@ -639,7 +639,7 @@ def draw_node_actions(layout, context):
         on = scalp is not None and scalp.groomlab.view_node == node.gl_name
         layout.operator("groomlab.graph_view_node", text="Focus: View Up to Here (V)",
                         icon="HIDE_OFF" if on else "HIDE_ON", depress=on).node = node.gl_name
-    layout.operator("groomlab.graph_bypass", text="Disable (B)", icon="CHECKBOX_HLT" if node.mute else "CHECKBOX_DEHLT").node = node.gl_name
+    layout.operator("groomlab.graph_bypass", text="Bypass (B)", icon="CHECKBOX_HLT" if node.mute else "CHECKBOX_DEHLT").node = node.gl_name
     # When it runs: always, viewport only, render only.
     row = layout.row(align=True)
     for mode, label in (("always", "Always"), ("viewportOnly", "Viewport Only"), ("renderOnly", "Render Only")):
@@ -698,10 +698,10 @@ def _add_categories():
                 for t in types:
                     cls = graph_tree.node_class(t)
                     if cls is not None and t not in graph_tree.HIDDEN_TYPES:
-                        yield nodeitems_utils.NodeItem(cls.bl_idname, label=t)
+                        yield nodeitems_utils.NodeItem(cls.bl_idname, label=graph_tree.label_of(t))
         return items
 
-    names = [c for c, _ in graph_tree.CATEGORIES]
+    names = list(graph_tree.CATEGORY_TITLES)
     return [GroomLabCategory("GROOMLAB_" + re.sub(r"\W", "_", c).upper(), c, items=items_of(c)) for c in names]
 
 

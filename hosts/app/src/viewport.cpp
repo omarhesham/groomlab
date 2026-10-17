@@ -220,11 +220,11 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
         return;
     }
     if (mode_ == ToolMode::Brush) {
-        const bool slider = event->button() == Qt::MiddleButton || (event->button() == Qt::LeftButton && bHeld_);
+        const bool slider = event->button() == Qt::MiddleButton || (event->button() == Qt::LeftButton && (bHeld_ || mHeld_));
         if (slider) {
-            // Middle-drag (or B held + left-drag) left/right resizes the brush; with Shift it
-            // changes the strength, as GroomLab's Maya context does.
-            const bool strength = event->modifiers().testFlag(Qt::ShiftModifier);
+            // Middle-drag (or B held + left-drag) left/right resizes the brush; with Shift (or M
+            // held + left-drag) it changes the strength, as GroomLab's Maya context does.
+            const bool strength = event->modifiers().testFlag(Qt::ShiftModifier) || (mHeld_ && !bHeld_);
             drag_ = strength ? Drag::Strength : Drag::Radius;
             dragStart_ = strength ? session_->settings().brush.strength : session_->settings().screenRadius;
             bDragged_ = bHeld_;
@@ -382,6 +382,12 @@ void Viewport::keyPressEvent(QKeyEvent* event) {
             if (mode_ != ToolMode::Brush) setToolMode(ToolMode::Brush);
             event->accept();
             return;
+        case Qt::Key_M:
+            // M held: a left drag sets the strength (in brush mode, entered as B does).
+            mHeld_ = true;
+            if (mode_ != ToolMode::Brush) setToolMode(ToolMode::Brush);
+            event->accept();
+            return;
         case Qt::Key_S:
             setToolMode(mode_ == ToolMode::Select ? ToolMode::Camera : ToolMode::Select);
             event->accept();
@@ -416,6 +422,11 @@ void Viewport::keyPressEvent(QKeyEvent* event) {
 void Viewport::keyReleaseEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_B && !event->isAutoRepeat()) {
         bHeld_ = false;
+        event->accept();
+        return;
+    }
+    if (event->key() == Qt::Key_M && !event->isAutoRepeat()) {
+        mHeld_ = false;
         event->accept();
         return;
     }

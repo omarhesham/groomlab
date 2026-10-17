@@ -220,6 +220,19 @@ private:
         scale.validate(*in);
         if (fitted) aspect.validate(*in);
         if (byMap) variant.validate(*in);
+        if (incremental && !incremental->inputs.empty() && incremental->inputs[0] && incremental->inputs[0]->pointsKept) {
+            // Only widths or channels changed (a Width or HairColor edit before it): where its maps
+            // read neither (constants, textures, the strands' shape), each instance is where it was.
+            const StrandsPtr last = previousStrandsFor(*incremental, *in);
+            if (last && !(!scales && probability.readsAttributes()) && !scale.readsAttributes() &&
+                !(fitted && aspect.readsAttributes()) && !(byMap && variant.readsAttributes())) {
+                auto out = std::make_shared<StrandSet>(*in);
+                out->setInstances(last->instances());
+                *result = StrandsPtr(out);
+                *changed = *incremental->inputs[0];
+                return true;
+            }
+        }
         if (incremental) {
             const StrandChanges* changes = someStrandsChanged(*incremental, 0);
             const StrandsPtr last = changes ? previousStrandsFor(*incremental, *in) : nullptr;

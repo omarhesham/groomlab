@@ -65,6 +65,9 @@ std::string gpuFramesCheckJson(const GroomShape* shape);
 // The hair's density grid of the groom drawn (GroomLab's hair shading): JSON {hairShading, valid, why,
 // size, cell, origin, serial, ignoredLights, gpuMs (the engine's last timed run, waited for)}.
 std::string hairGridJson(const GroomShape* shape);
+// Playback stopped (Maya's playingBack condition): the grooms whose hair grid was left as it was
+// for some frames of the playback draw once more, making it again for the frame they stopped on.
+void hairGridsPlaybackStopped();
 // GPU frames were turned on or off (gpu_lines.h setGpuFramesEnabled): every groom's strands are
 // written again.
 void gpuFramesSwitched();
@@ -265,6 +268,7 @@ private:
     friend std::string gpuFramesCheckJson(const GroomShape* shape);
     friend void gpuFramesSwitched();
     friend std::string hairGridJson(const GroomShape* shape);
+    friend void hairGridsPlaybackStopped();
     friend bool gpuPreviewDrawn(const GroomShape* shape, std::uint64_t version);
     // displayWidthCoverage as this update read it (the strands are built again when it changes).
     bool widthCoverage_ = true;
@@ -282,6 +286,10 @@ private:
     // and set on every hair shader of the groom.
     void updateHairGrid(const MHWRender::MFrameContext& context);
     std::uint64_t hairGridKey_ = 0;
+    // During playback the grid is made again every few frames (hairGridSkipped_ counts the ones it
+    // was left as it was), and once more when playback stops (hairGridStale_).
+    int hairGridSkipped_ = 0;
+    bool hairGridStale_ = false;
     // The grid's texture read back against the grid the kernels made (HairGroomState textureSum),
     // written from the CPU where they differ; the texture last checked (its volumeSerial).
     void checkHairGrid(gpu::LineFrames& engine, HairGroomState& grid, void* target);

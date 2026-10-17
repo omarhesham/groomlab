@@ -68,6 +68,10 @@ public:
     // strand's shape, `longest`, t or the point's position, or a plugged field that reads them.
     // False for constants, textures, color sets, guide layers and channels (roots, IDs, channels).
     bool readsPositions() const;
+    // Whether a strand's value can change as its widths or channels do (an attribute or guide
+    // map, an expression reading a channel, a plugged field that may): what an operator whose
+    // input changed only those (StrandChanges::pointsKept) asks before keeping what it made.
+    bool readsAttributes() const;
 
     // Value for strand s of `strands` (attribute maps need the channel there).
     // A per-point map gives its root value.

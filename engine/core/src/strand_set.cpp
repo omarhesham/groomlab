@@ -273,6 +273,12 @@ std::vector<Vec3f>& StrandSet::copyPositionsFrom(const StrandSet& from) {
 
 std::vector<float>& StrandSet::copyWidthsFrom(const StrandSet& from) { return widths_.copyOf(from.widths_); }
 
+void StrandSet::sharePositionsOf(const StrandSet& from) {
+    if (&from == this) return;
+    positions_ = from.positions_;
+    copyExtent(from);  // (the same strands and points: its extent)
+}
+
 std::vector<Vec3f>& StrandSet::takePositionsFrom(StrandSet& from) {
     dropExtent();
     from.dropExtent();
@@ -324,15 +330,12 @@ StrandSet StrandSet::withDensity(float density) const {
 void StrandSet::append(const StrandSet& other) {
     dropExtent();
     const std::size_t strandsBefore = strandCount();
-    std::vector<Vec3f>& positions = positions_.mut(lock_);
-    const std::size_t base = positions.size();
-    std::vector<StrandId>& ids = ids_.mut(lock_);
-    ids.insert(ids.end(), other.ids_.get().begin(), other.ids_.get().end());
-    std::vector<StrandRoot>& roots = roots_.mut(lock_);
-    roots.insert(roots.end(), other.roots_.get().begin(), other.roots_.get().end());
-    positions.insert(positions.end(), other.positions_.get().begin(), other.positions_.get().end());
-    std::vector<float>& widths = widths_.mut(lock_);
-    widths.insert(widths.end(), other.widths_.get().begin(), other.widths_.get().end());
+    const std::size_t base = positions_.get().size();
+    // (A copy's shared arrays made once at their new size and filled in parallel: CowArray::appended.)
+    std::vector<StrandId>& ids = ids_.appended(other.ids_.get(), lock_);
+    roots_.appended(other.roots_.get(), lock_);
+    std::vector<Vec3f>& positions = positions_.appended(other.positions_.get(), lock_);
+    widths_.appended(other.widths_.get(), lock_);
     std::vector<std::size_t>& offsets = offsets_.mut(lock_);
     const auto& otherOffsets = other.offsets_.get();
     offsets.reserve(offsets.size() + other.strandCount());
@@ -345,16 +348,15 @@ void StrandSet::append(const StrandSet& other) {
     auto carry = [this](std::map<std::string, Channel>& mine, const std::map<std::string, Channel>& theirs,
                         std::size_t before, std::size_t total, const Fill& fillMine, const Fill& fillTheirs) {
         for (auto& [name, ch] : mine) {
-            std::vector<float>& values = ch.values.mut(lock_);
             auto it = theirs.find(name);
-            if (it == theirs.end()) {
-                const std::size_t at = values.size();
-                values.resize(total, ch.defaultValue);
-                if (fillTheirs) fillTheirs(values, at, name);
+            if (it != theirs.end()) {
+                ch.values.appended(it->second.values.get(), lock_);
                 continue;
             }
-            const std::vector<float>& from = it->second.values.get();
-            values.insert(values.end(), from.begin(), from.end());
+            std::vector<float>& values = ch.values.mut(lock_);
+            const std::size_t at = values.size();
+            values.resize(total, ch.defaultValue);
+            if (fillTheirs) fillTheirs(values, at, name);
         }
         for (const auto& [name, ch] : theirs) {
             if (mine.count(name)) continue;
@@ -613,6 +615,20 @@ StrandSet::Extent StrandSet::extentAfter(const StrandSet& previous, const std::v
     extentBlocks_ = std::move(parts);
     hasExtent_.store(true, std::memory_order_release);
     return out;
+}
+
+void StrandSet::forEachArray(const std::function<void(const void*, std::size_t)>& visit) const {
+    auto one = [&](const auto& array) {
+        const auto& v = array.get();
+        if (!v.empty()) visit(v.data(), v.size() * sizeof(v[0]));
+    };
+    one(ids_);
+    one(roots_);
+    one(offsets_);
+    one(positions_);
+    one(widths_);
+    for (const auto& [name, channel] : strandChannels_) one(channel.values);
+    for (const auto& [name, channel] : pointChannels_) one(channel.values);
 }
 
 }  // namespace groomlab

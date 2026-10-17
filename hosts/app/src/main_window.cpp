@@ -16,6 +16,7 @@
 #include <QKeySequence>
 #include <QListWidget>
 #include <QMenu>
+#include <QSettings>
 #include <QTimer>
 #include <QUrl>
 
@@ -30,6 +31,8 @@
 #include "update_check.h"
 #include "viewport.h"
 
+#include "groomlab/node_catalog.h"
+#include "groomlab/shortcuts.h"
 
 namespace groomlab::app {
 
@@ -126,15 +129,17 @@ MainWindow::MainWindow() {
         selectMode_->setChecked(mode == Viewport::ToolMode::Select);
         refreshBrushBar();
         if (mode == Viewport::ToolMode::Brush) {
-            report(tr("Brush: drag to stroke, Ctrl the opposite, Shift smooths, Shift+click a guide solos it (off a guide: "
+            notify(tr("Brush: drag to stroke, Ctrl the opposite, Shift smooths, Shift+click a guide solos it (off a guide: "
                       "unfreeze all); "
-                      "B+drag or middle-drag sets the radius; Alt orbits; Esc leaves"), false);
+                      "B+drag (or middle-drag) sets the radius, M+drag the strength; Alt+Shift+X symmetry; Alt orbits; Esc leaves"));
             if (document_) reevaluate();  // warms the stroke document
         } else if (mode == Viewport::ToolMode::Select) {
-            report(tr("Select: click or box guides (the rest freeze; nothing picked unfreezes all); Shift toggles, Ctrl "
-                      "deselects, Ctrl+Shift adds; Delete removes them"), false);
+            notify(tr("Select: click or box guides (the rest freeze; nothing picked unfreezes all); Shift toggles, Ctrl "
+                      "deselects, Ctrl+Shift adds; Delete removes them"));
         }
     });
+    // Tab in a text field moves the focus rather than opening the graph (eventFilter).
+    qApp->installEventFilter(this);
     refreshTitle();
     refreshBrushBar();
     refreshStats();
@@ -144,8 +149,9 @@ MainWindow::MainWindow() {
 MainWindow::~MainWindow() = default;
 
 void MainWindow::buildMenu() {
-    // One menu behind the top-left button; its shortcuts work from anywhere in the window.
-    menu_ = new QMenu(this);
+    // One menu behind the top-left button; its shortcuts work from anywhere in the window. A child
+    // of the overlay, it wears the overlay's style sheet (the theme), as its submenus do.
+    menu_ = new QMenu(host_);
     auto add = [this](QMenu* menu, const QString& text, const QKeySequence& key, auto slot) {
         QAction* a = menu->addAction(text, this, slot);
         if (!key.isEmpty()) {
@@ -160,11 +166,28 @@ void MainWindow::buildMenu() {
     add(file, tr("&New Groom on Mesh..."), QKeySequence::New, [this] { chooseMesh(); });
     file->addSeparator();
     save_ = add(file, tr("&Save"), QKeySequence::Save, [this] { save(); });
-    saveAs_ = add(file, tr("Save &As..."), QKeySequence::SaveAs, [this] { saveAs(); });
-    add(file, tr("&Reload from File"), QKeySequence(Qt::CTRL | Qt::Key_R), [this] { reloadGroom(); });
-    export_ = add(file, tr("&Export..."), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { exportAlembic(); });
+    // (Spelled out: QKeySequence::SaveAs has no binding on Windows.)
+    saveAs_ = add(file, tr("Save &As..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), [this] { saveAs(); });
+    saveAs_->setObjectName(QStringLiteral("saveAs"));
+    reload_ = add(file, tr("&Reload from File"), QKeySequence(Qt::CTRL | Qt::Key_R), [this] { askReload(); });
+    reload_->setObjectName(QStringLiteral("reload"));
+    // Ctrl+E: Export mode with its panel (no dialog of its own: no ellipsis).
+    export_ = add(file, tr("&Export"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { exportAlembic(); });
+    saveImage_ = add(file, tr("Save &Image..."), QKeySequence(), [this] { chooseSaveImage(); });
+    saveImage_->setObjectName(QStringLiteral("saveImage"));
     file->addSeparator();
-    add(file, tr("&Quit"), QKeySequence::Quit, [] { qApp->quit(); });
+    // Props and eyes beside the groom (a head, a body; the eyes for a portrait): the look judged in place.
+    add(file, tr("Add &Prop Mesh..."), QKeySequence(), [this] { chooseProp(); })->setObjectName(QStringLiteral("addProp"));
+    add(file, tr("Add E&ye..."), QKeySequence(), [this] { askEye(); })->setObjectName(QStringLiteral("addEye"));
+    file->addSeparator();
+    // Quit asks first when the groom has unsaved edits (an interactive window).
+    QAction* quit = add(file, tr("&Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] {
+        confirmDiscard(tr("quitting"), [this] {
+            closing_ = true;
+            qApp->quit();
+        });
+    });
+    quit->setObjectName(QStringLiteral("quit"));
 
     QMenu* edit = menu_->addMenu(tr("&Edit"));
     undo_ = add(edit, tr("&Undo"), QKeySequence::Undo, [this] { undo(); });
@@ -176,11 +199,12 @@ void MainWindow::buildMenu() {
 
     QMenu* view = menu_->addMenu(tr("&View"));
     add(view, tr("&Frame All"), QKeySequence(Qt::Key_F), [this] {
-        // F over the graph fits the graph; anywhere else the camera frames the scene.
-        if (graphShown() && graph_->hasFocus()) graph_->fitAll();
+        // F over the graph frames its selected node (none: the whole graph), as Maya's Graph
+        // Editor does; anywhere else the camera frames the scene.
+        if (graphShown() && graph_->hasFocus()) graph_->frameSelected();
         else frameAll();
     });
-    graphAction_ = add(view, tr("Node &Graph"), QKeySequence(Qt::Key_Tab), [this] {
+    graphAction_ = add(view, tr("&Graph Editor"), QKeySequence(Qt::Key_Tab), [this] {
         // Tab shows the graph; shown, the graph's own Tab opens its search (the view has the focus).
         if (!graphShown()) setGraphShown(true);
         else graph_->openSearch();
@@ -193,19 +217,26 @@ void MainWindow::buildMenu() {
     auto* modeGroup = new QActionGroup(this);
     static const char* const modeNames[] = {"Groom", "Look", "Cards", "Export"};
     for (int i = 0; i < 4; ++i) {
-        QAction* a = modes->addAction(tr(modeNames[i]), this, [this, i] { setUiMode(QLatin1String(modeNames[i])); });
+        // Ctrl+1..4, as the mode pills' tooltips say.
+        QAction* a = add(modes, tr(modeNames[i]), QKeySequence(Qt::CTRL | Qt::Key(Qt::Key_1 + i)),
+                         [this, i] { setUiMode(QLatin1String(modeNames[i])); });
+        a->setObjectName(QStringLiteral("mode_") + QString::fromLatin1(modeNames[i]).toLower());
         a->setCheckable(true);
         a->setChecked(i == 0);
         modeGroup->addAction(a);
     }
     QMenu* panels = view->addMenu(tr("&Panels"));
     panels->addAction(tr("&Guide Groups"), this, [this] { showUiPanel(QStringLiteral("guides")); });
-    panels->addAction(tr("&Nodes"), this, [this] { showUiPanel(QStringLiteral("nodes")); });
+    panels->addAction(tr("&Node List"), this, [this] { showUiPanel(QStringLiteral("nodes")); });
     panels->addAction(tr("&Maps"), this, [this] { showUiPanel(QStringLiteral("maps")); });
     panels->addAction(tr("&Correctives"), this, [this] { showUiPanel(QStringLiteral("correctives")); });
-    panels->addAction(tr("&Look"), this, [this] { showUiPanel(QStringLiteral("look")); });
+    panels->addAction(tr("&Look Settings"), this, [this] { showUiPanel(QStringLiteral("look")); });
     panels->addAction(tr("&Display"), this, [this] { showUiPanel(QStringLiteral("display")); });
-    panels->addAction(tr("&Brush Settings"), this, [this] { showUiPanel(QStringLiteral("brush")); });
+    panels->addAction(tr("&Brush"), this, [this] { showUiPanel(QStringLiteral("brush")); });
+    railLabels_ = view->addAction(tr("Rail &Labels"), this, [this](bool on) { setRailLabels(on); });
+    railLabels_->setCheckable(true);
+    railLabels_->setObjectName(QStringLiteral("railLabels"));
+    railLabels_->setToolTip(tr("The tools' and panels' names beside the rails' icons"));
     // The themes (the Maya host's files): the choice is saved and the window wears it from the
     // next start (its widgets take their colors when they are made).
     QMenu* themes = view->addMenu(tr("&Theme"));
@@ -232,24 +263,30 @@ void MainWindow::buildMenu() {
     }
     cameraMode_->setChecked(true);
     tools->addSeparator();
-    tools->addAction(tr("&Delete Selected Guides"), this, [this] { guidesPanel_->deleteSelected(); });
+    deleteGuides_ = tools->addAction(tr("&Delete Selected Guides"), this, [this] { guidesPanel_->deleteSelected(); });
+    // Alt+Shift+X: the brush's symmetry on or off (Maya's GroomLab hotkey set binds the same).
+    symmetryAction_ = add(tools, tr("S&ymmetry On/Off"), QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_X), [this] { toggleSymmetry(); });
+    symmetryAction_->setObjectName(QStringLiteral("symmetry"));
     tools->addSeparator();
     // The utilities every host offers over the core: the groom onto another mesh (Maya's
     // Transfer Groom to Scalp), the turntable (the camera turning on its own).
-    tools->addAction(tr("&Transfer Groom to Mesh..."), this, [this] {
+    transfer_ = tools->addAction(tr("&Transfer Groom to Scalp..."), this, [this] {
         if (!document_) {
             report(tr("No groom open to transfer"));
             return;
         }
         openTransferWindow();  // the new mesh is picked there (New Scalp...)
     });
-    tools->addAction(tr("&Guides from Reference (experimental)..."), this, [this] {
+    reference_ = tools->addAction(tr("&Guides from Photos (Experimental)..."), this, [this] {
         if (!document_) {
             report(tr("No groom open: open one to grow guides from photos of it"));
             return;
         }
         openReferenceWindow();
     });
+    transfer_->setObjectName(QStringLiteral("transfer"));
+    reference_->setObjectName(QStringLiteral("guidesFromReference"));
+    deleteGuides_->setObjectName(QStringLiteral("deleteGuides"));
     QAction* turntable = tools->addAction(tr("T&urntable"), this, [this](bool on) { setTurntable(on); });
     turntable->setCheckable(true);
     turntable_ = new QTimer(this);
@@ -272,14 +309,14 @@ void MainWindow::openDocs() {
     // The web docs (the app's page); without a browser the docs folder shipped beside the
     // executable, else the source tree's.
     if (QDesktopServices::openUrl(QUrl(QStringLiteral("https://getgroomlab.com/docs/app")))) {
-        report(tr("Opened the docs at getgroomlab.com/docs/app"), false);
+        notify(tr("Opened the docs at getgroomlab.com/docs/app"));
         return;
     }
     const QString sourceDocs = QDir(QString::fromUtf8(GROOMLAB_SHIPPED_PRESETS)).absoluteFilePath(QStringLiteral("../../../docs"));
     for (const QString& dir : {QCoreApplication::applicationDirPath() + QStringLiteral("/docs"), QDir::cleanPath(sourceDocs)}) {
         if (QFileInfo(dir + QStringLiteral("/USER_GUIDE.md")).isFile()) {
             QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
-            report(tr("Opened the docs folder %1").arg(dir), false);
+            notify(tr("Opened the docs folder %1").arg(dir));
             return;
         }
     }
@@ -289,7 +326,7 @@ void MainWindow::openDocs() {
 void MainWindow::openDonate() {
     // GroomLab is free for any use, funded by donations.
     if (QDesktopServices::openUrl(QUrl(QString::fromLatin1(kDonateUrl)))) {
-        report(tr("Opened %1: thank you for supporting GroomLab").arg(QString::fromLatin1(kDonateUrl)), false);
+        notify(tr("Opened %1: thank you for supporting GroomLab").arg(QString::fromLatin1(kDonateUrl)));
         return;
     }
     report(tr("No browser opened: support GroomLab at %1").arg(QString::fromLatin1(kDonateUrl)));
@@ -304,15 +341,36 @@ bool MainWindow::chooseTheme(const QString& name) {
     if (menu_) {
         if (QAction* a = menu_->findChild<QAction*>(QStringLiteral("theme_") + name)) a->setChecked(true);
     }
-    if (name == theme::currentTheme()) report(tr("Theme: %1").arg(theme::themeLabel(name)), false);
-    else report(tr("Theme: %1 from the next start of GroomLab").arg(theme::themeLabel(name)), false);
+    if (name == theme::currentTheme()) notify(tr("Theme: %1").arg(theme::themeLabel(name)));
+    else notify(tr("Theme: %1 from the next start of GroomLab (restart to see it)").arg(theme::themeLabel(name)));
     return true;
+}
+
+void MainWindow::setRailLabels(bool shown, bool save) {
+    host_->setRailLabels(shown);
+    if (railLabels_) railLabels_->setChecked(shown);
+    if (save) QSettings().setValue(QStringLiteral("ui/railLabels"), shown);
+}
+
+bool MainWindow::railLabels() const { return host_->railLabels(); }
+
+void MainWindow::firstRunRailLabels() {
+    // No choice saved yet: the first run shows the names; later runs hide them unless View >
+    // Rail Labels turned them on (which saves that).
+    QSettings settings;
+    const QString key = QStringLiteral("ui/railLabels");
+    if (!settings.contains(key)) {
+        setRailLabels(true, false);
+        settings.setValue(key, false);
+    } else {
+        setRailLabels(settings.value(key).toBool(), false);
+    }
 }
 
 void MainWindow::checkForUpdates() {
     const QString current = QCoreApplication::applicationVersion().isEmpty() ? QStringLiteral("0") : QCoreApplication::applicationVersion();
     const auto show = [this](const QString& text) {
-        help_->setText(text);
+        help_->setText(QString(text).replace(QStringLiteral("@link@"), theme::linkText().name()));
         host_->setPanelTitle(OverlayHost::Panel::Help, tr("Updates"), theme::blue());
         host_->showPanel(OverlayHost::Panel::Help, true);
     };
@@ -325,11 +383,11 @@ void MainWindow::checkForUpdates() {
                 text += QStringLiteral("<p><b>%1</b><br>%2</p>")
                             .arg(tr("What's new"), info.notes.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>")));
             }
-            text += tr("<p><a style='color:#7FB2FF' href='%1'>Download GroomLab %2</a>, close GroomLab and unzip it in "
+            text += tr("<p><a style='color:@link@' href='%1'>Download GroomLab %2</a>, close GroomLab and unzip it in "
                        "place of this folder (your settings are kept).</p>")
                         .arg(info.url.toHtmlEscaped(), info.latest.toHtmlEscaped());
         }
-        show(text);
+        show(text.replace(QStringLiteral("@link@"), theme::linkText().name()));
         report(info.message, !info.ok);
     });
 }
@@ -337,33 +395,27 @@ void MainWindow::checkForUpdates() {
 bool MainWindow::showHelp(const QString& page) {
     QString title, text;
     if (page == QStringLiteral("shortcuts")) {
-        title = tr("Keyboard shortcuts");
-        // The docs site reads this table (web/components/app-shortcuts.tsx): keep each row on one line.
-        text = tr("<table cellspacing='0' cellpadding='3'>"
-                  "<tr><td><b>Ctrl+O</b></td><td>Open a groom</td></tr>"
-                  "<tr><td><b>Ctrl+N</b></td><td>New groom on a mesh</td></tr>"
-                  "<tr><td><b>Ctrl+S / Ctrl+Shift+S</b></td><td>Save / Save as</td></tr>"
-                  "<tr><td><b>Ctrl+R</b></td><td>Reload from the file</td></tr>"
-                  "<tr><td><b>Ctrl+E</b></td><td>Export</td></tr>"
-                  "<tr><td><b>Ctrl+Z / Ctrl+Y</b></td><td>Undo / Redo</td></tr>"
-                  "<tr><td><b>Tab</b></td><td>The node graph (over it: add a node)</td></tr>"
-                  "<tr><td><b>Esc</b></td><td>Close the graph; leave the brush</td></tr>"
-                  "<tr><td><b>F</b></td><td>Frame all (over the graph: fit it)</td></tr>"
-                  "<tr><td><b>B</b></td><td>The brush (B+drag: the radius)</td></tr>"
-                  "<tr><td><b>S</b></td><td>Select guides</td></tr>"
-                  "<tr><td><b>Shift+middle-drag</b></td><td>The brush strength</td></tr>"
-                  "<tr><td><b>Ctrl / Shift</b> (stroke)</td><td>The opposite effect / smooth</td></tr>"
-                  "<tr><td><b>Page Up / Page Down</b></td><td>The brush level</td></tr>"
-                  "<tr><td><b>Alt+drag</b></td><td>Orbit (with any tool)</td></tr>"
-                  "<tr><td><b>Delete</b></td><td>The selected guides, node or wire</td></tr>"
-                  "<tr><td><b>Ctrl+D / Ctrl+L</b> (graph)</td><td>Duplicate the node / tidy the layout</td></tr>"
-                  "</table>");
+        title = tr("Keyboard Shortcuts");
+        // The one shortcut table every host shows (groomlab/shortcuts.h: the docs site reads the
+        // same rows), the app's, a heading row per context (File, Modes, Brush, Viewport, Graph).
+        text = QStringLiteral("<table cellspacing='0' cellpadding='3'>");
+        std::string context;
+        for (const Shortcut& s : shortcutsFor(kShortcutApp)) {
+            if (s.context != context) {
+                context = s.context;
+                text += QStringLiteral("<tr><td colspan='2' style='padding-top:8px; color:%1'><b>%2</b></td></tr>")
+                            .arg(theme::textMuted().name(), QString::fromStdString(context).toHtmlEscaped());
+            }
+            text += QStringLiteral("<tr><td><b>%1</b></td><td>%2</td></tr>")
+                        .arg(QString::fromStdString(s.keys).toHtmlEscaped(), QString::fromStdString(s.action).toHtmlEscaped());
+        }
+        text += QStringLiteral("</table>");
     } else if (page == QStringLiteral("about")) {
         title = tr("About GroomLab");
         text = tr("<p><b>GroomLab</b> %1</p><p>Hair, fur and feather grooming: the Maya plugin and this standalone app share "
                   "one core, and a .groom file travels between them.</p><p>Free for any use, commercial included. "
-                  "<a style='color:#7FB2FF' href='%2'>Support GroomLab</a> with a donation.</p><p>Open source (Apache-2.0): "
-                  "<a style='color:#7FB2FF' href='%3'>github.com/thekesslereffect/groomlab</a></p><p>Fonts: Figtree and "
+                  "<a style='color:@link@' href='%2'>Support GroomLab</a> with a donation.</p><p>Open source (Apache-2.0): "
+                  "<a style='color:@link@' href='%3'>github.com/thekesslereffect/groomlab</a></p><p>Fonts: Figtree and "
                   "JetBrains Mono (SIL OFL). Qt 6 (LGPL). See THIRD_PARTY_NOTICES.txt beside the executable.</p>")
                    .arg(QCoreApplication::applicationVersion().isEmpty() ? tr("(development build)") : QCoreApplication::applicationVersion(),
                         QString::fromLatin1(kDonateUrl), QString::fromLatin1(kRepoUrl));
@@ -371,7 +423,7 @@ bool MainWindow::showHelp(const QString& page) {
         report(tr("No help page '%1' (shortcuts, about)").arg(page));
         return false;
     }
-    help_->setText(text);
+    help_->setText(text.replace(QStringLiteral("@link@"), theme::linkText().name()));
     host_->setPanelTitle(OverlayHost::Panel::Help, title, theme::blue());
     host_->showPanel(OverlayHost::Panel::Help, true);
     return true;
@@ -384,7 +436,9 @@ void MainWindow::refreshNodes() {
     int select = -1;
     if (document_) {
         for (const GroomDocument::NodeInfo& node : document_->nodes()) {
-            auto* item = new QListWidgetItem(QString::fromStdString(node.name + "  (" + node.type + ")" + (node.bypass ? "  bypassed" : "")));
+            // The type by its label ("Linked Groom" for a Reference node), as every host shows it.
+            auto* item = new QListWidgetItem(QString::fromStdString(node.name + "  (" + nodeLabel(node.type) + ")") +
+                                             (node.bypass ? tr("  bypassed") : QString()));
             item->setData(Qt::UserRole, QString::fromStdString(node.name));
             nodes_->addItem(item);
             if (QString::fromStdString(node.name) == current) select = nodes_->count() - 1;
@@ -404,6 +458,9 @@ void MainWindow::refreshUndoActions() {
     save_->setEnabled(has);
     saveAs_->setEnabled(has);
     export_->setEnabled(has);
+    saveImage_->setEnabled(has);
+    for (QAction* a : {transfer_, reference_, deleteGuides_}) a->setEnabled(has);
+    reload_->setEnabled(has && !document_->path().empty());
     host_->setUndoRedo(canUndo, canRedo, undo_->text() + QStringLiteral(" (Ctrl+Z)"), redo_->text() + QStringLiteral(" (Ctrl+Y)"));
     refreshTitle();
 }
@@ -430,7 +487,7 @@ void MainWindow::frameAll() {
 }
 
 void MainWindow::undo() {
-    if (!document_ || !document_->canUndo()) return;
+    if (!document_ || !document_->canUndo() || refuseWhileBusy(tr("undoing"))) return;
     const std::string error = document_->undo();
     if (!error.empty()) report(QString::fromStdString(error));
     graphEdited();
@@ -438,7 +495,7 @@ void MainWindow::undo() {
 }
 
 void MainWindow::redo() {
-    if (!document_ || !document_->canRedo()) return;
+    if (!document_ || !document_->canRedo() || refuseWhileBusy(tr("redoing"))) return;
     const std::string error = document_->redo();
     if (!error.empty()) report(QString::fromStdString(error));
     graphEdited();

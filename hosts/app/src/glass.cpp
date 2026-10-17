@@ -7,6 +7,8 @@
 #include <QEnterEvent>
 #include <QFontMetrics>
 #include <QGuiApplication>
+#include <QHelpEvent>
+#include <QToolTip>
 #include <QScreen>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -22,7 +24,24 @@
 
 #include "theme.h"
 
+#include "groomlab/shortcuts.h"
+
 namespace groomlab::app {
+
+QString trimmedNumber(double value, int decimals) {
+    QString text = QString::number(value, 'f', std::clamp(decimals, 0, 12));
+    if (text.contains(QLatin1Char('.'))) {
+        while (text.endsWith(QLatin1Char('0'))) text.chop(1);
+        if (text.endsWith(QLatin1Char('.'))) text.chop(1);
+    }
+    if (text == QStringLiteral("-0")) text = QStringLiteral("0");
+    return text;
+}
+
+QString withShortcut(const QString& tip, const char* id) {
+    const std::string keys = shortcutKeys(id, kShortcutApp);
+    return keys.empty() ? tip : tip + QStringLiteral(" (") + QString::fromStdString(keys) + QStringLiteral(")");
+}
 
 // The icons are drawn from their SVGs once per resource, color, size and scale, then kept
 // (QPixmapCache): a button repaints without rendering its SVG again.
@@ -333,7 +352,7 @@ ValueSlider::ValueSlider(QWidget* parent) : QWidget(parent), fill_(theme::slider
     setAttribute(Qt::WA_NoSystemBackground, true);
     setCursor(Qt::SizeHorCursor);
     setFocusPolicy(Qt::NoFocus);
-    format_ = [this](double v) { return integer_ ? QString::number(std::lround(v)) : QString::number(v, 'f', decimals_); };
+    format_ = [this](double v) { return integer_ ? QString::number(std::lround(v)) : trimmedNumber(v, decimals_); };
 }
 
 void ValueSlider::setRange(double min, double max) {
@@ -573,7 +592,8 @@ void ValueSlider::beginEdit() {
         editor_->installEventFilter(this);
         connect(editor_, &QLineEdit::returnPressed, this, [this] { commitEdit(); });
     }
-    editor_->setText(integer_ ? QString::number(std::lround(value_)) : QString::number(value_, 'f', decimals_));
+    // The value as held (no rounding to the shown decimals: what is typed back is what was there).
+    editor_->setText(integer_ ? QString::number(std::lround(value_)) : trimmedNumber(value_, std::max(decimals_, 6)));
     placeEditor();
     editor_->show();
     editor_->raise();
@@ -707,6 +727,7 @@ std::vector<QRect> Segmented::segmentRects() const {
 
 void Segmented::paintEvent(QPaintEvent* /*event*/) {
     QPainter painter(this);
+    if (!isEnabled()) painter.setOpacity(0.45);  // (the modes before a groom is open)
     paintGlass(painter, QRectF(rect()), height() / 2.0, background_, background_ == theme::glass() ? theme::glassEdge() : QColor());
     const std::vector<QRect> rects = segmentRects();
     for (std::size_t i = 0; i < items_.size(); ++i) {
@@ -732,6 +753,23 @@ void Segmented::mousePressEvent(QMouseEvent* event) {
         break;
     }
     event->accept();
+}
+
+bool Segmented::event(QEvent* event) {
+    if (event->type() == QEvent::ToolTip) {
+        auto* help = static_cast<QHelpEvent*>(event);
+        const std::vector<QRect> rects = segmentRects();
+        for (std::size_t i = 0; i < rects.size(); ++i) {
+            if (rects[i].contains(help->pos()) && !items_[i].tip.isEmpty()) {
+                QToolTip::showText(help->globalPos(), items_[i].tip, this, rects[i]);
+                return true;
+            }
+        }
+        QToolTip::hideText();
+        event->ignore();
+        return true;
+    }
+    return QWidget::event(event);
 }
 
 // ---- ShadowText -----------------------------------------------------------------------------------

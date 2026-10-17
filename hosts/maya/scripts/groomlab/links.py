@@ -32,6 +32,6 @@ def open_url(url):
 
 
 def open_donate():
-    """GroomLab > Support GroomLab: the donations page in the browser."""
+    """GroomLab > Help > Support GroomLab: the donations page in the browser."""
     open_url(DONATE_URL)
     return DONATE_URL

@@ -145,7 +145,7 @@ scene, shading network included. The primvars are listed in
   `motionStart`, `motionEnd`, `motionKeys` (motion blur), `searchPaths`, `name`, and `debug`
   (prints every primvar). Instances and scales are not rendered by this procedural.
 - **In RenderMan for Maya (Maya 2024 to 2026), experimental:** load RenderMan for Maya, select
-  the groom and choose **GroomLab > Export > RenderMan Procedural (experimental)**. It creates a
+  the groom and choose **GroomLab > Render > RenderMan Procedural (experimental)**. It creates a
   RenderMan Procedural node that renders the groom, exporting the groom file each frame, and can
   build the hair shading network. It is tested through prman but has not yet been run inside
   Maya; please report results.
@@ -325,7 +325,7 @@ dyed hair). Leave **Random Melanin** at 0.
   for curves when the samples have matching topology.
 - **Motion blur:** the files carry no velocities. The renderer interpolates between samples, so
   for fast motion export subframes: `step=0.5` (or `0.25`) writes samples between frames.
-- **Without Maya:** save a groom file (**GroomLab > Export > Groom File...**) with its scalp
+- **Without Maya:** save a groom file (**GroomLab > Groom Files > Save Groom File As...**) with its scalp
   cache, and `groomlab-cli` writes the Alembic or USD on any machine:
 
 ```bash

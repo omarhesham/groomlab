@@ -102,6 +102,7 @@ KernelSet kernelsOf(const LookRun& run) {
             case StageKind::Flow: set |= bit(K::Flow); break;
             case StageKind::Jiggle: set |= bit(K::Jiggle); break;
             case StageKind::MeshCut: set |= bit(K::MeshCut); break;
+            case StageKind::Merge: break;  // (copies)
             default: set = ~KernelSet{0} >> (64 - static_cast<int>(K::Count)); break;  // (a stage this does not know: every kernel)
         }
         if (stages[k].masked) set |= bit(K::Affect);  // (affect masks)
@@ -547,7 +548,8 @@ void LookEngine::putStrandData(const LookRun& run) {
                     d[0] = 2.0f * unitFloat(hashCombine(id, seed ^ 0xF70)) - 1.0f;
                     break;
                 case StageKind::Jiggle:
-                case StageKind::MeshCut: break;
+                case StageKind::MeshCut:
+                case StageKind::Merge: break;
             }
         }
     }, 4096);
@@ -556,7 +558,7 @@ void LookEngine::putStrandData(const LookRun& run) {
     dataKey_ = std::move(key);
 }
 
-void LookEngine::putFields(const LookFields& fields) {
+void LookEngine::putFields(const LookFields& fields, const std::vector<StageParams>& stages) {
     if (fields.serial && fields.serial == fieldSerial_ && fieldLayout_.size() == fields.stages.size() * kFieldSlots * 2) return;
     std::vector<std::uint32_t> layout(fields.stages.size() * kFieldSlots * 2, 0);
     std::vector<float> values;
@@ -567,14 +569,17 @@ void LookEngine::putFields(const LookFields& fields) {
     for (std::size_t k = 0; k < fields.stages.size(); ++k) {
         for (std::size_t i = 0; i < kFieldSlots; ++i) {
             const FieldValues& f = i < 2 ? fields.stages[k].field[i] : fields.stages[k].affect;  // (the affect: a masked node's)
-            const std::size_t want = f.mode == FieldValues::kPerPoint ? pointCount_ : f.mode == FieldValues::kPerStrand ? strandCount_ : 0;
+            // (Up a Merge's input a: read on a's strands, the base's first.)
+            const std::size_t strands = k < stages.size() ? stageStrands(stages[k]) : strandCount_;
+            const std::size_t points = k < stages.size() ? stagePoints(stages[k]) : pointCount_;
+            const std::size_t want = f.mode == FieldValues::kPerPoint ? points : f.mode == FieldValues::kPerStrand ? strands : 0;
             if (f.values.size() != want) throw std::runtime_error("GPU preview: mapped values read from other strands than the base");
             layout[(k * kFieldSlots + i) * 2] = static_cast<std::uint32_t>(f.mode);
             layout[(k * kFieldSlots + i) * 2 + 1] = static_cast<std::uint32_t>(values.size());
             // (A Tie's tail: read where the Tie writes it, AffectCS.)
             if (f.channelFrom == kNoStage) values.insert(values.end(), f.values.begin(), f.values.end());
             if (const FieldProgram* p = f.program.get()) {
-                if (f.mode != FieldValues::kPerStrand || p->statics.size() != strandCount_ * p->slotCount) {
+                if (f.mode != FieldValues::kPerStrand || p->statics.size() != strands * p->slotCount) {
                     throw std::runtime_error("GPU preview: a mapped param's program read from other strands than the base");
                 }
                 ProgramAt& at = programs_[k * kFieldSlots + i];
@@ -648,6 +653,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
     centers_.resize(stages.size());
     for (std::size_t k = 0; k < stages.size(); ++k) {
         StageHeld& held = held_[k];
+        const std::size_t stageN = stageStrands(stages[k]), stageP = stagePoints(stages[k]);  // (up a Merge's input a: its strands)
         if (held.kind != static_cast<int>(stages[k].stage.kind)) {
             held = StageHeld{};
             held.kind = static_cast<int>(stages[k].stage.kind);
@@ -660,7 +666,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
             const InterpolateInputs* data = in ? in->interpolate.get() : nullptr;
             if (!data || !data->binding || !data->rows) throw std::runtime_error("GPU preview: Interpolate's binding and guides missing");
             const InterpolateState& binding = *data->binding;
-            if (binding.strandCount != strandCount_) throw std::runtime_error("GPU preview: Interpolate's binding is for other strands");
+            if (binding.strandCount != stageN) throw std::runtime_error("GPU preview: Interpolate's binding is for other strands");
             // The binding (look.slang InterpolateCS): per strand two words, its header (where its
             // records start, in words, times 64; 32 when it has twists; how many) and its nearest
             // guide's distance squared; then the records, a word each (the guide's index, the
@@ -671,7 +677,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
             const std::vector<const void*> chunks = interpolateChunks(binding);
             const std::size_t per = interpolateChunkStrands();
             const std::uint32_t recordWords = binding.roots.size() > 65535 ? 2u : 1u;
-            const std::size_t headerWords = 2 * strandCount_;
+            const std::size_t headerWords = 2 * stageN;
             bool whole = !has(auxBuffer(k, 0)) || held.chunks.size() != chunks.size() || held.aux[0] != recordWords;
             std::vector<std::size_t> changed;
             for (std::size_t c = 0; c < chunks.size(); ++c) {
@@ -846,7 +852,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
             }
         } else if (stages[k].stage.kind == StageKind::Clump) {
             const ClumpInputs* data = in ? in->clump.get() : nullptr;
-            if (!data || !data->assigned || data->assigned->size() != strandCount_) {
+            if (!data || !data->assigned || data->assigned->size() != stageN) {
                 throw std::runtime_error("GPU preview: Clump's centers are for other strands");
             }
             if (held.a != data->assigned.get()) {
@@ -920,7 +926,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
             }
         } else if (stages[k].stage.kind == StageKind::Curl && stages[k].flag[2] != 0) {
             const CurlInputs* data = in ? in->curl.get() : nullptr;
-            if (!data || !data->clumpOf || data->clumpOf->size() != strandCount_ || !data->members || !data->clumps) {
+            if (!data || !data->clumpOf || data->clumpOf->size() != stageN || !data->members || !data->clumps) {
                 throw std::runtime_error("GPU preview: Curl's clumps are for other strands");
             }
             if (held.a != data->clumpOf.get()) {
@@ -941,7 +947,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
             }
         } else if (stages[k].stage.kind == StageKind::Part) {
             const PartInputs* data = in ? in->part.get() : nullptr;
-            if (!data || !data->sides || data->sides->size() != strandCount_ * 4) {
+            if (!data || !data->sides || data->sides->size() != stageN * 4) {
                 throw std::runtime_error("GPU preview: Part's sides are for other strands");
             }
             if (held.a != data->sides.get()) {
@@ -987,7 +993,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
             // The splatted strands' segments (look.slang gridSegment), once per layout.
             if (held.a != data->layout.get() || !has(auxBuffer(k, 0))) {
                 for (std::size_t w = 0; w + 1 < l.segments.size(); w += 2) {
-                    if (l.segments[w + 1] >= strandCount_ || l.segments[w] + 1 >= pointCount_) {
+                    if (l.segments[w + 1] >= stageN || l.segments[w] + 1 >= stageP) {
                         throw std::runtime_error("GPU preview: the hair grid's strands are other strands");
                     }
                 }
@@ -1030,10 +1036,10 @@ void LookEngine::putStageInputs(const LookRun& run) {
             // 1 each strand's seed face, then the core strands (from word aux[1], aux[2] of them);
             // 5 the tail channel as the strands it takes carry it (when no Tie of the run writes it).
             const TieInputs* data = in ? in->tie.get() : nullptr;
-            if (!data || !data->seeds || data->seeds->size() != strandCount_ || !data->core) {
+            if (!data || !data->seeds || data->seeds->size() != stageN || !data->core) {
                 throw std::runtime_error("GPU preview: Tie's inputs are for other strands");
             }
-            if (data->channel && data->channel->size() != pointCount_) throw std::runtime_error("GPU preview: Tie's channel is for other strands");
+            if (data->channel && data->channel->size() != stageP) throw std::runtime_error("GPU preview: Tie's channel is for other strands");
             if (data->channelFrom != kNoStage && (data->channelFrom >= k || stages[data->channelFrom].stage.kind != StageKind::Tie)) {
                 throw std::runtime_error("GPU preview: Tie's channel from a node that is no Tie before it");
             }
@@ -1054,7 +1060,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
                 write(auxBuffer(k, 1), words.data(), words.size() * 4, false);
                 held.b = data->seeds.get();
                 held.c = data->core.get();
-                held.aux[1] = static_cast<std::uint32_t>(strandCount_);
+                held.aux[1] = static_cast<std::uint32_t>(stageN);
                 held.aux[2] = static_cast<std::uint32_t>(data->core->size());
                 runUploadMegabytes_ += static_cast<double>(words.size() * 4) / 1e6;
             }
@@ -1072,7 +1078,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
         if (kind == StageKind::Bend || kind == StageKind::Direction || kind == StageKind::Transform || kind == StageKind::Displace) {
             // Each strand's root on the scalp (look.slang rootFrameOf), once per roots and scalp.
             const RootInputs* data = in ? in->roots.get() : nullptr;
-            if (!data || !data->frames || data->frames->size() != strandCount_ * 8) {
+            if (!data || !data->frames || data->frames->size() != stageN * 8) {
                 throw std::runtime_error("GPU preview: a shaper's roots are for other strands");
             }
             if (held.a != data->frames.get() || !has(auxBuffer(k, 0))) {
@@ -1085,7 +1091,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
             // Each strand's axis (and the root it was found for), the axes as the CPU made them (around
             // axes) or room for the clumps' middles and the clumps' core strands (look.slang TwistCS).
             const TwistInputs* data = in ? in->twist.get() : nullptr;
-            if (!data || !data->strands || data->strands->size() != strandCount_ * 4 || (!data->axes && !data->members)) {
+            if (!data || !data->strands || data->strands->size() != stageN * 4 || (!data->axes && !data->members)) {
                 throw std::runtime_error("GPU preview: Twist's axes are for other strands");
             }
             if (held.a != data->strands.get() || !has(auxBuffer(k, 0))) {
@@ -1115,7 +1121,7 @@ void LookEngine::putStageInputs(const LookRun& run) {
         if (kind == StageKind::Jiggle) {
             // Each strand's root lag and face, then each face's turn (look.slang JiggleCS), once per lags.
             const JiggleInputs* data = in ? in->jiggle.get() : nullptr;
-            if (!data || !data->strands || data->strands->size() != strandCount_ * 4 || !data->faces) {
+            if (!data || !data->strands || data->strands->size() != stageN * 4 || !data->faces) {
                 throw std::runtime_error("GPU preview: Jiggle's lags are for other strands");
             }
             if (held.a != data || !has(auxBuffer(k, 0)) || !has(auxBuffer(k, 1))) {
@@ -1147,13 +1153,14 @@ void LookEngine::putStageInputs(const LookRun& run) {
 // ---- The shapers reading their neighbours or a reference ----------------------------------------
 
 void LookEngine::putShaperInputs(std::size_t k, const StageParams& stage, const StageInputs* in) {
+    const std::size_t stageN = stageStrands(stage), stageP = stagePoints(stage);
     StageHeld& held = held_[k];
     if (stage.stage.kind == StageKind::RestoreLength) {
         // A reference the run does not make (look.slang RestoreLengthCS): aux 0 its segments' lengths
         // per point, aux 1 its first segments per strand. (One the run makes: that stage's points.)
         const RestoreInputs* data = in ? in->restore.get() : nullptr;
         if (stage.flag[0] == 2 || stage.stage.from2 != kNoStage) return;
-        if (!data || !data->lengths || data->lengths->size() != pointCount_ || !data->firsts || data->firsts->size() != strandCount_ * 4) {
+        if (!data || !data->lengths || data->lengths->size() != stageP || !data->firsts || data->firsts->size() != stageN * 4) {
             throw std::runtime_error("GPU preview: RestoreLength's reference is for other strands");
         }
         if (held.a != data->lengths.get() || !has(auxBuffer(k, 0))) {
@@ -1167,12 +1174,12 @@ void LookEngine::putShaperInputs(std::size_t k, const StageParams& stage, const 
         // Its neighbours (look.slang BlendNeighborsCS): aux 0 per strand its records' start and count,
         // then the records (a neighbour, its share's bits); aux 1 per strand its root's normal (xyz, 0).
         const BlendNeighborsState* data = in ? in->neighbors.get() : nullptr;
-        if (!data || data->offsets.size() != strandCount_ + 1 || data->normals.size() != strandCount_ ||
+        if (!data || data->offsets.size() != stageN + 1 || data->normals.size() != stageN ||
             data->neighbors.size() != data->weights.size() || data->offsets.back() != data->neighbors.size()) {
             throw std::runtime_error("GPU preview: BlendNeighbors' neighbours are for other strands");
         }
         if (held.a != data || !has(auxBuffer(k, 0))) {
-            const std::size_t n = strandCount_;
+            const std::size_t n = stageN;
             std::vector<std::uint32_t> words(2 * n + 2 * data->neighbors.size() + 1, 0u);
             for (std::size_t s = 0; s < n; ++s) {
                 words[2 * s] = static_cast<std::uint32_t>(2 * n + 2 * data->offsets[s]);
@@ -1195,7 +1202,7 @@ void LookEngine::putShaperInputs(std::size_t k, const StageParams& stage, const 
     } else if (stage.stage.kind == StageKind::Tangle) {
         // Its partners (look.slang TangleCS): aux 0, 4 words a strand (TangleInputs).
         const TangleInputs* data = in ? in->tangle.get() : nullptr;
-        if (!data || !data->strands || data->strands->size() != strandCount_ * 4) {
+        if (!data || !data->strands || data->strands->size() != stageN * 4) {
             throw std::runtime_error("GPU preview: Tangle's partners are for other strands");
         }
         if (held.a != data->strands.get() || !has(auxBuffer(k, 0))) {
@@ -1209,7 +1216,7 @@ void LookEngine::putShaperInputs(std::size_t k, const StageParams& stage, const 
         // Its field and scalp (look.slang FlowCS): aux 0, 12 floats a strand; aux 1 the field; aux 2
         // the scalp's tables.
         const FlowInputs* data = in ? in->flow.get() : nullptr;
-        if (!data || !data->strands || data->strands->size() != strandCount_ * 12 || !data->field) {
+        if (!data || !data->strands || data->strands->size() != stageN * 12 || !data->field) {
             throw std::runtime_error("GPU preview: Flow's field is for other strands");
         }
         if (held.a != data->strands.get() || !has(auxBuffer(k, 0))) {
@@ -1237,9 +1244,10 @@ void LookEngine::putShaperInputs(std::size_t k, const StageParams& stage, const 
 // The shapers' dispatches (stage k from `input` into `to`), into the run's steps.
 LookEngine::Kernel LookEngine::shaperKernel(std::size_t k, const StageParams& stage, const StageInputs* in, int input2, Binding* b,
                                             std::size_t* groups, StageConstants* c) const {
+    const std::size_t stageN = stageStrands(stage);
     switch (stage.stage.kind) {
         case StageKind::Smooth:
-            *groups = strandCount_;  // (a group a strand: look.slang SmoothCS)
+            *groups = stageN;  // (a group a strand: look.slang SmoothCS)
             return Kernel::Smooth;
         case StageKind::RestoreLength:
             if (stage.flag[0] != 2) {
@@ -1291,7 +1299,7 @@ void LookEngine::prepare(const LookRun& run) {
         }
         programs_.clear();
     } else {
-        putFields(run.fields);
+        putFields(run.fields, run.params.stages);
     }
     prepareParts_[1] = since(start);
     putStageInputs(run);
@@ -1364,7 +1372,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
         int stampKind;  // after it, a stamp closing a span of this kind (StageKind; -1 lines); -3: none
         std::size_t repeat = 0;  // > 0: that many dispatches, its slot and the next in turn (dispatchAlternating)
         int copyFrom = kBasePoints, copyTo = kOut0;  // `copy`: what into what (copyBytes; 0: the points)
-        std::size_t copyBytes = 0;
+        std::size_t copyBytes = 0, copyOffset = 0;    // (from that byte of both)
     };
     std::vector<Step> steps;
     std::vector<StageConstants> slots;
@@ -1378,10 +1386,11 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
     if (needInfluence) allocate(kInfluence, std::max<std::size_t>(n * 4, 4));
     auto constantsOf = [&](std::size_t k) {
         StageConstants c{};
-        c.strandCount = static_cast<std::uint32_t>(n);
-        c.uniformCount = static_cast<std::uint32_t>(uniformCount_);
-        c.pointCount = static_cast<std::uint32_t>(pointCount_);
         const StageParams& p = stages[k];
+        // (Up a Merge's input a: a's strands alone, the base's first; the dispatches as many as for all.)
+        c.strandCount = static_cast<std::uint32_t>(stageStrands(p));
+        c.uniformCount = static_cast<std::uint32_t>(uniformCount_);
+        c.pointCount = static_cast<std::uint32_t>(stagePoints(p));
         c.dataBlock = static_cast<std::uint32_t>(dataBlocks_[k] * n);
         for (int i = 0; i < 4; ++i) {
             c.value[i] = p.value[i];
@@ -1455,7 +1464,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
             if (p.longest) {
                 allocate(kLongest, 16);
                 StageConstants c{};
-                c.strandCount = static_cast<std::uint32_t>(n);
+                c.strandCount = static_cast<std::uint32_t>(stageStrands(stages[k]));
                 c.aux[0] = p.core;
                 c.aux[1] = p.coreCount;
                 Binding b;
@@ -1466,7 +1475,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
                 steps.push_back({Kernel::Longest, b, 1, false, -3});
             }
             StageConstants c{};
-            c.strandCount = static_cast<std::uint32_t>(n);
+            c.strandCount = static_cast<std::uint32_t>(stageStrands(stages[k]));
             c.aux[0] = p.ops;
             c.aux[1] = p.opCount;
             c.aux[2] = p.statics;
@@ -1705,9 +1714,9 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
         const std::size_t first = firstOfNode[k];
         const FieldValues* affect = first < r.fields.stages.size() ? &r.fields.stages[first].affect : nullptr;
         StageConstants c{};
-        c.strandCount = static_cast<std::uint32_t>(n);
+        c.strandCount = static_cast<std::uint32_t>(stageStrands(p));
         c.uniformCount = static_cast<std::uint32_t>(uniformCount_);
-        c.pointCount = static_cast<std::uint32_t>(pointCount_);
+        c.pointCount = static_cast<std::uint32_t>(stagePoints(p));
         c.value[0] = p.affect;
         const std::size_t at = (first * kFieldSlots + 2) * 2;
         c.field[0] = at < fieldLayout_.size() ? fieldLayout_[at] : 0u;
@@ -1766,7 +1775,41 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
             resultOf[k] = current = input;
             continue;
         }
-        const int input2 = p.stage.kind == StageKind::Blend || p.stage.from2 != kNoStage ? taken(p.stage.from2) : -1;
+        if (p.stage.kind == StageKind::Merge) {
+            // b's strands follow a's: their points (and their widths, where a Width up a made a's in
+            // kWidths) from the base, after a's result, in place (into the output when nothing after
+            // the Merge moves points).
+            const std::size_t strandsA = std::min<std::size_t>(static_cast<std::size_t>(std::max(p.flag[0], 0)), n);
+            const std::size_t pointsA = base_->strandBegin(strandsA);
+            int out = input;
+            if (k == lastMover && input != finalOut) {
+                out = finalOut;
+                if (out != kOut0) allocate(out, bytes);
+                Step a{Kernel::Count, Binding{}, 0, true, -3};
+                a.copyFrom = input;
+                a.copyTo = out;
+                a.copyBytes = pointsA * 12;
+                if (pointsA) steps.push_back(a);
+            }
+            if (out != kBasePoints && pointCount_ > pointsA) {
+                Step b{Kernel::Count, Binding{}, 0, true, -3};
+                b.copyFrom = kBasePoints;
+                b.copyTo = out;
+                b.copyOffset = pointsA * 12;
+                b.copyBytes = (pointCount_ - pointsA) * 12;
+                steps.push_back(b);
+            }
+            if (widthsMade && pointCount_ > pointsA) {
+                Step w{Kernel::Count, Binding{}, 0, true, -3};
+                w.copyFrom = kBaseWidths;
+                w.copyTo = kWidths;
+                w.copyOffset = pointsA * 4;
+                w.copyBytes = (pointCount_ - pointsA) * 4;
+                steps.push_back(w);
+            }
+            resultOf[k] = current = out;
+            continue;
+        }        const int input2 = p.stage.kind == StageKind::Blend || p.stage.from2 != kNoStage ? taken(p.stage.from2) : -1;
         const int to = k == lastMover ? finalOut : freeBuffer(k, input, input2);
         if (to != kOut0) allocate(to, bytes);
         if (p.stage.kind == StageKind::SelfCollide || p.stage.kind == StageKind::Static) {
@@ -2159,7 +2202,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
     for (std::size_t i = 0; i < steps.size(); ++i) {
         const Step& s = steps[i];
         if (s.copy) {
-            copy(s.copyFrom, s.copyTo, s.copyBytes ? s.copyBytes : bytes);
+            copy(s.copyFrom, s.copyTo, s.copyBytes ? s.copyBytes : bytes, s.copyOffset);
             continue;
         }
         if (s.repeat) {

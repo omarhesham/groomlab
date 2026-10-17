@@ -3,8 +3,8 @@ title: Node graph
 description: The Graph Editor, node categories, Clump and the other main nodes, guide interpolation and its influence settings, strand attributes, masking with Groups, and animating parameters.
 ---
 
-The guides define the overall shape of the groom. The node graph generates the render strands
-from them: how many strands there are, how they are interpolated from the guides, and the
+The guides define the overall shape of the groom. The node graph, edited in the **Graph Editor**,
+generates the render strands from them: how many strands there are, how they are interpolated from the guides, and the
 clumping, curl, frizz, width and color applied on top. To edit the graph:
 
 1. Open **GroomLab > Graph Editor**.
@@ -14,14 +14,32 @@ clumping, curl, frizz, width and color applied on top. To edit the graph:
 
 <Example name="graph-editor.png" alt="The Graph Editor" caption="GroomLab > Graph Editor" />
 
+<Callout title="In the app and in Blender">
+  **App:** **Tab** or the **Graph** pill opens the Graph Editor over the viewport; **Tab** over it
+  searches for a node to add. Click a node to edit it in **Node Settings**; **Node List** on the
+  right rail lists the nodes. **B** bypasses, **V** is **View Up to Here**, **Ctrl+D** duplicates,
+  **Ctrl+C** / **Ctrl+V** copy and paste nodes, **F2** renames, **Ctrl+L** tidies, **F** and **A**
+  frame. Grouping into a Compound (Ctrl+G) is in Maya only for now
+  ([GroomLab app](/docs/app#the-graph-editor)).
+
+  **Blender:** **Graph Editor** in the **GroomLab** tab's Graph panel, or any node editor set to
+  **GroomLab Graph**. **Shift+A** or **Tab** adds a node, and the editor's sidebar (**N**) >
+  **Node** tab holds the Node Settings. **V** is Focus (View Up to Here), **B** or **M** bypasses,
+  **Ctrl+D** or **Shift+D** duplicates, **F2** renames, **X** or **Delete** deletes, **F** frames
+  ([Blender](/docs/blender#the-graph-editor)).
+</Callout>
+
 ## How it works
 
 Strands flow from the scalp through the graph to the **Output** node. **Scatter** generates the
 roots, **Interpolate** shapes them from the guides, and the look nodes (Clump, Noise, Curl...)
 follow it.
 
-- **Add Node** inserts after the selected node. **Tab**, or right-click on the canvas, opens a
-  search by node name or description.
+- **Add Node** inserts after the selected node. Its menus list each category's nodes by name
+  (Blend Neighbors, Hair Color, Linked Groom), with the node's description as a tooltip. **Tab**,
+  or right-click on the canvas, opens a search by name, by what a node does (symmetry finds Mirror,
+  density finds Scatter, frizz finds Noise) or by category; each result shows its category and a
+  line of description.
 - **Connect** nodes by dragging from an output port to an input port. Compatible ports are
   highlighted; an incompatible connection is refused, with the reason in the status bar.
 - **Live** applies each edit as one undo step.
@@ -37,10 +55,12 @@ follow it.
 
 | Category | Nodes | Purpose |
 | --- | --- | --- |
-| Sources | Scalp, Guides, ColliderMesh, ImportCurves, Reference | Inputs: the scalp mesh, guide groups, collision meshes, external curves, other groom files. |
+| Sources | Scalp, Guides, ColliderMesh, ImportCurves, Linked Groom | Inputs: the scalp mesh, guide groups, collision meshes, external curves, other groom files. |
 | Grow | Scatter, Interpolate, Cull | Generate roots, interpolate strands from the guides, remove strands. |
-| Shape | Length, Width, Resample, Sculpt, Direction, Bend, Transform, Flow, Part, Tie, Smooth, BlendNeighbors, Gravity, Displace, Mirror, Collide, SelfCollide, MeshCut, RestoreLength | Length, width, direction, gravity, symmetry, collisions and cuts. |
-| Look | Clump, Wet, Twist, Braid, Noise, Curl, Flyaway, Static, Tangle, Instance, Scales | Clumping, wet hair, locks, braids, frizz, curls, strays and static; meshes and scales along strands. |
+| Shape | Length, Width, Resample, Direction, Flow, Part, Smooth, Mirror, RestoreLength, Sculpt | Length, width, points, direction, flow, parts, smoothing, symmetry; brushable guides. |
+| Deform | Bend, Transform, Tie, BlendNeighbors, Gravity, Displace | Bend, move and gather strands; gravity and volume. |
+| Collide | Collide, SelfCollide, MeshCut | Collisions with meshes and between strands; cuts by a mesh. |
+| Look | Clump, Twist, Braid, Noise, Curl, Flyaway, Static, Tangle, Wet, Instance, Scales | Clumping, locks, braids, frizz, curls, strays, static and wet hair; meshes and scales along strands. |
 | Motion | Wind, Jiggle, Simulate | Procedural motion and guide simulation ([Motion & simulation](/docs/motion-and-simulation)). |
 | Feathers | Propagate, Plume, Split | Feathers grown from shafts and layered over the body ([Fur & feathers](/docs/fur-and-feathers)). |
 | Color | HairColor, Bands, FeatherColor, RenderData | Hair color, banded fur, feather patterns ([Color patterns](/docs/color-patterns)); opacity ([Rendering](/docs/rendering)). |
@@ -181,8 +201,9 @@ area rather than a line).
   UVs. A guide-layer map is not accepted.
 - **Clump**, **BlendNeighbors** and **Tangle** read the region attribute (their `regionChannel`)
   and stay within regions too.
-- To display the regions, color the strands by clump with `region` as the source (Maya's
-  `strandColorMode` `clump`, `strandColorSource` `region`).
+- To display the regions, color the strands by clump with `region` as the source (in Maya, by
+  script: `strandColorMode` `clump`, `strandColorSource` `region`; the Attribute Editor hides the
+  source).
 
 ## Mappable parameters
 
@@ -324,10 +345,11 @@ into the groom's strands. A Scalp node's `input` names the scalp it reads (`scal
 own). Guides, brushes, parts, flow and painted maps work across all scalps, and every host and
 renderer supports them.
 
-## Reference node
+## Linked Groom node
 
-A **Reference** node reads the strands of another groom file, or its guides (second output): an
+A **Linked Groom** node reads the strands of another groom file, or its guides (second output): an
 eyebrow or fur patch groomed once and reused in other grooms. Merge it with the groom's strands.
+Its type is still `Reference` in `.groom` files and the Python API.
 
 - `path`: the `.groom` file, resolved like a map's file (next to the scene or groom file, then
   the search paths). It is re-read when the file changes.

@@ -665,6 +665,81 @@ std::string GroomDocument::removeNode(const std::string& node) {
     });
 }
 
+std::string GroomDocument::removeNodes(const std::vector<std::string>& nodes) {
+    std::vector<std::string> gone;
+    for (const std::string& n : nodes) {
+        if (nodeJson(n) && graph_.value("output", std::string()) != n && std::find(gone.begin(), gone.end(), n) == gone.end()) gone.push_back(n);
+    }
+    if (gone.empty()) return nodes.size() == 1 ? removeNode(nodes.front()) : std::string("the output node stays");
+    if (gone.size() == 1) return removeNode(gone.front());
+    return editGraph("remove " + std::to_string(gone.size()) + " nodes", [&](json& g) {
+        GraphEdit edit(g.dump());
+        for (const std::string& n : gone) edit.removeNode(n);
+        g = json::parse(edit.toJson());
+    });
+}
+
+namespace {
+
+constexpr const char* kClipboardKey = "groomlabNodes";  // Maya's graph.py CLIPBOARD_KEY
+
+}  // namespace
+
+std::string GroomDocument::copyNodes(const std::vector<std::string>& nodes) const {
+    json data = {{kClipboardKey, 1}, {"nodes", json::array()}, {"connections", json::array()}};
+    std::set<std::string> copied;
+    // In the graph's order, as Maya's copy_nodes.
+    for (const json& n : graph_.value("nodes", json::array())) {
+        const std::string name = n.value("name", std::string());
+        if (n.value("type", std::string()) == "Output") continue;
+        if (std::find(nodes.begin(), nodes.end(), name) == nodes.end()) continue;
+        data["nodes"].push_back(n);
+        copied.insert(name);
+    }
+    if (copied.empty()) return {};
+    for (const json& c : graph_.value("connections", json::array())) {
+        if (copied.count(c.value("from", std::string())) && copied.count(c.value("to", std::string()))) data["connections"].push_back(c);
+    }
+    return data.dump();
+}
+
+std::string GroomDocument::pasteNodes(const std::string& text, float dx, float dy, std::vector<std::string>* made) {
+    const json data = json::parse(text, nullptr, false);
+    if (!data.is_object() || !data.contains(kClipboardKey) || !data.value("nodes", json()).is_array() || data["nodes"].empty()) {
+        return "the clipboard holds no GroomLab nodes";
+    }
+    for (const json& n : data["nodes"]) {
+        if (!n.is_object() || !spec(n.value("type", std::string()))) return "the clipboard names an unknown node type";
+    }
+    std::map<std::string, std::string> renamed;  // copied name -> pasted name
+    std::map<std::string, std::string> copiedSculpts;
+    std::vector<std::string> names;
+    const std::string error = editGraph("paste " + std::to_string(data["nodes"].size()) + " nodes", [&](json& g) {
+        if (!g.contains("nodes") || !g["nodes"].is_array()) g["nodes"] = json::array();
+        for (const json& n : data["nodes"]) {
+            const std::string from = n.value("name", std::string());
+            const std::string name = GraphEdit(g.dump()).uniqueName(from.empty() ? n.value("type", std::string()) : from);
+            json node = n;
+            node["name"] = name;
+            const json ui = n.value("ui", json::object());
+            node["ui"] = {{"x", (ui.is_object() ? ui.value("x", 0.0) : 0.0) + dx}, {"y", (ui.is_object() ? ui.value("y", 0.0) : 0.0) + dy}};
+            g["nodes"].push_back(node);
+            renamed[from] = name;
+            names.push_back(name);
+            if (node.value("type", std::string()) == op::kSculpt && nodeJson(from)) copiedSculpts[name] = from;
+        }
+        GraphEdit edit(g.dump());
+        for (const json& c : data.value("connections", json::array())) {
+            const auto a = renamed.find(c.value("from", std::string())), b = renamed.find(c.value("to", std::string()));
+            if (a == renamed.end() || b == renamed.end()) continue;
+            edit.connect(a->second, b->second, c.value("input", std::string()), c.value("output", std::string()));
+        }
+        g = json::parse(edit.toJson());
+    }, {}, copiedSculpts);
+    if (error.empty() && made) *made = names;
+    return error;
+}
+
 std::string GroomDocument::connectNodes(const std::string& from, const std::string& output, const std::string& to,
                                         const std::string& input) {
     // The core's checks (graph_edit.h, Maya's Graph Editor's too): the nodes and ports there,
@@ -756,6 +831,95 @@ std::string GroomDocument::tidyLayout() {
         edit.clearPositions();
         g = json::parse(edit.toJson());
     });
+}
+
+std::string GroomDocument::collapseNodes(const std::vector<std::string>& nodes, std::string* made) {
+    if (nodes.empty()) return "select the nodes to group";
+    std::string name;
+    const std::string error = editGraph("group " + std::to_string(nodes.size()) + (nodes.size() == 1 ? " node" : " nodes"), [&](json& g) {
+        GraphEdit edit(g.dump());
+        name = edit.collapse(nodes);
+        g = json::parse(edit.toJson());
+    });
+    if (error.empty() && made) *made = name;
+    return error;
+}
+
+std::string GroomDocument::expandNodes(const std::vector<std::string>& compounds, std::vector<std::string>* made) {
+    std::vector<std::string> groups;
+    for (const std::string& n : compounds) {
+        const json* node = nodeJson(n);
+        if (node && node->value("type", std::string()) == "Compound") groups.push_back(n);
+    }
+    if (groups.empty()) return "select the Compound nodes to ungroup";
+    std::vector<std::string> names;
+    const std::string error = editGraph(groups.size() == 1 ? "ungroup " + groups.front() : "ungroup " + std::to_string(groups.size()) + " compounds",
+                                        [&](json& g) {
+                                            GraphEdit edit(g.dump());
+                                            for (const std::string& n : groups) {
+                                                for (std::string& inner : edit.expand(n)) names.push_back(std::move(inner));
+                                            }
+                                            g = json::parse(edit.toJson());
+                                        });
+    if (error.empty() && made) *made = names;
+    return error;
+}
+
+namespace {
+
+json* backdropAt(json& graph, int index) {
+    if (!graph.contains("backdrops") || !graph["backdrops"].is_array()) return nullptr;
+    json& list = graph["backdrops"];
+    if (index < 0 || index >= static_cast<int>(list.size()) || !list[index].is_object()) return nullptr;
+    return &list[index];
+}
+
+}  // namespace
+
+std::string GroomDocument::addBackdrop(const std::string& title, double x, double y, double w, double h, int* index) {
+    int made = -1;
+    const std::string error = editGraph("add backdrop", [&](json& g) {
+        if (!g.contains("backdrops") || !g["backdrops"].is_array()) g["backdrops"] = json::array();
+        g["backdrops"].push_back({{"title", title.empty() ? std::string("Backdrop") : title},
+                                  {"x", x},
+                                  {"y", y},
+                                  {"w", std::max(120.0, w)},
+                                  {"h", std::max(80.0, h)},
+                                  {"color", json::array({kBackdropColor[0], kBackdropColor[1], kBackdropColor[2]})}});
+        made = static_cast<int>(g["backdrops"].size()) - 1;
+    });
+    if (error.empty() && index) *index = made;
+    return error;
+}
+
+std::string GroomDocument::setBackdropTitle(int index, const std::string& title) {
+    if (!backdropAt(graph_, index)) return "no backdrop " + std::to_string(index);
+    return editGraph("rename backdrop", [&](json& g) { (*backdropAt(g, index))["title"] = title; });
+}
+
+std::string GroomDocument::setBackdropColor(int index, int r, int g, int b) {
+    if (!backdropAt(graph_, index)) return "no backdrop " + std::to_string(index);
+    return editGraph("backdrop color", [&](json& graph) {
+        (*backdropAt(graph, index))["color"] = json::array({std::clamp(r, 0, 255), std::clamp(g, 0, 255), std::clamp(b, 0, 255)});
+    });
+}
+
+std::string GroomDocument::removeBackdrop(int index) {
+    if (!backdropAt(graph_, index)) return "no backdrop " + std::to_string(index);
+    return editGraph("delete backdrop", [&](json& g) {
+        g["backdrops"].erase(g["backdrops"].begin() + index);
+        if (g["backdrops"].empty()) g.erase("backdrops");
+    });
+}
+
+void GroomDocument::setBackdropRect(int index, double x, double y, double w, double h) {
+    json* b = backdropAt(graph_, index);
+    if (!b) return;
+    (*b)["x"] = x;
+    (*b)["y"] = y;
+    (*b)["w"] = std::max(120.0, w);
+    (*b)["h"] = std::max(80.0, h);
+    dirty_ = true;
 }
 
 // ---- The stored texts (parts, flow, correctives) ------------------------------------------------
@@ -1558,6 +1722,22 @@ std::vector<std::pair<std::string, std::string>> GroomDocument::nodeNotes() cons
         }
     }
     return {notes.begin(), notes.end()};
+}
+
+std::vector<std::pair<std::string, std::string>> GroomDocument::nodeErrors() const {
+    // As Maya's Graph Editor reads them: "node 'name': why" (the outermost node named: a
+    // compound's inner node's error is the compound's).
+    std::vector<std::pair<std::string, std::string>> errors;
+    for (const std::string& line : lastView().errors) {
+        const std::size_t at = line.find("node '");
+        if (at == std::string::npos) continue;
+        const std::size_t end = line.find("': ", at + 6);
+        if (end == std::string::npos) continue;
+        std::string name = line.substr(at + 6, end - at - 6);
+        if (std::any_of(errors.begin(), errors.end(), [&](const auto& e) { return e.first == name; })) continue;
+        errors.emplace_back(std::move(name), line.substr(end + 3));
+    }
+    return errors;
 }
 
 json GroomDocument::channels() const {

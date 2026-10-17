@@ -28,6 +28,22 @@ inline bool inputUnchanged(const IncrementalInputs& in, std::size_t slot) {
     return slot < in.inputs.size() && in.inputs[slot] && in.inputs[slot]->none();
 }
 
+// True when input `slot` holds the very points the last result was made from (unchanged, or only
+// its widths and channels changed: StrandChanges::pointsKept), so an operator whose points depend
+// on its input's points alone keeps its last ones.
+inline bool inputPointsKept(const IncrementalInputs& in, std::size_t slot) {
+    return slot < in.inputs.size() && in.inputs[slot] && (in.inputs[slot]->none() || in.inputs[slot]->pointsKept);
+}
+
+// The input's widths and channels on the last result's points: a copy of `input` sharing every
+// array of it but the positions, which are `last`'s very array (the two hold the same strands:
+// inputPointsKept). For an operator that only moves points, by its input's points alone.
+inline StrandsPtr withPointsOf(const StrandSet& input, const StrandSet& last) {
+    auto out = std::make_shared<StrandSet>(input);
+    out->sharePositionsOf(last);
+    return out;
+}
+
 // The node's last result as strands, when it holds as many strands and points as `input` (the
 // input's changes keep its layout, so the result made from it before had this one's).
 inline StrandsPtr previousStrandsFor(const IncrementalInputs& in, const StrandSet& input) {

@@ -277,12 +277,38 @@ GroomShape* gBrushTarget = nullptr;  // the groom the brush tool is on
 MCallbackId gWarmCallback = 0;       // a one-off idle callback, while a warm-up is due
 std::set<GroomShape*> gPendingCommits;  // grooms whose commit evaluates off the UI thread
 MCallbackId gLandCallback = 0;           // the idle callback landing them, while there is one
+std::set<GroomShape*> gPendingWarms;     // grooms whose stroke warm-up evaluates off the UI thread
+MCallbackId gAdoptCallback = 0;          // the idle callback taking them in, while there is one
+
+// Threads a detached evaluation's parallel loops take (a commit's, a warm-up's): three quarters of
+// the cores, so Maya's drawing (and its own TBB loops) keep the rest while the worker evaluates (on
+// every core, a 500k-strand redraw took ~50 ms instead of ~5). GROOMLAB_ASYNC_THREADS sets another
+// number (0: every core).
+// GROOMLAB_STROKE_WARMUP=0 in the environment: no stroke document warm-up (comparisons, the
+// benchmark's first press).
+bool strokeWarmupOff() {
+    static const bool off = [] {
+        const char* value = std::getenv("GROOMLAB_STROKE_WARMUP");
+        return value && std::string(value) == "0";
+    }();
+    return off;
+}
+
+std::size_t asyncThreads() {
+    static const std::size_t threads = [] {
+        const std::size_t cores = std::max(1u, std::thread::hardware_concurrency());
+        if (const char* text = std::getenv("GROOMLAB_ASYNC_THREADS")) return static_cast<std::size_t>(std::strtoul(text, nullptr, 10));
+        return std::max<std::size_t>(1, cores - cores / 4);
+    }();
+    return threads;
+}
 }  // namespace
 
 GroomShape::~GroomShape() {
     if (attrCallback_ != 0) MMessage::removeCallback(attrCallback_);
     if (scalpAttrCallback_ != 0) MMessage::removeCallback(scalpAttrCallback_);
     gPendingCommits.erase(this);  // (a commit still evaluating is waited for by commit_, before the session goes)
+    gPendingWarms.erase(this);    // (a warm-up still evaluating likewise, by warm_)
     if (gBrushTarget == this) gBrushTarget = nullptr;
 }
 
@@ -291,6 +317,7 @@ void GroomShape::setBrushTarget(GroomShape* shape) {
         GroomShape* before = gBrushTarget;
         gBrushTarget = shape;
         if (before) before->settleCommit("setBrushTarget");
+        if (before) before->takeWarm(true);  // (its document goes below)
         if (before && !before->session_.hasPreview()) {
             // The brush tool put away (or on another groom): its stroke document's memory (a
             // third of the view's at the default sculptDensity) goes, and the viewport lets the
@@ -317,6 +344,9 @@ void GroomShape::setSymmetrySeam(std::vector<Vec3f> segments) {
 void GroomShape::stopStrokeWarmup() {
     if (gWarmCallback != 0) MMessage::removeCallback(gWarmCallback);
     gWarmCallback = 0;
+    if (gAdoptCallback != 0) MMessage::removeCallback(gAdoptCallback);
+    gAdoptCallback = 0;
+    gPendingWarms.clear();
     gBrushTarget = nullptr;
 }
 
@@ -325,12 +355,7 @@ bool GroomShape::strokeKept() const { return gBrushTarget == this; }
 void GroomShape::scheduleStrokeWarmup() {
     // One idle callback at a time, removed when it ran (an idle callback left registered would
     // keep Maya's idle loop busy); it warms whichever groom the tool is on by then.
-    // GROOMLAB_STROKE_WARMUP=0 in the environment: none (comparisons, the benchmark's first press).
-    static const bool off = [] {
-        const char* value = std::getenv("GROOMLAB_STROKE_WARMUP");
-        return value && std::string(value) == "0";
-    }();
-    if (off || this != gBrushTarget || gWarmCallback != 0 || !requested_ || hasPreview() || commitPending_) return;
+    if (strokeWarmupOff() || this != gBrushTarget || gWarmCallback != 0 || !requested_ || hasPreview() || commitPending_) return;
     MStatus status;
     gWarmCallback = MEventMessage::addEventCallback("idle", warmStrokeOnIdle, nullptr, &status);
     if (!status) gWarmCallback = 0;
@@ -345,8 +370,74 @@ void GroomShape::warmStrokeOnIdle(void*) {
     // With what the groom's last evaluation bound (an input edited since and not evaluated yet
     // warms with the old one: its own evaluation schedules this again). Nothing is thrown here.
     try {
-        shape->session_.warmStroke(shape->lastRequest_);
+        shape->startWarm();
     } catch (...) {
+    }
+}
+
+void GroomShape::startWarm() {
+    // GROOMLAB_ASYNC_WARM=0 in the environment: on the UI thread (comparisons).
+    static const bool async = [] {
+        const char* value = std::getenv("GROOMLAB_ASYNC_WARM");
+        return !(value && std::string(value) == "0");
+    }();
+    if (!async) {
+        session_.warmStroke(lastRequest_);
+        return;
+    }
+    if (warm_.pending()) {  // (one at a time: this one once that one is in)
+        warmAgain_ = true;
+        return;
+    }
+    std::shared_ptr<DetachedEvaluation> run = session_.detachWarm(lastRequest_);
+    if (!run) return;
+    warm_.setThreads(asyncThreads());
+    try {
+        warm_.start(std::move(run));
+    } catch (const std::exception&) {
+        session_.warmStroke(lastRequest_);  // no thread: warmed here
+        return;
+    }
+    gPendingWarms.insert(this);
+    if (gAdoptCallback == 0) {
+        MStatus status;
+        gAdoptCallback = MEventMessage::addEventCallback("idle", adoptWarmsOnIdle, nullptr, &status);
+        if (!status) gAdoptCallback = 0;
+    }
+}
+
+void GroomShape::takeWarm(bool wait) {
+    if (!warm_.pending() || (!wait && !warm_.ready())) return;
+    std::shared_ptr<DetachedEvaluation> run = warm_.wait();
+    gPendingWarms.erase(this);
+    // Refused when the stroke document moved on meanwhile (a press evaluated it, another graph).
+    if (run) session_.adoptWarm(*run);
+    run.reset();  // (the document it replaced goes with it)
+    if (warmAgain_) {
+        warmAgain_ = false;
+        scheduleStrokeWarmup();
+    }
+}
+
+void GroomShape::adoptWarmsOnIdle(void*) {
+    // (Removed only here, by itself, once no warm-up is pending.)
+    std::vector<GroomShape*> pending(gPendingWarms.begin(), gPendingWarms.end());
+    for (GroomShape* shape : pending) {
+        if (!shape->warm_.pending()) {
+            gPendingWarms.erase(shape);
+            continue;
+        }
+        // Run, and the session not mid-evaluation (a compute taking a commit in).
+        if (!shape->warm_.ready() || shape->computing_) continue;
+        try {
+            shape->takeWarm(false);
+        } catch (...) {
+            gPendingWarms.erase(shape);
+        }
+    }
+    if (gPendingWarms.empty() && gAdoptCallback != 0) {
+        MMessage::removeCallback(gAdoptCallback);
+        gAdoptCallback = 0;
     }
 }
 
@@ -1690,15 +1781,8 @@ void GroomShape::writeFrame(MDataBlock& data, const FramePtr& frame) {
 
 bool GroomShape::startCommit(MDataBlock& data, const ViewRequest& request, double seconds, std::vector<std::string> errors,
                              CommitKind expectedKind) {
-    // Its parallel loops on three quarters of the cores: Maya's drawing (and its own TBB loops) keep
-    // the rest while the worker evaluates (on every core, a 500k-strand redraw took ~50 ms instead of
-    // ~5). GROOMLAB_ASYNC_THREADS sets another number (0: every core).
-    static const std::size_t threads = [] {
-        const std::size_t cores = std::max(1u, std::thread::hardware_concurrency());
-        if (const char* text = std::getenv("GROOMLAB_ASYNC_THREADS")) return static_cast<std::size_t>(std::strtoul(text, nullptr, 10));
-        return std::max<std::size_t>(1, cores - cores / 4);
-    }();
-    commit_.setThreads(threads);
+    // Its parallel loops on three quarters of the cores (asyncThreads).
+    commit_.setThreads(asyncThreads());
     // After a pending one (a stroke chained on it released): going on from what it makes.
     const std::shared_ptr<DetachedEvaluation> run = session_.detach(request, commit_.last());
     if (!run) return false;  // evaluated here (the pending one taken in first)
@@ -1815,7 +1899,18 @@ void GroomShape::finishCommit(bool evaluatesAfter, MDataBlock* into, const char*
     } catch (const std::exception& e) {
         report(std::string("evaluation failed: ") + e.what(), true);
     }
-    scheduleStrokeWarmup();
+    // The stroke document warmed at once, off the UI thread (the next press finds it evaluated, or
+    // waits for what is left of it), not on the next idle.
+    if (this == gBrushTarget && requested_ && !hasPreview() && !strokeWarmupOff()) {
+        if (gWarmCallback != 0) MMessage::removeCallback(gWarmCallback);
+        gWarmCallback = 0;
+        try {
+            startWarm();
+        } catch (...) {
+        }
+    } else {
+        scheduleStrokeWarmup();
+    }
     MHWRender::MRenderer::setGeometryDrawDirty(thisMObject());
     if (!computing_) M3dView::scheduleRefreshAllViews();
 }
@@ -2533,6 +2628,9 @@ GroomShape::ScalpMapView GroomShape::makeScalpMapView() {
 }
 
 void GroomShape::setPreviewHierarchy(std::shared_ptr<GuideHierarchy> preview, bool final) {
+    // A press: the stroke document warmed off the UI thread taken in first (waited for when still
+    // evaluating: it got that far already).
+    if (preview && !session_.hasPreview()) takeWarm(true);
     MPlug tick(thisMObject(), aBrushTick);
     if (preview && !final && chain_ == Chain::Provisional) {
         // A stroke pressed while a stroke's commit evaluates: the GPU preview arms now, on the
@@ -2564,6 +2662,7 @@ void GroomShape::unchain(const char* who) {
 }
 
 void GroomShape::setLiveStroke(bool on) {
+    if (on) takeWarm(true);  // (the stroke document it evaluates)
     if (on) unchain("setLiveStroke");
     if (on == session_.liveStroke()) return;
     ++displayVersion_;  // the strands step back, or come back (sculptDisplay)

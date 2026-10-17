@@ -36,35 +36,20 @@ LAYOUT_DX, LAYOUT_DY = 240, 140  # the core's column and row for a new node (gra
 TYPE_COLORS = {"Strands": (232, 168, 92), "Guides": (92, 196, 232), "Mesh": (140, 206, 110),
                "Field": (214, 122, 214), "Curve": (245, 215, 90), "Curves": (206, 210, 218),
                "Value": (120, 214, 190)}
-CATEGORIES = [
-    ("Sources", ["Scalp", "Guides", "ColliderMesh", "ImportCurves", "Reference"]),
-    ("Grow", ["Scatter", "Interpolate", "Cull"]),
-    ("Shape", ["Length", "Width", "Resample", "Direction", "Bend", "Transform", "Flow", "Part", "Tie",
-               "Smooth", "BlendNeighbors", "Gravity", "Displace", "Mirror", "Collide", "SelfCollide", "MeshCut",
-               "RestoreLength", "Sculpt"]),
-    ("Look", ["Clump", "Twist", "Braid", "Noise", "Curl", "Flyaway", "Static", "Tangle", "Wet", "Instance",
-              "Scales"]),
-    ("Motion", ["Wind", "Jiggle", "Simulate"]),
-    ("Feathers", ["Propagate", "Plume", "Split"]),
-    ("Color", ["HairColor", "Bands", "FeatherColor", "RenderData"]),
-    ("Convert", ["ToGuides", "ToStrands"]),
-    ("Fields & Curves", ["Map", "Expression", "Control", "FieldNoise", "FieldRemap", "FieldCombine", "Curve"]),
-    ("Utility", ["Value", "Group", "Blend", "Attribute", "Merge", "Switch", "Output"]),
-    ("Games", ["Cards"]),
-]
+# The Add menu's categories in the core's order (node_catalog.h, each spec's "categoryTitle"): Blender
+# registers its node categories before the helper runs, so their titles are listed here; which node
+# goes where, its label and its order come from the specs. A test checks this list against them.
+CATEGORY_TITLES = ["Sources", "Grow", "Shape", "Deform", "Collide", "Look", "Motion", "Feathers", "Color", "Convert",
+                   "Fields & Curves", "Utility", "Games"]
 HIDDEN_TYPES = {"Compound", "Input"}  # made by grouping (Maya) or a preset, not from the Add menu
 # When a node runs (its "evaluation"; always when absent): the labels of the other two.
 EVALUATION_LABELS = {"viewportOnly": "Viewport only", "renderOnly": "Render only"}
 CATEGORY_COLORS = {"Sources": (72, 190, 170), "Grow": (79, 209, 197), "Color": (255, 122, 182),
-                   "Shape": (90, 150, 240), "Look": (170, 120, 240), "Fields & Curves": (214, 122, 214),
+                   "Shape": (90, 150, 240), "Deform": (110, 170, 250), "Collide": (100, 180, 200),
+                   "Look": (170, 120, 240), "Fields & Curves": (214, 122, 214),
                    "Utility": (140, 148, 158), "Output": (245, 176, 66), "Compound": (110, 200, 120),
                    "Games": (90, 200, 230), "Convert": (240, 140, 95), "Motion": (120, 200, 255),
                    "Feathers": (226, 186, 90)}
-SPEC_CATEGORIES = {"sources": "Sources", "source": "Sources", "grow": "Grow", "shape": "Shape", "look": "Look",
-                   "color": "Color", "convert": "Convert", "fields": "Fields & Curves",
-                   "fields & curves": "Fields & Curves", "field": "Fields & Curves", "curves": "Fields & Curves",
-                   "utility": "Utility", "games": "Games", "cards": "Games", "motion": "Motion",
-                   "feathers": "Feathers"}
 # Params naming the host's inputs: plumbing, hidden from the panel unless changed (as in Maya).
 PLUMBING = {("Scalp", "input"), ("Guides", "input"), ("Guides", "hierarchy")}
 ADVANCED = "Advanced"
@@ -107,41 +92,37 @@ def pretty(name):
 
 
 def spec_category(spec):
-    name = (spec or {}).get("category") or ""
-    if not name:
-        return "Utility"
-    return SPEC_CATEGORIES.get(name.lower(), name[:1].upper() + name[1:])
+    """The Add menu category a spec names, as the menu titles it (the core's node catalog)."""
+    spec = spec or {}
+    return spec.get("categoryTitle") or (spec.get("category") or "Utility").title()
 
 
 def category_of(op_type, specs=None):
     if op_type == "Compound":
         return "Compound"
-    if op_type == "Input":
-        return "Utility"
-    listed = next((c for c, types in CATEGORIES if op_type in types), None)
-    if listed:
-        return listed
     specs = specs if specs is not None else _specs()
     return spec_category(specs.get(op_type)) if op_type in specs else "Utility"
 
 
-def categories(specs=None):
-    """[(category, [types])] for the Add menu: Maya's order, the types the helper has, then every
-    other operator under its spec's category."""
+def label_of(op_type, specs=None):
+    """A node type's label on screen (the core's: "Linked Groom" for Reference); files keep the type."""
     specs = specs if specs is not None else _specs()
-    known = set(specs)
-    result = [(c, [t for t in types if t in known]) for c, types in CATEGORIES]
-    listed = {t for _, types in CATEGORIES for t in types}
-    for op_type in sorted(known):
-        if op_type in listed or op_type in HIDDEN_TYPES:
-            continue
-        category = spec_category(specs[op_type])
-        bucket = next((types for c, types in result if c == category), None)
-        if bucket is None:
-            bucket = []
-            result.append((category, bucket))
-        bucket.append(op_type)
-    return [(c, types) for c, types in result if types]
+    return (specs.get(op_type) or {}).get("label") or op_type
+
+
+def categories(specs=None):
+    """[(category, [types])] for the Add menu: the core's categories and order (node_catalog.h), the
+    types the helper has, none of the hidden ones (Compound, Input)."""
+    specs = specs if specs is not None else _specs()
+    shown = [s for t, s in specs.items() if not s.get("hidden") and t not in HIDDEN_TYPES]
+    shown.sort(key=lambda s: (s.get("categoryOrder", 99), s.get("order", 999), s["type"]))
+    result = []
+    for spec in shown:
+        title = spec_category(spec)
+        if not result or result[-1][0] != title:
+            result.append((title, []))
+        result[-1][1].append(spec["type"])
+    return result
 
 
 def param_sections(specs):
@@ -339,7 +320,7 @@ class GroomLabNodeBase(object):
     def draw_buttons(self, context, layout):
         col = layout.column(align=True)
         col.scale_y = 0.8
-        kind = "OUTPUT" if self.gl_is_output and self.gl_type == "Output" else self.gl_type.upper()
+        kind = "OUTPUT" if self.gl_is_output and self.gl_type == "Output" else label_of(self.gl_type).upper()
         flags = []
         if self.gl_is_output and self.gl_type != "Output":
             flags.append("output")
@@ -415,7 +396,8 @@ def param_property(spec, update):
             kw.setdefault("soft_min", 0.0)
             kw.setdefault("soft_max", 1.0)
             return FloatProperty(subtype="FACTOR", precision=3, **kw, **common)
-        return FloatProperty(precision=3, **_ranged(spec, float), **common)
+        # The core's decimals (the spec's), as every host shows the number.
+        return FloatProperty(precision=max(0, min(6, int(spec.get("decimals", 3)))), **_ranged(spec, float), **common)
     if kind == "int":
         return IntProperty(**{k: int(round(v)) for k, v in _ranged(spec, float).items()}, **common)
     if kind == "bool":
@@ -462,7 +444,7 @@ def make_node_class(spec):
             annotations[prop_name(p["name"])] = prop
     attrs = {
         "bl_idname": NODE_PREFIX + op_type,
-        "bl_label": op_type,
+        "bl_label": spec.get("label") or op_type,  # the core's label ("Linked Groom"); files keep the type
         "bl_description": spec.get("description", ""),
         "bl_icon": "NODE",
         "bl_width_default": NODE_WIDTH,
@@ -1240,7 +1222,7 @@ def sync_from_tree(tree):
             if frm[1]:
                 args["output"] = frm[1]
             edit(**args)
-    # Muted nodes: Disable (bypass) in the graph.
+    # Muted nodes: Bypass in the graph.
     bypassed = {n["name"] for n in current.get("nodes", []) if n.get("bypass")}
     for node in nodes:
         if node.gl_name and node.gl_name in gnodes and bool(node.mute) != (node.gl_name in bypassed):

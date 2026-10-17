@@ -239,7 +239,7 @@ class UpdatesTest(unittest.TestCase):
         self.assertEqual(len(self.site.requests), 1)
         found = updates.available()
         self.assertTrue(found and found["latest"] == "0.2.0")
-        self.assertEqual(updates.note_text(), "GroomLab 0.2.0 is available — GroomLab > Check for Updates")
+        self.assertEqual(updates.note_text(), "GroomLab 0.2.0 is available — GroomLab > Help > Check for Updates")
         # The same day: no second request, nor an hour later.
         self.assertIsNone(updates.startup(now=now + 3600))
         self.assertEqual(len(self.site.requests), 1)

@@ -10,6 +10,7 @@
 #include "groomlab/color_patterns.h"
 #include "groomlab/curve.h"
 #include "groomlab/frames.h"
+#include "groomlab/parallel.h"
 #include "groomlab/random.h"
 #include "groomlab/scalp_mesh.h"
 #include "groomlab/strand_set.h"
@@ -199,10 +200,18 @@ bool InstanceSet::hasScales() const {
 std::vector<InstanceSet::Placed> InstanceSet::resolve(const StrandSet& strands, const ScalpMesh* scalp) const {
     std::vector<Placed> out;
     if (instances.empty()) return out;
+    // Each instance's strand (the first holding its ID), found through the IDs the instances name
+    // (fewer than the strands), then every instance placed in parallel and kept in order.
+    constexpr std::size_t kUnfound = ~std::size_t{0};
     std::unordered_map<std::uint64_t, std::size_t> index;
-    index.reserve(strands.strandCount());
-    for (std::size_t s = 0; s < strands.strandCount(); ++s) index.emplace(strands.ids()[s], s);
-    out.reserve(instances.size());
+    index.reserve(instances.size());
+    for (const Instance& i : instances) index.emplace(i.strand, kUnfound);
+    for (std::size_t s = 0; s < strands.strandCount(); ++s) {
+        const auto it = index.find(strands.ids()[s]);
+        if (it != index.end() && it->second == kUnfound) it->second = s;
+    }
+    std::vector<Placed> all(instances.size());
+    std::vector<char> placedOne(instances.size(), 0);
     const std::vector<float>& widths = strands.widths();
     // Bent along their strands: +Z faces the vane (Propagate's vane normals), else the skin.
     std::array<const std::vector<float>*, 3> vaneNormals{};
@@ -214,20 +223,20 @@ std::vector<InstanceSet::Placed> InstanceSet::resolve(const StrandSet& strands, 
             hasVaneNormals = hasVaneNormals && vaneNormals[c] && vaneNormals[c]->size() == strands.strandCount();
         }
     }
-    for (std::size_t k = 0; k < instances.size(); ++k) {
+    parallelFor(0, instances.size(), [&](std::size_t k) {
         const Instance& i = instances[k];
-        auto it = index.find(i.strand);
-        if (it == index.end()) continue;
-        const std::size_t s = it->second;
+        const std::size_t s = index.find(i.strand)->second;
+        if (s == kUnfound) return;
         const Vec3f* pts = strands.strandPoints(s);
         const std::size_t n = strands.strandPointCount(s);
-        if (n == 0) continue;
+        if (n == 0) return;
         const float length = n > 1 ? arcLength(pts, n) : 0.0f;
         if (i.onSkin) {
-            out.push_back(placeScale(i, strands, s, scalp, length));
-            out.back().index = k;
-            out.back().meshed = true;
-            continue;
+            all[k] = placeScale(i, strands, s, scalp, length);
+            all[k].index = k;
+            all[k].meshed = true;
+            placedOne[k] = 1;
+            return;
         }
         // Pinned: its rest distance from the root, up to the tip; else a fraction of the length now.
         const float distance = i.pinToRest && i.restDistance >= 0.0f ? std::min(i.restDistance, length)
@@ -281,7 +290,12 @@ std::vector<InstanceSet::Placed> InstanceSet::resolve(const StrandSet& strands, 
         p.origin = pos + x * i.offset;
         p.meshed = i.deform;
         p.distance = distance;
-        out.push_back(p);
+        all[k] = p;
+        placedOne[k] = 1;
+    }, 256);
+    out.reserve(instances.size());
+    for (std::size_t k = 0; k < all.size(); ++k) {
+        if (placedOne[k]) out.push_back(all[k]);
     }
     return out;
 }

@@ -3,11 +3,12 @@
   "pages": [
     "---Get started---",
     "index",
-    "whats-new",
     "installation",
     "quick-start",
+    "common-tasks",
     "app",
     "blender",
+    "whats-new",
     "---Grooming---",
     "guides-and-brushes",
     "node-graph",

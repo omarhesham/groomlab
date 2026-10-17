@@ -58,20 +58,21 @@ class XGenImportWindow(QtWidgets.QWidget):
         self.roots.setPlainText(_remembered_roots())
         outer.addWidget(self.roots)
 
+        # The one button rule: secondary actions, the primary one on the right, Close last.
         buttons = QtWidgets.QHBoxLayout()
+        buttons.addStretch(1)
+        refresh = QtWidgets.QPushButton("Refresh")
+        refresh.setToolTip("List the scene's XGen descriptions again")
+        refresh.clicked.connect(self.refresh)
+        buttons.addWidget(refresh)
         self.import_button = QtWidgets.QPushButton("Import")
         self.import_button.setProperty("role", "primary")
         self.import_button.setToolTip("Import the checked descriptions as GroomLab grooms")
         self.import_button.clicked.connect(self.import_checked)
         buttons.addWidget(self.import_button)
-        refresh = QtWidgets.QPushButton("Refresh")
-        refresh.setToolTip("List the scene's XGen descriptions again")
-        refresh.clicked.connect(self.refresh)
-        buttons.addWidget(refresh)
         close = QtWidgets.QPushButton("Close")
         close.clicked.connect(self.close)
         buttons.addWidget(close)
-        buttons.addStretch(1)
         outer.addLayout(buttons)
 
         self.report = QtWidgets.QPlainTextEdit()
@@ -102,8 +103,16 @@ class XGenImportWindow(QtWidgets.QWidget):
         try:
             found = groomlab.xgen_descriptions()
             problem = "" if found else "The scene has no XGen descriptions."
+            if not found:
+                from groomlab.importers import xgen
+                if not xgen.xgen_available():
+                    problem = ("XGen isn't loaded: load xgenToolkit in Windows > Settings/Preferences > Plug-in "
+                               "Manager, then Refresh.")
         except Exception as e:  # XGen's plugin missing or broken
-            found, problem = [], "XGen is not available: %s" % e
+            from groomlab.ui import messages
+            words = messages.plain(e)
+            found, problem = [], words if words.startswith("XGen isn't loaded") else \
+                "XGen isn't available (%s): load xgenToolkit in the Plug-in Manager, then Refresh" % words
         for d in found:
             flavor = "Interactive Groom" if d["flavor"] == "igs" else "Core (%s)" % d["palette"]
             item = QtWidgets.QListWidgetItem("%s    %s, on %s" % (d["name"], flavor, (d["scalp"] or "?").split("|")[-1]))
@@ -137,10 +146,22 @@ class XGenImportWindow(QtWidgets.QWidget):
         cmds.optionVar(stringValue=(ROOTS_VAR, roots))
         self.import_button.setEnabled(False)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+
+        def progress(i, count, name):
+            # Which one is being read, in the window and Maya's status line (the window repaints).
+            text = "Importing %s %d of %d: %s..." % ("description", i + 1, count, name)
+            self.report.setPlainText(text)
+            self.report.repaint()
+            QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+            print("GroomLab: " + text)
+
         try:
-            report = groomlab.import_xgen(descriptions=names, roots=roots)
-        except Exception as e:
-            self.report.setPlainText("The import failed: %s" % e)
+            report = groomlab.import_xgen(descriptions=names, roots=roots, progress=progress)
+        except Exception as e:  # noqa: BLE001 (said in the window, the traceback in the Script Editor)
+            from groomlab.ui import messages
+            import traceback
+            traceback.print_exc()
+            self.report.setPlainText("The import failed: %s" % messages.plain(e))
             return None
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()

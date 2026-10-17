@@ -38,6 +38,7 @@
 #include "timeline.h"
 
 class QAction;
+class QCloseEvent;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -78,6 +79,9 @@ public:
     bool openPath(const QString& path);
     bool openGroom(const QString& path);
     bool newGroomOnMesh(const QString& meshPath);
+    // "Start from a preset" with no groom open: a new groom on `meshPath` (empty: a file dialog,
+    // only in a window someone sits at) with the preset applied. False when either fails.
+    bool startFromPreset(const QString& nameOrPath, const QString& meshPath = {});
     void setPreviewDensity(double density);
     // The preview's point budget (thousands of points; 0: no limit), as the Display panel sets it.
     void setPointBudget(double thousands);
@@ -96,6 +100,35 @@ public:
         asyncDabs_ = on;
     }
     bool asyncDabs() const { return asyncDabs_; }
+    // A window someone sits at (main.cpp): unsaved edits are not discarded without asking (closing,
+    // Quit, Open, New, a dropped or recent file, Reload: confirmDiscard's prompt), and info messages
+    // (saved, opened, a preset applied, hints) show as toasts. Off (the default: tests, scripted
+    // runs, --ui-screenshot), nothing asks and only errors toast.
+    void setInteractive(bool on) { interactive_ = on; }
+    // The rails' names beside their icons (View > Rail Labels; saved as ui/railLabels). A first
+    // run (no saved choice) shows them for that run alone: firstRunRailLabels, for the window
+    // someone sits at.
+    void setRailLabels(bool shown, bool save = true);
+    bool railLabels() const;
+    void firstRunRailLabels();
+    bool interactive() const { return interactive_; }
+    // `proceed` now when nothing would be lost (no groom, no unsaved edit, not interactive); else
+    // the glass prompt "Unsaved changes" over the viewport (never a dialog, the window stays usable):
+    // Save (then `proceed` once saved), Discard (`proceed`), Cancel. `doing` ends its sentence
+    // ("Save them before closing?").
+    void confirmDiscard(const QString& doing, std::function<void()> proceed);
+    // File > Reload from File: the groom read again, asked first when it has unsaved edits (they
+    // and the undo history go).
+    void askReload();
+    // An export or a simulation is running ("" none: what busyJob() names). It runs on this thread
+    // with the window's events in between, so its Cancel takes a click: meanwhile every other
+    // click, key and shortcut is held back (eventFilter), Esc cancels, closing the window stops
+    // the job first and then closes, and the entry points that would run another job, open a
+    // file, undo or bake refuse with a message.
+    bool busy() const { return !job_.isEmpty(); }
+    const QString& busyJob() const { return job_; }
+    // Stops the running job (as its Cancel button does); false when none runs.
+    bool cancelJob();
     // Whether a dab is still evaluating on the worker, and how many have landed.
     bool dabPending() const { return dabs_.pending(); }
     std::uint64_t dabsLanded() const { return dabsLanded_; }
@@ -228,12 +261,19 @@ public:
     // (and a message) for no such node.
     bool selectUiNode(const QString& name);
     // The rails held in their hover state, the names shown ("rail", "panels" or "all": the
-    // scripted screenshot's --ui-hover); false for another word.
+    // scripted screenshot's --ui-hover), or "labels": the names kept shown as on a first run
+    // (Rail Labels, not saved); false for another word.
     bool setUiHover(const QString& name);
     // A menu laid out for a scripted screenshot ("presets": the Presets pill's menu, its Add-ons
     // submenu and the first add-on's Apply / Insert, drawn by grabUi as they would pop up; a
     // real popup closes when the window is not the active one); false for another word.
     bool setUiMenu(const QString& name);
+    // A prompt or a toast shown for a scripted screenshot ("unsaved", "reload", "info", "error");
+    // false for another word.
+    bool setUiPrompt(const QString& name);
+    // The graph shown with its Add Node search open and `text` typed (a scripted screenshot's
+    // --ui-search).
+    bool setUiSearch(const QString& text);
     // The display options as "name=value" (colorMode solid|colorSet|attribute|random|clump|density,
     // colorSource, colorMin, colorMax, guides, guidePoints, scalpMap, scalpMapChannel, cardsView,
     // lookdev, scalp); false (and a message) when refused.
@@ -262,6 +302,8 @@ public:
     // group, pressure, maskByScalp, selectedOnly, collide, stretch, sculptDensity); false (and
     // a message) when refused.
     bool setBrushText(const QString& text);
+    // Alt+Shift+X: symmetry on (World X, or the mode it had) or off, said in a toast.
+    void toggleSymmetry();
     // A stroke through the brush session from points in pixels of a view `size` big (y down
     // from the top, as an image), as the mouse would make it: the groom evaluated and shown
     // after it. False (and a message) when none could be made. `drawDabs`: each dab (and the
@@ -290,6 +332,18 @@ public:
     // its occlusion (the lids) baked against the props.
     bool addEye(const QVector3D& center, const QVector3D& forward, float radius, const QString& materialPreset,
                 int occlusionRays = 32);
+    // An eye from "cx,cy,cz,fx,fy,fz,r" (the command line's --eye), the default eye preset.
+    bool addEyeText(const QString& text);
+    // File > Add Prop Mesh... (an .obj beside the groom, clay), File > Add Eye... (a glass prompt
+    // with the eye's center, direction and radius, guessed in front of the scene) and File > Save
+    // Image... (the view as the viewport draws it, to a PNG): the file dialogs only in a window
+    // someone sits at (never in a scripted run).
+    void chooseProp();
+    void askEye();
+    void chooseSaveImage();
+    // The view rendered at the viewport's size (Look mode: refined over several frames) and
+    // written as an image; false (and a message) on error.
+    bool saveImage(const QString& path);
     // "name=value" on the last prop's (or eye's) material (setSurfaceParam's names); false
     // (and a message) when refused or without a prop.
     bool setPropParam(const QString& text);
@@ -303,6 +357,11 @@ public:
     // timestamps). Null when the device gives no pixels.
     QImage renderOffscreen(const QSize& size, int frames, double* msPerFrame = nullptr, QString* api = nullptr,
                            int* surfaceDraws = nullptr, double* firstFrameMs = nullptr, double* gpuMsPerFrame = nullptr);
+
+protected:
+    void closeEvent(QCloseEvent* event) override;  // asks first when the groom has unsaved edits
+    // Tab in a text field moves the focus (the window's Tab shortcut, the node graph, waits).
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void buildMenu();
@@ -374,7 +433,22 @@ private:
     void applyDisplayOptions();    // the display panel's choices into the settings and the renderer
     void applyProps();       // the props (and the textured cards) to the renderer
     Bounds sceneBounds() const;  // the document's with the props'
+    // An error (stderr and a red toast) or, `error` false, a line for stderr only (evaluations, timings).
     void report(const QString& text, bool error = true);
+    // A result or a hint the artist should see (saved, opened, a preset applied, the brush's keys):
+    // stderr and a brief info toast in an interactive window.
+    void notify(const QString& text);
+    // A long step about to block the window (opening, baking, transferring): the line toasts and
+    // paints before the work starts (an interactive window), stderr either way.
+    void working(const QString& text);
+    // The running job's start and end (busy()): `cancel` is the control whose clicks still get
+    // through (the export panel's Cancel, the timeline's).
+    void beginJob(const QString& what, QObject* cancel);
+    void endJob();
+    // Refuses `doing` while a job runs ("Wait for the export to finish (or Cancel it) before ...").
+    bool refuseWhileBusy(const QString& doing);
+    // The window's events between a job's steps (user input filtered by eventFilter).
+    void pumpJobEvents();
     void chooseOpen();
     void chooseMesh();
     void save();
@@ -416,6 +490,7 @@ private:
     double lastDabRunMs_ = 0.0;  // the last landed dab's evaluation on the worker
     std::uint64_t dabsLanded_ = 0;
     std::optional<ViewRequest> lastRequest_;  // the last evaluation's (time included): a commit's view must match it
+    std::string viewNode_;  // the graph's View Up to Here ("" the output): what the viewport shows
     std::vector<SurfacePtr> props_;
     // (appearanceColors: the frame's lines draw without a hair BSDF; the lookdev reads the base colors itself.)
     DisplaySettings settings_ = [] {
@@ -475,10 +550,19 @@ private:
     QAction* save_ = nullptr;
     QAction* saveAs_ = nullptr;
     QAction* export_ = nullptr;
+    QAction* saveImage_ = nullptr;
     QAction* cameraMode_ = nullptr;
     QAction* brushMode_ = nullptr;
     QAction* selectMode_ = nullptr;
     QAction* graphAction_ = nullptr;
+    QAction* railLabels_ = nullptr;
+    // The actions that need a groom open (disabled without one), Reload a file too.
+    QAction* reload_ = nullptr;
+    QAction* transfer_ = nullptr;
+    QAction* reference_ = nullptr;
+    QAction* deleteGuides_ = nullptr;
+    bool interactive_ = false;
+    bool closing_ = false;  // the prompt let the window close (or Quit): no asking again
     QString evaluation_;  // the last evaluation's summary (stderr)
     double lastEvaluateMs_ = 0.0;
     double lastDabMs_ = 0.0;  // the last stroke's time per dab (0: none yet)
@@ -492,7 +576,12 @@ private:
     SurfacePtr cardSurface_;
     std::uint64_t cardSurfaceVersion_ = 0;
     std::string cardSurfaceMap_;
-    bool exportCancel_ = false;
+    bool exportCancel_ = false;  // the running job's Cancel was asked for (an export's or a simulation's)
+    QString job_;                // the running job ("export", "simulation"; "" none)
+    QObject* jobCancel_ = nullptr;  // the control that cancels it
+    bool closeAfterJob_ = false;    // the window was closed during the job: closed once it stops
+    QAction* symmetryAction_ = nullptr;  // Alt+Shift+X
+    std::string lastSymmetry_ = "x";     // what Alt+Shift+X turns on again (World X at first)
     std::size_t shownFrames_ = 0;  // frames the timeline showed (playback's own count)
 };
 

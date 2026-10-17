@@ -17,6 +17,7 @@
 #include "groomlab/graph_edit.h"
 #include "groomlab/graph_io.h"
 #include "groomlab/groom.h"
+#include "groomlab/node_catalog.h"
 #include "groomlab/random.h"
 #include "test_helpers.h"
 #include "groomlab/simulation.h"
@@ -92,6 +93,60 @@ TEST(Graph, CachesUnchangedNodes) {
     g.node(src).params().set("count", std::int64_t{20});  // both re-run
     g.evaluate(off);
     EXPECT_EQ(g.evaluationCount(), 5u);
+}
+
+TEST(Graph, ACacheLimitLetsResultsGoOldestAndCheapestFirst) {
+    // A chain of three offsets on 20000 strands (each node's points its own: about 1 MB each) and a
+    // side branch: within the limit everything stays; past it, the side branch (not reached by the
+    // evaluation) goes first, then nodes of the chain, never the evaluated one; what was let go
+    // evaluates again when asked, to the same bits.
+    Graph g;
+    const NodeId src = g.addNode(std::make_unique<LinesOp>());
+    g.node(src).params().set("count", std::int64_t{20000});
+    NodeId last = src;
+    std::vector<NodeId> chain;
+    for (int k = 0; k < 3; ++k) {
+        const NodeId off = g.addNode(std::make_unique<OffsetOp>());
+        g.node(off).params().set("dx", 1.0 + k);
+        g.connect(last, off, 0);
+        chain.push_back(last = off);
+    }
+    const NodeId side = g.addNode(std::make_unique<OffsetOp>());
+    g.connect(src, side, 0);
+    g.setCacheLimit(0);
+    ASSERT_TRUE(g.evaluateStrands(side));
+    const StrandsPtr full = g.evaluateStrands(last);
+    ASSERT_TRUE(full);
+    const std::size_t all = g.cachedBytes();
+    const std::size_t points = full->pointCount() * sizeof(Vec3f);
+    EXPECT_GT(all, 4 * points) << "five results' points (the source's, three offsets', the side's)";
+    EXPECT_EQ(g.cacheEvictions(), 0u);
+
+    // Room for all but the side branch's points: it goes (the chain's results stay).
+    g.setCacheLimit(all - points / 2);
+    const std::size_t runs = g.evaluationCount();
+    ASSERT_TRUE(g.evaluateStrands(last));  // (nothing changed: served from the cache, then trimmed)
+    EXPECT_EQ(g.evaluationCount(), runs);
+    EXPECT_EQ(g.cacheEvictions(), 1u);
+    EXPECT_FALSE(valueAs<StrandsPtr>(g.cachedValue(side)));
+    for (const NodeId id : chain) EXPECT_TRUE(valueAs<StrandsPtr>(g.cachedValue(id))) << id;
+    EXPECT_LE(g.cachedBytes(), all - points / 2);
+
+    // Room for two results: the chain loses nodes too, never the evaluated one.
+    g.setCacheLimit(2 * points + points / 2);
+    ASSERT_TRUE(g.evaluateStrands(last));
+    EXPECT_LE(g.cachedBytes(), 2 * points + points / 2 + full->strandCount() * 64);
+    EXPECT_TRUE(valueAs<StrandsPtr>(g.cachedValue(last)));
+    EXPECT_GE(g.cacheEvictions(), 3u);
+
+    // Let go, made again when asked: the same strands.
+    g.setCacheLimit(0);
+    g.node(chain.front()).params().set("dx", 1.5);
+    g.node(chain.front()).params().set("dx", 1.0);
+    const StrandsPtr again = g.evaluateStrands(last);
+    ASSERT_TRUE(again);
+    EXPECT_EQ(again->positions(), full->positions());
+    ASSERT_TRUE(g.evaluateStrands(side));
 }
 
 TEST(Graph, ContextChangeInvalidates) {
@@ -309,6 +364,44 @@ TEST(GraphJson, ConnectionsNameTheOutputTheyRead) {
               std::string::npos);
     EXPECT_NE(specs.find(R"("output":{"name":"luminance","type":"Field"})"), std::string::npos);
     EXPECT_NE(specs.find(R"("outputs":[{"name":"out","type":"Strands"}])"), std::string::npos);  // one output
+}
+
+TEST(Graph, NodeCatalogIsEveryHostsAddNodeMenu) {
+    // Every built-in type is in the catalog (its category, label and search words come from
+    // there, not from a host's own list), each category is one the menu lists, and the specs
+    // carry them.
+    std::set<std::string> ids;
+    for (const NodeCategory& c : nodeCategories()) ids.insert(c.id);
+    std::set<std::string> catalogued;
+    for (const NodeCatalogEntry& e : nodeCatalog()) {
+        EXPECT_TRUE(ids.count(e.category)) << e.type << ": " << e.category;
+        EXPECT_TRUE(catalogued.insert(e.type).second) << e.type << " listed twice";
+    }
+    for (const nlohmann::json& s : nlohmann::json::parse(operatorSpecsJson())) {
+        const std::string type = s["type"].get<std::string>();
+        if (type.rfind("Test", 0) == 0) continue;  // registered by these tests
+        EXPECT_TRUE(catalogued.count(type)) << type << " is not in node_catalog.cpp";
+        EXPECT_TRUE(ids.count(s["category"].get<std::string>())) << type;
+        EXPECT_FALSE(s["label"].get<std::string>().empty()) << type;
+        EXPECT_FALSE(s["categoryTitle"].get<std::string>().empty()) << type;
+    }
+    EXPECT_EQ(nodeLabel("Reference"), "Linked Groom");  // the type stays "Reference" in files
+    EXPECT_EQ(nodeLabel("BlendNeighbors"), "Blend Neighbors");
+    EXPECT_EQ(nodeLabel("HairColor"), "Hair Color");
+    EXPECT_NE(nodeCatalogEntry("Mirror")->keywords.find("symmetry"), std::string::npos);
+    EXPECT_EQ(nodeCatalogEntry("Cards")->category, "games");
+    EXPECT_EQ(nodeCatalogEntry("Twist")->category, "look");
+    EXPECT_EQ(nodeCatalogEntry("ToGuides")->category, "convert");
+    EXPECT_TRUE(nodeCatalogEntry("Compound")->hidden);
+    // Decimals: none for counts, one for degrees, by the slider's span otherwise.
+    for (const nlohmann::json& s : nlohmann::json::parse(operatorSpecsJson())) {
+        if (s["type"] != "Scatter" && s["type"] != "Direction") continue;
+        for (const nlohmann::json& p : s["params"]) {
+            if (p["kind"] == "int") EXPECT_EQ(p["decimals"].get<int>(), 0) << p["name"];
+            if (p["unit"] == "angle") EXPECT_EQ(p["decimals"].get<int>(), 1) << p["name"];
+            if (p["kind"] == "float") EXPECT_TRUE(p.contains("decimals")) << p["name"];
+        }
+    }
 }
 
 TEST(Graph, RegistryCreatesByName) {
@@ -696,6 +789,65 @@ TEST(NodeVersions, OldNodesKeepTheirBehaviourUntilUpgraded) {
     }
     EXPECT_THROW(loadGraphJson(R"({"nodes": [{"name": "x", "type": "TestVersioned", "version": 0}], "output": "x"})"),
                  GraphError);
+}
+
+TEST(Graph, EachScatterGrowsWithTheResampleOfItsOwnBranch) {
+    // Two branches merged, each with its own Resample: each Scatter grows its strands with the most
+    // segments a Resample after it asks for, not the most any Resample in the graph does.
+    ExternalInputs ext;
+    ext.set("scalp", test::makePlane(4, 2.0f), 1);
+    GraphDocument doc = loadGraphJson(R"({"version": 1, "output": "out", "nodes": [
+        {"name": "scalp", "type": "Scalp"},
+        {"name": "fur", "type": "Scatter", "params": {"density": 10.0}},
+        {"name": "furRes", "type": "Resample", "params": {"segments": 5}},
+        {"name": "whiskers", "type": "Scatter", "params": {"density": 3.0, "seed": 4}},
+        {"name": "whiskerRes", "type": "Resample", "params": {"segments": 11}},
+        {"name": "bare", "type": "Scatter", "params": {"density": 2.0, "seed": 9}},
+        {"name": "merge", "type": "Merge"}, {"name": "merge2", "type": "Merge"}, {"name": "out", "type": "Output"}],
+      "connections": [{"from": "scalp", "to": "fur", "input": "scalp"}, {"from": "fur", "to": "furRes", "input": "strands"},
+        {"from": "scalp", "to": "whiskers", "input": "scalp"}, {"from": "whiskers", "to": "whiskerRes", "input": "strands"},
+        {"from": "scalp", "to": "bare", "input": "scalp"},
+        {"from": "furRes", "to": "merge", "input": "a"}, {"from": "whiskerRes", "to": "merge", "input": "b"},
+        {"from": "merge", "to": "merge2", "input": "a"}, {"from": "bare", "to": "merge2", "input": "b"},
+        {"from": "merge2", "to": "out", "input": "strands"}]})");
+    EvalContext ctx;
+    ctx.externals = &ext;
+    auto pointsOf = [&](const char* name) {
+        const StrandsPtr s = valueAs<StrandsPtr>(doc.graph.cachedValue(doc.node(name)));
+        EXPECT_TRUE(s && s->strandCount() > 0) << name;
+        return s && s->strandCount() > 0 ? s->strandPointCount(0) : 0;
+    };
+    ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));
+    EXPECT_EQ(pointsOf("fur"), 6u);        // its Resample's 5 segments: what the Resample hands on as it came
+    EXPECT_EQ(pointsOf("whiskers"), 12u);  // 11
+    EXPECT_EQ(pointsOf("bare"), 9u);       // no Resample after it: 8
+    const StrandsPtr furBefore = valueAs<StrandsPtr>(doc.graph.cachedValue(doc.node("fur")));
+    EXPECT_EQ(doc.graph.strandResolution(doc.node("fur")).from, doc.node("furRes"));
+    EXPECT_EQ(doc.graph.strandResolution(doc.node("bare")).from, 0u);
+    // The notes the graph editors show.
+    EXPECT_NE(doc.graph.strandResolutionNote(doc.node("fur")).find("set by Resample 'furRes'"), std::string::npos)
+        << doc.graph.strandResolutionNote(doc.node("fur"));
+    EXPECT_NE(doc.graph.strandResolutionNote(doc.node("bare")).find("no Resample after this Scatter"), std::string::npos);
+    EXPECT_NE(doc.graph.strandResolutionNote(doc.node("whiskerRes")).find("Scatter 'whiskers'"), std::string::npos)
+        << doc.graph.strandResolutionNote(doc.node("whiskerRes"));
+    EXPECT_EQ(doc.graph.strandResolutionNote(doc.node("merge")), "");
+    // The whiskers' Resample edited: only its own branch is made again (the fur's Scatter stays cached).
+    doc.graph.node(doc.node("whiskerRes")).params().set("segments", std::int64_t{13});
+    ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));
+    EXPECT_EQ(valueAs<StrandsPtr>(doc.graph.cachedValue(doc.node("fur"))), furBefore);
+    EXPECT_EQ(pointsOf("whiskers"), 14u);
+    // A Resample fed nothing sets the default of the Scatters with none after them; a downstream one
+    // still wins on its branch.
+    const NodeId loose = doc.graph.addNode(op::kResample);
+    doc.graph.node(loose).params().set("segments", std::int64_t{3});
+    ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));
+    EXPECT_EQ(pointsOf("bare"), 4u);
+    EXPECT_EQ(pointsOf("fur"), 6u);
+    // Set by the context: every Scatter alike.
+    ctx.strandSegments = 7;
+    ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));
+    EXPECT_EQ(pointsOf("bare"), 8u);
+    EXPECT_EQ(pointsOf("whiskers"), 8u);
 }
 
 TEST(NodeNotes, NodesThatDoNothingAsSetSaySo) {

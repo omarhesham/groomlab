@@ -299,6 +299,31 @@ class ScatterOp : public Operator {
 public:
     std::string typeName() const override { return op::kScatter; }
     std::string category() const override { return "grow"; }
+    // The segments it grows its strands with (its branch's, EvalContext::strandSegments): a
+    // Resample's edit makes only the Scatters it sets again.
+    std::uint64_t contextSalt(const EvalContext& ctx) const override {
+        return hashCombine(hash64(0x5E6), static_cast<std::uint64_t>(segmentsFor(ctx)));
+    }
+    static int segmentsFor(const EvalContext& ctx) { return std::clamp(ctx.strandSegments > 0 ? ctx.strandSegments : 8, 1, 256); }
+    bool thinnedLastRun() const override { return thinned_.load() != 0; }
+    // The same node in another copy of the graph (its cached result taken on): whether that thinned,
+    // and its kept placements and mixes (each keyed on all it comes from: a graph parsed again for a
+    // randomness edit mixes the relaxed roots again, it does not relax them again).
+    void adoptKeptWork(const Operator& previous) override {
+        const auto* other = dynamic_cast<const ScatterOp*>(&previous);
+        if (!other || other == this) return;
+        thinned_ = other->thinned_.load();
+        std::vector<std::pair<std::uint64_t, std::shared_ptr<const Placed>>> memo;
+        std::vector<Mixed> mixed;
+        {
+            const std::lock_guard<std::mutex> lock(other->memoMutex_);
+            memo = other->memo_;
+            mixed = other->mixed_;
+        }
+        const std::lock_guard<std::mutex> lock(memoMutex_);
+        memo_ = std::move(memo);
+        mixed_ = std::move(mixed);
+    }
     // Guides for density from a guide layer (guide map), and for guideRadius.
     std::vector<PortSpec> inputs() const override { return {{"scalp", PortType::Mesh}, {"guides", PortType::Guides, true}}; }
     std::vector<ParamSpec> paramSpecs() const override {
@@ -371,7 +396,7 @@ public:
         const auto seed = static_cast<std::uint64_t>(params().getInt("seed"));
         const float length = static_cast<float>(params().getDouble("length"));
         // Strand resolution comes from the Resample node (EvalContext::strandSegments).
-        const auto segments = static_cast<std::size_t>(std::clamp(ctx.strandSegments > 0 ? ctx.strandSegments : 8, 1, 256));
+        const auto segments = static_cast<std::size_t>(segmentsFor(ctx));
         const std::string layout = params().getString("layout");
         const bool grid = layout == "uvGrid";
         const float randomness = std::clamp(static_cast<float>(params().getDouble("randomness")), 0.0f, kMaxRandomness);
@@ -421,9 +446,9 @@ public:
         const double fullPoints = strandsMade * static_cast<double>(segments + 1);
         const bool previewAll = params().getBool("previewAll");
         float keepFraction = previewAll ? std::max(ctx.previewDensity, 1.0f) : ctx.previewDensity;
-        if (ctx.maxPoints > 0.0 && fullPoints * keepFraction > ctx.maxPoints) {
-            keepFraction = static_cast<float>(ctx.maxPoints / fullPoints);
-        }
+        const bool thinned = ctx.maxPoints > 0.0 && fullPoints * keepFraction > ctx.maxPoints;
+        if (thinned) keepFraction = static_cast<float>(ctx.maxPoints / fullPoints);
+        thinned_ = thinned ? 1 : 0;
         // The preview core (preview_core.h): the strands every preview holds, shown or not, so the
         // nodes reading other strands read the render's. All of them with previewAll (never thinned).
         const float core = previewAll ? 1.0f : coreShare(strandsMade);
@@ -767,6 +792,8 @@ private:
     mutable std::mutex memoMutex_;
     mutable std::vector<std::pair<std::uint64_t, std::shared_ptr<const Placed>>> memo_;  // newest first
     mutable std::vector<Mixed> mixed_;                                                   // newest first
+    // thinnedLastRun: 1 thinned, 0 not, -1 not known (never run here nor taken on: as thinned).
+    mutable std::atomic<int> thinned_{-1};
 };
 
 }  // namespace

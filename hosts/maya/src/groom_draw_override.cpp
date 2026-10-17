@@ -607,6 +607,7 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     in.strandsSerial = follow_ ? 0 : shape_->strandsSerial();
     in.changesBase = follow_ ? 0 : shape_->strandsChangesBase();
     in.strandsChanges = follow_ ? nullptr : shape_->strandsChanges();
+    in.follow = follow_;  // the instances placed on their strands carried (the strands at rest, carried by the GPU)
     in.hierarchyVersion = shape_->hierarchyVersion();
     in.cardsVersion = shape_->cardsVersion();
     in.strandMeshVersion = shape_->strandMeshVersion();

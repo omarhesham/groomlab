@@ -11,8 +11,8 @@ description: GroomLab for Blender 5.2 (beta) - installation, the Groom Tools and
 
 GroomLab for Blender provides the same grooming workflow as the Maya plug-in: the same **Groom
 Tools** (Place, Draw, Comb, Smooth, Cut, Paint, Select, Freeze...), guide groups and painted maps,
-a **pie menu** on **Y** in place of Maya's marking menu, and GroomLab's node graph with the same
-presets as Maya and the GroomLab app. A groom saved from Blender evaluates to the same strands in
+a **pie menu** on **Y** in place of Maya's marking menu, and GroomLab's Graph Editor with the same
+node categories and presets as Maya and the GroomLab app. A groom saved from Blender evaluates to the same strands in
 Maya, and the other way round.
 
 It is a Blender **extension** for Blender 5.2 LTS on Windows (x64), distributed from our site.
@@ -55,8 +55,8 @@ In the 3D viewport press **N** for the sidebar and pick the **GroomLab** tab.
 
 1. Select the mesh the hair grows on (the scalp or the whole head, at real size: a head is about
    0.2 m), with a UV map.
-2. Choose **GroomLab > Create Groom from Selection** in the top bar (or **Object > Add GroomLab
-   Groom**, or the button in the Groom Tools). Pick a **preset** to start from; **Starter Guides**
+2. Choose **GroomLab > Create Groom from Selection** in the top bar (or **Object > Create Groom
+   from Selection**, or the same button in the Groom Tools). Pick a **preset** to start from; **Starter Guides**
    spreads some guides over the scalp, or leave it at 0 and place them yourself, as in Maya.
 
 GroomLab adds a Curves object **`<mesh>_hair`** parented to the mesh. It holds the evaluated
@@ -181,17 +181,18 @@ editor's header (or the GroomLab tab) shows that groom's graph.
   orange, guides blue, meshes green, fields violet, curves yellow, strands-or-guides grey. A
   param exposed as an input is a diamond port. Each node is tinted with its category's color
   (Grow, Shape, Look, Color...) and shows a couple of the params you changed.
-- **Add** a node with **Shift+A** or **Tab** (search), by category in Maya's order. Drag from a
+- **Add** a node with **Shift+A** or **Tab** (search), by the same categories as Maya and the app
+  (Sources, Grow, Shape, Deform, Collide, Look...), each node's description as its tooltip. Drag from a
   port to wire it; a wire the graph can't take (a mesh into strands, a loop) is refused and the
   sidebar says why. **X** or **Delete** removes nodes, **Shift+D** or **Ctrl+D** duplicates them
-  with their params, **F2** renames, **M** or **B** disables a node (its input passes straight
+  with their params, **F2** renames, **M** or **B** bypasses a node (its input passes straight
   through).
 - **V** (Focus) shows the groom up to the selected node in the viewport instead of the output's;
   renders keep the output. On a Clump it shows its clump centers as dots on the scalp too. **Set as Output** makes a node the groom's output. **F** frames the
   selection, or everything.
 - Every edit goes to the groom at once and the hair follows; **Ctrl+Z** undoes it, the graph too.
-- The **Node** tab of the editor's sidebar (**N**) edits the selected node as Maya's param panel
-  does: its name, type and what it does; its params by group (click a group's title to fold it,
+- The **Node** tab of the editor's sidebar (**N**), the Node Settings, edits the selected node as
+  Maya's param panel does: its name, type and what it does; its params by group (click a group's title to fold it,
   for every node of that type), **Advanced** folded; sliders over each param's usual range, which
   you can type past; lengths in scene units. **Ramps** are edited with Blender's curve widget. A
   param set by a painted map or a texture shows the map's name. A node saved with an older
@@ -278,9 +279,9 @@ What's approximate:
 
 ## Files
 
-- **Save .groom** writes the groom in GroomLab's file conventions (Y up, centimeters). Maya and the
-  GroomLab app open it as evaluated in Blender, with the same guides.
-- **Open .groom** opens a groom from Maya, the app or Blender on the selected mesh, or with the
+- **Save Groom File...** writes the groom in GroomLab's file conventions (Y up, centimeters). Maya
+  and the GroomLab app open it as evaluated in Blender, with the same guides.
+- **Open Groom File...** opens a groom from Maya, the app or Blender on the selected mesh, or with the
   scalp stored in the file (**Use the File's Scalp**) when you don't have the head in Blender.
 - A **.blend** file stores the whole groom (guides, groups, maps, the selection), so reopening it
   restores the hair and the Groom Tools state.
@@ -289,8 +290,10 @@ What's approximate:
 
 The top bar's **GroomLab** menu has Maya's GroomLab menu items: **Groom Tools**, **Graph Editor**,
 **Create Groom from Selection**, **Groom Files** (open and save `.groom`), **Paint**, **Presets**,
-**Export** (Alembic, USD, Groom File), **GroomLab Hotkeys...**, **Support GroomLab**, **Check for
-Updates...** and **Help** (Docs, Keyboard Shortcuts, About GroomLab).
+**Export** (Alembic, USD, Groom File (.groom)), **Keyboard Shortcuts...**, **Open Download Page**
+(updates come through Blender's extensions), **Help** (Docs, Keyboard Shortcuts..., About
+GroomLab) and **Support GroomLab**. Blender's **File > Import** and **File > Export** have
+**GroomLab Groom File (.groom)** too.
 
 ## Export
 
@@ -304,8 +307,11 @@ Blender's importers convert both. The files carry the same attributes as Maya's 
 - **Jiggle** and **Simulate** nodes: the panel marks them. Jiggle passes the strands through in
   Blender, and Simulate isn't fed the scalp's motion frame by frame, so don't rely on either in a
   Blender render yet.
-- The Groom Tools' **Sculpt** (correctives) and **Reference** (photos) tabs: use Maya or the
-  GroomLab app; grooms carrying correctives evaluate in Blender as made.
+- The Groom Tools' **Correctives** and **Photos** tabs, and **Guides from Photos
+  (experimental)...**: use Maya or the GroomLab app; grooms carrying correctives evaluate in
+  Blender as made.
+- **Transfer Groom to Scalp...** (Maya and the app) and the **XGen** and **Yeti** importers (Maya):
+  transfer or import there, save a `.groom` file and open it in Blender.
 - Grooms made with earlier previews keep their guides as a Blender Curves object you sculpt with
   Blender's Curves Sculpt brushes (**Sculpt Guides**); make a new groom for the Groom Tools.
 - macOS and Linux builds.

@@ -9,6 +9,11 @@
 #include <vector>
 
 #include <QCheckBox>
+#include <QTextEdit>
+#include <QPlainTextEdit>
+#include <QKeyEvent>
+#include <QCloseEvent>
+#include <QAbstractSpinBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -17,6 +22,7 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QApplication>
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QFileDialog>
@@ -83,6 +89,7 @@ bool MainWindow::simulateTo(double lastFrame) { return runSimulation(lastFrame, 
 bool MainWindow::bakeSimulation(double lastFrame) { return runSimulation(lastFrame, true); }
 
 bool MainWindow::runSimulation(double lastFrame, bool bake) {
+    if (refuseWhileBusy(bake ? tr("baking the simulation") : tr("simulating"))) return false;
     settleCommit();
     if (!document_) {
         report(tr("No groom open to simulate"));
@@ -96,14 +103,13 @@ bool MainWindow::runSimulation(double lastFrame, bool bake) {
     if (timeline->playing()) timeline->setPlaying(false);
     const double last = lastFrame >= 0.0 ? lastFrame : timeline->last();
     timeline->setSimulationBusy(true);
+    beginJob(bake ? tr("bake of the simulation") : tr("simulation"), timeline->simulateButton());
     // The strip grows as frames are made: the run is on this thread (the session is used from
-    // one thread at a time), the events in between, as an export's.
+    // one thread at a time), the events in between, as an export's: Cancel's click gets through.
     const SimProgress progress = [this](int done, int count) {
-        if (done % 4 == 0 || done == count) {
-            refreshSimulation();
-            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::AllEvents, 5);
-        }
-        return true;
+        if (done % 4 == 0 || done == count) refreshSimulation();
+        pumpJobEvents();
+        return !exportCancel_;
     };
     bool ok = true;
     QString said;
@@ -114,17 +120,23 @@ bool MainWindow::runSimulation(double lastFrame, bool bake) {
         } else {
             const SimRun run = document_->simulateTo(last, progress);
             if (!run.errors.empty()) throw std::runtime_error(run.errors.front());
-            said = tr("Simulated %1 frames in %2 s (%3 ms a frame)")
+            said = (run.cancelled ? tr("Stopped after %1 frames in %2 s (%3 ms a frame): the frames made stay in the cache")
+                                  : tr("Simulated %1 frames in %2 s (%3 ms a frame)"))
                        .arg(run.frames)
                        .arg(run.milliseconds / 1000.0, 0, 'f', 2)
                        .arg(run.frames > 0 ? run.milliseconds / run.frames : 0.0, 0, 'f', 1);
+            if (run.cancelled) {
+                ok = false;
+                notify(said);
+            }
         }
     } catch (const std::exception& e) {
         ok = false;
         report((bake ? tr("Cannot bake the simulation: %1") : tr("Cannot simulate: %1")).arg(QString::fromUtf8(e.what())));
     }
     timeline->setSimulationBusy(false);
-    if (ok) report(said, false);
+    endJob();
+    if (ok) notify(said);
     reevaluate();
     refreshSimulation();
     refreshTitle();
@@ -132,9 +144,9 @@ bool MainWindow::runSimulation(double lastFrame, bool bake) {
 }
 
 void MainWindow::invalidateSimulation() {
-    if (!document_) return;
+    if (!document_ || refuseWhileBusy(tr("clearing the simulation"))) return;
     document_->invalidateSimulation();
-    report(tr("Simulation cleared: the next frame shown simulates again"), false);
+    notify(tr("Simulation cleared: the next frame shown simulates again"));
     reevaluate();
     refreshSimulation();
     refreshTitle();
@@ -204,6 +216,7 @@ void MainWindow::bakeCards() {
 }
 
 bool MainWindow::bakeCardsTo(const QString& directory, const QString& name, int resolution, float occlusion) {
+    if (refuseWhileBusy(tr("baking the cards"))) return false;
     settleCommit();
     if (!document_) {
         report(tr("No groom open to bake cards from"));
@@ -215,19 +228,20 @@ bool MainWindow::bakeCardsTo(const QString& directory, const QString& name, int 
     timer.start();
     CardBakeFiles files;
     try {
+        working(tr("Baking maps..."));
+        const BusyCursor wait;
         files = document_->bakeCards(dir, base, resolution, occlusion);
     } catch (const std::exception& e) {
         report(tr("Cannot bake the cards: %1").arg(QString::fromUtf8(e.what())));
         host_->cardsPanel()->setBakeStatus(tr("Bake failed: %1").arg(QString::fromUtf8(e.what())));
         return false;
     }
-    report(tr("Baked %1 cards (%2 textures) at %3 px in %4 ms to %5")
+    notify(tr("Baked %1 cards (%2 textures) at %3 px in %4 ms to %5")
                .arg(files.cards)
                .arg(files.textures)
                .arg(files.size)
                .arg(timer.elapsed())
-               .arg(QString::fromStdString(dir)),
-           false);
+               .arg(QString::fromStdString(dir)));
     // The cards show with their new maps: the view takes the bake's atlas on its next build, and
     // the textured cards are made again (a bake under the same name rewrites the same preview
     // file; the renderer loads it afresh for a new surface).
@@ -274,6 +288,7 @@ void MainWindow::runExport() {
 }
 
 bool MainWindow::exportTo(const QString& target, const QString& path, const ExportOptions& options) {
+    if (refuseWhileBusy(tr("starting another export"))) return false;
     settleCommit();  // (what the export evaluates goes on from the commit's work)
     if (!document_) {
         report(tr("No groom open to export to %1").arg(path));
@@ -291,13 +306,15 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
     }
     panel->setTarget(t);
     panel->setOutputPath(path);
+    if (host_->timeline()->playing()) host_->timeline()->setPlaying(false);  // (its frames would evaluate meanwhile)
     panel->setBusy(true);
-    exportCancel_ = false;
+    beginJob(tr("export"), panel->exportButton());
     // The panel's bar and the toast keep up between frames: the export runs on this thread
-    // (the session is used from one thread at a time), the events in between.
+    // (the session is used from one thread at a time), the events in between: Cancel's click
+    // gets through, the rest of the window waits (eventFilter).
     const ExportProgress progress = [this, panel](std::size_t done, std::size_t count) {
         panel->setProgress(done, count);
-        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::AllEvents, 5);
+        pumpJobEvents();
         return !exportCancel_;
     };
     QElapsedTimer timer;
@@ -315,12 +332,14 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
         }
     } catch (const std::exception& e) {
         panel->setBusy(false);
+        endJob();
         panel->setStatus(tr("Export failed: %1").arg(QString::fromUtf8(e.what())), true);
-        report(tr("Cannot export %1: %2").arg(path, QString::fromUtf8(e.what())));
+        report(tr("Cannot export: %1 (%2)").arg(QString::fromUtf8(e.what()), path));
         reevaluate(true);
         return false;
     }
     panel->setBusy(false);
+    endJob();
     const double seconds = timer.nsecsElapsed() / 1e9;
     const QString what = t == ExportPanel::Target::Cards ? tr("%n cards", "", static_cast<int>(result.strands))
                                                           : tr("%n frames", "", static_cast<int>(result.frames)) +
@@ -328,7 +347,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
     const QString line = result.cancelled ? tr("Stopped after %1 (%2 s): %3").arg(what).arg(seconds, 0, 'f', 2).arg(path)
                                           : tr("Wrote %1 in %2 s: %3").arg(what).arg(seconds, 0, 'f', 2).arg(path);
     panel->setStatus(line);
-    report(line, false);
+    notify(line);
     // The view is back at the document's frame (the export evaluated other frames on it).
     reevaluate(true);
     return !result.cancelled;
@@ -350,20 +369,26 @@ bool MainWindow::openPath(const QString& path) {
 }
 
 bool MainWindow::openGroom(const QString& path) {
+    if (refuseWhileBusy(tr("opening a groom"))) return false;
     try {
+        working(tr("Opening %1...").arg(QFileInfo(path).fileName()));
+        const BusyCursor wait;
         setDocument(GroomDocument::open(path.toStdString()));
     } catch (const std::exception& e) {
-        report(tr("Cannot open %1: %2").arg(path, QString::fromUtf8(e.what())));
+        report(tr("Cannot open the groom: %1 (%2)").arg(QString::fromUtf8(e.what()), path));
         return false;
     }
     rememberRecentFile(path);
     host_->setRecentFiles(recentFiles());
-    report(tr("Opened %1").arg(path), false);
+    notify(tr("Opened %1").arg(QFileInfo(path).fileName()));
     return true;
 }
 
 bool MainWindow::newGroomOnMesh(const QString& meshPath) {
+    if (refuseWhileBusy(tr("starting a new groom"))) return false;
     try {
+        working(tr("Creating the groom on %1...").arg(QFileInfo(meshPath).fileName()));
+        const BusyCursor wait;
         // An Alembic mesh keeps its animation: the file becomes the groom's scalp cache.
         if (QFileInfo(meshPath).suffix().compare(QStringLiteral("abc"), Qt::CaseInsensitive) == 0) {
             setDocument(GroomDocument::newOnAlembic(meshPath.toStdString()));
@@ -371,12 +396,14 @@ bool MainWindow::newGroomOnMesh(const QString& meshPath) {
             setDocument(GroomDocument::newOnMesh(readMeshFile(meshPath.toStdString()), meshPath.toStdString()));
         }
     } catch (const std::exception& e) {
-        report(tr("Cannot make a groom on %1: %2").arg(meshPath, QString::fromUtf8(e.what())));
+        report(tr("Cannot make a groom on the mesh: %1 (%2)").arg(QString::fromUtf8(e.what()), meshPath));
         return false;
     }
     rememberRecentFile(meshPath);
     host_->setRecentFiles(recentFiles());
-    report(tr("New groom on %1").arg(meshPath), false);
+    notify(tr("New groom on %1").arg(QFileInfo(meshPath).fileName()));
+    // A bald scalp: the next step on a card (pick Place, click the scalp; or a look from Presets).
+    host_->setStartHintShown(true);
     return true;
 }
 
@@ -391,6 +418,8 @@ void MainWindow::setDocument(std::unique_ptr<GroomDocument> document) {
     landDab(false);  // the old document's dab and commit go with it
     landCommit(false);
     lastRequest_.reset();
+    viewNode_.clear();  // (first: the graph's signal finds it cleared and evaluates nothing)
+    graph_->setViewedNode({});
     const bool graphWasShown = graphShown();
     params_->setDocument(nullptr);
     graphParams_->setDocument(nullptr);
@@ -461,6 +490,13 @@ ViewRequest MainWindow::viewRequest() const {
     const CardsPanel* cardsPanel = host_->cardsPanel();
     request.wantCards = settings_.cardsView || cardsPanel->showCards() || host_->mode() == OverlayHost::Mode::Cards;
     request.cardDensity = 1.0f;
+    // View Up to Here: the graph's result at that node (the session shows the output for a node
+    // giving no strands); exports and renders build their own requests: always the output.
+    if (!viewNode_.empty() && document_) {
+        for (const GroomDocument::NodeInfo& n : document_->nodes()) {
+            if (n.name == viewNode_) request.viewNode = viewNode_;
+        }
+    }
     return request;
 }
 
@@ -501,6 +537,8 @@ void MainWindow::reevaluate(bool quiet) {
         scaleNoticeShown_ = s.scaleNoticeSerial();
         report(QString::fromStdString(s.scaleNotice()));
     }
+    // The first guide placed: the bald-scalp hint has done its job.
+    if (host_->startHintShown() && shown.hierarchy && !shown.hierarchy->guides().empty()) host_->setStartHintShown(false);
     const MeshPtr scalp = shown.scalp ? shown.scalp : document_->file().data.scalp;
     viewport_->setScalp(scalp);
     // The cards instead of the strands: flat (the builder's item), or textured by the last
@@ -538,6 +576,7 @@ void MainWindow::reevaluate(bool quiet) {
     if (graphShown()) {
         graph_->setNodeTimes(document_->nodeTimes());
         graph_->setNodeNotes(document_->nodeNotes());
+        graph_->setNodeErrors(document_->nodeErrors());
     }
     params_->refreshNote();
     graphParams_->refreshNote();
@@ -803,9 +842,170 @@ void MainWindow::refreshGroups() {
     correctives_->refresh();
 }
 
+void MainWindow::askReload() {
+    if (!document_ || document_->path().empty()) {
+        report(tr("No groom file to reload from: save the groom first"));
+        return;
+    }
+    if (!interactive_ || !document_->dirty()) {
+        reloadGroom();
+        return;
+    }
+    const QString name = QFileInfo(QString::fromStdString(document_->path())).fileName();
+    host_->showPrompt(tr("Reload from File?"),
+                      tr("%1 has unsaved changes. Reloading reads the file again: the changes and the undo history are lost.").arg(name),
+                      {{tr("Reload"), true, [this] { reloadGroom(); }}, {tr("Cancel"), false, {}}});
+}
+
+void MainWindow::confirmDiscard(const QString& doing, std::function<void()> proceed) {
+    if (!interactive_ || !document_ || !document_->dirty()) {
+        if (proceed) proceed();
+        return;
+    }
+    const QString name = document_->path().empty() ? tr("The new groom") : QFileInfo(QString::fromStdString(document_->path())).fileName();
+    host_->showPrompt(tr("Unsaved Changes"), tr("%1 has changes that are not saved. Save them before %2?").arg(name, doing),
+                      {{tr("Save"), true,
+                        [this, proceed] {
+                            save();  // (Save As when the groom has no file yet)
+                            if (document_ && !document_->dirty() && proceed) proceed();
+                        }},
+                       {tr("Discard"), false, proceed},
+                       {tr("Cancel"), false, {}}});
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    // A job running: it stops first (its Cancel), the window closes once it has (endJob).
+    if (busy()) {
+        event->ignore();
+        closeAfterJob_ = true;
+        cancelJob();
+        notify(tr("Stopping the %1 before closing...").arg(job_));
+        return;
+    }
+    if (closing_ || !interactive_ || !document_ || !document_->dirty()) {
+        QMainWindow::closeEvent(event);
+        return;
+    }
+    event->ignore();
+    confirmDiscard(tr("closing"), [this] {
+        closing_ = true;
+        close();
+    });
+}
+
+// ---- A running job ---------------------------------------------------------------------------------
+
+void MainWindow::working(const QString& text) {
+    notify(text);
+    // The line paints before the window blocks (the work is on this thread): no input taken.
+    if (interactive_ && isVisible()) QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+}
+
+void MainWindow::beginJob(const QString& what, QObject* cancel) {
+    job_ = what;
+    jobCancel_ = cancel;
+    exportCancel_ = false;
+    closeAfterJob_ = false;
+    QApplication::setOverrideCursor(Qt::BusyCursor);  // (the window still answers: Cancel)
+}
+
+void MainWindow::endJob() {
+    if (job_.isEmpty()) return;
+    QApplication::restoreOverrideCursor();
+    job_.clear();
+    jobCancel_ = nullptr;
+    if (closeAfterJob_) {
+        closeAfterJob_ = false;
+        QTimer::singleShot(0, this, [this] { close(); });  // (asks about unsaved edits as ever)
+    }
+}
+
+bool MainWindow::cancelJob() {
+    if (!busy()) return false;
+    exportCancel_ = true;
+    return true;
+}
+
+bool MainWindow::refuseWhileBusy(const QString& doing) {
+    if (!busy()) return false;
+    report(tr("Wait for the %1 to finish (or Cancel it) before %2").arg(job_, doing));
+    return true;
+}
+
+void MainWindow::pumpJobEvents() {
+    // Every event, the user's too (eventFilter lets only the job's Cancel and Esc through).
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+}
+
+namespace {
+
+// The events a person makes: held back from everything but the job's Cancel while a job runs.
+bool userInput(QEvent::Type type) {
+    switch (type) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonRelease:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::MouseMove:
+        case QEvent::Wheel:
+        case QEvent::KeyPress:
+        case QEvent::KeyRelease:
+        case QEvent::ShortcutOverride:
+        case QEvent::ContextMenu:
+        case QEvent::TabletPress:
+        case QEvent::TabletMove:
+        case QEvent::TabletRelease:
+        case QEvent::TouchBegin:
+        case QEvent::TouchUpdate:
+        case QEvent::TouchEnd:
+        case QEvent::DragEnter:
+        case QEvent::DragMove:
+        case QEvent::Drop:
+        case QEvent::Enter:
+        case QEvent::Leave:
+        case QEvent::HoverEnter:
+        case QEvent::HoverMove:
+        case QEvent::HoverLeave:
+            return true;
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    // A job running: a shortcut (an action's) does nothing; a widget's input goes to the job's
+    // Cancel alone (a window passes it on to the widget under it: filtered there); Esc cancels.
+    if (busy()) {
+        if (event->type() == QEvent::Shortcut) return true;
+        if (watched->isWidgetType() && userInput(event->type())) {
+            if (event->type() == QEvent::KeyPress && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
+                cancelJob();
+                return true;
+            }
+            auto* widget = static_cast<QWidget*>(watched);
+            auto* cancel = qobject_cast<QWidget*>(jobCancel_);
+            const bool toCancel = cancel && (widget == cancel || cancel->isAncestorOf(widget));
+            if (!toCancel) return true;
+        }
+    }
+    // The window's Tab (the node graph) is a shortcut: a text field with the focus takes Tab
+    // itself (the next field), as a dialog's would.
+    if (event->type() == QEvent::ShortcutOverride) {
+        const int key = static_cast<QKeyEvent*>(event)->key();
+        if ((key == Qt::Key_Tab || key == Qt::Key_Backtab) &&
+            (qobject_cast<QLineEdit*>(watched) || qobject_cast<QAbstractSpinBox*>(watched) || qobject_cast<QTextEdit*>(watched) ||
+             qobject_cast<QPlainTextEdit*>(watched))) {
+            event->accept();
+            return true;
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
 bool MainWindow::reloadGroom() {
     if (!document_ || document_->path().empty()) {
-        report(tr("No groom file to reload from (save the groom first)"));
+        report(tr("No groom file to reload from: save the groom first"));
         return false;
     }
     return openGroom(QString::fromStdString(document_->path()));
@@ -862,19 +1062,22 @@ bool MainWindow::transferToMesh(const QString& path, const TransferOptions& opti
         report(tr("No groom open to transfer"));
         return false;
     }
+    if (refuseWhileBusy(tr("transferring the groom"))) return false;
     settleCommit();
     lastRequest_.reset();
+    working(tr("Transferring..."));
+    const BusyCursor wait;
     MeshPtr mesh;
     try {
         mesh = readMeshFile(path.toStdString());
     } catch (const std::exception& e) {
-        report(tr("Cannot read the mesh %1: %2").arg(path, QString::fromUtf8(e.what())));
+        report(tr("Cannot read the mesh: %1 (%2)").arg(QString::fromUtf8(e.what()), path));
         return false;
     }
     std::vector<std::string> warnings;
     const std::string error = document_->transferToScalp(mesh, options, maps, &warnings);
     if (!error.empty()) {
-        report(tr("Cannot transfer the groom to %1: %2").arg(path, QString::fromStdString(error)));
+        report(tr("Cannot transfer the groom: %1 (%2)").arg(QString::fromStdString(error), path));
         return false;
     }
     for (const std::string& warning : warnings) report(QString::fromStdString(warning), false);
@@ -895,18 +1098,22 @@ bool MainWindow::transferToMesh(const QString& path, const TransferOptions& opti
     refreshDisplayChoices();
     refreshUndoActions();
     refreshTitle();
-    report(tr("Transferred the groom onto %1 (%2)").arg(path, QString::fromLatin1(transferMethodName(options.method))), false);
+    notify(tr("Transferred the groom onto %1 (%2)").arg(QFileInfo(path).fileName(), QString::fromLatin1(transferMethodName(options.method))));
     return true;
 }
 
 void MainWindow::chooseOpen() {
-    const QString path = QFileDialog::getOpenFileName(this, tr("Open Groom"), QString(), tr("Groom files (*.groom)"));
-    if (!path.isEmpty()) openGroom(path);
+    confirmDiscard(tr("opening another groom"), [this] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("Open Groom"), QString(), tr("Groom files (*.groom)"));
+        if (!path.isEmpty()) openGroom(path);
+    });
 }
 
 void MainWindow::chooseMesh() {
-    const QString path = QFileDialog::getOpenFileName(this, tr("New Groom on Mesh"), QString(), tr("Meshes (*.obj *.abc)"));
-    if (!path.isEmpty()) newGroomOnMesh(path);
+    confirmDiscard(tr("starting a new groom"), [this] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("New Groom on Mesh"), QString(), tr("Meshes (*.obj *.abc)"));
+        if (!path.isEmpty()) newGroomOnMesh(path);
+    });
 }
 
 void MainWindow::save() {
@@ -917,9 +1124,9 @@ void MainWindow::save() {
     }
     try {
         document_->save(document_->path());
-        report(tr("Saved %1").arg(QString::fromStdString(document_->path())), false);
+        notify(tr("Saved %1").arg(QFileInfo(QString::fromStdString(document_->path())).fileName()));
     } catch (const std::exception& e) {
-        report(tr("Cannot save: %1").arg(QString::fromUtf8(e.what())));
+        report(tr("Cannot save: %1. Try Save As to another folder").arg(QString::fromUtf8(e.what())));
     }
     refreshTitle();
 }
@@ -932,9 +1139,9 @@ void MainWindow::saveAs() {
     if (!path.endsWith(QStringLiteral(".groom"), Qt::CaseInsensitive)) path += QStringLiteral(".groom");
     try {
         document_->save(path.toStdString());
-        report(tr("Saved %1").arg(path), false);
+        notify(tr("Saved %1").arg(QFileInfo(path).fileName()));
     } catch (const std::exception& e) {
-        report(tr("Cannot save: %1").arg(QString::fromUtf8(e.what())));
+        report(tr("Cannot save: %1. Try Save As to another folder").arg(QString::fromUtf8(e.what())));
     }
     refreshTitle();
 }

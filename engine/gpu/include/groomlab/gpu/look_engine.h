@@ -248,7 +248,8 @@ protected:
     virtual bool bindTargets(const LookTargets& targets, bool frames, std::size_t bytes, std::size_t uvBytes) = 0;
     // Copies own outputs into the targets the kernels could not write.
     virtual void copyToTargets(bool frames, std::size_t bytes) = 0;
-    virtual void copy(int from, int to, std::size_t bytes) = 0;
+    // `bytes` from byte `offset` of `from` to the same place in `to`.
+    virtual void copy(int from, int to, std::size_t bytes, std::size_t offset = 0) = 0;
     // The constants of every dispatch of a run, one slot each (look_engine_internal.h
     // StageConstants), uploaded together before the dispatches.
     virtual void setConstants(const void* slots, std::size_t count, std::size_t slotBytes) = 0;
@@ -271,6 +272,12 @@ protected:
 
     // A thread per point (the strands' point counts the same or not).
     bool perPoint() const { return pointThreads_; }
+    // The strands (and their points) a stage runs on: the base's first StageParams::strands up a
+    // Merge's input a, else all.
+    std::size_t stageStrands(const StageParams& p) const { return p.strands && p.strands < strandCount_ ? p.strands : strandCount_; }
+    std::size_t stagePoints(const StageParams& p) const {
+        return p.strands && p.strands < strandCount_ && base_ ? base_->strandBegin(p.strands) : pointCount_;
+    }
 
     StrandsPtr base_;
     std::size_t strandCount_ = 0, pointCount_ = 0, uniformCount_ = 0;  // uniformCount_: points per strand, 0 when they differ
@@ -284,7 +291,7 @@ protected:
 private:
     void prepare(const LookRun& run);
     void putStrandData(const LookRun& run);
-    void putFields(const LookFields& fields);
+    void putFields(const LookFields& fields, const std::vector<StageParams>& stages);
     void putStageInputs(const LookRun& run);
     // The shapers reading their neighbours or a reference: their inputs up, and their dispatch's
     // kernel, bindings (beside `input`, `input2`: a stage's result a RestoreLength reads its

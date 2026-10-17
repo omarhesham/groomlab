@@ -47,6 +47,7 @@ public:
     void setProgress(std::size_t done, std::size_t count);
     void setBusy(bool busy);
     bool busy() const { return busy_; }
+    RoundButton* exportButton() const { return export_; }  // Export, or Cancel while busy
     void setStatus(const QString& text, bool error = false);
 
 signals:

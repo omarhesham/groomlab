@@ -165,6 +165,8 @@ QColor textDim() { return glassy() ? QColor(0xB8, 0xB4, 0xAC) : mix(uiColor("tex
 QColor textMuted() { return glassy() ? QColor(0x8F, 0x8B, 0x84) : uiColor("textDim"); }
 QColor track() { return QColor(255, 255, 255, 31); }
 QColor chip() { return QColor(255, 255, 255, 20); }
+QColor chipSoft() { return QColor(255, 255, 255, 15); }
+QColor chipChecked() { return QColor(255, 255, 255, 46); }
 QColor divider() { return QColor(255, 255, 255, 31); }
 QColor renderRed() { return glassy() ? QColor(0xE5, 0x38, 0x3B) : uiColor("accent"); }
 QColor backdrop() { return glassy() ? QColor(0x17, 0x18, 0x1B) : uiColor("background"); }
@@ -193,6 +195,25 @@ QColor sliderFill(const QColor& own) {
 }
 QColor actionFill(const QColor& own) { return segmentFill(own); }
 QColor actionText(const QColor& own) { return segmentText(own); }
+QColor errorText() {
+    // The theme's ui.error, lightened on glass (the mockup's #FF7A7C over the viewport).
+    const QColor c = uiColor("error");
+    if (!c.isValid()) return redLight();
+    return glassy() ? mix(c, QColor(Qt::white), 0.25) : c;
+}
+QColor warningText() {
+    const QColor c = uiColor("warning");
+    return c.isValid() ? c : yellow();
+}
+QColor linkText() { return glassy() ? QColor(0x7F, 0xB2, 0xFF) : mix(uiColor("accent"), uiColor("text"), 0.35); }
+QColor windowButton() {
+    const QColor c = uiColor("raised");
+    return c.isValid() ? c : QColor(0x3A, 0x3C, 0x42);
+}
+QColor windowButtonHover() {
+    const QColor c = uiColor("hover");
+    return c.isValid() ? c : QColor(0x46, 0x48, 0x4F);
+}
 
 // ---- Fonts ---------------------------------------------------------------------------------------
 
@@ -295,19 +316,29 @@ QString brushTitle(const std::string& name) {
 // ---- The node graph ------------------------------------------------------------------------------
 
 QColor nodeCategoryColor(const std::string& category) {
-    // The theme's graph.categories (the Graph Editor's titles), by the operators' lowercase
-    // category names.
-    const char* title = category == "source"     ? "Sources"
-                        : category == "grow"     ? "Grow"
-                        : category == "shape"    ? "Shape"
-                        : category == "color"    ? "Color"
-                        : category == "look"     ? "Look"
-                        : category == "field"    ? "Fields & Curves"
-                        : category == "motion"   ? "Motion"
-                        : category == "feathers" ? "Feathers"
-                        : category == "output"   ? "Output"
-                                                 : "Utility";
-    return themed({"graph", "categories"}, title);
+    // The theme's graph.categories (the Graph Editor's titles), by the add-node menu's category
+    // ids (node_catalog.h); a category the theme has no color for takes the Maya Graph Editor's
+    // (its CATEGORY_COLORS).
+    struct Entry {
+        const char* id;
+        const char* title;
+        QColor fallback;
+    };
+    static const Entry entries[] = {
+        {"source", "Sources", QColor(72, 190, 170)},       {"grow", "Grow", QColor(79, 209, 197)},
+        {"shape", "Shape", QColor(90, 150, 240)},          {"deform", "Deform", QColor(110, 170, 250)},
+        {"collide", "Collide", QColor(100, 180, 200)},     {"look", "Look", QColor(170, 120, 240)},
+        {"motion", "Motion", QColor(120, 200, 255)},       {"feathers", "Feathers", QColor(226, 186, 90)},
+        {"color", "Color", QColor(255, 122, 182)},         {"convert", "Convert", QColor(240, 140, 95)},
+        {"field", "Fields & Curves", QColor(214, 122, 214)}, {"utility", "Utility", QColor(140, 148, 158)},
+        {"games", "Games", QColor(90, 200, 230)},          {"output", "Output", QColor(255, 255, 255)},
+    };
+    const Entry* entry = &entries[11];  // anything else: Utility
+    for (const Entry& e : entries) {
+        if (category == e.id) entry = &e;
+    }
+    const QColor themedColor = themed({"graph", "categories"}, entry->title);
+    return themedColor.isValid() ? themedColor : entry->fallback;
 }
 
 QColor portColor(const std::string& portType) {
@@ -332,6 +363,23 @@ QColor nodeSelected() {
     const QColor c = themed({"graph"}, "selected");
     return c.isValid() ? c : white();
 }
+
+namespace {
+
+// graph.<key>, else `fallback` (a theme file without the key).
+QColor graphColor(const char* key, const QColor& fallback) {
+    const QColor c = themed({"graph"}, key);
+    return c.isValid() ? c : fallback;
+}
+
+}  // namespace
+
+QColor graphError() { return graphColor("error", red()); }
+QColor graphWarning() { return graphColor("warning", yellow()); }
+QColor graphNote() { return graphColor("note", textMuted()); }
+QColor graphDriven() { return graphColor("driven", purple()); }
+QColor graphReads() { return graphColor("reads", blue()); }
+QColor graphWrites() { return graphColor("writes", QColor(0xF0, 0xA0, 0x50)); }
 
 qreal nodeRadius() { return value("graph", "cornerRadius", 14.0); }
 
@@ -394,7 +442,9 @@ OverlayLayout layoutOverlay(const OverlayRequest& r, const OverlayMetrics& m) {
             fit();
         }
         if (!fits()) button = std::clamp((available - fixedHeight()) / std::max(1, r.railButtons), 22, m.railButton);
-        const int beside = m.margin + std::min(m.railWidth, button + 12) + 16;
+        // Beside the rail as wide as it shows: with its names (Rail Labels) the stats and the
+        // pills go right of those too.
+        const int beside = m.margin + std::max(std::min(m.railWidth, button + 12), r.railLabelsWidth) + 16;
         out.graphPill.moveLeft(beside);
         out.graphTools.moveLeft(out.graphPill.right() + 1 + 8);
         out.stats.moveLeft(beside);

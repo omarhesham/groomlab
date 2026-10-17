@@ -13,13 +13,13 @@
 #include <vector>
 
 #include <QColor>
+#include <QDoubleSpinBox>
 #include <QString>
 #include <QWidget>
 
 #include <nlohmann/json.hpp>
 
 class QComboBox;
-class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
 class QStackedWidget;
@@ -27,6 +27,16 @@ class QStackedWidget;
 namespace groomlab::app {
 
 class RoundButton;
+
+// ---- TrimmedSpinBox -------------------------------------------------------------------------------
+// A spin box showing its number as the sliders do (trimmedNumber: the decimals at most, trailing
+// zeros dropped, 0.35 not 0.350); typing takes any of those decimals.
+class TrimmedSpinBox : public QDoubleSpinBox {
+    Q_OBJECT
+public:
+    using QDoubleSpinBox::QDoubleSpinBox;
+    QString textFromValue(double value) const override;
+};
 
 // ---- RampEditor ---------------------------------------------------------------------------------
 // The curve as the core evaluates it (ramp.h: monotone cubic, or straight segments), over

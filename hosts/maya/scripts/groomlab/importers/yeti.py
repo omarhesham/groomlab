@@ -158,15 +158,16 @@ def read_scene_records():
                        "(.ma) where Yeti is installed, then import it here" % (" (%s)" % problem if problem else ""))
 
 
-def import_yeti(nodes=None, roots=None, search_dirs=None, max_guides=None, map_resolution=1024, verbose=True):
+def import_yeti(nodes=None, roots=None, search_dirs=None, max_guides=None, map_resolution=1024, verbose=True,
+                progress=None):
     """Import Yeti graphs (names or nodes from yeti_nodes(); None: all) as GroomLab grooms,
     without Yeti.
 
     `roots`: {"VAR": folder} for variables the image search path or a texture's path needs that
     nothing sets (or the Roots field's text, "VAR=folder" lines and plain folders); `search_dirs`:
     more folders to look for files in. `max_guides`: the most guides a groom gives (default: every
-    groom strand). Returns the ImportReport (report.grooms[i]["groom"] is each new groom), printed
-    with `verbose`."""
+    groom strand). `progress(i, count, name)`: called before each graph (the window's status). Returns
+    the ImportReport (report.grooms[i]["groom"] is each new groom), printed with `verbose`."""
     if isinstance(roots, str):
         roots, extra = parse_roots(roots)
         search_dirs = list(search_dirs or []) + extra
@@ -193,7 +194,9 @@ def import_yeti(nodes=None, roots=None, search_dirs=None, max_guides=None, map_r
         return report
     records, how = read_scene_records()
     base = _base_resolver(roots, search_dirs)
-    for d in found:
+    for index, d in enumerate(found):
+        if progress is not None:
+            progress(index, len(found), d["name"])
         short = d["node"].split("|")[-1]
         record = records.get(short)
         if record is None:

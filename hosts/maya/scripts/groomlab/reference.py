@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Grooming from photos: reference cameras (Groom Tools > Reference).
+"""Grooming from photos: reference cameras (Groom Tools > Photos).
 
 A reference is a Maya camera with the photo on an image plane, under one group
 (groomlab_references). Look through it, line it up with the mesh (by eye, or by
@@ -743,7 +743,7 @@ def apply_solved_camera(camera, solved):
 
 
 def reference_info(camera):
-    """What the Reference tab shows of a reference."""
+    """What the Photos tab shows of a reference."""
     camera = _camera(camera)
     shape = _shape(camera)
     return {"camera": _name(camera), "name": _short(camera), "image": image_path(camera),

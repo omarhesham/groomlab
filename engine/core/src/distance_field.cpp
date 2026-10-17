@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -13,6 +14,7 @@
 #include "groomlab/follow_scalp.h"
 #include "groomlab/parallel.h"
 #include "groomlab/point_index.h"
+#include "groomlab/process_caches.h"
 
 namespace groomlab {
 
@@ -29,6 +31,9 @@ constexpr float kInf = std::numeric_limits<float>::infinity();
 // Corners of a cell whose normals are further apart than this (about 2.6 degrees) are across a
 // crease, a sliver of triangles or the medial axis: the normal between them is not their blend.
 constexpr float kCreaseCosine = 0.999f;
+// Probe::relaxed's (about 26 degrees), squared as the test takes it (look.slang RELAXED_CREASE2).
+constexpr float kRelaxedCrease2 = 0.81f;
+constexpr float kCrease2 = kCreaseCosine * kCreaseCosine;
 // The grid's nodes sit half a cell off the world's whole multiples of the cell: a mesh symmetric
 // about a plane through the origin (a head about x = 0) has its middle, where the closest point
 // jumps from one side to the other, inside cells, whose corners on both sides tell it, not on
@@ -348,7 +353,7 @@ const MeshDistanceField::Brick& MeshDistanceField::brickAt(const Region& region,
     return *expected;
 }
 
-MeshDistanceField::Node MeshDistanceField::nodeAt(const Brick& brick, int index, float within) const {
+MeshDistanceField::Node MeshDistanceField::nodeAt(const Brick& brick, int index, float within, std::uint32_t seedFace) const {
     std::atomic<std::uint64_t>& slot = brick.nodes[index];
     std::uint64_t word = slot.load(std::memory_order_acquire);
     Node node;
@@ -366,8 +371,17 @@ MeshDistanceField::Node MeshDistanceField::nodeAt(const Brick& brick, int index,
     const int x = index % kBrickNodes, y = (index / kBrickNodes) % kBrickNodes, z = index / (kBrickNodes * kBrickNodes);
     const Vec3f p = brick.corner + Vec3f(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)) * cell_;
     // Within the reach of any point of the cells around it. A bound at or past the true distance
-    // only prunes boxes no nearer triangle is in: the same triangle as without it.
-    const SurfacePoint sp = mesh_->closestPoint(p, std::min(reach_ + kSqrt3 * cell_, within));
+    // only prunes boxes no nearer triangle is in: the same triangle as without it. The distance to a
+    // face known to be near (the brick's middle's closest, a neighbouring node's) is such a bound,
+    // and a tight one: far fewer of the tree's boxes opened.
+    float bound = std::min(reach_ + kSqrt3 * cell_, within);
+    const float slack = 1e-6f * (std::fabs(p.x) + std::fabs(p.y) + std::fabs(p.z) + 1.0f);
+    for (const std::uint32_t face : {brick.face, seedFace}) {
+        if (face == kTableNone || face >= mesh_->triangleCount()) continue;
+        const SurfacePoint near = mesh_->closestPointOnFace(p, face);
+        bound = std::min(bound, (near.position - p).length() * 1.0001f + slack);
+    }
+    const SurfacePoint sp = mesh_->closestPoint(p, bound);
     if (sp.root.face < 0) {
         node = Node{32767, 0x7C00, {0, 0}};
     } else {
@@ -451,7 +465,8 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
         float seed = kInf;
         const float slack = 1e-5f * (std::fabs(brick.corner.x) + std::fabs(brick.corner.y) + std::fabs(brick.corner.z) + 1.0f);
         for (int k = 0; k < 8; ++k) {
-            n[k] = nodeAt(brick, cell + cornerOffset(k), seed == kInf ? kInf : (seed + kCornerApart[k] * cell_) * 1.001f + slack);
+            n[k] = nodeAt(brick, cell + cornerOffset(k), seed == kInf ? kInf : (seed + kCornerApart[k] * cell_) * 1.001f + slack,
+                          k == 0 ? kTableNone : brick.faces[cell]);  // (the first corner's face, written with its node)
             if (k == 0) seed = fromHalf(n[0].distance);
         }
     }
@@ -523,9 +538,10 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
     Vec3f nv[8];
     for (int k = 0; k < 8; ++k) nv[k] = fromOctahedral(n[k].normal);
     const float first = nv[0].dot(nv[0]);
+    const float crease2 = probe && probe->relaxed ? kRelaxedCrease2 : kCrease2;
     for (int k = 1; k < 8; ++k) {  // cos(a, b) < kCreaseCosine, without the square roots
         const float d = nv[0].dot(nv[k]);
-        if (d <= 0.0f || d * d < kCreaseCosine * kCreaseCosine * first * nv[k].dot(nv[k])) return false;
+        if (d <= 0.0f || d * d < crease2 * first * nv[k].dot(nv[k])) return false;
     }
     *normal = lerpV(lerpV(lerpV(nv[0], nv[1], fx), lerpV(nv[2], nv[3], fx), fy),
                     lerpV(lerpV(nv[4], nv[5], fx), lerpV(nv[6], nv[7], fx), fy), fz)
@@ -533,6 +549,31 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
     return true;
 }
 
+bool MeshDistanceField::bounds(const Vec3f& p, float radius, float* heightLow, float* distanceLow) const {
+    Located at;
+    if (!locate(p, &at)) {
+        // Outside the grid (which reaches past the search: a push with Probe::fieldOnly leaves every
+        // point outside it alone): beyond the search for every point within the radius, when the
+        // grid is farther than that.
+        if (!regions_) return false;
+        const Vec3f hi = origin_ + Vec3f(static_cast<float>(regionDims_[0]), static_cast<float>(regionDims_[1]),
+                                         static_cast<float>(regionDims_[2])) * regionSize_;
+        const float gap = std::max({origin_.x - p.x, p.x - hi.x, origin_.y - p.y, p.y - hi.y, origin_.z - p.z, p.z - hi.z});
+        if (!(gap > radius + cell_)) return false;
+        *heightLow = -kInf;
+        *distanceLow = kInf;
+        return true;
+    }
+    float h = at.region->heightLow, d = at.region->distanceLow;
+    if (!at.region->far) {
+        const Brick& brick = at.brick ? *at.brick : brickAt(*at.region, at.bx, at.by, at.bz);
+        h = brick.heightLow;
+        d = brick.distanceLow;
+    }
+    *heightLow = h - 2.0f * radius;
+    *distanceLow = d - radius;
+    return true;
+}
 MeshDistanceField::Push MeshDistanceField::push(const Vec3f& p, float offset, float maxDepth, float searchRadius,
                                                 Vec3f* delta, Probe* probe) const {
     const bool fieldOnly = probe && probe->fieldOnly && regions_;
@@ -776,7 +817,7 @@ MeshDistanceField::Tables MeshDistanceField::tables(float maxOffset, float searc
             const float x = static_cast<float>(k % kBrickNodes), y = static_cast<float>((k / kBrickNodes) % kBrickNodes),
                         z = static_cast<float>(k / (kBrickNodes * kBrickNodes));
             const float apart = std::sqrt(x * x + y * y + z * z) * cell_;
-            nodeAt(brick, k, seed == kInf ? kInf : (seed + apart) * 1.001f + slack);
+            nodeAt(brick, k, seed == kInf ? kInf : (seed + apart) * 1.001f + slack, brick.faces[0]);
         }
     }, 4);
 
@@ -869,18 +910,54 @@ DistanceFieldPtr sharedDistanceField(const std::shared_ptr<const ScalpMesh>& mes
     static std::mutex mutex;
     static std::list<Entry> kept;  // most recently used first
     constexpr std::size_t kKept = 4;
+    // A field grows with the queries it answers (its bricks): the ones kept besides the one handed
+    // out are let go, oldest first, beyond this many bytes (GROOMLAB_FIELD_CACHE_MB: another).
+    static const std::size_t budget = [] {
+        std::size_t mb = 768;
+        if (const char* text = std::getenv("GROOMLAB_FIELD_CACHE_MB")) mb = static_cast<std::size_t>(std::strtoull(text, nullptr, 10));
+        return mb << 20;
+    }();
+    static const bool registered = [] {
+        registerProcessCache(
+            "distance fields",
+            [] {
+                std::list<Entry> drop;
+                {
+                    const std::lock_guard<std::mutex> lock(mutex);
+                    drop.swap(kept);
+                }
+            },
+            [] {
+                const std::lock_guard<std::mutex> lock(mutex);
+                std::size_t bytes = 0;
+                for (const Entry& e : kept) bytes += e.field->stats().bytes;
+                return bytes;
+            });
+        return true;
+    }();
+    (void)registered;
     const std::uint64_t surface = mesh->surfaceHash();
+    std::list<Entry> dropped;  // (freed outside the lock)
     const std::lock_guard<std::mutex> lock(mutex);
+    auto trim = [&] {
+        std::size_t bytes = 0;
+        for (const Entry& e : kept) bytes += e.field->stats().bytes;
+        while (kept.size() > 1 && (kept.size() > kKept || bytes > budget)) {
+            bytes -= std::min(bytes, kept.back().field->stats().bytes);
+            dropped.splice(dropped.begin(), kept, std::prev(kept.end()));
+        }
+    };
     for (auto it = kept.begin(); it != kept.end(); ++it) {
         if (it->surface == surface && it->cell == cellSize && it->reach == reach && it->band == bandCells) {
             kept.splice(kept.begin(), kept, it);
+            trim();
             return kept.front().field;
         }
     }
     // Cheap to make (its region table alone: the rest comes with the queries).
     auto field = std::make_shared<const MeshDistanceField>(mesh, cellSize, reach, bandCells);
     kept.push_front({surface, cellSize, reach, bandCells, field});
-    while (kept.size() > kKept) kept.pop_back();
+    trim();
     return field;
 }
 

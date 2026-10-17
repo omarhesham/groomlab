@@ -12,6 +12,7 @@ makes a "GroomLab" hotkey set (a copy of the current one) with:
 
     import groomlab.ui.hotkeys as hk
     hk.install()             # switches to the GroomLab set
+    hk.last_changes          # what it changed: [(keys, what it did before, what it does now)]
 """
 
 from maya import cmds, mel
@@ -19,6 +20,11 @@ from maya import cmds, mel
 CATEGORY = "GroomLab"
 MARKING_MENU = "groomLabMarkingMenu"
 HOTKEY_SET = "GroomLab"
+# What the last install() changed: [(keys, what the key did before, what it does now)]; the set it
+# switched from is the first entry when it switched.
+last_changes = []
+# Key names as people read them, for the list of changes.
+_KEY_NAMES = {"y": "Y", "Page_Up": "Page Up", "Page_Down": "Page Down", "b": "B", "m": "M", "X": "Alt+Shift+X"}
 
 # Radial positions: the brushes reached for most; the rest of the catalog (brush_catalog.h) below
 # them in its order, Select and Freeze after a divider.
@@ -176,9 +182,30 @@ def _maya_binding(key, **modifiers):
         cmds.hotkeySet(current, edit=True, current=True)
 
 
+def _bound(key, modifiers):
+    """What `key` (with `modifiers`) runs in the current hotkey set: its name command's annotation
+    (or name), "" when unbound."""
+    try:
+        name = cmds.hotkey(key, query=True, name=True, **modifiers) or ""
+    except RuntimeError:
+        return ""
+    if name:
+        try:
+            return cmds.nameCommand(name, query=True, annotation=True) or name
+        except (RuntimeError, TypeError):
+            return name
+    return ""
+
+
 def install(activate=True):
-    """A "GroomLab" hotkey set (copied from the current one) with the marking menu and level keys."""
+    """A "GroomLab" hotkey set (copied from the current one) with the marking menu and level keys.
+    last_changes lists what it changed (the set switched to, each key rebound and what it did)."""
+    global last_changes
+    changes = []
     create_runtime_commands()
+    before = cmds.hotkeySet(query=True, current=True)
+    if activate and before != HOTKEY_SET:
+        changes.append(("Hotkey set", before, HOTKEY_SET + " (a copy of %s with the keys below)" % before))
     if not cmds.hotkeySet(HOTKEY_SET, exists=True):
         cmds.hotkeySet(HOTKEY_SET, source=cmds.hotkeySet(query=True, current=True))
     if activate:
@@ -200,7 +227,11 @@ def install(activate=True):
             press_name = press + "NameCommand"
             cmds.nameCommand(press_name, annotation=press, command=press, sourceType="mel")
             kwargs = {"keyShortcut": key, "name": press_name}
-            kwargs.update(binding[3] if len(binding) > 3 else {})
+            modifiers = binding[3] if len(binding) > 3 else {}
+            kwargs.update(modifiers)
+            was = _bound(key, modifiers)
+            if was != press and not was.startswith("GroomLab"):
+                changes.append((_KEY_NAMES.get(key, key), was or "(nothing)", press))
             if release:
                 release_name = release + "NameCommand"
                 cmds.nameCommand(release_name, annotation=release, command=release, sourceType="mel")
@@ -209,4 +240,15 @@ def install(activate=True):
     finally:
         if not activate:
             cmds.hotkeySet(current, edit=True, current=True)
+    last_changes = changes
     return HOTKEY_SET
+
+
+def changes_text(changes=None):
+    """What install() changed, for the note it shows: one line per change."""
+    changes = last_changes if changes is None else changes
+    if not changes:
+        return "Nothing changed: the GroomLab hotkey set was already active with its keys."
+    lines = ["%-12s %s  ->  %s" % (k, was, now) for k, was, now in changes]
+    return ("The GroomLab hotkey set changed these keys (Windows > Settings/Preferences > Hotkey Editor "
+            "switches back to your set):\n\n" + "\n".join(lines))

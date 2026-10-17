@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The GroomLab menu in Blender's top bar, Maya's GroomLab menu (hosts/maya/scripts/groomlab/ui/
 menu.py) in its order with what Blender has: Groom Tools, Graph Editor, Create Groom from
-Selection, Groom Files, Paint, Presets, Export, Hotkeys, Check for Updates..., Help, Support GroomLab."""
+Selection, Groom Files, Paint, Presets, Export, Keyboard Shortcuts..., Open Download Page (Maya's
+Check for Updates...: the add-on has no update check of its own), Help, Support GroomLab."""
 
 import bpy
 from bpy.props import EnumProperty
@@ -76,7 +77,7 @@ class GROOMLAB_OT_shortcuts(_TextPopup):
         layout = self.layout
         layout.label(text="GroomLab: Keyboard Shortcuts")
         col = layout.column(align=True)
-        for keys, what in tool_ops.SHORTCUTS:
+        for keys, what in tool_ops.shortcuts():
             row = col.row()
             split = row.split(factor=0.38)
             split.label(text=tool_ops.pie_key() if keys == "Y" else keys)
@@ -108,7 +109,7 @@ class GROOMLAB_MT_files(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         layout.operator("groomlab.load_groom", text="Open Groom File...", icon="FILE_FOLDER")
-        layout.operator("groomlab.save_groom", text="Save to Groom File...", icon="FILE_TICK")
+        layout.operator("groomlab.save_groom", text="Save Groom File...", icon="FILE_TICK")
 
 
 class GROOMLAB_MT_export(bpy.types.Menu):
@@ -118,7 +119,7 @@ class GROOMLAB_MT_export(bpy.types.Menu):
         layout = self.layout
         layout.operator("groomlab.export_alembic", text="Alembic...")
         layout.operator("groomlab.export_usd", text="USD...")
-        layout.operator("groomlab.save_groom", text="Groom File...")
+        layout.operator("groomlab.save_groom", text="Groom File (.groom)...")
 
 
 class GROOMLAB_MT_help(bpy.types.Menu):
@@ -127,7 +128,7 @@ class GROOMLAB_MT_help(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         layout.operator("wm.url_open", text="Docs", icon="HELP").url = DOCS_URL
-        layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts")
+        layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts...")
         layout.operator("groomlab.about", text="About GroomLab")
 
 
@@ -147,8 +148,8 @@ class GROOMLAB_MT_main(bpy.types.Menu):
         layout.menu("GROOMLAB_MT_graph_presets", text="Presets")
         layout.menu("GROOMLAB_MT_export")
         layout.separator()
-        layout.operator("groomlab.shortcuts", text="GroomLab Hotkeys...")
-        layout.operator("wm.url_open", text="Check for Updates...").url = UPDATES_URL
+        layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts...")
+        layout.operator("wm.url_open", text="Open Download Page", icon="URL").url = UPDATES_URL
         layout.menu("GROOMLAB_MT_help")
         layout.operator("wm.url_open", text="Support GroomLab", icon="FUND").url = DONATE_URL
 

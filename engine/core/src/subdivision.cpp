@@ -13,6 +13,7 @@
 
 #include "groomlab/parallel.h"
 #include "groomlab/random.h"
+#include "groomlab/process_caches.h"
 
 namespace groomlab {
 
@@ -561,6 +562,13 @@ std::shared_ptr<const SubdivisionPlan> SubdivisionPlan::of(const ScalpMesh& cage
     constexpr std::size_t kKept = 8;
     static std::mutex mutex;
     static std::list<std::pair<std::uint64_t, std::shared_ptr<const SubdivisionPlan>>> kept;
+    static const bool registered = (registerProcessCache("subdivision plans", [] {
+                                        std::list<std::pair<std::uint64_t, std::shared_ptr<const SubdivisionPlan>>> drop;
+                                        const std::lock_guard<std::mutex> lock(mutex);
+                                        drop.swap(kept);
+                                    }),
+                                    true);
+    (void)registered;
     std::uint64_t key = hashCombine(hashCombine(hash64(0xCC5D), cage.topologyHash()), cage.polygonHash());
     key = hashCombine(hashCombine(hashCombine(key, cage.uvHash()), cage.pointCount()), static_cast<std::uint64_t>(levels));
     if (cage.piecesHash() != 0) key = hashCombine(key, cage.piecesHash());  // the scalps' own levels

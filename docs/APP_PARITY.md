@@ -17,6 +17,35 @@ Summary: 160 rows. Before this pass: 66 present, 22 partial, 52 missing, 20 Maya
 89 present, 21 partial, 30 missing, 20 Maya only (the 26 rows marked *new* changed: 22 were
 missing, 3 partial, and the number sliders were remade).
 
+## Glossary: one name per thing in every host
+
+Maya, the app and Blender use these names in menus, panels, tooltips, messages and the docs. Where a
+host can't use the name (a Maya or Blender convention), the row says so. Node categories, node
+labels, search words and number decimals come from the core (`node_catalog.h`, the specs'
+`decimals`), and the keyboard shortcuts from one table (`shortcuts.h`), so hosts can't drift.
+
+| Thing | Name everywhere | Not |
+| --- | --- | --- |
+| The window or overlay with the node graph | **Graph Editor** (the app's mode pill reads "Graph", its tooltip "Graph Editor") | Node Graph, node editor |
+| The list of nodes beside it (app) | **Node List** | Nodes |
+| The selected node's params | **Node Settings** (Maya: the Graph Editor's right panel; Blender: the node's sidebar) | Node, Params |
+| The lighting, material and surfaces panel (app) | **Look Settings** (the mode is **Look**) | Look (for the panel) |
+| The active tool's settings | **Brush** (Maya: the Groom Tools "Brush" card; app: the Brush panel) | Brush Settings |
+| Pass a node's input straight through | **Bypass** (B); undo with Bypass again | Disable, Mute (Blender's M mutes the same way) |
+| View the groom up to a node | **Focus** (V) | View, Solo |
+| Another .groom file's result as a node (type `Reference` in files) | **Linked Groom** | Reference node |
+| Reference photos and cameras (Maya Groom Tools tab) | **Photos** | Reference (tab) |
+| Guides made from photos | **Guides from Photos (experimental)...** | Guides from Reference |
+| The tab or panel of corrective sculpts | **Correctives** | Sculpt (tab) |
+| The tab or panel of painted maps | Maya: **Paint** tab (it paints); app: **Maps** panel (it lists and paints them) | |
+| Move a groom onto another mesh | **Transfer Groom to Scalp...** | Transfer Groom to Mesh |
+| Make a groom | Maya and Blender: **Create Groom from Selection** (a mesh selected); app: **New Groom on Mesh...** (opens a mesh file: there is no selection) | Add GroomLab Groom |
+| Map kinds | **guides**, **vertices**, **texture** (a "vertex map", a "texture map"); values **gray** (one value) or **color** (r g b a) | weight map, image map |
+| HairColor's two ways | **Natural** (the `melanin` mode: pigment and redness, as real hair) and **Picked color** (the `color` mode) | melanin/color in panels; the param panel lists the raw choices |
+| Symmetry | **Symmetry** with **World X** or **Topology** | Sym X, Mirror (Mirror is the node) |
+| Numbers | the spec's `decimals` (none for counts and pixels, one for degrees, by the slider's span otherwise); trailing zeros dropped; fractions as percentages with one decimal; units after the field (cm, µm, %, °, px, cm/s²) | 0.350 next to 0.35, 1.0000 |
+| Node categories (Add Node) | Sources, Grow, Shape, Deform, Collide, Look, Motion, Feathers, Color, Convert, Fields & Curves, Utility, Games, from `node_catalog.cpp` | a host's own list |
+
 ## Files: .groom import, reload, save
 
 | Capability | Maya entry point | App |
@@ -25,9 +54,9 @@ missing, 3 partial, and the number sliders were remade).
 | New groom on a mesh | Create Groom from Selection (a mesh and curves) | present: File > New Groom on Mesh (OBJ, Alembic; an animated Alembic mesh becomes the scalp cache); curves as guides: partial (ImportCurves node only) |
 | Reload from the groom file | Groom Files > Reload (`reload_groom`), AE File > Reload | present *new*: File > Reload from File (Ctrl+R) |
 | Save to the groom file | Groom Files > Save (`save_groom`), AE File > Save | present: File > Save, Save As, the export panel's Save |
-| Export a groom file with a scalp cache over a range | Export > Groom File... (`export_groom(scalp_cache=True)`) | partial: Save keeps the caches the file came with; the app writes no new scalp cache |
+| Export a groom file with a scalp cache over a range | Groom Files > Save Groom File As... (`export_groom(scalp_cache=True)`) | partial: Save keeps the caches the file came with; the app writes no new scalp cache |
 | Groom file info | `groom_file_info` | present (the CLI's `info`; the app's title and stats) |
-| Render from the groom file (Arnold) | Export > Render from Groom File..., Render as Curves | Maya only: MtoA's render modes |
+| Render from the groom file (Arnold) | Render > Render from Groom File..., Render as Curves | Maya only: MtoA's render modes |
 | Find missing files (relink by name from a folder) | Utilities > Find Missing Files... | missing |
 | Scene-folder following (Save As moves the files) | `follow_scene_files` | Maya only: Maya's scene save callbacks (a groom's own files live beside it) |
 
@@ -54,7 +83,7 @@ missing, 3 partial, and the number sliders were remade).
 | Node positions kept with the groom | `commit_layout` | present (the graph's `"ui"`, shared with Maya) |
 | Backdrops (drawn, moved, resized, renamed, colored) | Add Backdrop Around Selection | partial *new*: drawn with their title and color (a preset's, Maya's); not made or moved here |
 | Presets menu: a submenu per category, descriptions, fitted to the scalp, required maps made, controls set | Presets menu (`presets.py`) | present *new*: the Presets pill beside the Graph pill, View > Graph Presets (core: `presets.h`; the same files) |
-| Insert a preset after the selected node (its look as one Compound, fitted; the Add-ons presets) | each preset's submenu > Insert after selected node | present *new*: the same item in the Presets pill's submenus (core: `insertPresetJson`) |
+| Insert a preset after the selected node (its look as one Compound, fitted; the Add-ons presets) | each preset's submenu > Insert After Selected Node | present *new*: the same item in the Presets pill's submenus (core: `insertPresetJson`) |
 | Save as Preset | Presets > Save as Preset... | present *new*: a glass prompt, saved to the shared user folder |
 | Copy Graph / Paste Graph as text | Presets > Copy / Paste Graph | present *new* (the paste reports what was fitted and made) |
 | Paste report: what the groom lacks (maps, color sets, files, colliders, groups, parts) | the status bar | partial: maps made and fit reported; the missing inputs are not listed |
@@ -70,7 +99,7 @@ missing, 3 partial, and the number sliders were remade).
 | Seed warnings for nodes sharing a seed | status bar | partial: the core's `seedWarnings` is there; the app does not show them |
 | Scatter guides auto-connect when given a map | automatic | missing |
 | Expose a param as an input port | context menu, param menu | present (the map source's Port; a ramp's Curve port) |
-| Bake a node to guides | context menu Bake to Guides... | missing |
+| Bake a node to guides | context menu Bake Node to Guides... | missing |
 | Cards node actions (stats, show cards/textures, LOD, bake, exports) | node action buttons | present: Cards mode (stats, Strands/Cards/Maps, LOD, Bake, the exports in Export mode) |
 | Map node actions (feed a param, paint, relink) | node action buttons | partial: a map is picked from a param's source; painting from the Maps panel; relink missing |
 | Braid paths from curves, Instance and Scales prototype from a mesh | node action buttons | Maya only: Maya curves and meshes (an Instance's or Scales' prototype is a scene mesh) |
@@ -224,10 +253,10 @@ missing, 3 partial, and the number sliders were remade).
 | Export the guides for a simulation | Simulation > Export Guides... | partial: the Unreal export writes the primary guides; no guide-only cache |
 | Load a guide cache (poses by guide ID) | Simulation > Load Guide Cache... | partial: a groom file's guide cache opens and plays; picking another cache missing |
 | Wind, Jiggle (the graph's motion) | Add Node > Motion | present |
-| Simulate node: play, Simulate Range, bake, clear | Simulate (GroomLab) menu (the main progress bar, Esc cancels), `groomlab.sim` | present (the timeline's Simulate, Bake, Clear and its strip of frames) |
-| Add > Feathers, Braid on Curves, Cards, Collider, Wind, Jiggle, Simulation | GroomLab > Add | partial: the Tab search adds any node; Cards mode's Add Cards node; feathers, braids and colliders come from presets or the search |
+| Simulate node: play, Simulate Range, bake, clear | Simulate menu (the main progress bar, Esc cancels), `groomlab.sim` | present (the timeline's Simulate, Bake, Clear and its strip of frames) |
+| Add > Feathers, Braid on Curves, Cards, Collider, Wind, Jiggle | GroomLab > Add | partial: the Tab search adds any node; Cards mode's Add Cards node; feathers, braids and colliders come from presets or the search |
 | Help: Docs, Keyboard Shortcuts, About | GroomLab > Help | present *new*: the menu's Help (floating pages over the viewport, the docs folder or the web) |
-| Support GroomLab (opens https://ko-fi.com/getgroomlab), also in About | GroomLab > Support GroomLab | present (Help > Support GroomLab) |
+| Support GroomLab (opens https://ko-fi.com/getgroomlab), also in About | GroomLab > Help > Support GroomLab | present (Help > Support GroomLab) |
 | First run: an empty-state card (Open, New groom on mesh, a preset, recent files, drag and drop) | the GroomLab menu, Maya's own recent files | present *new* (the app's own) |
 | Follow the scalp through a cache | `followScalp` | present (the timeline) |
 

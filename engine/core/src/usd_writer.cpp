@@ -104,6 +104,16 @@ struct SampledAttribute {
     std::string metadata;     // e.g. "interpolation = \"vertex\""; empty: none
     fs::path spoolPath;
     std::ofstream spool;
+    // The first frame's entries, held (an export of one frame writes its file once, never spooled),
+    // spooled when a second frame comes.
+    std::string held;
+    void put(const std::string& text, bool first) {
+        if (first) {
+            held += text;
+        } else {
+            spool << text;
+        }
+    }
 };
 
 // A prototype's geometry as a Mesh prim's body (static), `indent` before each line.
@@ -328,6 +338,14 @@ void UsdCurvesWriter::writeFrame(double frame, const StrandSet& strands, const S
     }
     d.lastFrame = frame;
     ++d.frames;
+    const bool holding = d.frames == 1;  // the first frame: held (SampledAttribute::put)
+    if (d.frames == 2) {  // the first frame's entries spooled ahead of this one's
+        for (auto& a : d.attributes) {
+            a->spool << a->held;
+            std::string().swap(a->held);
+            if (!a->spool) throw UsdError("cannot write '" + a->spoolPath.u8string() + "'");
+        }
+    }
 
     const std::size_t strandCount = strands.strandCount();
     const std::size_t pointCount = strands.pointCount();
@@ -340,7 +358,7 @@ void UsdCurvesWriter::writeFrame(double frame, const StrandSet& strands, const S
         writeValue(b);
         b.raw("],\n");
         SampledAttribute& a = *d.attributes[next++];
-        a.spool << b.str();
+        a.put(b.str(), holding);
         if (!a.spool) throw UsdError("cannot write '" + a.spoolPath.u8string() + "'");
     };
     auto list = [](TextBuffer& b, std::size_t count, const auto& item) {
@@ -359,7 +377,7 @@ void UsdCurvesWriter::writeFrame(double frame, const StrandSet& strands, const S
         head.raw("        ");
         head.number(frame);
         head.raw(": [");
-        a.spool << head.str();
+        a.put(head.str(), holding);
         std::vector<std::string> runs;
         for (std::size_t first = 0; first < count; first += kRun * kBatch) {
             const std::size_t last = std::min(count, first + kRun * kBatch);
@@ -374,9 +392,9 @@ void UsdCurvesWriter::writeFrame(double frame, const StrandSet& strands, const S
                 }
                 runs[r] = std::move(b.str());
             }, 1);
-            for (const std::string& run : runs) a.spool << run;
+            for (const std::string& run : runs) a.put(run, holding);
         }
-        a.spool << "],\n";
+        a.put("],\n", holding);
         if (!a.spool) throw UsdError("cannot write '" + a.spoolPath.u8string() + "'");
     };
 
@@ -538,6 +556,8 @@ void UsdCurvesWriter::close() {
         a.spool.close();
         if (!a.metadata.empty()) out << "        " << a.declaration << " (\n            " << a.metadata << "\n        )\n";
         out << "        " << a.declaration << ".timeSamples = {\n";
+        out.write(a.held.data(), static_cast<std::streamsize>(a.held.size()));  // one frame: all of it
+        std::string().swap(a.held);
         // Copied in large blocks (a stream buffer's << goes a character at a time).
         std::ifstream in(a.spoolPath, std::ios::binary);
         while (in.read(block.data(), static_cast<std::streamsize>(block.size())) || in.gcount() > 0) {

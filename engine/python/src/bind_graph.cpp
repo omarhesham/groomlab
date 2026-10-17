@@ -15,7 +15,10 @@
 #include "groomlab/operator_state.h"
 #include "groomlab/operators.h"
 #include "groomlab/paths.h"
+#include "groomlab/node_catalog.h"
 #include "groomlab/presets.h"
+#include "groomlab/process_caches.h"
+#include "groomlab/shortcuts.h"
 
 namespace groomlab::py_bind {
 
@@ -139,6 +142,12 @@ void bindGraph(py::module_& m) {
         .value("Value", PortType::Value);
     m.def("port_types_match", &portTypesMatch, py::arg("out"), py::arg("in"), "Whether an output type can feed an input type.");
     m.def("port_type_name", &portTypeName, py::arg("type"));
+    m.def("set_verify_incremental", &Graph::setVerifyIncremental, py::arg("on"),
+          "Every incremental evaluation checked against a full one (GraphError when they differ): tests, benchmarks.");
+    m.def("release_process_caches", &releaseProcessCaches,
+          "Lets the process-wide caches go (distance fields, surface graphs, subdivision plans, textures, array pools): "
+          "a host's scene closed. What sessions hold stays.");
+    m.def("process_cache_bytes", &processCacheBytes, "What the process-wide caches hold, in bytes (an estimate).");
     py::enum_<ValueKind>(m, "ValueKind", "What a Value port holds.")
         .value("Any", ValueKind::Any)
         .value("Number", ValueKind::Number)
@@ -301,7 +310,7 @@ void bindGraph(py::module_& m) {
                        "An evaluation for the viewport: renderOnly nodes are bypassed (else viewportOnly ones).")
         .def_readwrite("build_cards", &PyEvalContext::buildCards, "Cards nodes build their cards.")
         .def_readwrite("max_points", &PyEvalContext::maxPoints, "Viewport point budget per Scatter (0: none).")
-        .def_readwrite("strand_segments", &PyEvalContext::strandSegments, "Segments per scattered strand (0: from Resample nodes).")
+        .def_readwrite("strand_segments", &PyEvalContext::strandSegments, "Segments per scattered strand, for every Scatter (0: each Scatter's from the Resample nodes after it).")
         .def_property("externals", [](const PyEvalContext& c) { return c.externalsRef; }, &PyEvalContext::setExternals,
                       "The ExternalInputs the graph reads, or None.")
         .def_property("search_paths", [](const PyEvalContext& c) { return c.searchPaths; }, &PyEvalContext::setSearchPaths,
@@ -427,6 +436,10 @@ void bindGraph(py::module_& m) {
         .def("clear_cache", &Graph::clearCache)
         .def("adopt_cache", &Graph::adoptCache, py::arg("previous"), "Takes another graph's cached results for the next evaluation.")
         .def("set_cache_intermediates", &Graph::setCacheIntermediates, py::arg("enabled"))
+        .def_property("cache_limit", &Graph::cacheLimit, &Graph::setCacheLimit,
+                      "Bytes the cached results may hold (0: no limit); past it results go after each evaluation.")
+        .def_property_readonly("cached_bytes", &Graph::cachedBytes, "Bytes the cached strands hold (each array once).")
+        .def_property_readonly("cache_evictions", &Graph::cacheEvictions, "Results the cache limit let go so far.")
         .def_property_readonly("evaluation_count", &Graph::evaluationCount, "Operator evaluations so far (cache effectiveness).")
         .def("__len__", [](const Graph& g) { return g.nodeIds().size(); })
         .def("__repr__", [](const Graph& g) { return "<Graph nodes=" + std::to_string(g.nodeIds().size()) + ">"; });
@@ -502,6 +515,20 @@ void bindGraph(py::module_& m) {
                  return py::cast(std::make_shared<StrandSet>(*s));
              },
              py::arg("ctx") = nullptr, "Evaluates the output node as strands.")
+        .def(
+            "strand_resolution",
+            [](const GraphDocument& d, const std::string& name, bool viewport) {
+                const Graph::Resolution r = d.graph.strandResolution(d.node(name), viewport);
+                return py::make_tuple(r.segments, r.from ? py::cast(d.nameOf(r.from)) : py::none());
+            },
+            py::arg("name"), py::arg("viewport") = true,
+            "(segments, resample name or None): the most segments any Resample downstream of the node asks for (0 and "
+            "None: none; a Scatter there grows 8).")
+        .def(
+            "strand_resolution_note",
+            [](const GraphDocument& d, const std::string& name, bool viewport) { return d.graph.strandResolutionNote(d.node(name), viewport); },
+            py::arg("name"), py::arg("viewport") = true,
+            "A Scatter's or Resample's strand resolution in plain words (which Resample sets it); '' for other nodes.")
         .def("to_json", [](const GraphDocument& d) { return saveGraphJson(d); })
         .def("node_times",
              [](const GraphDocument& d) {
@@ -519,6 +546,38 @@ void bindGraph(py::module_& m) {
     m.def("default_graph", []() { return jsonLoads(defaultGraphJson()); }, "The default graph parsed into Python objects.");
     m.def("operator_specs_json", &operatorSpecsJson, "Every registered operator (ports, params) as JSON text.");
     m.def("operator_specs", []() { return jsonLoads(operatorSpecsJson()); }, "Every registered operator (ports, params) as a list of dicts.");
+    m.def(
+        "node_categories",
+        []() {
+            py::list out;
+            for (const NodeCategory& c : nodeCategories()) {
+                py::dict d;
+                d["id"] = c.id;
+                d["title"] = c.title;
+                out.append(d);
+            }
+            return out;
+        },
+        "The add-node menu's categories in order: [{id, title}] (node_catalog.h; each spec's category is an id).");
+    m.def(
+        "shortcuts",
+        [](const std::string& host) {
+            const unsigned mask = host == "maya" ? kShortcutMaya : host == "app" ? kShortcutApp : host == "blender" ? kShortcutBlender : kShortcutAll;
+            py::list out;
+            for (const Shortcut& s : shortcutsFor(mask)) {
+                py::dict d;
+                d["id"] = s.id;
+                d["context"] = s.context;
+                d["keys"] = s.keys;
+                d["action"] = s.action;
+                d["hotkey_set"] = s.mayaHotkeySet;
+                out.append(d);
+            }
+            return out;
+        },
+        py::arg("host") = std::string("maya"),
+        "Every host's shortcuts in one table (shortcuts.h): [{id, context, keys, action, hotkey_set}] for host "
+        "'maya', 'app' or 'blender' ('' : all). hotkey_set: Maya binds it with the GroomLab hotkey set.");
 
     // The editors' edits of a graph's JSON every host makes (graph_edit.h): Maya's GraphModel
     // and the standalone app's node graph.
@@ -560,7 +619,13 @@ void bindGraph(py::module_& m) {
              "Writes every param each node leaves out (its spec default) and each node's version.")
         .def("node_version", &GraphEdit::nodeVersion, py::arg("name"))
         .def("upgrade_node", &GraphEdit::upgradeNode, py::arg("name"),
-             "Raises an outdated node to its operator's newest behaviour; False when it is the newest.");
+             "Raises an outdated node to its operator's newest behaviour; False when it is the newest.")
+        .def("collapse", &GraphEdit::collapse, py::arg("names"), py::arg("compound") = std::string(),
+             "Group: the nodes replaced by one Compound node holding them (every field kept), its inputs one per "
+             "outside source; returns its name. GraphError (the graph unchanged) when it cannot.")
+        .def("expand", &GraphEdit::expand, py::arg("compound"),
+             "Ungroup: a Compound node replaced by the nodes it holds (exposed values applied, every field kept); "
+             "returns their names. GraphError (the graph unchanged) when it cannot.");
     m.def("graph_channels", [](const std::string& graph, const std::vector<std::string>& guideMaps) { return jsonLoads(graphChannelsJson(graph, guideMaps)); },
           py::arg("graph_json"), py::arg("guide_maps") = std::vector<std::string>(),
           "The strand channels (attributes) per node of a graph's JSON, without evaluating it: {node: {'incoming': "

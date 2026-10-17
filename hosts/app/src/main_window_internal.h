@@ -3,6 +3,7 @@
 
 // MainWindow's own helpers, shared by its source files (main_window*.cpp).
 
+#include <QApplication>
 #include <QSettings>
 #include <QString>
 #include <QStringList>
@@ -17,6 +18,15 @@ namespace groomlab::app {
 // responsive (Maya previews at 10% of the density); the Display panel raises it, 0 lifts it.
 constexpr double kDefaultPointBudget = 300.0;
 
+
+// The wait cursor over the window for as long as it lives (a long step on this thread: opening,
+// baking, transferring, an export), restored on every way out.
+struct BusyCursor {
+    BusyCursor() { QApplication::setOverrideCursor(Qt::WaitCursor); }
+    ~BusyCursor() { QApplication::restoreOverrideCursor(); }
+    BusyCursor(const BusyCursor&) = delete;
+    BusyCursor& operator=(const BusyCursor&) = delete;
+};
 
 // The recent files (the empty-state card's), newest first, in the user's settings.
 inline QStringList recentFiles() { return QSettings().value(QStringLiteral("recentFiles")).toStringList(); }

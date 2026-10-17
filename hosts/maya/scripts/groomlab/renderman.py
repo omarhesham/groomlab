@@ -13,7 +13,7 @@ node's own `frame` param never reaches an old-style plugin, so the frame goes in
 add_renderman_procedural(groom) makes the node, linked to the groom (a message connection), with a
 pre-shape Python script RfM runs before translating it (each frame, each IPR restart): pre_shape
 writes the groom to a .groom file at the current frame (or takes the groom's own groom file when it
-renders from one: Export > Render from Groom File, which caches the scalp's animation) and puts
+renders from one: Render > Render from Groom File, which caches the scalp's animation) and puts
 -file and -frame (and the shutter from rmanGlobals) into the data string, keeping the user's other
 keys. The data-string helpers here need no Maya (the prman tests use them).
 """
@@ -283,7 +283,7 @@ def frame_tag(frame):
 
 def groom_file_for(groom, frame):
     """The .groom the procedural reads at `frame`: (path, export). The groom's own groom file when it
-    renders from one (renderMode 1: Export > Render from Groom File, the scalp's animation cached),
+    renders from one (renderMode 1: Render > Render from Groom File, the scalp's animation cached),
     else <scene's renders folder>/renderman/<groom>.<frame>.groom, to export (one file a frame, so
     RIB written ahead for a farm keeps each frame's)."""
     from groomlab.files import groom_file

@@ -97,9 +97,15 @@ public:
     // left alone at the offset it asks.
     // `fieldOnly`: never Ask (the field's answer where it would: see above; a point outside the
     // grid is beyond the search, which the grid reaches past).
+    // `relaxed`: a soft target (Interpolate's keepClearance): a cell whose corners' normals are
+    // within about 26 degrees of each other (kRelaxedCreaseCosine) blends them, where a push asks
+    // them within about 2.6; a cell across a sharper crease, or where the closest point jumps, is
+    // answered as without it. The blend rounds the crease's corner off by up to about an eighth
+    // of the cell times the angle: a strand pushed to a clearance it keeps only on average.
     struct Probe {
         float beside = 0.0f;
         bool fieldOnly = false;
+        bool relaxed = false;
         float heightLow = -std::numeric_limits<float>::infinity();
         float distanceLow = 0.0f;
         void learnt(float height, float distance) {
@@ -116,6 +122,12 @@ public:
     // Whether push can ever move a point: not when maxDepth is within two cell diagonals of the
     // offset (every cell a push would be made in is that near the depth limit: the mesh's).
     bool canMove(float offset, float maxDepth) const;
+    // Lower bounds of the height and of the distance from the surface of every point within
+    // `radius` of p: the bounds of the region (far from the surface) or brick p falls in (made from
+    // exact queries at their middles), less twice the radius and the radius. False outside the
+    // grid. A caller with a whole strand within the radius of its root skips the surface for it
+    // where those settle every push it could ask (Collide's per-strand test).
+    bool bounds(const Vec3f& p, float radius, float* heightLow, float* distanceLow) const;
 
     // The interpolated height and normal at p (normalized; tests and tools), false where push
     // would ask the mesh or the point is not within a few cells of the surface.
@@ -230,7 +242,8 @@ private:
     // Node `index` of a fine brick, sampled on first use. `within`: a distance the surface is known
     // to be within from it (a neighbour's, plus the way between them), which bounds the query (the
     // same answer, found sooner); infinity when none is known.
-    Node nodeAt(const Brick& brick, int index, float within) const;
+    // `seedFace`: a face known to be near (a neighbouring node's; kTableNone: none), besides the brick's.
+    Node nodeAt(const Brick& brick, int index, float within, std::uint32_t seedFace = kTableNone) const;
     // Where p falls: its region, brick and cell (bricks made only when asked: `bricks`); false
     // outside the grid.
     bool locate(const Vec3f& p, Located* at) const;

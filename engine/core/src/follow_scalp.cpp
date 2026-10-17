@@ -5,6 +5,8 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <unordered_map>
 
 #include "groomlab/cards.h"
@@ -82,6 +84,28 @@ RootMotion rootMotion(const ScalpMesh& from, const ScalpMesh& to, const StrandRo
 }
 
 namespace {
+
+// The strands' (ID, index) pairs sorted (an ID's first strand first), for finding an instance's
+// strand: kept for the last strands asked, as a playback carries the same strands at rest every
+// frame (an index of 180k strands took ~40 ms a frame to make).
+using StrandIndex = std::vector<std::pair<StrandId, std::uint32_t>>;
+std::shared_ptr<const StrandIndex> strandsById(const StrandsPtr& strands) {
+    static std::mutex mutex;
+    static std::weak_ptr<const StrandSet> keptFor;
+    static std::shared_ptr<const StrandIndex> kept;
+    {
+        const std::lock_guard<std::mutex> lock(mutex);
+        if (kept && keptFor.lock() == strands) return kept;
+    }
+    auto index = std::make_shared<StrandIndex>(strands->strandCount());
+    const std::vector<StrandId>& ids = strands->ids();
+    for (std::size_t s = 0; s < ids.size(); ++s) (*index)[s] = {ids[s], static_cast<std::uint32_t>(s)};
+    std::sort(index->begin(), index->end());
+    const std::lock_guard<std::mutex> lock(mutex);
+    keptFor = strands;
+    kept = index;
+    return index;
+}
 
 // Each strand's root motion; false when every one is still.
 bool strandMotions(const StrandSet& strands, const ScalpMesh& from, const ScalpMesh& to, std::vector<RootMotion>& out) {
@@ -179,28 +203,32 @@ StrandsPtr carryStrands(const StrandsPtr& strands, const ScalpMesh& from, const 
     // Instances: a fixed direction (Random's +Y) turns with its strand's root.
     std::shared_ptr<const InstanceSet> instances = strands->instances();
     if (strandsMove && instances && !instances->empty()) {
-        std::unordered_map<StrandId, std::size_t> index;
-        index.reserve(strands->strandCount());
-        for (std::size_t s = 0; s < strands->strandCount(); ++s) index.emplace(strands->ids()[s], s);
+        const auto index = strandsById(strands);
         auto turned = std::make_shared<InstanceSet>(*instances);
-        for (InstanceSet::Instance& i : turned->instances) {
-            const auto it = index.find(i.strand);
-            if (it != index.end()) i.direction = motions[it->second].direction(i.direction);
-        }
+        parallelFor(0, turned->instances.size(), [&](std::size_t k) {
+            InstanceSet::Instance& i = turned->instances[k];
+            const auto it = std::lower_bound(index->begin(), index->end(), std::make_pair(i.strand, std::uint32_t{0}));
+            if (it != index->end() && it->first == i.strand) i.direction = motions[it->second].direction(i.direction);
+        }, 1024);
         instances = turned;
     }
 
     if (!strandsMove && !cardsMove && !feathersMove) return strands;
     auto out = std::make_shared<StrandSet>(*strands);
     if (strandsMove) {
-        std::vector<Vec3f>& positions = out->mutablePositions();
-        (void)positions;
+        // Every point written into an array of its own (not the input's cloned first, then moved),
+        // a strand at a time, in parallel.
+        const std::vector<Vec3f>& from = strands->positions();
+        Vec3f* to = out->overwritePositions().data();
+        const std::vector<std::size_t>& offsets = strands->offsets();
         parallelFor(0, out->strandCount(), [&](std::size_t s) {
             const RootMotion& m = motions[s];
-            if (m.still()) return;
-            const std::size_t count = out->strandPointCount(s);
-            Vec3f* pts = out->strandPoints(s);
-            for (std::size_t k = 0; k < count; ++k) pts[k] = m.point(pts[k]);
+            const std::size_t begin = offsets[s], end = offsets[s + 1];
+            if (m.still()) {
+                std::copy(from.begin() + static_cast<std::ptrdiff_t>(begin), from.begin() + static_cast<std::ptrdiff_t>(end), to + begin);
+                return;
+            }
+            for (std::size_t k = begin; k < end; ++k) to[k] = m.point(from[k]);
         }, 256);
         out->setInstances(instances);
     }
@@ -217,6 +245,16 @@ bool carriesPointsAlone(const StrandSet& strands) {
         if (layer && !layer->rings.empty()) return false;
     }
     return !strands.instances() || strands.instances()->empty();
+}
+
+bool carriesPointsAndInstances(const StrandSet& strands) {
+    for (const auto& layer : strands.cardLayers()) {
+        if (layer && !layer->cards.empty()) return false;
+    }
+    for (const auto& layer : strands.featherLayers()) {
+        if (layer && !layer->rings.empty()) return false;
+    }
+    return !strands.instances() || !strands.instances()->hasMeshes();
 }
 
 StrandSet::Extent carriedExtent(const StrandSet& strands, const ScalpMesh& from, const ScalpMesh& to) {

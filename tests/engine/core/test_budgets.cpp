@@ -38,6 +38,7 @@
 #include "groomlab/cards.h"
 #include "groomlab/display.h"
 #include "groomlab/export_view.h"
+#include "groomlab/follow_scalp.h"
 #include "groomlab/graph_io.h"
 #include "groomlab/groom.h"
 #include "groomlab/groom_file.h"
@@ -394,6 +395,63 @@ TEST(Budget, CollidePlaybackFrame) {
     }
     std::printf("[ budget ] playback of a deforming scalp, %zu strands: %.1f ms per frame, Collide %.1f ms\n", strands,
                 total / kFrames, collideMs / kFrames);
+}
+
+TEST(Budget, FollowScalpCarryFrame) {
+    // Following the scalp, every frame of a moving scalp carries the strands evaluated at rest
+    // (carryStrands): a wolf's fur, ~180k strands of 51 points with an instance on every tenth,
+    // turned a little more each frame. The carried points go straight into an array of their own
+    // in parallel (not the rest pose's copied first and then moved).
+    const auto sphere = test::makeSphere(60, 120, 1.0f);
+    auto rest = std::make_shared<ScalpMesh>(*sphere);
+    rest->setRestPoints(sphere->points());
+    constexpr std::size_t kStrands = 180000, kPoints = 51;
+    auto strands = std::make_shared<StrandSet>();
+    strands->resizeUniform(kStrands, kPoints);
+    {
+        Rng rng(11);
+        std::vector<StrandId>& ids = strands->mutableIds();
+        std::vector<StrandRoot>& roots = strands->mutableRoots();
+        std::vector<Vec3f>& positions = strands->mutablePositions();
+        for (std::size_t s = 0; s < kStrands; ++s) {
+            ids[s] = hashCombine(hash64(s), 0x5EEDu);
+            StrandRoot root;
+            root.face = static_cast<std::int32_t>(rng.uniform(0.0f, 1.0f) * static_cast<float>(rest->triangleCount() - 1));
+            root.u = rng.uniform(0.0f, 0.5f);
+            root.v = rng.uniform(0.0f, 0.5f);
+            roots[s] = root;
+            const Vec3f at = rest->position(root), n = rest->normal(root);
+            for (std::size_t k = 0; k < kPoints; ++k) positions[s * kPoints + k] = at + n * (0.01f * static_cast<float>(k));
+        }
+        auto instances = std::make_shared<InstanceSet>();
+        instances->prototypes.push_back("bead");
+        for (std::size_t s = 0; s < kStrands; s += 10) {
+            InstanceSet::Instance i;
+            i.strand = ids[s];
+            i.id = s;
+            i.orient = InstanceOrient::Random;
+            instances->instances.push_back(i);
+        }
+        strands->setInstances(instances);
+    }
+    std::vector<double> times;
+    StrandsPtr carried;
+    for (int frame = 0; frame <= 6; ++frame) {
+        const float a = 0.02f * static_cast<float>(frame + 1), c = std::cos(a), s = std::sin(a);
+        std::vector<Vec3f> points = sphere->points();
+        for (Vec3f& p : points) p = Vec3f(p.x * c + p.z * s, p.y, -p.x * s + p.z * c);
+        const ScalpMesh now = rest->withPoints(std::move(points));
+        const auto t0 = std::chrono::steady_clock::now();
+        carried = carryStrands(strands, *rest, now);  // (the last frame's goes as a playback's would)
+        times.push_back(msSince(t0));
+        ASSERT_TRUE(carried);
+        ASSERT_NE(carried, strands);
+    }
+    times.erase(times.begin());  // warm-up
+    std::sort(times.begin(), times.end());
+    std::printf("[ budget ] follow-the-scalp carry of %zu strands x %zu points: %.1f ms per frame (median)\n", kStrands, kPoints,
+                times[times.size() / 2]);
+    EXPECT_BUDGET(times[times.size() / 2], 30.0);
 }
 
 TEST(Budget, SelfCollideEvaluation) {

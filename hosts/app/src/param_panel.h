@@ -42,6 +42,16 @@ class MapSourceEditor;
 class RoundButton;
 class ValueSlider;
 
+// How a number param shows (param_panel.cpp): the value times `factor` (a fraction as a
+// percentage), `decimals` at most (trailing zeros dropped), `suffix` after it ("%", "°", " px").
+// `specDecimals`: the spec's "decimals" (-1: none given).
+struct DisplayUnit {
+    double factor = 1.0;
+    QString suffix;
+    int decimals = 3;
+};
+DisplayUnit displayUnit(const std::string& unit, bool integer, int specDecimals = -1);
+
 class ParamPanel : public QWidget {
     Q_OBJECT
 public:
@@ -51,8 +61,11 @@ public:
     void showNode(const std::string& node);     // builds the editors for it ("": none)
     // The node's note from the last evaluation (it does nothing as set) as a grey line under the
     // description; hidden without one.
+    // The node's error from the last evaluation (GroomDocument::nodeErrors) as a red line under
+    // its title too; hidden without one.
     void refreshNote();
     QString note() const;
+    QString error() const;
     const std::string& node() const { return node_; }
     // The editors take the document's values again (after undo and redo): rebuilt on the next
     // turn of the event loop (never under an editor's own signal), once no drag is live.
@@ -64,6 +77,11 @@ public:
     // The description wraps, which would make the host's layout ask a height for a width (the
     // scroll area's small hint) instead of sizeHint: the hint is the answer.
     bool hasHeightForWidth() const override { return false; }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;  // the wrapped lines keep their height
+
+public:
     // What the panel says of the node: its description (the operator's, as Maya's Attribute
     // Editor shows it), "" with no node.
     QString description() const;
@@ -124,6 +142,7 @@ private:
     };
     void build();
     void clearForm();
+    void fitWrappedLabels();
     // Shows the rows whose showWhen holds in open sections, and the headers of sections with a row
     // shown: after a build and after each edit (no rebuild).
     void updateVisibility();
@@ -146,6 +165,7 @@ private:
     RoundButton* presets_ = nullptr;  // beside the title for a Simulate node (simulatePresets)
     QLabel* description_ = nullptr;
     QLabel* note_ = nullptr;  // the node's note (refreshNote)
+    QLabel* error_ = nullptr;  // the node's error (refreshNote)
     QLabel* empty_ = nullptr;  // "No node selected", in place of the rows
     QCheckBox* bypass_ = nullptr;
     QComboBox* evaluation_ = nullptr;  // when the node runs

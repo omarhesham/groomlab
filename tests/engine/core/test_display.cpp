@@ -798,6 +798,16 @@ TEST(Display, BuildsAgainOnlyWhatChanged) {
     EXPECT_EQ(rebuiltItems(builder.update(in, s.settings)),
               (std::set<std::string>{"dimStrands", "strands", "coloredStrands", "ribbons", "instanceMarkers", "instanceMeshes",
                                       "scales"}));
+    // New strands holding the very same points (a Width or HairColor edit: StrandChanges::pointsKept):
+    // the strands, the instances kept.
+    ASSERT_NE(in.strandsSerial, 0u);
+    StrandChanges kept;
+    kept.pointsKept = true;
+    in.changesBase = in.strandsSerial;
+    ++in.strandsSerial;
+    in.strandsChanges = std::make_shared<const StrandChanges>(kept);
+    ++in.strandsVersion;
+    EXPECT_EQ(rebuiltItems(builder.update(in, s.settings)), (std::set<std::string>{"dimStrands", "strands", "coloredStrands", "ribbons"}));
 }
 
 TEST(Display, AColorRangeRecolorsTheLinesAlone) {

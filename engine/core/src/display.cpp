@@ -10,10 +10,12 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_set>
 
 #include "groomlab/color_patterns.h"
 #include "groomlab/curve.h"
 #include "groomlab/export_view.h"
+#include "groomlab/follow_scalp.h"
 #include "groomlab/frames.h"
 #include "groomlab/hair_color.h"
 #include "groomlab/parallel.h"
@@ -1019,14 +1021,38 @@ void appendInstances(DisplayGeometry& markers, DisplayGeometry& meshes, const st
     meshes.triangles = true;
     meshes.surface = true;
     const std::size_t count = std::min(placed.size(), kMaxDrawnInstances);
+    // Which draw as their meshes (in order, while the triangle budget lasts; the rest as markers),
+    // and where each one's vertices and indices go: then every instance written in parallel, in
+    // the order it would be appended.
+    constexpr std::size_t kMarkerPoints = 6, kMarkerIndices = 24;
+    std::vector<const InstancePrototype*> meshOf(count, nullptr);
+    std::vector<std::size_t> vertexAt(count + 1, 0), indexAt(count + 1, 0), markerAt(count + 1, 0);
     std::size_t trianglesDrawn = 0;
     for (std::size_t i = 0; i < count; ++i) {
         const InstanceSet::Placed& p = placed[i];
         const InstancePrototype* mesh = p.prototype < prototypes.size() ? prototypes[p.prototype] : nullptr;
         const std::size_t triangles = mesh ? mesh->triangles.size() / 3 : 0;
-        if (mesh && triangles > 0 && trianglesDrawn + triangles <= kInstanceTriangleBudget) {
+        const bool meshed = mesh && triangles > 0 && trianglesDrawn + triangles <= kInstanceTriangleBudget;
+        if (meshed) {
             trianglesDrawn += triangles;
-            const auto base = static_cast<std::uint32_t>(meshes.positions.size() / 3);
+            meshOf[i] = mesh;
+        }
+        vertexAt[i + 1] = vertexAt[i] + (meshed ? mesh->points.size() : 0);
+        indexAt[i + 1] = indexAt[i] + (meshed ? mesh->triangles.size() : 0);
+        markerAt[i + 1] = markerAt[i] + (meshed ? 0 : 1);
+    }
+    const std::size_t meshVertexBase = meshes.positions.size() / 3, meshIndexBase = meshes.indices.size();
+    const std::size_t markerVertexBase = markers.positions.size() / 3, markerIndexBase = markers.indices.size();
+    meshes.positions.resize((meshVertexBase + vertexAt[count]) * 3);
+    meshes.normals.resize(meshes.positions.size());
+    meshes.indices.resize(meshIndexBase + indexAt[count]);
+    markers.positions.resize((markerVertexBase + markerAt[count] * kMarkerPoints) * 3);
+    markers.indices.resize(markerIndexBase + markerAt[count] * kMarkerIndices);
+    parallelFor(0, count, [&](std::size_t i) {
+        const InstanceSet::Placed& p = placed[i];
+        if (const InstancePrototype* mesh = meshOf[i]) {
+            const std::size_t first = meshVertexBase + vertexAt[i];
+            const auto base = static_cast<std::uint32_t>(first);
             // Normals through the inverse transpose: the axes are at right angles, each scaled on
             // its own (a strand-fitted instance is longer along +Y), so each over its squared length.
             auto inverseSquared = [](const Vec3f& a) {
@@ -1034,29 +1060,37 @@ void appendInstances(DisplayGeometry& markers, DisplayGeometry& meshes, const st
                 return l2 > 1e-30f ? a / l2 : a;
             };
             const Vec3f nx = inverseSquared(p.x), ny = inverseSquared(p.y), nz = inverseSquared(p.z);
+            float* positions = meshes.positions.data() + first * 3;
+            float* normals = meshes.normals.data() + first * 3;
             for (std::size_t v = 0; v < mesh->points.size(); ++v) {
                 const Vec3f& q = mesh->points[v];
                 const Vec3f w = p.origin + p.x * q.x + p.y * q.y + p.z * q.z;
                 const Vec3f& m = mesh->normals[v];
                 Vec3f n = nx * m.x + ny * m.y + nz * m.z;
                 n = n.length() > 1e-12f ? n.normalized() : Vec3f{0.0f, 1.0f, 0.0f};
-                meshes.positions.insert(meshes.positions.end(), {w.x, w.y, w.z});
-                meshes.normals.insert(meshes.normals.end(), {n.x, n.y, n.z});
+                positions[v * 3] = w.x, positions[v * 3 + 1] = w.y, positions[v * 3 + 2] = w.z;
+                normals[v * 3] = n.x, normals[v * 3 + 1] = n.y, normals[v * 3 + 2] = n.z;
             }
-            for (const std::uint32_t index : mesh->triangles) meshes.indices.push_back(base + index);
-            continue;
+            std::uint32_t* indices = meshes.indices.data() + meshIndexBase + indexAt[i];
+            for (std::size_t k = 0; k < mesh->triangles.size(); ++k) indices[k] = base + mesh->triangles[k];
+            return;
         }
-        const Vec3f tips[6] = {p.origin + p.x * 0.5f, p.origin - p.x * 0.5f, p.origin + p.y,
-                               p.origin,            p.origin + p.z * 0.5f, p.origin - p.z * 0.5f};
-        const auto base = static_cast<std::uint32_t>(markers.positions.size() / 3);
-        for (const Vec3f& v : tips) markers.positions.insert(markers.positions.end(), {v.x, v.y, v.z});
-        // Edges from the top (2) and bottom (3) to the four around.
+        const Vec3f tips[kMarkerPoints] = {p.origin + p.x * 0.5f, p.origin - p.x * 0.5f, p.origin + p.y,
+                                           p.origin,            p.origin + p.z * 0.5f, p.origin - p.z * 0.5f};
+        const std::size_t first = markerVertexBase + markerAt[i] * kMarkerPoints;
+        const auto base = static_cast<std::uint32_t>(first);
+        float* positions = markers.positions.data() + first * 3;
+        for (std::size_t v = 0; v < kMarkerPoints; ++v) {
+            positions[v * 3] = tips[v].x, positions[v * 3 + 1] = tips[v].y, positions[v * 3 + 2] = tips[v].z;
+        }
+        std::uint32_t* indices = markers.indices.data() + markerIndexBase + markerAt[i] * kMarkerIndices;
+        // Edges from the top (2) and bottom (3) to the four around, then the ring.
         for (const std::uint32_t pole : {2u, 3u}) {
-            for (const std::uint32_t ring : {0u, 4u, 1u, 5u}) markers.indices.insert(markers.indices.end(), {base + pole, base + ring});
+            for (const std::uint32_t ring : {0u, 4u, 1u, 5u}) *indices++ = base + pole, *indices++ = base + ring;
         }
         const std::uint32_t ringOrder[5] = {0u, 4u, 1u, 5u, 0u};
-        for (int k = 0; k < 4; ++k) markers.indices.insert(markers.indices.end(), {base + ringOrder[k], base + ringOrder[k + 1]});
-    }
+        for (int k = 0; k < 4; ++k) *indices++ = base + ringOrder[k], *indices++ = base + ringOrder[k + 1];
+    }, 64);
 }
 
 DisplayGeometry scaleGeometry(const ScaleMesh& scales) {
@@ -1238,6 +1272,19 @@ std::uint64_t hashChars(std::uint64_t h, const std::string& text) {
     return h;
 }
 
+// The strands of `strands` an instance sits on, in order.
+std::vector<std::size_t> instancedStrands(const StrandSet& strands) {
+    std::vector<std::size_t> out;
+    if (!strands.instances()) return out;
+    std::unordered_set<std::uint64_t> held;
+    held.reserve(strands.instances()->size());
+    for (const InstanceSet::Instance& i : strands.instances()->instances) held.insert(i.strand);
+    for (std::size_t s = 0; s < strands.strandCount(); ++s) {
+        if (held.count(strands.ids()[s])) out.push_back(s);
+    }
+    return out;
+}
+
 }  // namespace
 
 DisplayInputs DisplayInputs::fromView(const ViewResult& view, bool stroke) {
@@ -1254,6 +1301,7 @@ DisplayInputs DisplayInputs::fromView(const ViewResult& view, bool stroke) {
     in.strandsSerial = view.strandsSerial;
     in.changesBase = view.changesBase;
     in.strandsChanges = view.strandsChanges;
+    in.follow = view.follow;
     in.hierarchyVersion = view.versions.hierarchy;
     in.cardsVersion = view.versions.cards;
     in.strandMeshes = view.strandMeshes;
@@ -1492,7 +1540,32 @@ void DisplayBuilder::buildInstances(const DisplayInputs& in, const DisplaySettin
         auto it = in.prototypes->find(name);
         return it == in.prototypes->end() ? nullptr : &it->second;
     };
-    std::uint64_t key = hashCombine(hash64(in.strandsVersion), showInstances ? 1u : 0u);
+    // The strands they sit on: their points as at the last build (the same strands, or later ones
+    // holding the very same points: a Width or HairColor edit, StrandChanges::pointsKept) keep the
+    // instances as built; with instances scaled by their strand's width, its widths too. Strands
+    // of no known serial (a host's own, or at rest while it carries them) key by their version.
+    const std::shared_ptr<const InstanceSet>& set = in.strands ? in.strands->instances() : instancesOf_;
+    std::uint64_t points = hashCombine(hash64(in.strandsVersion), 0x1A5u);
+    if (instances && in.strandsSerial != 0) {
+        const bool samePoints = set == instancesOf_ && instancesSerial_ != 0 &&
+                                ((in.strandsSerial == instancesSerial_ && in.strandsVersion == instancesVersion_) ||
+                                 (in.changesBase == instancesSerial_ && in.strandsChanges && in.strandsChanges->pointsKept));
+        const bool byWidth = std::any_of(instances->instances.begin(), instances->instances.end(),
+                                         [](const InstanceSet::Instance& i) { return i.scaleByWidth; });
+        const std::vector<float>& widths = in.strands->widths();
+        const std::uint64_t widthsDigest =
+            byWidth && in.strandsSerial != instancesSerial_ ? parallelDigest(widths.data(), widths.size()) : instancesWidths_;
+        points = samePoints && widthsDigest == instancesWidths_ ? instancesPoints_ : hashCombine(0x5E7u, ++counter_);
+        instancesWidths_ = widthsDigest;
+    }
+    instancesOf_ = instances ? set : nullptr;
+    instancesSerial_ = instances ? in.strandsSerial : 0;
+    instancesVersion_ = in.strandsVersion;
+    instancesPoints_ = points;
+    // Following the scalp, the strands at rest (the host carries them): the instances placed on
+    // their strands carried to the scalp now (carriesPointsAndInstances).
+    const FollowCarry* carry = instances && in.follow ? in.follow.get() : nullptr;
+    std::uint64_t key = hashCombine(points, showInstances ? 1u : 0u);
     if (instances) {
         // The meshes as they are now: a changed one changes the key.
         for (const std::string& name : instances->prototypes) {
@@ -1500,7 +1573,9 @@ void DisplayBuilder::buildInstances(const DisplayInputs& in, const DisplaySettin
             key = hashCombine(key, mesh ? mesh->signature : 0);
         }
         if (instances->hasMeshes()) key = hashCombine(key, in.scalp ? in.scalp->surfaceHash() : 0);  // the skin they bend onto
+        if (carry) key = hashCombine(hashCombine(key, carry->from()->surfaceHash()), carry->to()->surfaceHash());
     }
+    if (!carry) instancedFrom_.reset(), instancedRest_.reset();
     if (!rebuild(DisplayPart::Instances, key)) return;
     DisplayGeometry markers, meshes, scales;
     if (instances) {
@@ -1511,7 +1586,17 @@ void DisplayBuilder::buildInstances(const DisplayInputs& in, const DisplaySettin
             if (!mesh) mesh = prototypeOf(name);
             prototypes.push_back(mesh && mesh->found ? mesh : nullptr);
         }
-        std::vector<InstanceSet::Placed> placed = instances->resolve(*in.strands, in.scalp.get());
+        StrandsPtr placedOn = in.strands;
+        if (carry) {
+            // The strands holding an instance (once per set at rest), carried as carryStrands carries
+            // all of them: each instance placed where it is placed on all the strands carried.
+            if (instancedFrom_ != in.strands) {
+                instancedFrom_ = in.strands;
+                instancedRest_ = std::make_shared<const StrandSet>(in.strands->subset(instancedStrands(*in.strands)));
+            }
+            placedOn = carryStrands(instancedRest_, *carry->from(), *carry->to());
+        }
+        std::vector<InstanceSet::Placed> placed = (placedOn->instances() ? *placedOn->instances() : *instances).resolve(*placedOn, in.scalp.get());
         placed.erase(std::remove_if(placed.begin(), placed.end(), [](const InstanceSet::Placed& p) { return p.meshed; }),
                      placed.end());
         appendInstances(markers, meshes, placed, prototypes);

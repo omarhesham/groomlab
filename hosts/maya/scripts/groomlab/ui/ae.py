@@ -313,8 +313,8 @@ COLOR = "groomLabAEColor"
 # mode only are in _COLOR_ONLY. The groups and names are HairColor's (PxrHairColor's: Base,
 # Randomness, Tips, Highlight).
 COLOR_ROWS = (
-    ("mode", "Mode", "mode", "Melanin: natural hair (melanin and redness, and a dye). Color: the color you pick, "
-     "as it shows and renders (white hair: white)"),
+    ("mode", "Mode", "mode", "Natural (the melanin mode): pigment and redness, and a dye, as real hair. Picked color "
+     "(the color mode): the color you pick, as it shows and renders (white hair: white)"),
     ("color", "Color", "color", "The hair's color as it shows and renders (mode Color)"),
     ("melanin", "Melanin", "float", "Pigment: 0 white or blond, 1 black"),
     ("redness", "Redness", "float", "Share of red pigment: 0 brown or black, 1 red"),
@@ -337,7 +337,8 @@ COLOR_ROWS = (
     ("specular", "Specular", "float", "Highlight strength (0.3: aiStandardHair's full specular tint)"),
     ("roughness", "Roughness", "float", "Highlight spread, 0 sharp to 1 broad"),
 )
-COLOR_MODES = (("melanin", "Melanin (natural)"), ("color", "Color (RGB)"))
+# The two ways as every host names them (docs/APP_PARITY.md, Glossary): HairColor's mode melanin / color.
+COLOR_MODES = (("melanin", "Natural"), ("color", "Picked color"))
 _COLOR_ONLY = {"color": "color", "valueRandom": "color", "melanin": "melanin", "redness": "melanin", "dye": "melanin",
                "result": "melanin", "greys": "melanin", "melaninRandom": "melanin"}
 _COLOR_DEFAULTS = {"mode": "melanin", "color": [0.8, 0.8, 0.8], "melanin": 0.35, "redness": 0.2, "dye": [1.0, 1.0, 1.0],

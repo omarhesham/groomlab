@@ -63,6 +63,11 @@ StrandsPtr carryStrands(const StrandsPtr& strands, const ScalpMesh& from, const 
 // Whether carryStrands moves nothing of `strands` but each strand's points: no card layers,
 // rachis rings or instances ride on them (what a host carrying the points alone may take).
 bool carriesPointsAlone(const StrandSet& strands);
+// The same, or instances ride on them too, each placed by a matrix on its strand alone (no scale
+// or instance bent onto the skin or along its strand: InstanceSet::hasMeshes): placing them on
+// their strands carried (carryStrands of those strands, then InstanceSet::resolve) gives what
+// placing them on all the strands carried does.
+bool carriesPointsAndInstances(const StrandSet& strands);
 
 // The extent carryStrands(strands, from, to) would have (its points carried the same way), without
 // making it: no copy of the strands.

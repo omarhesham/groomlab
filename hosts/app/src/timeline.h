@@ -84,7 +84,8 @@ public:
     // Frames the clock advanced past without being shown (the window counts what it showed).
     std::size_t droppedFrames() const { return dropped_; }
     // The sim controls (shown while the graph has a Simulate node) and the strip of the frames
-    // simulated (FrameScrubber::setSimulatedFrames). Busy: Simulate and Bake are running.
+    // simulated (FrameScrubber::setSimulatedFrames). Busy: Simulate or Bake is running, the
+    // Simulate button reads Cancel (simulationCancelRequested) and the others wait.
     void setSimulationShown(bool shown);
     bool simulationShown() const;
     void setSimulatedFrames(FrameScrubber::Runs cached, FrameScrubber::Runs baked);
@@ -103,6 +104,7 @@ signals:
     void simulateRequested();    // Simulate: the range's frames into the cache
     void bakeRequested();        // Bake: simulated and written beside the groom
     void invalidateRequested();  // Clear: the frames and bakes dropped
+    void simulationCancelRequested();  // Cancel (the Simulate button while a run is busy)
 
 private:
     void tick();  // the clock's frame, shown when it moved
@@ -129,6 +131,7 @@ private:
     RoundButton* bakeSim_ = nullptr;
     RoundButton* clearSim_ = nullptr;
     bool updating_ = false;
+    bool simBusy_ = false;
 };
 
 }  // namespace groomlab::app

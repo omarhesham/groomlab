@@ -235,6 +235,17 @@ public:
     std::string addNode(const std::string& type, float x, float y, std::string* made, const std::string& name = {});
     // Removes the node with every connection to or from it.
     std::string removeNode(const std::string& node);
+    // Removes several nodes in one undo step (the output node is left; "" or the error when
+    // nothing else was asked).
+    std::string removeNodes(const std::vector<std::string>& nodes);
+    // The nodes and the links between them as clipboard text, as Maya's Graph Editor writes it
+    // (graph.py copy_nodes: {"groomlabNodes": 1, "nodes", "connections"}): every field kept. The
+    // output node is never copied. "" when nothing is.
+    std::string copyNodes(const std::vector<std::string>& nodes) const;
+    // Copied nodes added with their links in one undo step: each named afresh when its name is
+    // taken, moved by (dx, dy) (graph.py paste_nodes); a Sculpt node's edits copied with it while
+    // its source is here. The names made go to *made. "" or the error (nothing changes then).
+    std::string pasteNodes(const std::string& text, float dx, float dy, std::vector<std::string>* made = nullptr);
     // Connects `from`'s output (`output` "": its first) to `to`'s `input`, replacing what fed it:
     // the user's link (GraphEdit::connectByHand: a Clump fed centers takes them).
     std::string connectNodes(const std::string& from, const std::string& output, const std::string& to, const std::string& input);
@@ -250,6 +261,22 @@ public:
     std::string duplicateNode(const std::string& node, std::string* made);
     std::string setOutputNode(const std::string& node);
     std::string tidyLayout();
+    // Group (Ctrl+G): the nodes into one Compound node (GraphEdit::collapse, Maya's Graph
+    // Editor's too), one undo step; its name to *made. Ungroup (Ctrl+Shift+G): each Compound's
+    // nodes back in the graph (GraphEdit::expand), one undo step for them all; their names to
+    // *made. "" or the error (nothing changes then).
+    std::string collapseNodes(const std::vector<std::string>& nodes, std::string* made = nullptr);
+    std::string expandNodes(const std::vector<std::string>& compounds, std::vector<std::string>* made = nullptr);
+    // The graph's backdrops ("backdrops", graph_io.h: layout only, Maya's Graph Editor's and a
+    // preset's): {"title", "x", "y", "w", "h", "color": [r, g, b]}, by index in that list. Adding
+    // one, its title, its color and removing one are each an undo step; moving or resizing one is
+    // not (as node moves are not), the file is dirty after it. "" or the error.
+    static constexpr int kBackdropColor[3] = {70, 90, 120};  // Maya's default (Blue)
+    std::string addBackdrop(const std::string& title, double x, double y, double w, double h, int* index = nullptr);
+    std::string setBackdropTitle(int index, const std::string& title);
+    std::string setBackdropColor(int index, int r, int g, int b);
+    std::string removeBackdrop(int index);
+    void setBackdropRect(int index, double x, double y, double w, double h);
     // A node's behaviour version as saved and its operator's newest (graph_edit.h): Upgrade is on
     // offer while the first is lower. {0, 0} for no such node.
     std::pair<int, int> nodeVersion(const std::string& node) const;
@@ -262,6 +289,9 @@ public:
     // Instance's whose prototype mesh the groom file does not hold, and a node's reading an attribute
     // no node upstream writes (channels(); not a read of an optional default, as Clump's region).
     std::vector<std::pair<std::string, std::string>> nodeNotes() const;
+    // Each failing node's error from the last view, by name: the view's errors that name a node
+    // ("node 'clump1': why", graph.h; inside a compound, the compound), the first per node.
+    std::vector<std::pair<std::string, std::string>> nodeErrors() const;
     // The attributes (strand channels) per node as the graph is set, without evaluating it
     // (graphChannelsJson, attributes.h; the guide layers as the guides' painted maps): what reaches
     // each node and from which node, what it writes and overwrites, whether its reads reach it.

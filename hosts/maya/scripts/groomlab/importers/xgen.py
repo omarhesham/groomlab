@@ -87,15 +87,16 @@ def xgen_descriptions():
 
 
 def import_xgen(descriptions=None, roots=None, search_dirs=None, max_guides=None, map_resolution=1024,
-                match_count=True, verbose=True):
+                match_count=True, verbose=True, progress=None):
     """Import XGen descriptions (names from xgen_descriptions(); None: all) as GroomLab grooms.
 
     `roots`: {"VAR": folder} for variables a map's path needs that nothing sets (or the Roots
     field's text, "VAR=folder" lines and plain folders); `search_dirs`: more folders to look for
     files in. `max_guides`: the most guides an IGS description gives (default: about one per 25
     splines, 32 to 2000). `match_count`: set Scatter's density so the groom grows as many strands
-    as XGen (IGS: XGen's spline count; Core: the generator's density as it is). Returns the
-    ImportReport (report.grooms[i]["groom"] is each new groom), printed with `verbose`."""
+    as XGen (IGS: XGen's spline count; Core: the generator's density as it is). `progress(i, count,
+    name)`: called before each description (the window's status). Returns the ImportReport
+    (report.grooms[i]["groom"] is each new groom), printed with `verbose`."""
     if not xgen_available():
         raise RuntimeError("XGen's plugin (%s) is not available" % PLUGIN)
     if isinstance(roots, str):
@@ -118,7 +119,9 @@ def import_xgen(descriptions=None, roots=None, search_dirs=None, max_guides=None
     base = _base_resolver(roots, search_dirs)
     work = tempfile.mkdtemp(prefix="groomlab_xgen_")
     try:
-        for d in found:
+        for index, d in enumerate(found):
+            if progress is not None:
+                progress(index, len(found), d["name"])
             report.begin(d["name"], "XGen %s" % ("Interactive Groom" if d["flavor"] == "igs" else "Core"))
             try:
                 if d["flavor"] == "igs":

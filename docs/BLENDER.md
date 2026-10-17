@@ -18,7 +18,7 @@ process, and the core needs no Python build per Blender version):
 
 | | What | License | Where it runs |
 |---|---|---|---|
-| **The add-on** (B2, `hosts/blender/addon`) | UI, Blender data in and out (hair curves, the scalp mesh, the strands object), the node graph panels | GPL-3.0-or-later (its own LICENSE) | inside Blender |
+| **The add-on** (B2, `hosts/blender/addon`) | UI, Blender data in and out (hair curves, the scalp mesh, the strands object), the Graph Editor and its panels | GPL-3.0-or-later (its own LICENSE) | inside Blender |
 | **groomlab-helper** (B1, `hosts/blender/helper`) | the core: GroomSession, the graph, presets, `.groom` files, exports | Apache-2.0 | its own process |
 
 The add-on starts the helper as a separate executable and talks to it over pipes and shared
@@ -667,7 +667,7 @@ by the editor's overlay, beside the error "!", note "i", View eye and evaluation
   (`gl_name` empty: the Add menu, a duplicate or paste, whose `copy()` names the source to copy
   params from) `add_node` at its position, a missing one `remove_node`, a renamed one
   `rename_node`, links `connect`/`disconnect` (every link, even before Blender validates it), a
-  mute `set_bypass` (Maya's Disable). Then the groom evaluates and the tree is rebuilt from the
+  mute `set_bypass` (Bypass, as in Maya and the app). Then the groom evaluates and the tree is rebuilt from the
   graph (a timer: never inside the update), which drops what the graph refused.
 - A node property's update is a `set_param` (scene units to centimeters); a Compound param's
   widget the same.
@@ -696,11 +696,12 @@ param's map named (Paint: `groomlab.paint_param`, the helper's `map_for_param`),
 linked to a field shown with its driver. The **GroomLab** tab has the groom, its status and the
 presets browser. The header: the groom, **Presets** (by category, each preset Apply or Insert
 after selected node, its description the tooltip), a **View** chip while a node is viewed, and the
-**⋯** menu (Frame, Tidy Layout, the node's Set as Output / View / Disable / Duplicate / Delete,
+**⋯** menu (Frame, Tidy Layout, the node's Set as Output / View / Bypass / Duplicate / Delete,
 Reload from Groom). The node context menu has the node's actions too.
 
 **Keys**, in GroomLab graphs only (each operator's poll; elsewhere Blender's own): Tab add
-(search), F frame the selection or all, V View (Focus), B Disable, Ctrl+D duplicate; Blender's
+(search; the Add menu is the core's categories, each node's description its tooltip), F frame the
+selection or all, V View (Focus), B Bypass, Ctrl+D duplicate; Blender's
 Shift+A, X/Delete, Shift+D, M, F2 and Home work as ever.
 
 What differs from Maya's editor (Blender's node editor or not done yet): the header color is the
@@ -774,7 +775,7 @@ Deviations Blender forces:
 - No middle-drag radius/strength (Blender's view rotation): B / M + drag only, as Maya's hotkeys.
 - Blender postpones its autosave while a modal operator runs: the tool's does too; leave the tool
   (Esc) now and then in long sessions, or save.
-- Sculpt (correctives) and Reference tabs are not here (the helper does not run them); nor the
+- The Correctives and Photos tabs are not here (the helper does not run them); nor the
   Segments resample slider, the parts list (Part's Remove / From Curves) and Flow's Clear All
   (no helper command yet); Fill works on guide maps only.
 - "Strands dimmed" while sculpting is not offered (Blender has no per-object viewport dimming);

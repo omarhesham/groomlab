@@ -8,7 +8,7 @@
   "coloredStrands": [
    18054,
    32096,
-   "f3d8eb39a5cdda8f"
+   "6e44f1745537b412"
   ],
   "dimStrands": [
    0,
@@ -74,6 +74,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -90,7 +95,7 @@
   "cards": [
    300,
    720,
-   "99a4346763e7701c"
+   "fd0ff49cdf3e3ae5"
   ],
   "coloredStrands": [
    0,
@@ -161,6 +166,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -177,7 +187,7 @@
   "cards": [
    300,
    720,
-   "b35587a42316bdb8"
+   "0159431ca5803d1a"
   ],
   "coloredStrands": [
    0,
@@ -248,6 +258,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -269,7 +284,7 @@
   "coloredStrands": [
    18054,
    32096,
-   "781488cd1bf94909"
+   "d5d9fcb1f37e0181"
   ],
   "dimStrands": [
    0,
@@ -335,6 +350,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -356,7 +376,7 @@
   "coloredStrands": [
    18054,
    32096,
-   "842f740e36c11062"
+   "91e4611a596bc229"
   ],
   "dimStrands": [
    0,
@@ -422,6 +442,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -443,7 +468,7 @@
   "coloredStrands": [
    18054,
    32096,
-   "3d59781d2831fbfa"
+   "e4360117c1648cca"
   ],
   "dimStrands": [
    0,
@@ -509,6 +534,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -597,10 +627,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "95e9979afd80bf13"
+   "8fda153489d1694b"
   ],
   "tubes": [
    0,
@@ -684,10 +719,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -771,10 +811,15 @@
    12,
    "d86053b8cec22755"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -858,10 +903,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    12832,
@@ -1047,10 +1097,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -1134,10 +1189,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -1199,7 +1259,7 @@
   "ribbons": [
    36108,
    96288,
-   "b7bc22859d2651d2"
+   "328aa265bce2b34c"
   ],
   "scales": [
    0,
@@ -1220,6 +1280,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -1308,10 +1373,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -1395,10 +1465,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -1482,10 +1557,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -1569,10 +1649,15 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -1656,10 +1741,15 @@
    0,
    "0dd2f5d6ccceefff"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    18054,
    32096,
-   "63907c7b851741c6"
+   "a9fce5bafc5b1079"
   ],
   "tubes": [
    0,
@@ -1676,7 +1766,7 @@
   "coloredStrands": [
    18054,
    32096,
-   "2c369d3753c7aaa4"
+   "db88d0a273fa6926"
   ],
   "dimStrands": [
    0,
@@ -1742,6 +1832,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -1808,7 +1903,7 @@
   "ribbons": [
    36108,
    96288,
-   "443dbd608ff60f92"
+   "39c7f54e159aebd4"
   ],
   "scales": [
    0,
@@ -1829,6 +1924,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -1917,6 +2017,11 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    14042,
    36108,
@@ -1942,7 +2047,7 @@
   "dimStrands": [
    18054,
    32096,
-   "95e9979afd80bf13"
+   "8fda153489d1694b"
   ],
   "dots": [
    224,
@@ -2004,6 +2109,11 @@
    48,
    "cff53e1b25a70753"
   ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
+  ],
   "strands": [
    0,
    0,
@@ -2024,7 +2134,7 @@
   "coloredStrands": [
    18054,
    32096,
-   "2c369d3753c7aaa4"
+   "db88d0a273fa6926"
   ],
   "dimStrands": [
    0,
@@ -2090,6 +2200,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,
@@ -2177,6 +2292,11 @@
    25,
    48,
    "cff53e1b25a70753"
+  ],
+  "strandMesh": [
+   0,
+   0,
+   "dcd89924b76baf79"
   ],
   "strands": [
    0,

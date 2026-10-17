@@ -4,10 +4,15 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <map>
+#include <set>
+#include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "groomlab/cards.h"
+#include "groomlab/graph_edit.h"
 #include "groomlab/graph_io.h"
 #include "groomlab/groom.h"
 #include "groomlab/operators.h"
@@ -364,6 +369,142 @@ TEST(Compound, KeysOnTheContextItsInnerNodesRead) {
     EXPECT_FALSE(withCards->cardLayers().front()->cards.empty());
     ctx.buildCards = false;
     EXPECT_TRUE(doc.graph.evaluateStrands(doc.output, ctx)->cardLayers().empty());
+}
+
+// Group and Ungroup as every host's editor does them (GraphEdit::collapse, expand): links from
+// outside become the compound's inputs (strands, a Field into an exposed param, a Value into one),
+// the same groom evaluates, and expanding gives every node, field and link back.
+TEST(Compound, CollapseAndExpandRoundTrip) {
+    GraphEdit edit(baseGraph().dump());
+    edit.addNode("Noise", "noise", R"({"amplitude": 0.05})", 300.0, 40.0);
+    edit.addNode("Curl", "curl", R"({"radius": 0.02})", 520.0, 80.0);
+    edit.addNode("FieldNoise", "wobble", R"({"min": 0.02, "max": 0.06})", 100.0, 300.0);
+    edit.addNode("Value", "octaves", R"({"kind": "integer", "integer": 3})", 100.0, 420.0);
+    json g = json::parse(edit.toJson());
+    for (json& n : g["nodes"]) {
+        if (n["name"] == "noise") n["paramInputs"] = {"amplitude", "octaves"};
+        if (n["name"] == "curl") n["paramControls"] = {{"frequency", "freq"}};
+    }
+    edit = GraphEdit(g.dump());
+    edit.connect("scatter", "noise", "strands");
+    edit.connect("noise", "curl", "strands");
+    edit.connect("curl", "out", "strands");
+    edit.connect("wobble", "noise", "amplitude");
+    edit.connect("octaves", "noise", "octaves");
+    const json before = json::parse(edit.toJson());
+    const StrandsPtr inlined = eval(before.dump());
+    ASSERT_GT(inlined->strandCount(), 100u);
+
+    const std::string name = edit.collapse({"curl", "noise", "nope"});
+    EXPECT_EQ(name, "compound");
+    EXPECT_EQ(edit.nodeType(name), "Compound");
+    EXPECT_FALSE(edit.hasNode("noise"));
+    const json spec = json::parse(edit.nodeSpecJson(name));
+    std::vector<std::pair<std::string, std::string>> inputs;
+    for (const json& p : spec["inputs"]) inputs.emplace_back(p["name"], p["type"]);
+    EXPECT_EQ(inputs, (std::vector<std::pair<std::string, std::string>>{{"strands", "Strands"}, {"amplitude", "Field"}, {"octaves", "Value"}}));
+    const json grouped = json::parse(edit.toJson());
+    std::set<std::string> links;
+    for (const json& c : grouped["connections"]) {
+        links.insert(c["from"].get<std::string>() + ">" + c["to"].get<std::string>() + "." + c["input"].get<std::string>());
+    }
+    EXPECT_EQ(links, (std::set<std::string>{"scalp>scatter.scalp", "scatter>compound.strands", "wobble>compound.amplitude",
+                                            "octaves>compound.octaves", "compound>out.strands"}));
+    EXPECT_EQ(eval(grouped.dump())->positions(), inlined->positions());  // the same groom, grouped
+    // The inner nodes keep every field (exposed params, keyed params, position).
+    json definition;
+    for (const json& n : grouped["nodes"]) {
+        if (n["name"] == name) definition = n["params"]["definition"];
+    }
+    EXPECT_EQ(definition["graph"]["output"], "curl");
+    for (const json& n : definition["graph"]["nodes"]) {
+        if (n["name"] == "noise") EXPECT_EQ(n["paramInputs"], json({"amplitude", "octaves"}));
+        if (n["name"] == "curl") EXPECT_EQ(n["paramControls"], json({{"frequency", "freq"}}));
+    }
+
+    // An exposed param's value goes to its inner param on the way out; a name taken outside
+    // meanwhile is made free.
+    json withExposed = grouped;
+    for (json& n : withExposed["nodes"]) {
+        if (n["name"] != name) continue;
+        n["params"]["definition"]["expose"] = {{"amount", "noise.amplitude"}};
+        n["params"]["amount"] = 0.07;
+    }
+    GraphEdit exposed(withExposed.dump());
+    exposed.addNode("Width", "curl", "", 0.0, 600.0);  // takes the inner node's name
+    EXPECT_EQ(exposed.expand(name), (std::vector<std::string>{"noise", "curl1"}));
+    for (const json& n : json::parse(exposed.toJson())["nodes"]) {
+        if (n["name"] == "noise") EXPECT_EQ(n["params"]["amplitude"], 0.07);
+    }
+    EXPECT_EQ(exposed.outputNode(), "out");
+
+    // Ungrouped: the nodes, their fields, the links and the output as they were.
+    EXPECT_EQ(edit.expand(name), (std::vector<std::string>{"noise", "curl"}));
+    const json after = json::parse(edit.toJson());
+    std::set<std::string> beforeLinks, afterLinks;
+    for (const json& c : before["connections"]) beforeLinks.insert(c.dump());
+    for (const json& c : after["connections"]) afterLinks.insert(c.dump());
+    EXPECT_EQ(afterLinks, beforeLinks);
+    EXPECT_EQ(after["output"], before["output"]);
+    std::map<std::string, json> was, now;
+    for (const json& n : before["nodes"]) was[n["name"]] = n;
+    for (const json& n : after["nodes"]) now[n["name"]] = n;
+    ASSERT_EQ(now.size(), was.size());
+    for (const auto& [n, node] : was) {
+        ASSERT_TRUE(now.count(n)) << n;
+        json a = node, b = now[n];
+        if (a.contains("ui")) {
+            EXPECT_NEAR(a["ui"]["x"].get<double>(), b["ui"]["x"].get<double>(), 1e-9) << n;
+            EXPECT_NEAR(a["ui"]["y"].get<double>(), b["ui"]["y"].get<double>(), 1e-9) << n;
+        }
+        a.erase("ui");
+        b.erase("ui");
+        EXPECT_EQ(a, b) << n;
+    }
+    EXPECT_EQ(eval(after.dump())->positions(), inlined->positions());
+
+    // The graph's output grouped: the compound is the output, and back.
+    GraphEdit last(before.dump());
+    const std::string tail = last.collapse({"curl", "out"});
+    EXPECT_EQ(last.outputNode(), tail);
+    last.expand(tail);
+    EXPECT_EQ(last.outputNode(), "out");
+}
+
+TEST(Compound, GroupsThatCannotBeMadeLeaveTheGraphAlone) {
+    GraphEdit edit(inlineGraph(0.05).dump());
+    edit.addNode("Width", "width", "", 0.0, 0.0);
+    edit.connect("scatter", "width", "strands");
+    const std::string before = edit.toJson();
+    EXPECT_THROW(edit.collapse({}), GraphError);
+    try {
+        edit.collapse({"scatter", "noise"});  // scatter feeds width, noise feeds curl
+        ADD_FAILURE() << "two nodes feeding out were grouped";
+    } catch (const GraphError& e) {
+        EXPECT_NE(std::string(e.what()).find("only one of the nodes"), std::string::npos) << e.what();
+    }
+    EXPECT_THROW(edit.expand("noise"), GraphError);  // not a Compound
+    EXPECT_EQ(edit.toJson(), before);
+
+    // A node feeding out from another output than its first is refused.
+    GraphEdit map(R"({"nodes": [{"name": "mask", "type": "Map"}, {"name": "remap", "type": "FieldRemap"}],
+                      "connections": [{"from": "mask", "to": "remap", "input": "in", "output": "g"}]})");
+    EXPECT_THROW(map.collapse({"mask"}), GraphError);
+    // The group reads the output its source gave; ungrouped, the link names it again.
+    map.expand(map.collapse({"remap"}));
+    const json links = json::parse(map.toJson())["connections"];
+    ASSERT_EQ(links.size(), 1u);
+    EXPECT_EQ(links[0].value("output", std::string()), "g");
+
+    // A definition from another build (an unknown operator): refused, the graph unchanged.
+    json g = compoundGraph(json::object());
+    for (json& n : g["nodes"]) {
+        if (n["name"] == "frizzy") n["params"]["definition"]["graph"]["nodes"][1]["type"] = "Bogus";
+    }
+    GraphEdit bogus(g.dump());
+    const std::string kept = bogus.toJson();
+    EXPECT_THROW(bogus.expand("frizzy"), GraphError);
+    EXPECT_EQ(bogus.toJson(), kept);
 }
 
 TEST(Compound, MalformedDefinitionsAreGraphErrors) {

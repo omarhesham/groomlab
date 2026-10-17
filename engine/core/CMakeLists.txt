@@ -42,10 +42,12 @@ add_library(groomlab_core_objects OBJECT
     src/groom_file.cpp
     src/graph_io.cpp
     src/graph_edit.cpp
+    src/graph_compound.cpp
     src/guide_hierarchy.cpp
     src/guide_selection.cpp
     src/guide_set.cpp
     src/instances.cpp
+    src/node_catalog.cpp
     src/noise.cpp
     src/node_common.cpp
     src/parts.cpp
@@ -53,6 +55,7 @@ add_library(groomlab_core_objects OBJECT
     src/transfer_markers_edit.cpp
     src/paths.cpp
     src/presets.cpp
+    src/shortcuts.cpp
     src/png.cpp
     src/ptex.cpp
     src/point_index.cpp
@@ -81,6 +84,7 @@ add_library(groomlab_core_objects OBJECT
     src/follow_scalp.cpp
     src/strand_geometry.cpp
     src/preview_core.cpp
+    src/process_caches.cpp
     src/strand_set.cpp
     src/surface_paths.cpp
     src/stroke.cpp

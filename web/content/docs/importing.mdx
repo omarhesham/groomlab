@@ -14,6 +14,11 @@ Each description becomes one GroomLab groom on the same scalp. The import reads 
 builds a graph in the usual order and copies the maps it uses into the scene's masks folder.
 Then it reports what it took over exactly, what it approximated and what it left out.
 
+The importers are under **GroomLab > Import** and under **Import** in the Groom Tools' **Output**
+section. They need Maya: the app and Blender open the imported grooms as `.groom` files, but have
+no XGen or Yeti import of their own. For plain Alembic curves, see
+[Start from existing curves](/docs/utilities#start-from-existing-curves).
+
 ## Importing
 
 1. Open the scene with the XGen descriptions. Maya's XGen plugin must be loaded (GroomLab loads it
@@ -25,8 +30,8 @@ Then it reports what it took over exactly, what it approximated and what it left
 4. If XGen's texture paths use variables your machine doesn't set (`${TEXTURE_ROOT}/hair/density.png`),
    add a line `TEXTURE_ROOT=D:/library/textures` to **Roots**. A line with only a folder adds a
    folder to look for files in.
-5. Click **Import**. The report shows in the window and in the Script Editor. The new grooms are
-   selected.
+5. Click **Import**. The window shows which description it is importing; the report shows in the
+   window and in the Script Editor. The new grooms are selected.
 
 If a file is missing, the import goes on without it. The report lists the file, every place it
 looked, and any variable that nothing set. Add that variable to Roots and import again.
@@ -167,7 +172,8 @@ graph's expressions and attribute params read.
 3. Yeti finds textures through the node's image search path, which often names a variable
    (`${PROJECT_ROOT}/textures`). If your machine doesn't set it, add a line
    `PROJECT_ROOT=D:/project` to **Roots**. A line with only a folder adds a folder to look in.
-4. Click **Import**. The report shows in the window and in the Script Editor.
+4. Click **Import**. The window shows which graph it is importing; the report shows in the window
+   and in the Script Editor.
 
 From Python:
 

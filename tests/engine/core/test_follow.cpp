@@ -365,6 +365,53 @@ TEST(FollowScalp, AHostCarryingTheStrandsGetsThemAtRestAndTheSameBounds) {
     EXPECT_FALSE(handed.evaluate(hosted).follow);
 }
 
+TEST(FollowScalp, AHostCarryingInstancedStrandsDrawsTheInstancesWhereTheSessionPlacesThem) {
+    // Instances on the strands (Instance after the look, randomly turned ones too): the host still
+    // gets the strands at rest to carry, and the display places the instances on their strands
+    // carried, as where they sit on the strands the session carries itself. A scale (bent onto the
+    // skin) leaves the carry to the session.
+    std::string graph = kLookGraph;
+    const std::string tail = R"({"from": "width", "to": "output", "input": "strands"})";
+    graph.replace(graph.find(tail), tail.size(),
+                  R"({"from": "width", "to": "snow", "input": "strands"}, {"from": "snow", "to": "dust", "input": "strands"},
+                     {"from": "dust", "to": "output", "input": "strands"})");
+    const std::string lastNode = R"({"name": "output", "type": "Output"})";
+    graph.replace(graph.find(lastNode), lastNode.size(),
+                  R"({"name": "snow", "type": "Instance", "params": {"probability": 0.4, "tMin": 0.3, "scale": 0.05}},
+                     {"name": "dust", "type": "Instance", "params": {"probability": 0.2, "orient": "random", "seed": 2}},
+                     {"name": "output", "type": "Output"})");
+    GroomData data = followData(graph.c_str());
+    data.followScalp = true;
+    GroomSession carried(data), handed(data);
+    ViewRequest hosted;
+    hosted.hostCarries = true;
+    DisplaySettings settings;
+    settings.instances = true;
+    DisplayBuilder fromSession, fromHost;
+    for (const int frame : {2, 3}) {
+        SCOPED_TRACE("frame " + std::to_string(frame));
+        carried.updateScalpPoints(deformedPoints(*data.scalp, frame));
+        handed.updateScalpPoints(deformedPoints(*data.scalp, frame));
+        const ViewResult& a = carried.evaluate(ViewRequest{});
+        const ViewResult& b = handed.evaluate(hosted);
+        ASSERT_TRUE(a.strands && a.strands->instances() && !a.strands->instances()->empty());
+        ASSERT_TRUE(b.follow) << "instances on the strands: still the host's to carry";
+        const DisplayItem& want = fromSession.update(DisplayInputs::fromView(a), settings).item(DisplayItemId::InstanceMarkers);
+        const DisplayItem& got = fromHost.update(DisplayInputs::fromView(b), settings).item(DisplayItemId::InstanceMarkers);
+        ASSERT_TRUE(want.geometry && got.geometry);
+        EXPECT_GT(want.vertexCount, 0u);
+        EXPECT_EQ(got.geometry->digest(), want.geometry->digest());
+    }
+    // A scale: the session carries (it bends onto the skin as it is now).
+    std::string scaled = graph;
+    const std::string snow = R"("type": "Instance", "params": {"probability": 0.4, "tMin": 0.3, "scale": 0.05})";
+    scaled.replace(scaled.find(snow), snow.size(), R"("type": "Scales")");
+    data.graphJson = scaled;
+    GroomSession scales(data);
+    scales.updateScalpPoints(deformedPoints(*data.scalp, 2));
+    EXPECT_FALSE(scales.evaluate(hosted).follow);
+}
+
 TEST(FollowScalp, PosesInWorldSpaceKeepTheirPlace) {
     // Every guide posed where it is on the moved scalp (a simulation that followed the head
     // exactly): the poses, taken back to rest, change nothing.

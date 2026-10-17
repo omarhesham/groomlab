@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""GroomLab > Guides > Guides from Reference (experimental)...: the Reference window. Wrap-style,
+"""GroomLab > Guides from Photos (experimental)...: the Reference window. Wrap-style,
 as the Transfer Groom window (and built from the same pieces, mesh_views.py): never modal, two
 views side by side, the reference photo on the left and the groom's scalp on the right, and the
 settings, Generate and the measured look in a panel beside them. Nothing has to be done through a
@@ -154,10 +154,11 @@ class PhotoView(QtWidgets.QWidget):
 
     def _paint(self, painter):
         w = self.window
-        painter.fillRect(self.rect(), QtGui.QColor(46, 48, 53))
+        t = theme.current()
+        painter.fillRect(self.rect(), t.qcolor("ui.background"))
         W, H = self.size_px
         if W <= 0:
-            painter.setPen(QtGui.QColor(200, 200, 200))
+            painter.setPen(t.qcolor("ui.textDim"))
             painter.drawText(self.rect(), QtCore.Qt.AlignCenter | QtCore.Qt.TextWordWrap,
                              "Import a photo (Import Photo... above)")
             return
@@ -168,7 +169,7 @@ class PhotoView(QtWidgets.QWidget):
         if self.pixmap is not None:
             painter.drawPixmap(QtCore.QRectF(0, 0, W, H), self.pixmap, QtCore.QRectF(self.pixmap.rect()))
         else:
-            painter.fillRect(QtCore.QRectF(0, 0, W, H), QtGui.QColor(70, 70, 70))
+            painter.fillRect(QtCore.QRectF(0, 0, W, H), t.qcolor("ui.raised"))
         preview = w.preview() if (w.mask_tint.isChecked() or w.field_lines.isChecked()) else None
         if preview:
             x0, y0, cw, ch = preview["crop"]
@@ -361,7 +362,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         self._last_rows = None
         self.last_result = {}
         self._undo_was_on = cmds.undoInfo(query=True, state=True)
-        self.setWindowTitle("Guides from Reference")
+        self.setWindowTitle("Guides from Photos")
         self.setWindowIcon(widgets.icon("logo"))
         self.setObjectName("groomLabReferenceWindow")
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
@@ -486,6 +487,10 @@ class ReferenceWindow(QtWidgets.QWidget):
         self.redo_button.setObjectName("referenceRedo")
         self.redo_button.clicked.connect(lambda: self.redo())
         bottom.addWidget(self.redo_button)
+        bottom.addSpacing(theme.px(12))
+        # The one button rule: secondary actions, the primary one on the right, Close last.
+        bottom.addWidget(self.look_button)
+        bottom.addWidget(self.generate_button)
         close = QtWidgets.QPushButton("Close")
         close.clicked.connect(self.close)
         bottom.addWidget(close)
@@ -658,21 +663,19 @@ class ReferenceWindow(QtWidgets.QWidget):
         self.gen_length.valueChanged.connect(lambda *_: self._invalidate_preview())
         form.addRow("Max length", self.gen_length)
         layout.addLayout(form)
-        row = QtWidgets.QHBoxLayout()
+        # Generate and Measured Look sit in the window's bottom row (always in view, beside Close).
         self.generate_button = QtWidgets.QPushButton("Generate")
         self.generate_button.setObjectName("referenceGenerate")
         self.generate_button.setProperty("role", "primary")
         self.generate_button.setToolTip("Grow guides from the photos into the fromReference group (again: replaced). One "
                                         "undo step.")
         self.generate_button.clicked.connect(lambda: self.generate())
-        row.addWidget(self.generate_button, 1)
         self.look_button = QtWidgets.QPushButton("Measured Look")
         self.look_button.setObjectName("referenceApplyLook")
         self.look_button.setToolTip("The color, clumps, curls, flyaways, frizz, color variation and thinning measured on "
-                                    "the photos, shown against the graph's before they are set")
+                                    "the photos, shown against the graph's before they are set (in the panel above "
+                                    "Generate)")
         self.look_button.clicked.connect(lambda: self.preview_look())
-        row.addWidget(self.look_button, 1)
-        layout.addLayout(row)
         # Apply Measured Look's preview (in place, no dialog): each node's values, now and measured;
         # the checked nodes are set (added where the graph has none) in one undo step.
         self.look_panel = QtWidgets.QWidget()
@@ -688,6 +691,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         buttons = QtWidgets.QHBoxLayout()
         apply_ = QtWidgets.QPushButton("Apply")
         apply_.setObjectName("referenceLookApply")
+        apply_.setProperty("role", "primary")
         apply_.setToolTip("Set the checked nodes' values (a node the graph lacks is added in the usual order). One undo "
                           "step.")
         apply_.clicked.connect(lambda: self.apply_look())
@@ -1206,7 +1210,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         if apply and result.get("ok"):
             with mesh_views.no_undo():
                 if not self.ref.apply_solved_camera(self.camera, result):
-                    self.message.setText("%s is locked: unlock it (Groom Tools > Reference) for the solve to move it"
+                    self.message.setText("%s is locked: unlock it (Groom Tools > Photos) for the solve to move it"
                                          % self.camera.split("|")[-1])
         return result
 
@@ -1476,8 +1480,11 @@ class ReferenceWindow(QtWidgets.QWidget):
         length = self.gen_length.value()
         views = self.used_photos()
         try:
-            result = self.fr.generate(self.groom, views, guide_count=self.gen_count.value(),
-                                      symmetry=self.gen_symmetry.currentData(), max_length=length if length > 0 else None)
+            with widgets.busy([self.generate_button, self.look_button], self.message,
+                              "Generating %d guides from %d photo(s)..." % (self.gen_count.value(), len(views))):
+                result = self.fr.generate(self.groom, views, guide_count=self.gen_count.value(),
+                                          symmetry=self.gen_symmetry.currentData(),
+                                          max_length=length if length > 0 else None)
         except (RuntimeError, ValueError) as e:
             self.message.setText(str(e).strip())
             return None
@@ -1492,7 +1499,9 @@ class ReferenceWindow(QtWidgets.QWidget):
     def preview_look(self):
         """Apply Measured Look, step one: the measured values against the graph's, in place."""
         try:
-            rows = self.fr.measured_look_preview(self.groom) if self.groom else []
+            with widgets.busy([self.generate_button, self.look_button], self.message,
+                              "Measuring the look on the photos..."):
+                rows = self.fr.measured_look_preview(self.groom) if self.groom else []
         except (RuntimeError, ValueError) as e:
             self.message.setText(str(e).strip())
             rows = []
@@ -1524,6 +1533,8 @@ class ReferenceWindow(QtWidgets.QWidget):
         self.look_panel.setVisible(bool(rows))
         if not rows:
             self.message.setText("Nothing measured yet: Generate first.")
+        else:
+            self.message.setText("Measured %d node(s): check the ones to set, then Apply." % len(items))
         return rows
 
     def look_types(self):
@@ -1534,7 +1545,8 @@ class ReferenceWindow(QtWidgets.QWidget):
     def apply_look(self):
         """Apply Measured Look, step two: the checked nodes set (one Maya undo step)."""
         try:
-            done = self.fr.apply_measured_look(self.groom, types=self.look_types())
+            with widgets.busy([self.generate_button, self.look_button], self.message, "Setting the measured look..."):
+                done = self.fr.apply_measured_look(self.groom, types=self.look_types())
         except (RuntimeError, ValueError) as e:
             self.message.setText(str(e).strip())
             return None
@@ -1586,7 +1598,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         try:
             self.teardown(nodes=False, callbacks=False)
         except Exception as e:
-            cmds.warning("GroomLab: closing the Reference window: %s" % e)
+            cmds.warning("GroomLab: closing Guides from Photos: %s" % e)
         QtCore.QTimer.singleShot(0, self.close)
 
     def teardown(self, nodes=True, callbacks=True):

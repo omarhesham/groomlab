@@ -48,6 +48,11 @@ def main():
     args = parser.parse_args()
 
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    # Qt offscreen reads fonts from a folder (no system font database): the system's, so text is
+    # measured in Maya's own font on Windows (Segoe UI) rather than a stand-in twice as wide.
+    fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    if os.path.isdir(fonts):
+        os.environ.setdefault("QT_QPA_FONTDIR", fonts)
     api = "PySide6" if sys.version_info >= (3, 11) else "PySide2"
     os.environ["GROOMLAB_QT_API"] = api
     os.environ["GROOMLAB_NO_UPDATES"] = "1"
@@ -64,6 +69,8 @@ def main():
     from groomlab.ui import qt
     QtWidgets = qt.QtWidgets
     application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    if os.path.isdir(fonts):
+        application.setFont(qt.QtGui.QFont("Segoe UI"))  # as Maya on Windows
     from groomlab import graph as gm
     from groomlab.ui import graph_editor, palette, theme, transfer_window, updates_window, widgets
     from groomlab.ui import reference_window, yeti_import_window
@@ -120,6 +127,71 @@ def main():
         widgets.dispose(tools)
     check.run("the Theme menus list every theme, the active one checked", theme_menus)
 
+    # Errors in plain words with a next step; a failing menu item says so instead of raising.
+    def plain_errors():
+        from groomlab.ui import menu, messages
+        _expect(messages.plain(ImportError("No module named 'xgenm'")).startswith("XGen isn't loaded: load xgenToolkit"),
+                "xgenm")
+        _expect("values typed" in messages.plain(ValueError("not enough values to unpack (expected 2, got 1)")), "unpack")
+        _expect(messages.plain(IOError(13, "Permission denied", "D:/out.abc")).startswith("can't write D:/out.abc"),
+                messages.plain(IOError(13, "Permission denied", "D:/out.abc")))
+        _expect(messages.plain(RuntimeError("select a groom")) == "select a groom", "GroomLab's own words kept")
+
+        def fails():
+            raise OSError(28, "No space left on device")
+        _expect(menu._guarded(fails, "Export Alembic...")() is None, "a guarded item never raises")
+    check.run("errors in plain words; menu items guarded", plain_errors)
+
+    # GroomLab's menu as Maya would build it (the GUI session's test_the_menu_is_short checks it in
+    # Maya): one Simulate menu with nHair under Legacy, Render apart from Export, Help holding
+    # Check for Updates and Support, every item's command guarded, the Review toggles checkable.
+    def menu_layout():
+        from groomlab.ui import menu
+        tree, stack, commands = [], [[]], []
+
+        class Recorder(object):
+            def __getattr__(self, name):
+                def call(*args, **kwargs):
+                    if name == "menuItem" and not (kwargs.get("edit") or kwargs.get("query") or kwargs.get("exists")):
+                        if kwargs.get("divider"):
+                            return "divider"
+                        entry = (kwargs.get("label"), [], kwargs)
+                        stack[-1].append(entry)
+                        if kwargs.get("subMenu"):
+                            stack.append(entry[1])
+                        elif "command" in kwargs:
+                            commands.append(kwargs["label"])
+                        return "item"
+                    if name == "setParent":
+                        stack.pop()
+                    if name == "menu":
+                        return False if kwargs.get("exists") else "menu"
+                    return False if name == "about" else None
+                return call
+        real = menu.cmds
+        menu.cmds = Recorder()
+        try:
+            menu.install()
+        finally:
+            menu.cmds = real
+        tree = stack[0]
+        top = [label for label, _, _ in tree]
+        _expect(top == ["Groom Tools", "Graph Editor", "Create Groom from Selection",
+                        "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate", "Review",
+                        "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys", "Help"], "top: %r" % top)
+        sub = {label: children for label, children, _ in tree}
+        _expect([l for l, _, _ in sub["Help"]] == ["Docs", "Keyboard Shortcuts", "Check for Updates...",
+                                                   "Support GroomLab", "About GroomLab"], "Help")
+        _expect([l for l, _, _ in sub["Simulate"]][-1] == "Legacy", "nHair under Simulate > Legacy")
+        _expect("Simulation" not in [l for l, _, _ in sub["Add"]], "no second Add Simulate")
+        _expect([l for l, _, _ in sub["Render"]] == ["Render from Groom File...", "Render as Curves"], "Render")
+        _expect(not {"Groom File...", "Bake Scale Maps", "Render as Curves"} & {l for l, _, _ in sub["Export"]}, "Export")
+        _expect("Save Groom File As..." in [l for l, _, _ in sub["Groom Files"]], "one groom-file block")
+        review = {l: kw for l, _, kw in sub["Review"]}
+        _expect("checkBox" in review["Density Heatmap"] and "checkBox" in review["Strand Count HUD"], "checkable")
+        _expect("Braid on Curves..." in [l for l, _, _ in sub["Add"]], "a dialog item ends in ...")
+    check.run("GroomLab's menu: one place for each thing, Help holds the rest", menu_layout)
+
     def every_theme_styles_the_windows():
         catalog = gm.OperatorCatalog.from_json(groomlab_core.operator_specs_json())
         tools = palette.ToolPalette()
@@ -162,6 +234,181 @@ def main():
         return minimum
 
     catalog = gm.OperatorCatalog.from_json(groomlab_core.operator_specs_json())
+
+    # The Graph Editor's search and notes: name matches first, Tab with no groom says what to do,
+    # the default graph opens without a note (HairColor's clumpShare at its default, no Clump).
+    def graph_search_and_notes():
+        from groomlab.ui.qt import QtCore
+        editor = graph_editor.GraphEditor()
+        editor.catalog = catalog
+        editor.model = gm.GraphModel(catalog, groomlab_core.default_graph())
+        editor.rebuild()
+        try:
+            search = graph_editor.NodeSearch(editor, (0.0, 0.0))
+            for text, first in (("density", "Scatter"), ("symmetry", "Mirror"), ("hair", "HairColor"),
+                                ("clump", "Clump"), ("hair color", "HairColor"), ("linked", "Reference"),
+                                ("collision", "Collide"), ("frizz", "Noise"), ("deform", "Bend")):
+                search.fill(text)
+                got = search.list.item(0).data(QtCore.Qt.UserRole) if search.list.count() else None
+                _expect(got == first, "search %r: %s first, not %s" % (text, first, got))
+            search.close()
+            widgets.dispose(search)
+            editor.update_attribute_notes()
+            _expect("color" not in editor.attribute_notes, "the default graph's HairColor: no note (%r)"
+                    % editor.attribute_notes.get("color"))
+            editor.params.show_node("color")
+            _expect(not [l for l in editor.params.findChildren(QtWidgets.QLabel, "attributeMissing")],
+                    "no 'no node upstream writes clumpId' line in the default HairColor's panel")
+            editor.model.set_param("color", "clumpShare", 0.8)  # changed: now it says no Clump feeds it
+            editor.params.show_node("color")
+            notes = [l.text() for l in editor.params.findChildren(QtWidgets.QLabel, "attributeMissing")]
+            _expect(any("clumpId" in n for n in notes), "a changed clumpShare notes the missing clumpId: %r" % notes)
+            # A node's error under its header, in plain words.
+            editor.node_errors["color"] = "not enough values to unpack (expected 2, got 1)"
+            editor.params.show_node("color")
+            line = editor.params.findChild(QtWidgets.QLabel, "nodeError")
+            _expect(line is not None and not line.isHidden() and "values typed" in line.text(),
+                    "the node's error line: %r" % (line.text() if line is not None else None))
+            editor.node_errors.clear()
+            editor.params.update_error()
+            _expect(line.isHidden(), "no error: no line")
+        finally:
+            widgets.dispose(editor)
+        empty = graph_editor.GraphEditor()  # no groom: Tab says to select one
+        try:
+            _expect(empty.show_search(QtCore.QPointF(0, 0), QtCore.QPoint(0, 0)) is None, "no popup")
+            _expect("Select a groom first" in empty.status.text(), "Tab with no groom: %r" % empty.status.text())
+            _expect(empty.status.wordWrap() and empty.status.toolTip() == empty.status.text(), "wrapped, its tooltip")
+        finally:
+            widgets.dispose(empty)
+    check.run("the Graph Editor's search ranks names first; no note on the default graph", graph_search_and_notes)
+
+    # UX batch 2: one name per thing, the core's categories and keys, units and decimals.
+    def names_keys_and_units():
+        from groomlab.ui import shortcuts, hotkeys
+        from groomlab import units
+        tools = palette.ToolPalette()
+        try:
+            titles = [tools.tabs.bar.tabText(i) for i in range(tools.tabs.bar.count())]
+            _expect(titles == ["Tools", "Paint", "Correctives", "Photos"], "Groom Tools tabs: %r" % titles)
+            _expect(tools.symmetry_row.parent() is tools.target_row, "symmetry sits in the Group row")
+            tools.work.setVisible(True)
+            tools.show_tool_settings()  # no tool: the symmetry row stays (it isn't the tool's)
+            _expect(not tools.symmetry_row.isHidden(), "symmetry shown with no brush picked")
+            _expect("Alt+Shift+X" in tools.symmetry.toolTip(), "symmetry's tooltip names its key")
+        finally:
+            widgets.dispose(tools)
+        text = shortcuts.text()
+        for want in ("M + drag", "Alt+Shift+X", "Page Up / Page Down", "Install GroomLab Hotkeys"):
+            _expect(want in text, "Help > Keyboard Shortcuts lists %r" % want)
+        _expect("Select guides" not in text, "Maya's list has no unbound S row")
+        _expect(shortcuts.keys("graph.frame") == "F" and shortcuts.keys("graph.frameAll") == "A", "graph F / A")
+        _expect(shortcuts.tip("Frame", "graph.frame") == "Frame (F)", "keys in tooltips")
+        _expect("Y  " not in hotkeys.changes_text([]) and "Nothing changed" in hotkeys.changes_text([]),
+                "the hotkeys note with nothing changed")
+        note = hotkeys.changes_text([("Y", "(nothing)", "GroomLabMarkingMenuPress")])
+        _expect("Y" in note and "GroomLabMarkingMenuPress" in note, "the hotkeys note lists each key: %r" % note)
+        # Numbers as every host shows them: the spec's decimals, trailing zeros dropped.
+        _expect(widgets.format_number(0.35, 3) == "0.35" and widgets.format_number(1.0, 3) == "1"
+                and widgets.format_number(980.0, 1) == "980", "numbers drop trailing zeros")
+        _expect(widgets.display_decimals(3, 100.0) == 1 and widgets.display_decimals(4, 1e4) == 0, "unit decimals")
+        _expect(units.param_label("length", "Simulate", "gravity").endswith(u"/s²"), "gravity's unit")
+        # The Add Node menu: the core's categories, spaced labels, each with what it does.
+        editor = graph_editor.GraphEditor()
+        editor.catalog = catalog
+        try:
+            menu = editor.build_add_menu()
+            subs = [m.title() for m in menu.submenus]
+            _expect(subs[:5] == ["Sources", "Grow", "Shape", "Deform", "Collide"], "Add Node categories: %r" % subs)
+            labels = {a.text(): a.toolTip() for m in menu.submenus for a in m.actions()}
+            _expect("Linked Groom" in labels and "Reference" not in labels, "the Reference node reads Linked Groom")
+            _expect("Blend Neighbors" in labels, "spaced labels")
+            _expect(all(labels.values()), "every Add Node entry has its description as a tooltip")
+            shape = next(m for m in menu.submenus if m.title() == "Shape")
+            _expect(len(shape.actions()) <= 12, "Shape is split: %d entries" % len(shape.actions()))
+            widgets.dispose(menu)
+        finally:
+            widgets.dispose(editor)
+        # A window's long action: buttons off and the wait cursor while it runs, back after.
+        button = QtWidgets.QPushButton("Generate")
+        label = QtWidgets.QLabel()
+        with widgets.busy([button], label, "Generating..."):
+            _expect(not button.isEnabled() and label.text() == "Generating...", "busy: disabled, said")
+        _expect(button.isEnabled() and QtWidgets.QApplication.overrideCursor() is None, "busy: restored")
+        widgets.dispose(button)
+        widgets.dispose(label)
+    check.run("one name per thing; the core's categories and keys; units and decimals", names_keys_and_units)
+
+    # UX batch 3: the Groom Tools' Output strip (the menu's table), one Theme menu list, themed status
+    # colors, Tab wiring after the selection, a refused link saying why, the Paint chip.
+    def batch3():
+        from groomlab.ui import menu
+        tools = palette.ToolPalette()
+        try:
+            chips = [c.text().split("  ")[0] for c in tools.output_chips]
+            _expect(chips == ["Simulate Range", "Export", "Render", "Transfer...", "Import"], "Output strip: %r" % chips)
+            export = tools.findChild(QtWidgets.QToolButton, "output_export").menu()
+            labels = [a.text() for a in export.actions() if not a.isSeparator()]
+            _expect("Alembic..." in labels and "glTF Cards..." in labels and "Scales Mesh (FBX)..." not in labels,
+                    "Output > Export: %r" % labels)
+            _expect(tools.empty_import.menu() is not None, "the empty state offers Import")
+            imports = [a.text() for a in tools.empty_import.menu().actions() if not a.isSeparator()]
+            _expect("Alembic Curves..." in imports, "Import offers Alembic Curves...: %r" % imports)
+        finally:
+            widgets.dispose(tools)
+        _expect("Alembic Curves..." in [i[0] for i in menu.shown_items("import", menu.MENU_ONLY) if i],
+                "GroomLab > Import > Alembic Curves...")
+        # GroomLab > Theme and the windows' Theme menus: one list.
+        qt_labels = [i[0] for i in widgets.theme_menu_items() if i]
+        items = []
+
+        class Recorder(object):
+            def __getattr__(self, name):
+                def call(*args, **kwargs):
+                    items.append((name, kwargs))
+                return call
+        real = menu.cmds
+        menu.cmds = Recorder()
+        try:
+            menu._theme_submenu()
+        finally:
+            menu.cmds = real
+        maya_labels = [kw["label"] for name, kw in items if name == "menuItem" and "label" in kw and kw["label"] != "Theme"]
+        _expect(maya_labels == qt_labels, "one Theme menu: %r vs %r" % (maya_labels, qt_labels))
+        # Status colors follow the theme.
+        for name in ("polar", "playful"):
+            t = theme.set_theme(name)
+            graph_editor.apply_theme(t)
+            _expect(graph_editor.ERROR.name().upper() == t.color("graph.error").upper(), "%s: error color" % name)
+            _expect(graph_editor.DRIVEN.name().upper() == t.color("graph.driven").upper(), "%s: driven color" % name)
+            _expect("Deform" in t.get("graph.categories") and "Collide" in t.get("graph.categories"),
+                    "%s: Deform and Collide colors" % name)
+        editor = graph_editor.GraphEditor()
+        editor.catalog = catalog
+        editor.model = gm.GraphModel(catalog, groomlab_core.default_graph())
+        editor.rebuild()
+        try:
+            editor.items["length"].setSelected(True)
+            graph_editor.NodeSearch(editor, (100.0, 200.0)).choose("Curl")
+            curl = [n for n in editor.model.order if editor.model.node_type(n) == "Curl"][0]
+            _expect(editor.model.source_of(curl, "strands") == "length", "Tab wires after the selected node")
+            _expect(editor.model.position(curl) == (100.0, 200.0), "where Tab was pressed")
+            scene = editor.scene
+            guides = editor.items["guides"].output
+            why = scene.incompatible_reason(guides, editor.items["scatter"].inputs["scalp"])
+            _expect(why and "Guides" in why and "Mesh" in why, "a refused link says why: %r" % why)
+            _expect(scene.incompatible_reason(guides, editor.items["interpolate"].inputs["guides"]) is None, "fits")
+            editor.groom = "groomLabShape1"  # a groom (the stand-in's): mappable rows get the Paint chip
+            editor.params.show_node("scatter")
+            chips = editor.params.widget().findChildren(QtWidgets.QToolButton, "paintChip")
+            _expect(chips and [a.text() for a in chips[0].menu().actions()] == ["On Guides", "On Scalp Vertices",
+                                                                                "As Texture"], "the Paint chip")
+            editor.groom = None
+        finally:
+            widgets.dispose(editor)
+    check.run("UX batch 3: Output strip, one Theme list, status colors, Tab wiring, link reasons, Paint chip",
+              batch3)
+
     for scale, screen, about in SCREENS:
         theme._scale[0] = scale  # as Maya's dpiScale answers at this UI scaling
 
@@ -179,7 +426,12 @@ def main():
                 editor.items["color"].setSelected(True)
                 settle()
             minimum = fits(editor, screen, "Graph Editor")
-            docked = graph_editor.open_docked((theme.px(1200), theme.px(600)), screen)
+            # The params fit the panel's width: nothing cut off on the right (shrinkable fields).
+            panel = editor.params
+            needed = panel.widget().minimumSizeHint().width()
+            _expect(needed <= panel.viewport().width(), "Graph Editor's param panel: needs %d px, shows %d"
+                    % (needed, panel.viewport().width()))
+            docked =graph_editor.open_docked((theme.px(1200), theme.px(600)), screen)
             print("      Graph Editor at %s: minimum %dx%d, %s" % (about, minimum.width(), minimum.height(),
                                                                   "docked" if docked else "floating"))
             editor.close()
@@ -190,6 +442,11 @@ def main():
             tools = palette.ToolPalette()
             tools.resize(theme.px(420), screen[3])
             tools.show()
+            settle()
+            # No groom (the stand-in Maya has none): only "Start a groom", no tabs or tools.
+            _expect(tools.empty.isVisibleTo(tools) and not tools.work.isVisibleTo(tools),
+                    "Groom Tools with no groom: the empty state alone")
+            tools.work.setVisible(True)  # as with a groom: the tabs and tools must fit too
             settle()
             minimum = fits(tools, screen, "Groom Tools")
             # Docked beside the viewport: it must leave most of the screen's width to it.

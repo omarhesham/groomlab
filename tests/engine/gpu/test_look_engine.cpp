@@ -953,6 +953,30 @@ TEST_P(LookEngineTest, WorldSpaceNoise) {
     EXPECT_GPU_MATCHES(g.json(), (gpu::Overrides{{"noise", {{"amplitude", 0.45}}}}), c.json());
 }
 
+TEST_P(LookEngineTest, AnInstanceEndingTheGraphHandsTheGpusPointsOn) {
+    // An Instance after the look (snow near the tips): a drag upstream runs on the GPU, its points
+    // the CPU's for the dragged value, the instances kept as the last evaluation placed them.
+    LookGraph g;
+    g.after = "Instance";
+    g.afterParams = R"("params": {"probability": 0.4, "tMin": 0.5, "scale": 0.05})";
+    LookGraph c = g;
+    c.noise = R"("params": {"amplitude": 0.45, "frequency": 1.0})";
+    {
+        GroomSession session(groom(g.json()));
+        ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+        gpu::LookChain chain;
+        std::string why;
+        ASSERT_TRUE(gpu::findLookChain(*session.viewDocument(), &chain, &why)) << why;
+        const NodeId instance = session.viewDocument()->nodesByName.at("after");
+        EXPECT_NE(std::find(chain.passOn.begin(), chain.passOn.end(), instance), chain.passOn.end());
+        StrandsPtr base, output;
+        EXPECT_TRUE(gpu::lookStrands(*session.viewDocument(), chain, &base, &output, &why)) << why;
+        ASSERT_TRUE(output && output->instances());
+        EXPECT_FALSE(output->instances()->empty());
+    }
+    EXPECT_GPU_POINTS_MATCH(g.json(), (gpu::Overrides{{"noise", {{"amplitude", 0.45}}}}), c.json());
+}
+
 TEST_P(LookEngineTest, WidthRandomness) {
     // Each strand's width varied by its draw, from Width alone; then a drag of the randomness.
     LookGraph g;
@@ -1855,42 +1879,52 @@ TEST_P(LookEngineTest, InterpolateKeepsClearanceAsTheCpuDoes) {
     }
     guides->rootOnMesh(*data.scalp);
     data.guides = guides;
-    // Interpolate's strands as they are (a Width after it, which moves no point).
-    data.graphJson = R"({"nodes": [
-        {"name": "scalp", "type": "Scalp"}, {"name": "scatter", "type": "Scatter", "params": {"density": 30.0, "length": 3.0}},
-        {"name": "guides", "type": "Guides"}, {"name": "interpolate", "type": "Interpolate", "params": {}},
-        {"name": "width", "type": "Width", "params": {"width": 0.01}}, {"name": "output", "type": "Output"}],
-      "connections": [
-        {"from": "scalp", "to": "scatter", "input": "scalp"}, {"from": "scatter", "to": "interpolate", "input": "strands"},
-        {"from": "guides", "to": "interpolate", "input": "guides"}, {"from": "scalp", "to": "interpolate", "input": "scalp"},
-        {"from": "interpolate", "to": "width", "input": "strands"}, {"from": "width", "to": "output", "input": "strands"}],
-      "output": "output"})";
-    GroomSession session(data);
-    ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
-    GroomData off = data;
-    off.graphJson = withoutClearance(data.graphJson);
-    GroomSession carried(off);
-    ASSERT_TRUE(carried.evaluate(ViewRequest{}).strands);
-    const auto interpolated = [](GroomSession& s) {
-        const GraphDocument& d = *s.viewDocument();
-        return valueAs<StrandsPtr>(d.graph.cachedValue(d.nodesByName.at("interpolate")));
-    };
-    const StrandsPtr lifted = interpolated(session), asCarried = interpolated(carried);
-    ASSERT_TRUE(lifted && asCarried);
-    std::size_t moved = 0;
-    for (std::size_t s = 0; s < lifted->strandCount(); ++s) {
-        moved += std::memcmp(lifted->strandPoints(s), asCarried->strandPoints(s), lifted->strandPointCount(s) * sizeof(Vec3f)) != 0;
+    // Interpolate's strands as they are (a Width after it, which moves no point). Strands of 9
+    // points (the walk asks each of them) and, resampled to 41 before Interpolate, of 41 (it asks
+    // every third and the tip, the points between moved by the moves of those around them).
+    for (const bool fine : {false, true}) {
+        SCOPED_TRACE(fine ? "strands of 41 points" : "strands of 9 points");
+        const std::string resample = fine ? R"({"name": "fine", "type": "Resample", "params": {"segments": 40, "mode": "even"}},)" : "";
+        const std::string toInterpolate = fine ? R"({"from": "scatter", "to": "fine", "input": "strands"}, {"from": "fine", "to": "interpolate", "input": "strands"},)"
+                                               : R"({"from": "scatter", "to": "interpolate", "input": "strands"},)";
+        data.graphJson = R"({"nodes": [
+            {"name": "scalp", "type": "Scalp"}, {"name": "scatter", "type": "Scatter", "params": {"density": 30.0, "length": 3.0}},)" + resample + R"(
+            {"name": "guides", "type": "Guides"}, {"name": "interpolate", "type": "Interpolate", "params": {}},
+            {"name": "width", "type": "Width", "params": {"width": 0.01}}, {"name": "output", "type": "Output"}],
+          "connections": [
+            {"from": "scalp", "to": "scatter", "input": "scalp"},)" + toInterpolate + R"(
+            {"from": "guides", "to": "interpolate", "input": "guides"}, {"from": "scalp", "to": "interpolate", "input": "scalp"},
+            {"from": "interpolate", "to": "width", "input": "strands"}, {"from": "width", "to": "output", "input": "strands"}],
+          "output": "output"})";
+        GroomSession session(data);
+        ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+        GroomData off = data;
+        off.graphJson = withoutClearance(data.graphJson);
+        GroomSession carried(off);
+        ASSERT_TRUE(carried.evaluate(ViewRequest{}).strands);
+        const auto interpolated = [](GroomSession& s) {
+            const GraphDocument& d = *s.viewDocument();
+            return valueAs<StrandsPtr>(d.graph.cachedValue(d.nodesByName.at("interpolate")));
+        };
+        const StrandsPtr lifted = interpolated(session), asCarried = interpolated(carried);
+        ASSERT_TRUE(lifted && asCarried);
+        std::size_t moved = 0;
+        for (std::size_t s = 0; s < lifted->strandCount(); ++s) {
+            moved += std::memcmp(lifted->strandPoints(s), asCarried->strandPoints(s), lifted->strandPointCount(s) * sizeof(Vec3f)) != 0;
+        }
+        std::printf("[ %-8s ] keeping clearance lifted %zu of %zu strands of %zu points\n", GetParam().c_str(), moved, lifted->strandCount(),
+                    lifted->strandPointCount(0));
+        EXPECT_GT(moved, lifted->strandCount() / 4) << "the test's premise: the walk lifts strands";
+        EXPECT_EQ(lifted->strandPointCount(0), fine ? 41u : 9u);
+        const auto start = std::chrono::steady_clock::now();
+        const Prepared p = prepare(session, {}, "interpolate");
+        const double readMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        ASSERT_EQ(p.chain.stages.front().kind, gpu::StageKind::Interpolate);
+        ASSERT_TRUE(p.run.inputs.front().interpolate && p.run.inputs.front().interpolate->clearance);
+        std::printf("[ %-8s ] the scalp's field as tables: %.1f MB (the run read in %.0f ms, the tables made with it)\n",
+                    GetParam().c_str(), static_cast<double>(p.run.inputs.front().interpolate->clearance->tables->size()) * 4e-6, readMs);
+        expectClose(runAndCompare(session, {}, session, "interpolate"));
     }
-    std::printf("[ %-8s ] keeping clearance lifted %zu of %zu strands\n", GetParam().c_str(), moved, lifted->strandCount());
-    EXPECT_GT(moved, lifted->strandCount() / 4) << "the test's premise: the walk lifts strands";
-    const auto start = std::chrono::steady_clock::now();
-    const Prepared p = prepare(session, {}, "interpolate");
-    const double readMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-    ASSERT_EQ(p.chain.stages.front().kind, gpu::StageKind::Interpolate);
-    ASSERT_TRUE(p.run.inputs.front().interpolate && p.run.inputs.front().interpolate->clearance);
-    std::printf("[ %-8s ] the scalp's field as tables: %.1f MB (the run read in %.0f ms, the tables made with it)\n",
-                GetParam().c_str(), static_cast<double>(p.run.inputs.front().interpolate->clearance->tables->size()) * 4e-6, readMs);
-    expectClose(runAndCompare(session, {}, session, "interpolate"));
 }
 
 TEST_P(LookEngineTest, InterpolateCarriesGuidesRoundAFoldAsTheCpuDoes) {
@@ -3374,6 +3408,88 @@ TEST_P(LookEngineTest, TheLookPresetsRunOnTheGpu) {
     }
 }
 
+// Two branches merged (a's strands of 9 points, b's resampled to 13: the base's point counts differ),
+// a Noise or a Collide after the Merge: a drag up its input a runs a's stages on a's strands (the
+// base's first), b's handed on as the Merge made them, then the stages after the Merge on all.
+std::string mergedGraph(double amplitude, double after, bool collide) {
+    const std::string tail = collide ? R"({"name": "after", "type": "Collide", "params": {"offset": 0.08}},)"
+                                     : R"({"name": "after", "type": "Noise", "params": {"amplitude": )" + std::to_string(after) + R"(, "seed": 9}},)";
+    return R"({"nodes": [
+        {"name": "scalp", "type": "Scalp"}, {"name": "scatter", "type": "Scatter", "params": {"density": 40.0, "length": 3.0}},
+        {"name": "guides", "type": "Guides"}, {"name": "interpolate", "type": "Interpolate", "params": {"keepClearance": false}},
+        {"name": "noise", "type": "Noise", "params": {"amplitude": )" + std::to_string(amplitude) + R"(, "frequency": 1.0}},
+        {"name": "width", "type": "Width", "params": {"width": 0.01, "randomness": 0.2}},
+        {"name": "scatterB", "type": "Scatter", "params": {"density": 12.0, "length": 2.0, "seed": 5}},
+        {"name": "resampleB", "type": "Resample", "params": {"segments": 12, "mode": "even"}},
+        {"name": "noiseB", "type": "Noise", "params": {"amplitude": 0.2}},
+        {"name": "widthB", "type": "Width", "params": {"width": 0.02}},
+        {"name": "merge", "type": "Merge"},)" + tail + R"(
+        {"name": "output", "type": "Output"}],
+      "connections": [
+        {"from": "scalp", "to": "scatter", "input": "scalp"}, {"from": "scatter", "to": "interpolate", "input": "strands"},
+        {"from": "guides", "to": "interpolate", "input": "guides"}, {"from": "scalp", "to": "interpolate", "input": "scalp"},
+        {"from": "interpolate", "to": "noise", "input": "strands"}, {"from": "noise", "to": "width", "input": "strands"},
+        {"from": "scalp", "to": "scatterB", "input": "scalp"}, {"from": "scatterB", "to": "resampleB", "input": "strands"},
+        {"from": "resampleB", "to": "noiseB", "input": "strands"}, {"from": "noiseB", "to": "widthB", "input": "strands"},
+        {"from": "width", "to": "merge", "input": "a"}, {"from": "widthB", "to": "merge", "input": "b"},)" +
+           (collide ? R"({"from": "scalp", "to": "after", "input": "scalp"},)" : "") + R"(
+        {"from": "merge", "to": "after", "input": "strands"}, {"from": "after", "to": "output", "input": "strands"}],
+      "output": "output"})";
+}
+
+TEST_P(LookEngineTest, MergeRunsItsInputAAsTheCpuDoes) {
+    for (const bool collide : {false, true}) {
+        SCOPED_TRACE(collide ? "a Collide after the Merge" : "a Noise after the Merge");
+        GroomSession session(groom(mergedGraph(0.3, 0.1, collide)));
+        ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+        const StrandsPtr out = session.last().strands;
+        const GraphDocument& doc = *session.viewDocument();
+        const StrandsPtr a = valueAs<StrandsPtr>(doc.graph.cachedValue(doc.nodesByName.at("width")));
+        ASSERT_TRUE(out && a);
+        ASSERT_LT(a->strandCount(), out->strandCount()) << "the test's premise: b has strands";
+        ASSERT_NE(a->strandPointCount(0), out->strandPointCount(out->strandCount() - 1)) << "the test's premise: point counts differ";
+        gpu::LookChain chain;
+        std::string why;
+        ASSERT_TRUE(gpu::findLookChain(doc, &chain, &why)) << why;
+        const std::size_t merge = chain.indexOf(doc.nodesByName.at("merge"));
+        ASSERT_NE(merge, gpu::kNoStage);
+        EXPECT_EQ(chain.stages[merge].kind, gpu::StageKind::Merge);
+        for (std::size_t k = 0; k < chain.stages.size(); ++k) EXPECT_EQ(chain.stages[k].prefix, k < merge) << k;
+        EXPECT_EQ(chain.indexOf(doc.nodesByName.at("noiseB")), gpu::kNoStage) << "b's side is the CPU's";
+        // A drag up a: a's Noise and Width, then the Merge, then the node after it.
+        GroomSession committed(groom(mergedGraph(0.55, 0.1, collide)));
+        ASSERT_TRUE(committed.evaluate(ViewRequest{}).strands);
+        expectClose(runAndCompare(session, {{"noise", {{"amplitude", 0.55}}}}, committed));
+        // A drag of a's Width alone: its widths up to a's last strand, b's as they were.
+        GroomSession wider(groom(mergedGraph(0.3, 0.1, collide)));
+        {
+            nlohmann::json g = nlohmann::json::parse(mergedGraph(0.3, 0.1, collide));
+            for (auto& n : g["nodes"]) {
+                if (n["name"] == "width") n["params"]["width"] = 0.016;
+            }
+            GroomSession made(groom(g.dump()));
+            ASSERT_TRUE(made.evaluate(ViewRequest{}).strands);
+            expectClose(runAndCompare(session, {{"width", {{"width", 0.016}}}}, made));
+        }
+        if (!collide) {  // a preview holding hidden core strands (preview_core.h): every strand runs, the shown ones written
+            ViewRequest half;
+            half.density = 0.5f;
+            GroomSession thinned(groom(mergedGraph(0.3, 0.1, false)));
+            const StrandsPtr shown = thinned.evaluate(half).strands;
+            ASSERT_TRUE(shown);
+            GroomSession thinnedCommitted(groom(mergedGraph(0.55, 0.1, false)));
+            ASSERT_TRUE(thinnedCommitted.evaluate(half).strands);
+            const Prepared p = prepare(thinned, {{"noise", {{"amplitude", 0.55}}}});
+            EXPECT_GT(p.base->strandCount(), shown->strandCount()) << "the test's premise: hidden strands";
+            expectClose(runAndCompare(thinned, {{"noise", {{"amplitude", 0.55}}}}, thinnedCommitted));
+        }
+        if (!collide) {  // a drag after the Merge: b's strands run too
+            GroomSession after(groom(mergedGraph(0.3, 0.25, false)));
+            ASSERT_TRUE(after.evaluate(ViewRequest{}).strands);
+            expectPointsClose(runAndCompare(session, {{"after", {{"amplitude", 0.25}}}}, after));  // (no Width runs)
+        }
+    }
+}
 INSTANTIATE_TEST_SUITE_P(Backends, LookEngineTest, ::testing::Values(std::string("DirectX11"), std::string("OpenGL")),
                          [](const ::testing::TestParamInfo<std::string>& info) { return info.param; });
 

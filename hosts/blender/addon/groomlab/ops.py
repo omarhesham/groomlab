@@ -7,7 +7,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, St
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from . import graph, graph_tree, groom
-from .helper_client import HelperError
+from .helper_client import HelperError, sentence
 
 
 def active_groom(context):
@@ -19,7 +19,7 @@ def active_groom(context):
 
 
 def _fail(op, e):
-    op.report({"ERROR"}, e.message if isinstance(e, HelperError) else str(e))
+    op.report({"ERROR"}, sentence(e.message if isinstance(e, HelperError) else str(e)))
     return {"CANCELLED"}
 
 
@@ -35,9 +35,9 @@ def _preset_items(self, context):
 
 
 class GROOMLAB_OT_add_groom(bpy.types.Operator):
-    """Grow a GroomLab groom on the selected mesh (Maya's Create Groom from Selection): place and shape its guides with the Groom Tools, GroomLab makes the hair from them"""
+    """Grow a GroomLab groom on the selected mesh: place and shape its guides with the Groom Tools, GroomLab makes the hair from them"""
     bl_idname = "groomlab.add_groom"
-    bl_label = "Add GroomLab Groom"
+    bl_label = "Create Groom from Selection"
     bl_options = {"REGISTER", "UNDO"}
 
     preset: EnumProperty(name="Preset", items=_preset_items, description="The look to start from")
@@ -72,7 +72,7 @@ class GROOMLAB_OT_add_groom(bpy.types.Operator):
             tools.refresh_info(scalp, context.scene)
         except HelperError:
             pass
-        self.report({"INFO"}, "GroomLab: a new groom. Place its guides: Groom Tools > Place")
+        self.report({"INFO"}, "New groom created: place its guides with Groom Tools > Place")
         return {"FINISHED"}
 
 
@@ -124,7 +124,7 @@ class GROOMLAB_OT_sculpt_guides(GroomOperator):
     def execute(self, context):
         guides = active_groom(context).groomlab.guides
         if guides is None:
-            self.report({"ERROR"}, "the groom has no guides object")
+            self.report({"ERROR"}, "This groom has no Blender curve guides: edit its guides with the Groom Tools")
             return {"CANCELLED"}
         if context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -179,7 +179,7 @@ class GROOMLAB_OT_apply_preset(GroomOperator):
             return _fail(self, e)
         missing = [m["name"] for m in r.get("missingMaps", [])]
         if missing:
-            self.report({"WARNING"}, "the preset reads maps this groom has not painted: %s" % ", ".join(missing))
+            self.report({"WARNING"}, "The preset reads maps this groom has not painted: %s. Paint them in Groom Tools > Paint" % ", ".join(missing))
         return {"FINISHED"}
 
 
@@ -223,7 +223,7 @@ class GROOMLAB_OT_node_add(GroomOperator):
         except HelperError as e:
             return _fail(self, e)
         if error:
-            self.report({"WARNING"}, error)
+            self.report({"WARNING"}, sentence(error))
         return {"FINISHED"}
 
 
@@ -243,7 +243,7 @@ class GROOMLAB_OT_node_remove(GroomOperator):
         except HelperError as e:
             return _fail(self, e)
         if error:
-            self.report({"WARNING"}, error)
+            self.report({"WARNING"}, sentence(error))
         return {"FINISHED"}
 
 
@@ -260,7 +260,7 @@ class GROOMLAB_OT_node_move(GroomOperator):
         node = graph.active_node(scalp)
         try:
             if node is None or not graph.move_node(scalp, node.name, self.direction):
-                self.report({"INFO"}, "this node does not move that way (the source and the output stay put)")
+                self.report({"INFO"}, "This node does not move that way: the source and the output stay put")
                 return {"CANCELLED"}
         except HelperError as e:
             return _fail(self, e)
@@ -286,9 +286,9 @@ class GROOMLAB_OT_toggle_group(GroomOperator):
 
 
 class GROOMLAB_OT_save_groom(GroomOperator, ExportHelper):
-    """Save the groom as a .groom file (Y up, centimeters: Maya and the GroomLab app open it as it is)"""
+    """Save the groom to a groom file (.groom; Y up, centimeters: Maya and the GroomLab app open it as it is)"""
     bl_idname = "groomlab.save_groom"
-    bl_label = "Save .groom"
+    bl_label = "Save Groom File"
     filename_ext = ".groom"
     filter_glob: StringProperty(default="*.groom", options={"HIDDEN"})
     up_axis: EnumProperty(name="Up Axis", items=[("Y", "Y (Maya)", "GroomLab's own space"), ("Z", "Z", "Z up (Blender, Houdini pipelines)")],
@@ -304,9 +304,9 @@ class GROOMLAB_OT_save_groom(GroomOperator, ExportHelper):
 
 
 class GROOMLAB_OT_load_groom(bpy.types.Operator, ImportHelper):
-    """Open a .groom file (from Maya, the GroomLab app or Blender) on the selected mesh, or with the file's own scalp"""
+    """Open a groom file (.groom, from Maya, the GroomLab app or Blender) on the selected mesh, or with the file's own scalp"""
     bl_idname = "groomlab.load_groom"
-    bl_label = "Open .groom"
+    bl_label = "Open Groom File"
     bl_options = {"REGISTER", "UNDO"}
     filename_ext = ".groom"
     filter_glob: StringProperty(default="*.groom", options={"HIDDEN"})
@@ -323,7 +323,7 @@ class GROOMLAB_OT_load_groom(bpy.types.Operator, ImportHelper):
         if not self.use_file_scalp:
             target = groom.scalp_of(context.active_object) or context.active_object
             if target is None or target.type != "MESH":
-                self.report({"ERROR"}, "select the mesh to grow the groom on, or use the file's scalp")
+                self.report({"ERROR"}, "No mesh selected: select the mesh to grow the groom on, or turn on Use the File's Scalp")
                 return {"CANCELLED"}
         if context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -336,7 +336,7 @@ class GROOMLAB_OT_load_groom(bpy.types.Operator, ImportHelper):
             return _fail(self, e)
         notes = list(info.get("notes") or []) + list(info.get("inputErrors") or [])
         for n in notes:
-            self.report({"WARNING"}, n)
+            self.report({"WARNING"}, sentence(n))
         return {"FINISHED"}
 
 
@@ -383,17 +383,32 @@ classes = (GROOMLAB_OT_add_groom, GROOMLAB_OT_remove_groom, GROOMLAB_OT_sculpt_g
            GROOMLAB_OT_load_groom, GROOMLAB_OT_export_alembic, GROOMLAB_OT_export_usd)
 
 
+GROOM_FILE_TEXT = "GroomLab Groom File (.groom)"  # File > Import and File > Export, named as Blender names formats
+
+
 def menu_add(self, context):
     self.layout.operator(GROOMLAB_OT_add_groom.bl_idname, icon="CURVES")
+
+
+def menu_import(self, context):
+    self.layout.operator(GROOMLAB_OT_load_groom.bl_idname, text=GROOM_FILE_TEXT)
+
+
+def menu_export(self, context):
+    self.layout.operator(GROOMLAB_OT_save_groom.bl_idname, text=GROOM_FILE_TEXT)
 
 
 def register():
     for c in classes:
         bpy.utils.register_class(c)
     bpy.types.VIEW3D_MT_object.append(menu_add)
+    bpy.types.TOPBAR_MT_file_import.append(menu_import)
+    bpy.types.TOPBAR_MT_file_export.append(menu_export)
 
 
 def unregister():
+    bpy.types.TOPBAR_MT_file_export.remove(menu_export)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_import)
     bpy.types.VIEW3D_MT_object.remove(menu_add)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

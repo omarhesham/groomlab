@@ -432,6 +432,10 @@ float3 twistAbout(float3 n, float3 x, float angle) {
 // Where the tables asked start in gAux2 (words): 0 but for Collide's collider, whose tables follow
 // the scalp's (CollideCS sets it before each mesh's push; the tables' own offsets are from it).
 static uint sTableBase = 0;
+// Interpolate's clearance walk (ClearanceCS) asks with Probe::relaxed: a cell whose corners' normals are
+// within about 26 degrees blends them (RELAXED_CREASE2: distance_field.cpp kRelaxedCrease2).
+static bool sRelaxedCrease = false;
+#define RELAXED_CREASE2 0.81f
 uint tableWord(uint w) { return gAux2.Load((sTableBase + w) * 4); }
 float tableFloat(uint w) { return asfloat(gAux2.Load((sTableBase + w) * 4)); }
 float3 tableVec(uint w) { return asfloat(gAux2.Load3((sTableBase + w) * 4)); }
@@ -813,7 +817,7 @@ uint clearancePush(FieldTables t, float3 p, float offset, float maxDepth, float 
         [ForceUnroll] for (uint k = 1; k < 8; ++k) {
             const float d = exactDot(nv[0], nv[k]);
             PRECISE float dd = d * d;
-            PRECISE float scaled = (0.999f * 0.999f) * first;
+            PRECISE float scaled = (sRelaxedCrease ? RELAXED_CREASE2 : 0.999f * 0.999f) * first;
             PRECISE float bound = scaled * exactDot(nv[k], nv[k]);
             crease = crease || d <= 0.0f || dd < bound;
         }
@@ -856,7 +860,40 @@ uint clearancePush(FieldTables t, float3 p, float offset, float maxDepth, float 
     }
     return answerNear(p, seeds, asks, offset, maxDepth, searchRadius, probe, delta);
 }
-float3 loadOut(uint p) { return asfloat(gOut.Load3(p * 12)); }
+// MeshDistanceField::bounds: lower bounds of the height and of the distance from the surface of
+// every point within `radius` of p: the bounds of the region (far from the surface, or one whose
+// bounds settle every push the tables answer) or brick p falls in, less twice the radius and the
+// radius; outside the grid (a push leaves every point outside it alone) beyond the search where the
+// grid is farther than the radius. False: neither.
+bool fieldBounds(FieldTables t, float3 p, float radius, out float heightLow, out float distanceLow) {
+    heightLow = -infinity();
+    distanceLow = 0.0f;
+    PRECISE float3 scaledP = p * t.inverseCell;
+    PRECISE float3 g = scaledP - GRID_SHIFT;
+    if (!(g.x >= t.lo.x && g.y >= t.lo.y && g.z >= t.lo.z && g.x < t.hi.x && g.y < t.hi.y && g.z < t.hi.z)) {
+        const float3 below = t.lo - g, above = g - t.hi;
+        const float gap = max(max(max(below.x, above.x), max(below.y, above.y)), max(below.z, above.z)) * t.cell;
+        if (!(gap > radius + t.cell)) return false;
+        distanceLow = infinity();
+        return true;
+    }
+    const int3 local = int3(floor(g) - t.lo);
+    const int3 brick = local / 4, region = brick / 4;
+    const uint4 r = gAux2.Load4((sTableBase + t.regions + (uint(region.x) + t.dims.x * (uint(region.y) + t.dims.y * uint(region.z))) * 4) * 4);
+    float h = asfloat(r.y), d = asfloat(r.z);
+    if (r.x == 0 && r.w != TABLE_NONE) {
+        const int3 inRegion = brick - region * 4;
+        const uint4 b = gAux2.Load4((sTableBase + t.bricks + (r.w + uint(inRegion.x + inRegion.y * 4 + inRegion.z * 16)) * 4) * 4);
+        h = asfloat(b.y);
+        d = asfloat(b.z);
+    }
+    PRECISE float twice = 2.0f * radius;
+    PRECISE float hl = h - twice;
+    PRECISE float dl = d - radius;
+    heightLow = hl;
+    distanceLow = dl;
+    return true;
+}float3 loadOut(uint p) { return asfloat(gOut.Load3(p * 12)); }
 float3 loadKept(uint p) { return asfloat(gOut3.Load3(p * 12)); }  // ClearanceCS: the walks kept
 // The walk's keepLength (as Collide's): p brought back to `wanted` from prev, along the way between them.
 float3 keepLength(float3 prev, float3 p, float wanted) {
@@ -1332,8 +1369,9 @@ uint walkPush(FieldTables t, bool deformed, float3 p, float offset, float maxDep
 // constants and gAux0, each point's clearance as InterpolateCS blended it (gOut2: the guides'
 // clearance blended as the shape is, with the floor, by the influence), and the scalp's field in
 // gAux2: from the root out, a point below its clearance lifted to it, the points after it
-// following it, each kept its segment's length. Strands left as they came (not bound, out of
-// reach, not rooted on the scalp) are not walked.
+// following it, each kept its segment's length (every step-th point asked and the tip, the points
+// between moved by the moves of the two around them: interpolateClearanceStep). Strands left as
+// they came (not bound, out of reach, not rooted on the scalp) are not walked.
 //
 // A thread a strand, CLEAR_GROUP strands a group, whose points (a run of them) and clearances
 // come into groupshared memory CLEAR_POINTS at a time (side by side threads reading side by
@@ -1341,6 +1379,7 @@ uint walkPush(FieldTables t, bool deformed, float3 p, float offset, float maxDep
 // strand across two such windows walks in gOut itself, after them.
 #define CLEAR_GROUP 64
 #define CLEAR_POINTS 1024
+#define CLEAR_ASKED 16  // operator_state.h kClearanceAsked
 #ifdef GROOMLAB_SLANG_GL
 #define CLEAR_TAIL_ROUND 1  // (ClearanceCS)
 #else
@@ -1382,12 +1421,18 @@ void clearanceWalk(bool staged, uint at, uint n, FieldTables tables, uint startV
     learnt(again, -infinity(), 0.0f);
     float3 anchor = float3(0.0f, 0.0f, 0.0f);
     bool knows = false, moved = false;
-    // Once a point moved, each next segment keeps its length as it was: from the point before as
-    // it came (the first after the moved one: from that one as its first push left it).
-    float3 lengthFrom = float3(0.0f, 0.0f, 0.0f);
-    float3 prev = walkPoint(staged, at);  // the point before, as the walk left it
-    for (uint j = 1; j < n; ++j) {
-        const float3 came = walkPoint(staged, at + j);
+    // The walk asks every step-th point and the tip (operator_state.h interpolateClearanceStep: at
+    // most CLEAR_ASKED; every point of a strand of up to CLEAR_ASKED + 1), the points between moved
+    // by the moves of the two asked around them, blended by index.
+    const uint step = n > CLEAR_ASKED + 1 ? (n - 1 + CLEAR_ASKED - 1) / CLEAR_ASKED : 1u;
+    uint asked = 0;  // the point asked before (0: the root)
+    float3 movedBefore = float3(0.0f, 0.0f, 0.0f);  // its move (zero until one moved)
+    // Once a point moved, each next one asked keeps its distance from the one before as they came
+    // (the first after the moved one: from that one as its first push left it).
+    float3 lengthFrom = walkPoint(staged, at);
+    for (uint j = min(step, n - 1);; j = min(j + step, n - 1)) {
+        const float3 came = walkPoint(staged, at + j);  // (the points after `asked` are as they came)
+        const float3 prev = walkPoint(staged, at + asked);  // the one asked before, as the walk left it
         float3 pj = came;
         if (moved) pj = keepLength(prev, pj, apartExact(came, lengthFrom));
         const float target = walkTarget(staged, at + j);
@@ -1401,7 +1446,7 @@ void clearanceWalk(bool staged, uint at, uint n, FieldTables tables, uint startV
             PRECISE float distanceLow = known.distanceLow - d;
             asks = !(heightLow >= target || distanceLow > searchRadius);
         }
-        const bool movedBefore = moved;
+        const bool movedEarlier = moved;
         if (asks) {
             const float3 was = pj;
             anchor = was;
@@ -1429,7 +1474,7 @@ void clearanceWalk(bool staged, uint at, uint n, FieldTables tables, uint startV
                 pj = pushed;
                 knows = false;  // (moved: what it learnt was of where it was)
                 float wanted = apartExact(came, lengthFrom);
-                if (!moved) {  // the segments from here out as they were (the next from this point moved)
+                if (!moved) {  // the first: its distance as it came, the next from it as pushed
                     wanted = apartExact(was, prev);
                     lengthFrom = pj;
                     moved = true;
@@ -1437,12 +1482,26 @@ void clearanceWalk(bool staged, uint at, uint n, FieldTables tables, uint startV
                 pj = keepLength(prev, pj, wanted);
             }
         }
-        if (movedBefore) lengthFrom = came;
-        if (moved) walkStore(staged, at + j, pj);  // (unmoved: as it came)
-        prev = pj;
+        if (movedEarlier) lengthFrom = came;
+        if (moved) {
+            // The points between: their moves blended from the one before's to this one's.
+            PRECISE float3 move = pj - came;
+            const float span = float(j - asked);
+            for (uint m = asked + 1; m < j; ++m) {
+                const float t = float(m - asked) / span;
+                PRECISE float3 apart = move - movedBefore;
+                PRECISE float3 part = apart * t;
+                PRECISE float3 by = movedBefore + part;
+                PRECISE float3 q = walkPoint(staged, at + m) + by;
+                walkStore(staged, at + m, q);
+            }
+            walkStore(staged, at + j, pj);
+            movedBefore = move;
+        }
+        if (j == n - 1) break;
+        asked = j;
     }
 }
-
 // The walks kept (gOut3: every strand's walked points as the last run left them) and gFlag2.y: this
 // run changed only the guides flagged beside their rows (gAux1, word 5 of a guide's 8), the base,
 // binding, field and params as they were (look_engine.cpp walkOnlyChanged). A strand bound to
@@ -1461,6 +1520,7 @@ bool guidesChanged(uint3 header) {
 [shader("compute")]
 [numthreads(CLEAR_GROUP, 1, 1)]
 void ClearanceCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID, uint3 group : SV_GroupID) {
+    sRelaxedCrease = true;  // (Probe::relaxed: the walk's soft target)
     const uint s = threadIndex(id, CLEAR_GROUP);
     // The group's strands' points: [first, last) (from the group's index: the same in every thread).
     const uint groupFirst = (group.y * gDispatch.x + group.x) * CLEAR_GROUP;
@@ -3324,7 +3384,8 @@ float3 softPush(float3 delta, float s) {
 // eased by the softness); else each point follows the one before (its length kept), then pushed.
 // Softness and smoothing act on the collider alone (gFlag.z: which surfaces are the collider
 // input's, a bit each): a strand it never moves walks as without them. Returns whether it moved one.
-bool collideWalk(uint begin, uint n, uint meshes, FieldTables scalpTables, FieldTables colliderTables, bool carried, bool ease, bool fromIn) {
+bool collideWalk(uint begin, uint n, uint meshes, FieldTables scalpTables, FieldTables colliderTables, bool carried, bool ease, bool fromIn,
+                 float3 root, float2 skipWithin) {
     const float offset = gValue.x, maxDepth = gValue.y, searchRadius = gValue.z;
     PRECISE float reach = offset + gValue2.x;
     bool touched = false;
@@ -3358,6 +3419,13 @@ bool collideWalk(uint begin, uint n, uint meshes, FieldTables scalpTables, Field
                 const FieldTables tables = m == 0 ? scalpTables : colliderTables;
                 const bool collider = ((gFlag.z >> m) & 1u) != 0;
                 const bool easedHere = eased && collider;
+                // A surface settled for the whole strand (fieldBounds at its root, CollideCS) while the
+                // point is that near the root: its field would leave it alone.
+                const float within = m == 0 ? skipWithin.x : skipWithin.y;
+                if (!second && within >= 0.0f && apartExact(p, root) <= within) {
+                    ++step;  // (no push, no second)
+                    continue;
+                }
                 if (!second) {
                     learnt(probe, -infinity(), 0.0f);
                     pushOffset = easedHere ? reach : offset;
@@ -3417,11 +3485,33 @@ void CollideCS(uint3 id : SV_DispatchThreadID) {
     const bool soft = gValue2.x > 0.0f;
     const float smoothing = gValue2.y;
     const bool carried = soft || smoothing > 0.0f;
+    if (second) smoothStrand(begin, n, smoothing);
+    // Each surface's field asked once for the whole strand (deform_ops.cpp CollideOp: bounds at its
+    // root out to its farthest point and the push's reach): settled there, it is skipped at the
+    // points that stay that near the root.
+    const float3 root = loadOut(begin);
+    float farthest = 0.0f;
+    for (uint i = 1; i < n; ++i) farthest = max(farthest, apartExact(loadOut(begin + i), root));
+    PRECISE float reach = gValue.x + gValue2.x;
+    PRECISE float spread = farthest * 1.001f;
+    PRECISE float widened = spread + reach;
+    PRECISE float within = widened + 1e-6f;
+    float2 skipWithin = float2(-1.0f, -1.0f);
+    for (uint m = 0; m < meshes; ++m) {
+        sTableBase = m == 0 ? 0u : gAux.x;
+        const FieldTables t = m == 0 ? scalpTables : colliderTables;
+        float heightLow, distanceLow;
+        PRECISE float margin = (2.0f * 1.7320508f) * t.cell;
+        PRECISE float above = reach + margin;
+        PRECISE float beyond = gValue.z + margin;
+        if (fieldBounds(t, root, within, heightLow, distanceLow) && (heightLow >= above || distanceLow > beyond)) {
+            if (m == 0) skipWithin.x = within; else skipWithin.y = within;
+        }
+    }
     // The walk; with smoothing, a second dispatch bends the strand by its corrections spread and
     // walks it again (two dispatches, not a loop here: a driver compiles a loop about the walk
     // several times slower).
-    if (second) smoothStrand(begin, n, smoothing);
-    const bool touched = collideWalk(begin, n, meshes, scalpTables, colliderTables, carried, soft && !second, !second);
+    const bool touched = collideWalk(begin, n, meshes, scalpTables, colliderTables, carried, soft && !second, !second, root, skipWithin);
     if (!second && smoothing > 0.0f) gOut2.Store(s * 4, touched ? 1u : 0u);
 }
 

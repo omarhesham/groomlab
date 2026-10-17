@@ -56,14 +56,16 @@ diagnosis, the rules) is [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
 Operators so far:
 - **Sources:** `Scalp` (the groom's scalp, or another of its scalps), `Guides`, `ColliderMesh` (any other mesh: a
-  collider), `ImportCurves`, `Reference` (another groom file's strands or guides: a library look).
+  collider), `ImportCurves`, `Reference` (shown as **Linked Groom**: another groom file's strands or
+  guides, a library look).
 - **Grow:** `Scatter`, `Interpolate`, `Cull`.
-- **Shape:** `Length`, `Width`, `Resample`, `Direction`, `Bend`, `Transform`, `Flow` (short
-  hair along painted flow arrows), `Part`, `Tie` (ponytails and hair ties), `Smooth`, `BlendNeighbors`, `Gravity`,
-  `Displace`, `Mirror`, `Collide`, `SelfCollide` (hair no longer through itself), `MeshCut`,
-  `RestoreLength`, `Sculpt` (brush the guides the graph made: see **Sculpting generated guides**).
+- **Shape:** `Length`, `Width`, `Resample`, `Direction`, `Flow` (short hair along painted flow
+  arrows), `Part`, `Smooth`, `Mirror`, `RestoreLength`, `Sculpt` (brush the guides the graph made:
+  see **Sculpting generated guides**).
+- **Deform:** `Bend`, `Transform`, `Tie` (ponytails and hair ties), `BlendNeighbors`, `Gravity`, `Displace`.
+- **Collide:** `Collide`, `SelfCollide` (hair no longer through itself), `MeshCut`.
 - **Look:** `Clump`, `Twist`, `Braid`, `Noise`, `Curl`, `Flyaway`, `Static` (charged hair puffing out), `Tangle`, `Wet` (wet hair from one slider), `Instance`, `Scales`.
-- **Convert:** `ToGuides`, `ToStrands`. **Games:** `Cards`.
+- **Convert:** `ToGuides`, `ToStrands`, `StrandMesh`. **Games:** `Cards`.
 - **Color:** `HairColor`, `Bands`, `FeatherColor`, `RenderData`.
 - **Motion:** `Wind`, `Jiggle` (no simulation cache: see **Motion without a cache**), `Simulate`
   (the guides simulated, every host: see **Simulating the guides**).
@@ -81,7 +83,7 @@ Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md
 
 GroomLab is free for any use, commercial included: every feature and every export (Unreal,
 Unity, glTF, Alembic, USD, cards), no watermark, no key, no activation. It is funded by
-donations: support it at https://ko-fi.com/getgroomlab (GroomLab > Support GroomLab in Maya,
+donations: support it at https://ko-fi.com/getgroomlab (GroomLab > Help > Support GroomLab in Maya,
 Help > Support GroomLab in the app, the GroomLab menu in Blender).
 
 ## Building from source
@@ -655,7 +657,11 @@ groomlab.brush_tool("place", length=0.6)                        # click the scal
   Shift+clicked guide's mirror guide, the mirror guides of a selection (`select_tool(symmetry=...)`,
   picked as well). In C++: `soloGuides`, `unfreezeAll`, `freezeToSelection` and
   `withMirrorGuides` (`brush.h`).
-- **Hotkeys:** GroomLab > Install GroomLab Hotkeys makes a GroomLab hotkey set.
+- **Hotkeys:** GroomLab > Install GroomLab Hotkeys makes a GroomLab hotkey set, then shows a small
+  window listing exactly which keys it changed and the hotkey set it switched from. **Help >
+  Keyboard Shortcuts** lists every key (one table for Maya, the app and Blender) and marks the
+  ones that need the hotkey set.
+  - **Alt+Shift+X:** symmetry on or off.
   - **Y + left click:** the marking menu, with the main brushes around the ring and the rest
     below.
   - **Page Up / Page Down:** step the brushed level.
@@ -689,7 +695,7 @@ They cannot be replayed, because their weights came from the view.
 
 ### Grooming from reference
 
-Photos of the real hair, as cameras you groom to: **Groom Tools > Reference**.
+Photos of the real hair, as cameras you groom to: **Groom Tools > Photos**.
 
 ```python
 import groomlab.reference as ref
@@ -909,7 +915,7 @@ The same inputs give the same frames, bit for bit, on any thread count.
   frames as an Alembic guide cache (`strandId` the guide's ID) that the groom (Maya's `simCaches`,
   a groom file's `"simCaches"`) names with the stamp of the settings it was made with. Renders,
   exports and farms read the bake; a node whose settings changed since ignores it and simulates.
-- **Maya:** GroomLab > Simulation > Add Simulate Node, Simulate Range, Bake Simulation, Clear
+- **Maya:** GroomLab > Simulate > Add Simulate Node, Simulate Range, Bake Simulation, Clear
   Simulation; `groomlab.sim.add_simulate`, `simulate`, `bake_simulation`, `invalidate_simulation`;
   `groomLabSimulate`. The time is the scene's; the scalp is read at each frame on the way. nHair
   (Simulate Guides) is still there beside it.
@@ -956,7 +962,9 @@ any exposed param. In the Graph Editor its panel is a small code editor:
 - **The library** (the **Library** menu): examples ship with GroomLab (long strands, top of
   the head, stripes, tip fade, a band along each strand, random per clump, a few random strands,
   noise patches, near a point, straight strands, standing strands), and **Save to Library...**
-  keeps yours. Picking one loads its text, variables and range.
+  keeps yours (one form: the name and what it does; an existing name is replaced only once you
+  confirm). Picking one loads its text, variables and range in one undo step, asking first when
+  it would replace an expression you typed.
 - **Where they are kept:** a node's expression and variables are part of the groom's graph, so
   they are saved in the scene file (`.ma`/`.mb`) and travel with it; nothing goes in the
   scene's `groomlab` folder (that is for images: masks, bakes, exports). The library is for
@@ -1225,7 +1233,7 @@ root; the preset `dragon_scales` is the whole chain, `scales_from_guides` and
   - **FBX** (`export_scales`, Export > Scales Mesh): a static mesh for Unreal (uv sets map1,
     scaleUV, scaleData; color sets scaleColor, scaleRootColor), from `scale_mesh(groom)`, which
     also leaves the mesh in the scene to skin; `export_unreal_groom` writes it beside the groom.
-  - **Baked skin maps** (`bake_scale_maps`, Export > Bake Scale Maps, `groomlab-cli
+  - **Baked skin maps** (`bake_scale_maps`, Utilities > Bake Scale Maps, `groomlab-cli
     bake-scales`): tangent-space normal, 16-bit height and color (with coverage) on the body's
     uvs, 16 to 8192 texels, a tile each for UDIM uvs (`engine/core/include/groomlab/scale_maps.h`).
   - **Groom files** keep the Scales and Instance nodes' own meshes (`"prototypes"`), so the procedural and
@@ -1256,7 +1264,7 @@ guides -> an even `Scatter` + `Interpolate` -> `ToGuides` (dense, evenly spaced 
 **`Sculpt`** -> the next `Interpolate`, a Clump's `centers` and so on.
 
 - **Pick the node:** select the Sculpt node in the Graph Editor, its row **Node: sculpt1** in
-  Groom Tools > Sculpt > Correctives, or its menu's **Brush This Node's Guides**. The viewport then
+  Groom Tools > Correctives, or its menu's **Brush This Node's Guides**. The viewport then
   draws the node's output as the guides, and the shaping brushes (Comb, Smooth, Lift, Length,
   Twist, Curl, Straighten, Attract, Cut, Direction, Noise; symmetry as for the guides) reshape
   them. Place, Draw, Erase, Paint and Part are for the guides themselves: pick the
@@ -1710,15 +1718,24 @@ Clump (picking its own centers), Noise, Curl and Width evaluates in about 90 ms.
 
 Loading the plugin adds a **GroomLab** menu:
 - **Groom Tools** and **Graph Editor**: the two windows.
-- **Create Groom from Selection**.
-- **Groom Files** (Import Groom File..., Reload from Groom File, Save to Groom File): grooms to and
-  from `.groom` files, the standalone app's too (see Importing and reloading groom files).
-- **Simulation**, **Review** (Density Heatmap, Strand Count HUD, Turntable) and **Export**
-  (Alembic..., USD..., Unreal Groom..., Groom File..., Render from Groom File..., Render as
-  Curves, and RenderMan Procedural while RenderMan for Maya is loaded: see Rendering with RenderMan).
+- **Create Groom from Selection** and **Guides from Photos (experimental)...**.
+- **Groom Files** (Import Groom File..., Reload from Groom File, Save to Groom File, Save Groom File
+  As...): grooms to and from `.groom` files, the standalone app's too (see Importing and reloading
+  groom files).
+- **Import** (From XGen..., From Yeti..., Alembic Curves...: an Alembic file's curves as the groom's
+  guides through an ImportCurves node, a groom made first on a selected mesh) and **Add** (Feathers..., Braid on Curves..., Cards,
+  Collider, Wind, Jiggle).
+- **Simulate** (Add Simulate Node, Simulate Range, Bake Simulation, Clear Simulation; nHair under
+  **Legacy**), **Review** (Density Heatmap and Strand Count HUD, check items; Turntable, Render
+  Turntable...), **Render** (Render from Groom File..., Render as Curves, and RenderMan Procedural
+  while RenderMan for Maya is loaded: see Rendering with RenderMan) and **Export** (Alembic...,
+  USD..., Unreal Groom..., the game cards, the scales).
 - **Utilities**: guides and strands to and from Maya curves and meshes, baking a node to guides,
-  transferring to another scalp, copying the graph to other grooms (see Utilities).
-- **Install GroomLab Hotkeys**.
+  Bake Scale Maps, transferring to another scalp, copying the graph to other grooms (see Utilities).
+- **Theme**, **Install GroomLab Hotkeys** and **Help** (Docs, Keyboard Shortcuts, Check for
+  Updates..., Support GroomLab, About GroomLab).
+- Every item's failure is said over the viewport in plain words with what to do next, the
+  traceback in the Script Editor; "..." ends the items that open a dialog or window.
 
 The groom's **Attribute Editor** shows what the groom is made of. **Inputs** comes first:
 - **Scalp:** the mesh the hair grows on. **Pick** grows the groom on the selected mesh (a groom
@@ -1733,8 +1750,9 @@ The groom's **Attribute Editor** shows what the groom is made of. **Inputs** com
   edits back (one undo step), **Save** writes the groom to it.
 
 **Controls** follows, with the keyable attributes that Control nodes and keyed params add (the
-`ctl_` attributes),
-then the display and render settings. The button row opens the **Groom Tools** and the **Graph
+`ctl_` attributes; folded while the groom has none),
+then the display and render settings. Plumbing the GroomLab tools set (`hiddenGuideGroups`,
+`guideColorLayer`, `strandColorSource`, `shotSculpt`, `shotLayer`) is hidden there. The button row opens the **Groom Tools** and the **Graph
 Editor**. By script:
 
 ```python
@@ -1744,15 +1762,18 @@ groomlab.inputs_summary(groom)                    # scalp, rest, guides, groups,
 ```
 
 The **Groom Tools** (first item in the menu; `groomlab.ui.palette.show(tab=...)` with `"tools"`,
-`"paint"`, `"sculpt"` or `"guides"`: Tools with the guide groups open) is the grooming hub, docked beside the viewport. Its header
+`"paint"`, `"correctives"`, `"photos"` or `"guides"`: Tools with the guide groups open) is the grooming hub, docked beside the viewport. Its header
 picks what the tools work on: the groom (the selected one, or one picked to stay on it), an eye
 to show or hide it, a Graph Editor button and a **...** menu (Create Groom from Selection,
 Theme); under it, the **Group** the brushes edit, with **Isolate**. With no groom to work on,
 a **Start a groom** card takes its place: select the scalp mesh (and any guide curves) and
-click **Create Groom from Selection**. Until the groom has guides and a look, a
+click **Create Groom from Selection**, or **Import** one (XGen, Yeti, Alembic curves, a groom file). Until the groom has guides and a look, a
 **Your first groom** card lists those steps, ticks each off as the groom gets there, and takes
 you to the next one on a click (its close button hides it for good). Then four tabs (Tools,
-Paint, Sculpt, Reference):
+Paint, Correctives, Photos; `show(tab=...)` also takes the old ids `"sculpt"` and `"reference"`);
+below the tabs and the Brush card, an **Output** section runs what comes after grooming: **Simulate
+Range**, **Export** (Alembic, USD, Unreal, Unity, glTF, a groom file), **Render** (from a groom
+file, as curves, a turntable), **Transfer...** and **Import** (the GroomLab menu's items, one table):
 - **Tools:** every tool as an icon, in groups (the core's brush catalog, `brush_catalog.h`):
   Create (Place, Draw, Part, Flow), Shape (Comb, Slide, Smooth, Straighten, Lift, Twist, Curl,
   Attract, Direction, Noise, Tube), Trim (Cut, Length, Erase), Paint (Paint, Width, Density) and
@@ -1769,18 +1790,19 @@ Paint, Sculpt, Reference):
   selected, resamples them live while dragged and applies on release (one undo step). **Edit Guides** holds Children..., Sync +X → -X, Sync -X → +X, Mirror
   Selection, Mirror Group..., Reparent..., Promote / Demote..., From Curves and Clear Selection.
 - **Paint:** the Paint brush and the maps of every kind (see Painted maps above).
-- **Sculpt:** Correctives (see Correctives below).
-- **Reference:** photo cameras to groom to (see Grooming from reference).
+- **Correctives:** Correctives (see Correctives below).
+- **Photos:** photo cameras to groom to, and Guides from Photos (see Grooming from reference).
 - **Settings:** below the tabs, the active tool's name, what it does, and one card with only
   what that tool uses: radius, strength (signed for tools that work both ways), falloff, the
-  Falloff curve and Root to tip curves, symmetry (world X or topology), selected only, pen pressure, keep off scalp, mask by scalp (on: a stroke never reaches what the head hides from the camera, such as guides, parts, flow arrows or paint on its far side), and the tool's own options: New guides
+  Falloff curve and Root to tip curves, selected only, pen pressure, keep off scalp, mask by scalp (on: a stroke never reaches what the head hides from the camera, such as guides, parts, flow arrows or paint on its far side), and the tool's own options: New guides
   (Place and Draw: length, segments, spacing and neighbor matching), Solo new guides (Place and
   Draw), Parts (name, the list,
   **From Curves**, Remove, Clear All), Flow (**Place** arrows or a sink, **Clear All**), Stretch
   (Comb), Erases (Guides, Parts, Flow), Acts on (Guides, Parts, Flow for the shaping brushes),
   Selection (**Soft radius**) and Freeze mask (**Unfreeze All**). **While sculpting** (folded
   away under the card) sets how the strands draw during a stroke.
-- **Group:** the guide group brushes edit and Place and Draw add new guides to; children follow
+- **Group:** the guide group brushes edit and Place and Draw add new guides to, with **Symmetry**
+  (World X or Topology; Alt+Shift+X with the hotkey set) beside it, shown whatever the tool; children follow
   their parents. **All groups** brushes every guide. **New Group...** makes a group, top-level
   or a child of another (`groomlab.add_guide_group(groom, name, parent=None)`); a **Guides**
   node in the Graph Editor reads it by name.
@@ -1791,14 +1813,16 @@ Paint, Sculpt, Reference):
 
 The **Graph Editor** is a dockable node editor for the selected groom:
 - **Nodes:** each is a card with a category color, its name and type, and ports colored by
-  type. The categories follow the order a groom is built in (the Add Node menu): Sources (Scalp,
-  Guides, ColliderMesh, ImportCurves, Reference), Grow (Scatter, Interpolate, Cull), Shape (Length, Width,
-  Resample, Direction, Bend, Transform, Flow, Part, Tie, Smooth, BlendNeighbors, Gravity,
-  Displace, Mirror, Collide, SelfCollide, MeshCut, RestoreLength, Sculpt), Look (Clump, Twist, Braid, Noise, Curl,
-  Flyaway, Static, Tangle, Wet, Instance, Scales), Motion (Wind, Jiggle, Simulate), Feathers (Propagate, Plume,
-  Split), Color (HairColor, Bands, FeatherColor, RenderData), Convert (ToGuides, ToStrands), Fields &
-  Curves, Utility (Group, Blend, Attribute, Merge, Switch, Output) and Games (Cards). A port is hollow when free and filled
-  when linked. A short summary shows the params that differ from their defaults.
+  type. The categories follow the order a groom is built in (the Add Node menu, the same in the app
+  and Blender, from the core's `node_catalog.h`): Sources (Scalp, Guides, ColliderMesh, ImportCurves,
+  Linked Groom), Grow (Scatter, Interpolate, Cull), Shape (Length, Width, Resample, Direction, Flow,
+  Part, Smooth, Mirror, Restore Length, Sculpt), Deform (Bend, Transform, Tie, Blend Neighbors,
+  Gravity, Displace), Collide (Collide, Self Collide, Mesh Cut), Look (Clump, Twist, Braid, Noise,
+  Curl, Flyaway, Static, Tangle, Wet, Instance, Scales), Motion (Wind, Jiggle, Simulate), Feathers
+  (Propagate, Plume, Split), Color (Hair Color, Bands, Feather Color, Render Data), Convert (To Guides,
+  To Strands, Strand Mesh), Fields & Curves, Utility (Value, Group, Blend, Attribute, Merge, Switch,
+  Output) and Games (Cards). The menus show these spaced labels, each node's description as its
+  tooltip. A port is hollow when free and filled when linked. A short summary shows the params that differ from their defaults.
 - **Wiring:** drag from an output port to an input port to connect.
   - **Snapping:** compatible ports light up while you drag, and a drop near one snaps to it.
   - **Moving a link:** drag a linked input to move its link elsewhere, or drop it on empty space
@@ -1833,12 +1857,12 @@ The **Graph Editor** is a dockable node editor for the selected groom:
     (the schema's `animatable`: false). `groomlab.set_param_key`, `delete_param_key`,
     `remove_param_animation`, `param_key_state` by script.
   - **Mappable parameters:** the **Map** button beside the value switches it to a texture, a
-    color set, a strand attribute, an expression or a **painted map** (a guide layer), and back. Right-click the name for
-    **Paint** > On Guides / On Scalp Vertices / As Texture: a map of that kind, white, feeds the
+    color set, a strand attribute, an expression or a **painted map** (a guide layer), and back. The yellow
+    **Paint** chip at the row's end (as in the app), or right-click the name for **Paint**, offers On Guides / On Scalp Vertices / As Texture: a map of that kind, white, feeds the
     param through a Map node (white = the value now, black = 0), and Groom Tools > Paint opens on
     it (the brush lowers the param, Ctrl raises it).
   - **Node buttons:** nodes that need something from the scene have it under their params:
-    **Cards** (Show cards, Show textures, LOD, Bake Maps, Bake Scalp, Export for Unreal), **Braid** (Paths from Selected Curves),
+    **Cards** (Show cards, Show textures, LOD, Bake Maps, Bake Scalp, Export Unreal Cards), **Braid** (Paths from Selected Curves),
     **HairColor** (Create Hair Shader) and **Instance** (Prototype from Selection).
   - **Inputs:** the **Scalp** node shows the mesh it reads, with **Pick from Selection** (grow
     the groom on the selected mesh) and **Select**, and, for a moving scalp, the rest pose with
@@ -1846,9 +1870,16 @@ The **Graph Editor** is a dockable node editor for the selected groom:
     Groom Tools' Guide groups & edits). Plumbing params (the Scalp input, the Guides input and hierarchy)
     stay hidden unless changed.
 - **Adding nodes:** press Tab or right-click the canvas to search. Type part of a name
-  or of what it does ("remap curve"), then Enter adds it there.
+  or of what it does ("remap curve"), then Enter adds it there. Names come first, then a few
+  search words ("symmetry" finds Mirror, "frizz" finds Noise), params ("density" finds Scatter),
+  descriptions and the category; each result shows its category and a line on what it does. With
+  one node selected, the new node is wired after it (as Add Node wires it). With no groom
+  selected, Tab says to select one.
+- **Linking:** drag from a port to a port. Over a port that can't take the link, a tooltip and
+  the status line say why ("guides.guides gives Guides; scatter.scalp takes Mesh"); dropping it
+  there changes nothing, a picked-up link stays where it was.
 - **Header toggles:** every node header has two, as in Yeti. **Focus** (eye) shows the groom
-  up to that node in the viewport, and **Disable** (power) passes the node's input straight
+  up to that node in the viewport, and **Bypass** (power, B) passes the node's input straight
   through; the node dims. Focus on a **Clump** draws its clump centers as dots on the scalp over
   its result (in the theme's `clumpCenters` color).
 - **Live dragging:** every slider in the side panel (params and an Expression node's variables)
@@ -1871,7 +1902,8 @@ The **Graph Editor** is a dockable node editor for the selected groom:
   - **V:** views a node; the viewport shows its strands, while renders and exports still
     use the output (`viewNode`).
   - **B:** bypasses a node; it passes its input through, for a with/without comparison.
-- **Node feedback:** a node that fails shows a red badge with the error in its tooltip. Each
+- **Node feedback:** a node that fails shows a red badge with the error in its tooltip, and a red
+  line under its header in the param panel when it is selected (in plain words). Each
   node shows how long it took the last time it ran (`groomLabGraphStats`). A warning badge
   flags a Cards node whose baked maps are stale, and a node with a note (a Jiggle with no scalp
   motion to react to). `cmds.groomLabGraphStats(groom, points=True)` (`groomlab.viewport_points`)
@@ -1899,7 +1931,7 @@ groom's whole graph on the clipboard as JSON text, for a chat, a forum or a file
   `controls`: the values of the groom's `ctl_` attributes (`{"ctl_curls": 0.7, "ctl_color_dye":
   [0.5, 0.4, 0.3]}`). Keys do not travel. Saved as a `.json` file in a presets folder, it loads
   like any preset, its control values too.
-- **Insert after selected node** (each preset's submenu, beside **Apply**) keeps the groom's graph
+- **Insert After Selected Node** (each preset's submenu, beside **Apply**) keeps the groom's graph
   and adds the preset's look to it: every node between the preset's sources and its Output becomes
   one Compound (named after the preset, fitted to this scalp) placed after the selected node, or
   before the Output when nothing is selected, fed by it and feeding what it fed; one undo step.
@@ -2059,6 +2091,9 @@ The viewport can color strands and draw them as ribbons. Neither re-evaluates th
 | `clump` | A random color per value of the channel `strandColorSource` (default `clumpId`), one per clump; with `region`, one per painted region (Interpolate's `regionMap`) |
 | `density` | Root density against the groom's median: blue a quarter or less, green typical, red 4x or more (bald spots, bunched roots) |
 
+The Attribute Editor shows `strandColorMode`; `strandColorSource` is set by the Groom Tools (the
+Paint tab's map display) or by script.
+
 `displayRibbons` draws strands as ribbons as wide as their `Width`, times `ribbonWidthScale`, for
 width and density look checks.
 
@@ -2157,10 +2192,12 @@ choice is remembered.
 ```
 
 The keys: `palette` (named colors); `ui` (`background`, `panel`, `raised`, `hover`, `border`,
-`text`, `textDim`, `accent`, `accentText`, `warning`, `radius`, `fontSize`, `sliders`: the colors
-sliders cycle through); `graph` (`canvas`, `grid`, `node`, `nodeBorder`, `text`, `textDim`,
-`selected`, `cornerRadius`, `headerStyle` `filled` or `tinted`, `shadow`, `categories` by node
-category, `ports` by port type); `icons` (a color per tool group: `create`, `shape`, `trim`, `paint`, and `app` for the window icons; `ink` for hair and neutral parts; a shade and a tint of each come with it, and a checked tool's icon turns to `accentText` on the accent); `viewport` (`guideLevels`, `pointSize`,
+`text`, `textDim`, `accent`, `accentText`, `warning`, `error`, `keyed`, `animated`, `driven`,
+`radius`, `fontSize`, `sliders`: the colors sliders cycle through); `graph` (`canvas`, `grid`,
+`node`, `nodeBorder`, `text`, `textDim`, `selected`, `cornerRadius`, `headerStyle` `filled` or
+`tinted`, `shadow`, `error`, `warning` and `note` for node badges and status lines, `driven` for a
+param a field or another node drives, `reads` and `writes` for the attribute chips, `categories`
+by node category, `ports` by port type); `icons` (a color per tool group: `create`, `shape`, `trim`, `paint`, and `app` for the window icons; `ink` for hair and neutral parts; a shade and a tint of each come with it, and a checked tool's icon turns to `accentText` on the accent); `viewport` (`guideLevels`, `pointSize`,
 `selected`, `softSelected`, `frozen`, `parts`, `flow`, `flowField`, `tubes`, `instances`).
 
 ```python
@@ -2238,7 +2275,7 @@ groomlab.flow_arrows(groom); groomlab.flow_sinks(groom); groomlab.clear_flow(gro
 ### Correctives (sculpt layers and shot fixes)
 
 The groom is a stack, as with Yeti's layers: the **Base groom** (its guides) at the bottom and
-**correctives** on top. In Groom Tools > Sculpt, **Correctives**, click the row brushes should edit:
+**correctives** on top. In Groom Tools > Correctives, click the row brushes should edit:
 the Base groom edits the guides; a corrective records each stroke as a correction and leaves the
 guides alone.
 
@@ -2459,7 +2496,7 @@ path is, in prman with the same call. RenderMan for Maya renders the groom throu
 3. Render. Before RenderMan for Maya translates the node at each frame, its **Pre Shape Python
    Script** writes the groom to a groom file at that frame:
    `<scene folder>/groomlab/<scene>/renders/renderman/<groom>.<frame>.groom`. If the groom renders
-   from its own groom file (**Export > Render from Groom File**, which caches the scalp's
+   from its own groom file (**Render > Render from Groom File**, which caches the scalp's
    animation), it uses that file instead. Then it puts `-file` and `-frame` into `Data`, plus the
    shutter as motion keys while 3D motion blur is on in the render settings.
 4. Edit `Data` for the rest, for example `-density 0.5 -widthScale 1.2 -debug`. The script only
@@ -2511,7 +2548,7 @@ Add a **Cards** node (Graph Editor > Add Node > Games) where the look should be 
 `groomlab.create_cards(groom, lod="mid")`, which adds one before the output and shows the cards.
 The node's panel shows what its own cards cost (cards, triangles, textures) and has **Show cards**, **Show textures**,
 **LOD** (Hero, Mid, Low), **Bake Maps**, **Bake Scalp** (both into the scene's `groomlab/<scene>/cards/<groom>`
-folder), **Export for Unreal...**, **Export for Unity...** and **Export glTF...** (Game cards for Unity,
+folder), **Export Unreal Cards...**, **Export Unity Cards...** and **Export glTF Cards...** (Game cards for Unity,
 Game cards as glTF, below).
 - **The groom draws the cards; no mesh needed:** **Show cards** (the groom's `displayCards`;
   the A/B, `groomlab.compare_cards(groom)`) shows the cards *instead of* the strands; off, the
@@ -2547,7 +2584,7 @@ Game cards as glTF, below).
   catch up when the stroke ends. **Full density while sculpting** (Groom Tools > Tools; the
   groom's `sculptDensity` 1.0) keeps every strand of the preview up during a stroke instead of
   a lighter share, so nothing pops at the end of it.
-- **A mesh only to export:** Export for Unreal makes a card mesh for the FBX and removes it.
+- **A mesh only to export:** Export Unreal Cards makes a card mesh for the FBX and removes it.
   `groomlab.create_card_mesh(groom)` makes a live one on `outCards` for exporting by hand; while
   it exists it shows the cards in the cards view instead of the groom (its visibility follows
   the view), so they never show twice.
@@ -2698,7 +2735,7 @@ a **hair cap**: a copy of the scalp just above the skin, following it, textured 
 (`groomlab.scalp_cap(groom)`); it shows with the cards. Hair within `reach` of the skin counts
 (default 3% of the scalp's size); the groom is read at `density`.
 
-**For Unreal:** Export for Unreal (`groomlab.export_cards_unreal(groom, folder, name, lod=None)`)
+**For Unreal:** Export Unreal Cards (`groomlab.export_cards_unreal(groom, folder, name, lod=None)`)
 bakes and writes `<name>_cards.fbx` (UV0 is the atlas, V root to tip, with a material pointing at
 the maps; the mesh it makes for this is removed after), the six maps, the scalp maps with the hair
 cap `<name>_scalpCap.fbx` (when the scalp has UVs; `scalp=False` leaves them out), and
@@ -3054,9 +3091,9 @@ whether the physics overrides hold the barbs as stiffly as wanted. Sources:
 
 ### Game cards for Unity
 
-The Cards node's **Export for Unity...**, GroomLab > Export > Unity Cards..., or
+The Cards node's **Export Unity Cards...**, GroomLab > Export > Unity Cards..., or
 `groomlab.export_cards_unity(groom, directory=None, name=None, resolution=None, scalp=True, lod=None)`
-writes into `directory` (default: the scene's exports folder), named like Export for Unreal
+writes into `directory` (default: the scene's exports folder), named like Export Unreal Cards
 (`<asset>_<lod>`):
 - `<name>_cards.fbx`: the card mesh, **Y up, in meters** (the FBX is converted from centimeters,
   so Unity imports it at scale 1 whatever Convert Units says), UV0 the atlas (V root to tip), a
@@ -3095,7 +3132,7 @@ warns).
 
 ### Game cards as glTF
 
-The Cards node's **Export glTF...**, GroomLab > Export > glTF Cards..., or
+The Cards node's **Export glTF Cards...**, GroomLab > Export > glTF Cards..., or
 `groomlab.export_cards_gltf(groom, path=None, lod=None, lods=None, resolution=None, binary=True,
 cap=True, scale=0.01, alpha_mode="mask", alpha_cutoff=0.5)` (the `groomLabExportGltf` command)
 writes the cards as glTF 2.0, for any engine or viewer that reads it (Godot, three.js, Babylon,
@@ -3314,9 +3351,10 @@ groomlab.remove_scalp(groom, "earL")
   **Remove**; the **Scalps** row's **Pick** adds one (its branch wired). Core: `GroomData::scalps`,
   `GroomSession::setScalps`, `scalp_pieces.h`.
 
-### Reference node (groom libraries)
+### Linked Groom node (groom libraries)
 
-A **Reference** node (Graph Editor > Add Node > Sources) brings in another groom file's result: a
+A **Linked Groom** node (type `Reference` in `.groom` files and the Python API; Graph Editor > Add
+Node > Sources) brings in another groom file's result: a
 library look ("eyebrows.groom", "fur_patch.groom") reused, or instanced several times, in a
 groom. Merge it with the groom's strands (a Merge node), or feed its `guides` output to an
 Interpolate.
@@ -3428,7 +3466,7 @@ arrow and map texel of the old scalp lands on the new one.
   **New scalp** (the dropdown: changing it reloads the right view) on the right. Each view is a
   Maya modelEditor with a hidden camera of its own (in a `groomLabTransferUI` group, kept out of
   the undo queue, deleted with the window), isolated to its mesh, with Alt navigation and a
-  **Frame** button. Below: **Method**, **Symmetry X**, **Wireframe**, **Undo** / **Redo** /
+  **Frame** button. Below: **Method**, **Symmetry**, **Wireframe**, **Undo** / **Redo** /
   **Clear**, **Keep guide lengths**, **Project painted maps** (on), **Copy mesh color sets** (off),
   the status line (`6 pairs, 1 unmatched`, and why **Transfer** is disabled: align needs 3 pairs,
   warp 4) and **Transfer**, which says what moved, what was projected and what did not come along.
@@ -3444,7 +3482,7 @@ arrow and map texel of the old scalp lands on the new one.
     its partner. The clicks reach the window through a Qt event filter on the two views only (the
     left button without Alt): Maya's current tool is never changed and the main viewport works
     as before.
-  - **Symmetry X** also adds the mirror of each click (across x = the mesh's bounding-box center,
+  - **Symmetry** also adds the mirror of each click (across x = the mesh's bounding-box center,
     snapped onto the mesh) as the next point on that side; the two are a group: deleting either
     deletes both, and their partners.
   - **Ctrl+Z** / **Ctrl+Y** (or Ctrl+Shift+Z) in the window undo and redo marker edits: the
@@ -3459,10 +3497,10 @@ arrow and map texel of the old scalp lands on the new one.
   `w.move_point(side, i, point)`, `w.undo()`, `w.redo()`, `w.set_new_scalp(mesh)`, `w.pairs()`,
   `w.pending()`, `w.set_method(...)`, `w.transfer()`. `menu.transfer_dialog(scalp=...,
   method=..., markers=...)` transfers at once without the window.
-- **In the standalone app:** Tools > **Transfer Groom to Mesh...** opens the same window: the
+- **In the standalone app:** Tools > **Transfer Groom to Scalp...** opens the same window: the
   groom's scalp on the left, the mesh picked with **New Scalp...** (.obj, .abc) on the right, each
   view with its own orbit camera (Alt+left orbits, middle pans, right or the wheel dollies;
-  **Frame**), the same point rules, **Symmetry X** and **Ctrl+Z** / **Ctrl+Y**, and **Import
+  **Frame**), the same point rules, **Symmetry** and **Ctrl+Z** / **Ctrl+Y**, and **Import
   Markers...** for pairs in a JSON file (the format above). The views draw the meshes with the
   app's renderer and pick with the core's ray test (the brushes'). The complete pairs are stored
   with the groom as you edit and saved in its file.
@@ -3515,7 +3553,7 @@ utils.copy_graph(groom, ["hair2", "hair3"], guides="keep", maps=False)
   second.
 - **Bake Node to Guides...:** a graph node's strands or guides (ToGuides, a Noise on guides, a Scatter...)
   become primary guides of a root group, to brush, mirror and give children (see Procedural
-  guides). Also on a node's right-click menu in the Graph Editor: **Bake to Guides...**.
+  guides). Also on a node's right-click menu in the Graph Editor: **Bake Node to Guides...**.
 - **Transfer Groom to Scalp...:** see Transfer to a new scalp. The dialog's **Project painted
   maps** (on) and **Copy mesh color sets the graph reads** (off) are `maps` and `color_sets`.
   `transfer_to_scalp` returns the counts that moved (guides, parts, flow arrows), what was
@@ -3707,7 +3745,7 @@ sim.set_guide_cache(groom, "sim.abc")
   `groomlab-cli` and the Arnold procedural render the simulated groom too. The pipeline test
   runs an nHair simulation and checks that the CLI matches Maya on the simulated frame.
 - **Menu:** Simulate Guides (nHair, with a group and a preset), Bake Simulation to Cache, Remove
-  Simulation, Export Guides for Simulation and Load Guide Cache are under GroomLab > Simulation.
+  Simulation, Export Guides for Simulation and Load Guide Cache are under GroomLab > Simulate > Legacy.
 - **Commands:** `groomLabExportAlembic` takes `-guideGroup <name>` (posed guides of a group) or
   `-guidePoses` (the poses alone). `groomLabGuides -guidePoints <id>` returns a guide's points.
 

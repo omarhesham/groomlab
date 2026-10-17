@@ -14,7 +14,7 @@ through the procedural. One download holds every build: unzip it, start Maya and
 once so Arnold finds GroomLab.
 
 **Free.** GroomLab is free for any use, commercial included: every feature and every export, no
-key and no activation. It is funded by donations: GroomLab > Support GroomLab, or
+key and no activation. It is funded by donations: GroomLab > Help > Support GroomLab, or
 https://ko-fi.com/getgroomlab.
 
 ```python
@@ -128,7 +128,9 @@ The tools are the same in Maya, the standalone app and Blender, in the same orde
 They sit below the tabs and change with the tool.
 - **Radius and strength:** hold B (radius) or M (strength) and drag, once the GroomLab hotkeys are
   installed (**GroomLab > Install GroomLab Hotkeys**). Or middle-drag for the radius and
-  Shift+middle-drag for the strength. Tablet pressure scales the strength.
+  Shift+middle-drag for the strength. Tablet pressure scales the strength. **GroomLab > Help >
+  Keyboard Shortcuts** lists every key and marks the ones that need the GroomLab hotkey set;
+  installing the hotkeys shows which keys changed.
 - **Falloff:** 0 is hard to the brush's edge, 1 soft from the center. Tick **Falloff curve** to
   draw the falloff instead, center on the left, edge on the right.
 - **Root to tip:** tick it and draw how much of the strength each part of a guide gets, root on the
@@ -163,7 +165,8 @@ Frozen guides draw blue and brushes leave them alone.
 
 - **Mirror a finished side:** **Edit Guides > Sync +X → -X** (or **-X → +X**), or **Mirror
   Group...**.
-- **Keep it symmetric as you work:** turn on **Symmetry** in the brush settings. Every stroke is
+- **Keep it symmetric as you work:** turn on **Symmetry** in the **Group** row at the top of the
+  Groom Tools (or **Alt+Shift+X** with the GroomLab hotkey set). Every stroke is
   mirrored across world X, or, with **Topology** picked, across the scalp's own left and right. Use
   Topology for a head that is turned, tilted, animated or not quite symmetric. Brushes, Place, Draw,
   Part, Flow, Select and map painting all follow it.
@@ -204,11 +207,11 @@ from these names.
   length changes along each guide, by its ID: comb the sparse guides later and the sculpted
   guides keep their hooks and combs on top of the new shapes. **Clear Edits** (the node's panel or
   menu) drops them. In the app: the Correctives panel's **Sculpt into** lists the Sculpt nodes.
-- **Correctives** (Sculpt tab) are sculpt layers over the base groom, like Yeti's: pick a
+- **Correctives** (Correctives tab) are sculpt layers over the base groom, like Yeti's: pick a
   corrective and strokes are recorded on it, leaving the guides alone. Each weight is keyable;
   **Fix Frame** makes a shot fix that blends in and out around the current frame. See
   https://getgroomlab.com/docs/motion-and-simulation.
-- **Groom to photos** (Reference tab): **Import Photo...** makes each photo a camera aimed at the
+- **Groom to photos** (Photos tab): **Import Photo...** makes each photo a camera aimed at the
   head. **Look Through** it, then line it up by eye or by points: click **Pick Points**, click a
   feature on the photo (an eye corner, the nose tip), then the same feature on the mesh in the
   perspective view. Six pairs or more, spread in depth (four with **Keep focal length**), then
@@ -225,9 +228,11 @@ Steps:
 1. Open **GroomLab > Graph Editor**.
 2. Start from a preset: **Presets** lists looks (Hair, Fur, Feathers, Scales) and small graphs
    that each teach one idea (Motion, Techniques, Games). Hover one for what it shows. **Apply**
-   replaces the graph; **Insert after selected node** adds the preset's look as one Compound after
+   replaces the graph; **Insert After Selected Node** adds the preset's look as one Compound after
    the node you selected.
-3. Add or tweak nodes: **Add Node** puts a node after the selected one; drag between ports to wire.
+3. Add or tweak nodes: **Add Node** puts a node after the selected one (its menus are the same
+   categories as the app and Blender; **Tab** finds a node by what it does: symmetry finds Mirror,
+   frizz finds Noise); drag between ports to wire.
    With **Live** on, each edit applies at once as one undo step.
 4. Render a test with HairColor's **Create Hair Shader** (section 6).
 
@@ -355,9 +360,9 @@ viewport, renders and exports, and has the same `subdivision` param as Scalp. **
 takes it out. In the Graph Editor, a ColliderMesh or Scalp node's panel has a **Mesh** menu and an
 eyedropper to rewire it.
 
-### Library looks: the Reference node
+### Library looks: the Linked Groom node
 
-A **Reference** node (Add Node > Sources) brings in another `.groom` file's strands or guides: an
+A **Linked Groom** node (Add Node > Sources) brings in another `.groom` file's strands or guides: an
 eyebrow or fur patch groomed once and reused. Merge it with the groom's strands. Set its `path`
 (**...** browses); it reloads when the file changes. `bind` `world` keeps the look where the file
 has it; `closestPoint` or `uv` roots it on this scalp so it follows the skin (`uv` when both scalps
@@ -462,7 +467,7 @@ An attribute is a value each strand (or each point) carries by name, such as `cl
 ### Braids
 
 Draw curves for the paths, then `groomlab.add_braid(groom, curves, style="three")` (or **GroomLab >
-Add > Braid on Curves**). With `feed` on (the default for cornrows), strands join the braid where
+Add > Braid on Curves...**). With `feed` on (the default for cornrows), strands join the braid where
 they reach the path: cornrows, French braids. With nothing on its `braids` input, a Braid picks its
 own paths about `region` apart: box braids with nothing drawn (the **Box braids** preset).
 
@@ -569,7 +574,7 @@ the scales out and the **Scales** node puts a plate on each.
   partner yet is drawn dim (unmatched) until you click its partner on the other side.
   - Drag a point to slide it over the surface; **Ctrl+click** a point to delete it and its
     partner (the numbers close up on both sides); hover a point to light it and its partner.
-  - **Symmetry X** adds the mirrored point (across the middle of the mesh) right after each
+  - **Symmetry** adds the mirrored point (across the middle of the mesh) right after each
     click; deleting one of the two deletes both.
   - **Ctrl+Z** / **Ctrl+Y** in the window undo and redo the points (not Maya's undo).
   - **Alt** moves each view's camera as in any viewport; **Frame** fits the mesh.
@@ -580,7 +585,7 @@ the scales out and the **Scales** node puts a plate on each.
   **Matching UVs** moves each guide to its UV on a head laid out alike. **Keep guide lengths**
   turns guides without scaling them. By script: `utils.transfer_to_scalp(groom, "newHead",
   method="markersWarp", markers=[("head.vtx[12]", "newHead.vtx[40]"), ...])`. The standalone
-  app's **Tools > Transfer Groom to Mesh...** is the same window (**New Scalp...** picks the mesh
+  app's **Tools > Transfer Groom to Scalp...** is the same window (**New Scalp...** picks the mesh
   file; **Import Markers...** reads pairs from a JSON file).
 
 **GroomLab > Add** puts common building blocks on the selected groom: **Feathers...**, **Braid on
@@ -604,7 +609,7 @@ Simulate has no loop.
 
 ### GroomLab's simulation
 
-1. **GroomLab > Simulate (GroomLab) > Add Simulate Node** puts a Simulate node between the guides
+1. **GroomLab > Simulate > Add Simulate Node** puts a Simulate node between the guides
    and Interpolate (`groomlab.sim.add_simulate(groom)`).
 2. Play the timeline: the guides swing under gravity and the head's motion, stay off the scalp, and
    the strands follow.
@@ -630,7 +635,7 @@ Simulate has no loop.
 
 ### Other simulators
 
-- **nHair (legacy):** **GroomLab > nHair (legacy) > Simulate Guides (nHair)...** on the primary
+- **nHair (legacy):** **GroomLab > Simulate > Legacy > Simulate Guides (nHair)...** on the primary
   guides builds nHair curves with follicles; children follow their simulated parents. **Remove
   Simulation** returns to the groom as authored.
 - **Houdini and others:** **Export Guides for Simulation...** writes curves that carry their guide
@@ -657,14 +662,14 @@ Simulate has no loop.
   alone: `renderDensity` (a share of the strands, the same look), `renderWidthScale` and
   `renderLengthScale` (each strand scaled about its root). The viewport stays as groomed. Exports
   take them when asked (`render_overrides=True`).
-- **On the farm:** **GroomLab > Export > Render from Groom File...** makes exported `.ass` files
+- **On the farm:** **GroomLab > Render > Render from Groom File...** makes exported `.ass` files
   hold a small procedural that evaluates the groom at render time, without Maya. The farm needs
   `GroomLab/procedurals` on `ARNOLD_PLUGIN_PATH`, as the module sets up.
 - **Caches for other packages:** **GroomLab > Export > Alembic...** or **USD...** (curves with
   widths, root UVs and strand channels). Or from the command line:
   `groomlab-cli eval hair.groom -o hair.usda -f 1-48`.
-- **To and from the standalone app:** **GroomLab > Export > Groom File...** (or **Groom Files >
-  Save to Groom File**) writes a `.groom` the app opens. After editing it there, **Groom Files >
+- **To and from the standalone app:** **GroomLab > Groom Files > Save Groom File As...** (or **Save
+  to Groom File** once it is linked) writes a `.groom` the app opens. After editing it there, **Groom Files >
   Reload from Groom File** (or **Reload** in the Attribute Editor's Inputs) brings the edits back in
   one undo step. A groom made in the app comes in with **Groom Files > Import Groom File...**:
   select its scalp first if the scene has it, or let GroomLab make the scalp from the file.

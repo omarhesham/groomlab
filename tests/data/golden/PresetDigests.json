@@ -33,13 +33,13 @@
     "strand.melanin": "9c433b002ba246d0",
     "strand.melaninRedness": "88dc3bf9277a8513"
    },
-   "everything": "f19043a21d175afd",
+   "everything": "e85d04d4ca24109e",
    "ids": "20ed751c376a9e91",
    "points": 207993,
-   "positions": "d03ffac903778475",
+   "positions": "6c011a6bda31fd5e",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "f6704106994657ed"
+   "widths": "dc4297aab3ee7ce8"
   },
   "braids": {
    "channels": {
@@ -51,13 +51,13 @@
     "strand.melanin": "c720e5903ce46757",
     "strand.melaninRedness": "ba12ffef6db79a34"
    },
-   "everything": "2cc5583ece3b973f",
+   "everything": "0ed585baca3b168e",
    "ids": "20ed751c376a9e91",
    "points": 309453,
-   "positions": "6d4a304e3d8ffc83",
+   "positions": "573660e9cce59c90",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "687552175b950ad2"
+   "widths": "d179b234c04c7b4e"
   },
   "cards_mid": {
    "channels": {},
@@ -80,13 +80,13 @@
     "strand.melanin": "c20c20ef76455b9c",
     "strand.melaninRedness": "a44c6a84903b3fcc"
    },
-   "everything": "afae863b322a47b7",
+   "everything": "11ef1d9af79c534f",
    "ids": "20ed751c376a9e91",
    "points": 106533,
-   "positions": "182aa2d310a17051",
+   "positions": "b9612753c014667e",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "8fa7f78d204cf177"
+   "widths": "429a873b20e69380"
   },
   "creature_fur": {
    "channels": {
@@ -117,13 +117,13 @@
     "strand.melanin": "dad6a7052491619b",
     "strand.melaninRedness": "e10b4fe3f7ad70b5"
    },
-   "everything": "a5e29669ac5adaa8",
+   "everything": "357744f478a6bf88",
    "ids": "20ed751c376a9e91",
    "points": 207993,
-   "positions": "63b6923765482e58",
+   "positions": "4a0f15285cf67f0a",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "2fabf7b873cfc665"
+   "widths": "9e38a4665064cdb8"
   },
   "dragon_scales": {
    "channels": {
@@ -683,13 +683,13 @@
   },
   "vine_leaves": {
    "channels": {},
-   "everything": "2468eff74d08d012",
+   "everything": "2241d24ffe049240",
    "ids": "893e2472d443d35c",
    "points": 93775,
-   "positions": "a7a5cc95cc5cce42",
+   "positions": "f85ad0eabf2dec75",
    "roots": "5dc722313535672f",
    "strands": 3751,
-   "widths": "94ec5621007299d4"
+   "widths": "efd1772ced383c77"
   },
   "wet": {
    "channels": {

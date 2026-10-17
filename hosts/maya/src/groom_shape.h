@@ -792,6 +792,15 @@ private:
     bool requested_ = false;
     void scheduleStrokeWarmup();  // on the next idle, when the brush tool is on this groom
     static void warmStrokeOnIdle(void*);
+    // The warm-up off the UI thread (GroomSession::detachWarm; GROOMLAB_ASYNC_WARM=0: on it, as
+    // warmStroke): started on that idle (after an evaluation, or a commit's landing), taken in
+    // (adoptWarm) on a later idle once it ran, or by the next press, which waits for it. One at a
+    // time: one due meanwhile starts once that one is taken in.
+    DetachedRunner warm_;
+    bool warmAgain_ = false;
+    void startWarm();
+    void takeWarm(bool wait);
+    static void adoptWarmsOnIdle(void*);
 };
 
 // (parseCardMaps, the cardMaps attribute as map -> path: groom_session.h.)

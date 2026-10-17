@@ -27,6 +27,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <maya/MAnimControl.h>
 #include <maya/MBoundingBox.h>
 #include <maya/MFrameContext.h>
 #include <maya/MGlobal.h>
@@ -468,6 +469,12 @@ void GroomSubSceneOverride::checkHairGrid(gpu::LineFrames& engine, HairGroomStat
     if (drawn.size() == own.size()) compare(drawn);
 }
 
+void hairGridsPlaybackStopped() {
+    for (const auto& [shape, o] : drawnOverrides()) {
+        if (o && o->hairGridStale_) MHWRender::MRenderer::setGeometryDrawDirty(o->object_);
+    }
+}
+
 void GroomSubSceneOverride::updateHairGrid(const MHWRender::MFrameContext&) {
     const float strength = floatPlug(GroomShape::aDisplaySelfShadowing);
     // The hair shaders of the groom: its items' and the level of detail's copies.
@@ -570,11 +577,41 @@ void GroomSubSceneOverride::updateHairGrid(const MHWRender::MFrameContext&) {
     const DrawTimes& now = currentDraw();
     const bool written = now.items.count(drawn->asChar()) != 0;
     const bool moved = written || follow_ || gpuRunning();
-    if (grid.valid && key == hairGridKey_ && !moved && !grid.settle) {
+    // Strands moving (playing back, following the scalp, a drag): the groom's bounds change on every
+    // frame, and each other size of the grid cost a new texture (its zeros uploaded) and its check
+    // (a read back): every other frame slow. A texture with a few cells to spare along each axis is
+    // kept while the grid fits it (its cells past the groom stay empty: the same shading), and one
+    // made anew gets as many to spare.
+    if (moved) {
+        auto spare = [](unsigned n) { return std::max(2u, n / 8u); };
+        bool fits = grid.volume != nullptr;
+        for (int k = 0; k < 3; ++k) fits = fits && grid.size[k] >= size[k] && grid.size[k] <= size[k] + 2 * spare(size[k]);
+        for (int k = 0; k < 3; ++k) size[k] = fits ? grid.size[k] : std::min(256u, size[k] + spare(size[k]));
+    }
+    // Playing back, strands moving every frame: the grid made again every few frames
+    // only (~30 ms each on a wolf following its scalp), the last one shading the frames between (its
+    // own origin and cells: the shadows lag the motion by a frame or two), and once more for the
+    // frame playback stops on (hairGridsPlaybackStopped). GROOMLAB_HAIR_GRID_EVERY: another step (1:
+    // every frame).
+    static const int every = [] {
+        const char* text = std::getenv("GROOMLAB_HAIR_GRID_EVERY");
+        const int n = text ? std::atoi(text) : 4;
+        return std::max(1, n);
+    }();
+    if (grid.valid && moved && hairGridSkipped_ + 1 < every && MAnimControl::isPlaying()) {
+        ++hairGridSkipped_;
+        hairGridStale_ = true;
         grid.why.clear();
         forEachHairShader([&](MHWRender::MShaderInstance& s) { setHairGrid(s, &grid, strength); });
         return;
     }
+    if (grid.valid && key == hairGridKey_ && !moved && !grid.settle && !hairGridStale_) {
+        grid.why.clear();
+        forEachHairShader([&](MHWRender::MShaderInstance& s) { setHairGrid(s, &grid, strength); });
+        return;
+    }
+    hairGridSkipped_ = 0;
+    hairGridStale_ = false;
     grid.settle = written;  // (made again once the lines are drawn: the next update)
     if (grid.settle) MHWRender::MRenderer::setGeometryDrawDirty(object_);
     // The points as the item draws them: the ribbons' lines, else the streams bound last.

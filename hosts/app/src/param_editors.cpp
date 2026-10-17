@@ -28,6 +28,8 @@ namespace groomlab::app {
 
 using nlohmann::json;
 
+QString TrimmedSpinBox::textFromValue(double value) const { return trimmedNumber(value, decimals()); }
+
 namespace {
 
 constexpr int kRampButtons = 30;  // the row of buttons under the plot
@@ -438,12 +440,12 @@ MapSourceEditor::MapSourceEditor(QWidget* constant, QWidget* parent) : QWidget(p
     auto* arrow = new QLabel(tr("range"), rangeRow_);
     arrow->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
     range->addWidget(arrow);
-    min_ = new QDoubleSpinBox(rangeRow_);
+    min_ = new TrimmedSpinBox(rangeRow_);
     min_->setRange(-1e6, 1e6);
     min_->setDecimals(3);
     min_->setKeyboardTracking(false);
     min_->setToolTip(tr("What the map's 0 becomes"));
-    max_ = new QDoubleSpinBox(rangeRow_);
+    max_ = new TrimmedSpinBox(rangeRow_);
     max_->setRange(-1e6, 1e6);
     max_->setDecimals(3);
     max_->setValue(1.0);

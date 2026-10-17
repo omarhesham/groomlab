@@ -23,6 +23,7 @@
     "keyed": "#CD4C4C",
     "animated": "#E3A3A8",
     "driven": "#E4D46C",
+    "error": "red",
     "radius": 10,
     "fontSize": 11,
     "sliders": ["accent"]
@@ -38,6 +39,12 @@
     "cornerRadius": 12,
     "headerStyle": "tinted",
     "shadow": false,
+    "error": "red",
+    "warning": "#B8892E",
+    "note": "#7B7B7B",
+    "driven": "#A060A8",
+    "reads": "blue",
+    "writes": "#C0783A",
     "categories": {
       "Sources": "#5FA88C",
       "Grow": "#5E9E9A",
@@ -51,6 +58,8 @@
       "Games": "#5A9EC4",
       "Convert": "#C48A5E",
       "Motion": "#6C94C8",
+      "Deform": "#7A9CC8",
+      "Collide": "#6AA2AE",
       "Feathers": "#C2A15C"
     },
     "ports": {

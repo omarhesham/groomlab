@@ -349,7 +349,7 @@ void PhotoView::keyPressEvent(QKeyEvent* event) {
 // ---- ReferenceWindow ----------------------------------------------------------------------------
 
 ReferenceWindow::ReferenceWindow(MainWindow* main, QWidget* parent) : QWidget(parent, Qt::Window), main_(main) {
-    setWindowTitle(tr("Guides from Reference"));
+    setWindowTitle(tr("Guides from Photos"));
     setObjectName(QStringLiteral("referenceWindow"));
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(10, 10, 10, 10);
@@ -368,7 +368,7 @@ ReferenceWindow::ReferenceWindow(MainWindow* main, QWidget* parent) : QWidget(pa
     auto* import = new QPushButton(tr("Import Photo..."));
     import->setToolTip(tr("A photo of the groom: its landmarks, arrows and camera are kept with the groom"));
     connect(import, &QPushButton::clicked, this, [this] {
-        const QString path = QFileDialog::getOpenFileName(this, tr("Import Reference Photo"), QString(),
+        const QString path = QFileDialog::getOpenFileName(this, tr("Import Photo"), QString(),
                                                           tr("Images (*.png *.jpg *.jpeg *.tif *.tiff *.tga *.bmp)"));
         if (!path.isEmpty()) importPhoto(path);
     });
@@ -479,8 +479,8 @@ ReferenceWindow::ReferenceWindow(MainWindow* main, QWidget* parent) : QWidget(pa
                       "QPushButton:hover, QToolButton:hover { background: %4; } QPushButton:disabled { color: %5; }"
                       "QToolButton:checked { background: %6; color: white; }"
                       "QPushButton:default { background: %6; color: white; }")
-                      .arg(theme::glassSolid().name(QColor::HexRgb), theme::text().name(), QStringLiteral("#3A3C42"),
-                           QStringLiteral("#46484F"), theme::textMuted().name(), theme::blue().name()));
+                      .arg(theme::glassSolid().name(QColor::HexRgb), theme::text().name(), theme::windowButton().name(),
+                           theme::windowButtonHover().name(), theme::textMuted().name(), theme::blue().name()));
     setAttribute(Qt::WA_StyledBackground, true);
     resize(1240, 720);
     reloadGroom();

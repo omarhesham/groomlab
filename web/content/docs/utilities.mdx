@@ -64,12 +64,16 @@ grooms) or hair cards instead ([Game export](/docs/game-export)).
 
 - **Maya curves:** select the scalp and the curves, then **Create Groom from Selection**. Or add
   them later with **From Curves** under Guide groups & edits.
-- **Alembic curves** (from Houdini or XGen): `groomlab.import_guides_from_alembic(groom, path)`.
+- **Alembic curves** (from Houdini or XGen): **GroomLab > Import > Alembic Curves...** (also
+  under **Import** in the Groom Tools' **Output** section), or
+  `groomlab.import_guides_from_alembic(groom, path)`. In the app and Blender, an **ImportCurves**
+  node reads an Alembic file's curves.
 
 ## Transfer to a new scalp
 
 To move a groom to a new sculpt, a retopologized head or another character, open **Utilities >
-Transfer Groom to Scalp...**. The groom's scalp is shown on the left and the mesh picked in **New
+Transfer Groom to Scalp...** (or **Transfer...** in the Groom Tools' **Output** section; in the
+app, **Tools > Transfer Groom to Scalp...**). The groom's scalp is shown on the left and the mesh picked in **New
 scalp** on the right, each in its own view (Alt moves the camera).
 
 Pick a **Method**:
@@ -89,14 +93,15 @@ alternating).
 - A point without its partner yet shows as a hollow ring; it fills in once paired.
 - **Ctrl+click** deletes a point and its partner, and both sides renumber.
 - **Drag** a point to slide it; hover one to light its partner.
-- **Ctrl+Z / Ctrl+Y** in the window undo and redo marker edits; **Symmetry X** mirrors each new
+- **Ctrl+Z / Ctrl+Y** in the window undo and redo marker edits; **Symmetry** mirrors each new
   point across the mesh's middle.
 - Ears, temples, crown, nape and brow make good pairs; six to ten are plenty for a warp.
 - The pairs are saved with the groom (and in `.groom` files), so a later transfer reuses them.
 
 Guides, parts, flow arrows and painted maps are all transferred through the mapping; each guide is
 rotated and scaled with the surface around its root (**Keep guide lengths** disables the
-scaling). **Copy mesh color sets** also copies Maya color sets. One **Ctrl+Z** in Maya undoes the
+scaling). **Copy mesh color sets** also copies Maya color sets. While it transfers, the window shows
+a wait cursor, greys out its buttons and says what it is doing. One **Ctrl+Z** in Maya undoes the
 whole transfer, and the window updates accordingly.
 
 By default the groom keeps the size it shows: on a bigger head the hair keeps its lengths and the

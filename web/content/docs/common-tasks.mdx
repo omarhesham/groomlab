@@ -1,0 +1,39 @@
+---
+title: Common tasks
+description: Where to find the ten most common grooming tasks in Maya, the GroomLab app and Blender - create a groom, place guides, color, clump and curl, paint density, simulate, export, render, transfer and import.
+---
+
+Each row names the menu or tool for one task in each host, with a link to the page that explains
+it. One `.groom` file opens in all three, so you can start in one host and finish in another.
+
+Where the tools live:
+
+- **Maya:** the **GroomLab** menu, the **Groom Tools** (brushes and their tabs) and the **Graph
+  Editor**.
+- **[App](/docs/app):** the mode pills at the top (**Groom**, **Look**, **Cards**, **Export**), the
+  brush rail on the left, the panel rail on the right and the **Graph** and **Presets** pills at the
+  bottom.
+- **[Blender](/docs/blender):** the top bar's **GroomLab** menu, the 3D viewport's sidebar (**N**) >
+  **GroomLab** tab, and the GroomLab Graph Editor.
+
+| Task | Maya | App | Blender |
+| --- | --- | --- | --- |
+| **Create a groom** ([Quick start](/docs/quick-start)) | Select the scalp mesh, then **GroomLab > Create Groom from Selection**. | **File > New Groom on Mesh...** (Ctrl+N), or drop an `.obj` or `.abc` on the window ([Open a groom](/docs/app#open-a-groom)). | Select the mesh, then **GroomLab > Create Groom from Selection** ([Make a groom](/docs/blender#make-a-groom)). |
+| **Place guides** ([Guides & brushes](/docs/guides-and-brushes)) | **Groom Tools > Tools > Place**, then **Comb**. | **Place** on the brush rail (Groom mode), then **Comb** ([Groom with brushes](/docs/app#groom-with-brushes)). | **GroomLab** tab > **Groom Tools > Tools > Place**, then **Comb** ([Groom Tools](/docs/blender#groom-tools)). |
+| **Color the hair** ([Color patterns](/docs/color-patterns)) | The **HairColor** node in the **Graph Editor** (**Add Node > Color**). | **Look** mode (Ctrl+2) > **Material**: **Natural** or **Picked color** ([Look](/docs/app#look)). | The **HairColor** node's settings: Graph Editor, sidebar (**N**) > **Node** tab. |
+| **Clump and curl** ([Node graph](/docs/node-graph#clump)) | **Graph Editor > Add Node > Look > Clump** or **Curl**, or a look from **Presets**. | **Tab** over the graph, type `clump` or `curl`, **Enter**; or the **Presets** pill ([The Graph Editor](/docs/app#the-graph-editor)). | Graph Editor, **Shift+A** or **Tab** > **Clump** or **Curl**; or **Presets** ([The Graph Editor](/docs/blender#the-graph-editor)). |
+| **Paint density** ([Painting maps](/docs/painting-maps)) | **Groom Tools > Paint > + New Map**, **For: Density**; or the **Paint** chip on a param in the Graph Editor. | **Maps** (right rail) > **New map**, **For: Density**, **Create** ([Painting maps](/docs/app#painting-maps)). | **Groom Tools > Paint > New Map**, **For: Density** ([Paint maps](/docs/blender#paint-maps)). |
+| **Simulate** ([Motion & simulation](/docs/motion-and-simulation#simulate-the-guides)) | **GroomLab > Simulate > Add Simulate Node**, then **Simulate Range** (also in the Groom Tools' **Output** section). | Add a **Simulate** node (**Tab**), then **Simulate** and **Bake** on the timeline ([The layout](/docs/app#the-layout)). | Not available yet. |
+| **Export** ([Game export](/docs/game-export), [Other renderers](/docs/other-renderers)) | **GroomLab > Export**: **Alembic...**, **USD...**, **Unreal Groom...**, **Unity Strands (.abc)...**, **glTF Cards...** and more; or **Export** in the Groom Tools' **Output** section. | **Export** mode (Ctrl+E): Alembic curves, USD curves, Unreal groom, Unity strands, Cards (glTF) ([Export](/docs/app#export)). | **GroomLab > Export > Alembic...** or **USD...** ([Export](/docs/blender#export)). |
+| **Render** ([Rendering](/docs/rendering)) | Render in Arnold as usual (MtoA), or **Render** in the Groom Tools' **Output** section. **GroomLab > Render > Render from Groom File...** for the farm. | **Look** mode, then **Render** (top right) refines the viewport; **File > Save Image...** saves the view as a PNG ([Look](/docs/app#look)). | Cycles or EEVEE (**F12**) ([Rendering](/docs/blender#rendering)). |
+| **Transfer to another mesh** ([Utilities](/docs/utilities#transfer-to-a-new-scalp)) | **GroomLab > Utilities > Transfer Groom to Scalp...**, or **Transfer...** in the Groom Tools' **Output** section. | **Tools > Transfer Groom to Scalp...** | Not available yet. |
+| **Import XGen, Yeti or Alembic curves** ([Importing](/docs/importing)) | **GroomLab > Import**: **From XGen...**, **From Yeti...**, **Alembic Curves...**; also under **Import** in the Groom Tools' **Output** section. | XGen and Yeti: not available yet. Alembic curves: an **ImportCurves** node (**Tab**). | XGen and Yeti: not available yet. Alembic curves: an **ImportCurves** node (**Shift+A** > Sources). |
+
+Also not in Blender yet: the **Correctives** (shot sculpts) and **Photos** tabs, and **Guides from
+Photos (experimental)...**. Grooms that carry correctives evaluate in Blender as made. See
+[Not in Blender yet](/docs/blender#not-in-blender-yet) and, for the app,
+[Not in the app yet](/docs/app#not-in-the-app-yet).
+
+The keys are the same in every host where a host has the action: see
+[Keyboard shortcuts](/docs/app#keyboard-shortcuts) and
+[Guides & brushes: Keys](/docs/guides-and-brushes#keys).
