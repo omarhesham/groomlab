@@ -312,16 +312,24 @@ def _watch_paint_tool():
 def _tool_changed():
     from groomlab.brushes import BRUSH_CONTEXT
     if cmds.currentCtx() != BRUSH_CONTEXT:
-        end_paint_view()
+        end_paint_view(from_job=True)
 
 
-def end_paint_view():
+def _kill_job(job):
+    if job is not None and cmds.scriptJob(exists=job):
+        cmds.scriptJob(kill=job, force=True)
+
+
+def end_paint_view(from_job=False):
     """Put back what the groom showed before painting showed a map (on the strands and the
     scalp). Runs by itself when the Paint brush ends: another tool, Q, or another brush."""
     groom, view, job = _painting["groom"], _painting["view"], _painting["job"]
     _painting.update(groom=None, view=None, job=None)
-    if job is not None and cmds.scriptJob(exists=job):
-        cmds.scriptJob(kill=job, force=True)
+    if from_job:
+        # Maya refuses to kill a script job while it runs: after it returns, then.
+        cmds.evalDeferred(lambda: _kill_job(job))
+    else:
+        _kill_job(job)
     if not view or not groom or not cmds.objExists(groom):
         return
     cmds.undoInfo(stateWithoutFlush=False)  # a display, not an edit: no undo step of its own

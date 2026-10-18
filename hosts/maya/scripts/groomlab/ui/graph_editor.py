@@ -42,14 +42,23 @@ from groomlab.ui.shortcuts import keys as shortcut_keys, tip as shortcut_tip
 from groomlab.ui.widgets import shrinkable
 
 
+_SLIDER_PRESSED = [True]  # timeControl -pressed: newer Mayas only (Maya 2022 has no such flag)
+
+
 def _time_moving():
-    """Whether the scene's time is playing or being scrubbed (the time slider held)."""
+    """Whether the scene's time is playing or being scrubbed (the time slider held: Mayas whose
+    timeControl tells; others, playing only)."""
     from maya import cmds, mel
     try:
         if cmds.play(query=True, state=True):
             return True
+        if not _SLIDER_PRESSED[0]:
+            return False
         slider = mel.eval("$tmpVar = $gPlayBackSlider")
         return bool(slider) and bool(cmds.timeControl(slider, query=True, pressed=True))
+    except TypeError:  # "Invalid flag 'pressed'"
+        _SLIDER_PRESSED[0] = False
+        return False
     except RuntimeError:
         return False
 
