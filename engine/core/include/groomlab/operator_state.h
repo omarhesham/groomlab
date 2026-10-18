@@ -160,40 +160,34 @@ bool interpolateRebind(const Operator& op, const PartLines* parts, const std::ve
 // curve through its points with smoothGuides) resampled by arc length to `samples` points, as
 // offsets from its first; its root where strands search for it (on the rest scalp when `scalp` has
 // one), its root's normal (zero when `scalp` is null or the guide is not rooted on it) and its
-// length. Keeping clearance (interpolateKeepsClearance), each sample's clearance as the node
-// measures it. `samples`: max(32, the core strands' most points: preview_core.h), interpolateSamples.
+// length. `samples`: max(32, the core strands' most points: preview_core.h), interpolateSamples.
 struct InterpolateGuideRows {
     std::size_t samples = 0;
     std::vector<Vec3f> offsets;  // guide g's at [g * samples, (g + 1) * samples)
     std::vector<Vec3f> roots, normals;
     std::vector<float> lengths;
-    std::vector<float> clearances;  // as `offsets` (empty: not keeping clearance)
-    std::uint64_t clearanceKey = 0;  // what they were measured on (the scalp, samples, smoothGuides)
 };
 std::size_t interpolateSamples(const StrandSet& strands);
-// `params`: the Interpolate node's (smoothGuides, keepClearance); `kept`: the guides with 2 points
-// or more. `before`: rows made for the guides `beforeKept` (the last read's): a guide the same to
-// the bit, measured alike, keeps its clearances (a brush dab reshapes a few).
+// `params`: the Interpolate node's (smoothGuides); `kept`: the guides with 2 points or more.
 void interpolateGuideRows(const ParamSet& params, const std::vector<const Guide*>& kept, const MeshPtr& scalp,
-                          std::size_t samples, InterpolateGuideRows* rows, const InterpolateGuideRows* before = nullptr,
-                          const std::vector<const Guide*>* beforeKept = nullptr);
+                          std::size_t samples, InterpolateGuideRows* rows);
 
 // keepClearance: whether an Interpolate with these params keeps its strands clear of `scalp`
 // (keepClearance, taking the guides' shape, a scalp with triangles).
 bool interpolateKeepsClearance(const ParamSet& params, const ScalpMesh* scalp);
 // What its walk asks of the scalp, for a host walking the strands as the node does (look.slang):
-// the least clearance a strand keeps, the most a guide asks, how deep under the skin a point is
-// still in it, the search radius and how far past an open edge a point is beside the scalp; the
-// scalp's field as tables (MeshDistanceField::tables: the field's answers alone, as the node's
-// walk asks them). The guides' clearances come with their rows. Over a scalp deformed away from
-// its rest pose the walk asks the rest pose's field through each vertex's frame
+// the clearance a strand keeps (times its influence), how far its offset eases back over, how far
+// apart two asked points walk the points between one by one where they touch the skin, how deep
+// under the skin a point is still in it, the search radius and how far past an open edge a point
+// is beside the scalp; the scalp's field as tables (MeshDistanceField::tables: the field's answers
+// alone, as the node's walk asks them). Over a scalp deformed away from its rest pose the walk asks the rest pose's field through each vertex's frame
 // (RestPoseCollision): `tables` are the rest field's, `rest` the walk (each strand's cursor from
 // it) and `walk` its words (RestPoseCollision::walkWords). Null with *why when the walk is the
 // CPU's alone: a deformed scalp whose rest field cannot move points at those distances, or a
 // scalp too big for the field's grid. (A deformed scalp's degenerate faces' vertices have no motion:
 // a host keeps the walks it runs away from them, walkWords.)
 struct InterpolateClearance {
-    float floor = 0.0f, cap = 0.0f, depth = 0.0f, searchRadius = 0.0f, beside = 0.0f;
+    float floor = 0.0f, ease = 0.0f, span = 0.0f, depth = 0.0f, searchRadius = 0.0f, beside = 0.0f;
     MeshDistanceField::Tables tables;
     std::shared_ptr<const RestPoseCollision> rest;
     std::shared_ptr<const std::vector<std::uint32_t>> walk;
@@ -201,7 +195,8 @@ struct InterpolateClearance {
 std::shared_ptr<const InterpolateClearance> interpolateClearance(const ParamSet& params, const MeshPtr& scalp, std::string* why);
 // Which points of a strand of `points` points the walk asks of the field: every step-th and the
 // tip, at most 16 asked (a strand of up to 17 points: every point); the points between move by the
-// moves of the two asked around them, blended by index (look.slang CLEAR_ASKED).
+// moves of the two asked around them, blended by index, or are walked one by one where either of
+// the two was lifted (look.slang CLEAR_ASKED).
 constexpr std::size_t kClearanceAsked = 16;
 inline std::size_t interpolateClearanceStep(std::size_t points) {
     return points > kClearanceAsked + 1 ? (points - 1 + kClearanceAsked - 1) / kClearanceAsked : 1;

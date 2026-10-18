@@ -161,6 +161,14 @@ std::string prototypeMeshBody(const InstancePrototype& mesh, const std::string& 
 
 }  // namespace
 
+double usdMetersPerUnit(const std::string& unit) {
+    if (unit == "m") return 1.0;
+    if (unit == "mm") return 0.001;
+    if (unit == "in") return 0.0254;
+    if (unit == "ft") return 0.3048;
+    return 0.01;
+}
+
 UsdOrientation usdOrientation(const Vec3f& x, const Vec3f& y, const Vec3f& z) {
     // Rows are the images of the axes (row vectors, as USD): the rotation is their transpose,
     // each axis by its own length (a strand-fitted instance is longer along +Y), which
@@ -330,7 +338,9 @@ void UsdCurvesWriter::writeFrame(double frame, const StrandSet& strands, const S
             d.add("quath[] orientations");
             d.add("float3[] scales");
             d.add("int64[] ids");
-            d.add("color3f[] primvars:scaleColor", "interpolation = \"vertex\"");
+            // Per instance (a PointInstancer's vertex primvars): its root's color, as the mesh's
+            // per-face scaleRootColor (one color: a plate is not shaded along its strand).
+            d.add("color3f[] primvars:scaleRootColor", "interpolation = \"vertex\"");
             d.add("float[] primvars:scaleId", "interpolation = \"vertex\"");
             d.add("float2[] primvars:scaleUV", "interpolation = \"vertex\"");
             d.add("int[] primvars:scaleVariant", "interpolation = \"vertex\"");
@@ -531,6 +541,12 @@ void UsdCurvesWriter::close() {
     header.raw("    doc = \"GroomLab " + std::string(kVersionString));
     if (!d.options.comment.empty()) header.raw(": " + usdDocText(d.options.comment));
     header.raw("\"\n");
+    // The layout's version (web/content/docs/usd-layout.mdx), on the layer and on the root prim
+    // (customLayerData is out of reach once the layer is referenced into a stage; customData stays).
+    const std::string marker = "        dictionary groomlab = {\n            int layoutVersion = " +
+                               std::to_string(kUsdLayoutVersion) + "\n            string version = \"" +
+                               std::string(kVersionString) + "\"\n        }\n";
+    header.raw("    customLayerData = {\n" + marker + "    }\n");
     if (d.frames > 0) {
         header.raw("    startTimeCode = ");
         header.number(d.firstFrame);
@@ -545,7 +561,7 @@ void UsdCurvesWriter::close() {
     header.raw("\n    metersPerUnit = ");
     header.number(d.options.metersPerUnit);
     header.raw("\n    upAxis = \"" + d.options.upAxis + "\"\n)\n\n");
-    header.raw("def Xform \"" + d.name + "\" (\n    kind = \"component\"\n)\n{\n");
+    header.raw("def Xform \"" + d.name + "\" (\n    customData = {\n" + marker + "    }\n    kind = \"component\"\n)\n{\n");
     header.raw("    def BasisCurves \"strands\"\n    {\n");
     header.raw("        uniform token type = \"linear\"\n        uniform token wrap = \"nonperiodic\"\n");
     if (d.hideStrands) header.raw("        token visibility = \"invisible\"\n");

@@ -49,7 +49,8 @@
 // hair feels (0: carried rigidly by its root, 1: all of it). With `groomedUnderGravity` the groomed
 // shape is how the hair rests under gravity at the start: each guide feels only gravity's change
 // in its root's frame since then. Guides are independent (TBB over
-// guides); the guide-guide repulsion, when on, reads the points as they were before its pass,
+// guides, their rods solved four at a time side by side, each one's arithmetic as alone, to the
+// bit); the guide-guide repulsion, when on, reads the points as they were before its pass,
 // so results never depend on how threads met them, and moves a point at most half its radius a pass.
 // Every share is per a reference time step, not per step (bend, twist and stretch's compliance,
 // the length kept after the iterations, friction and repulsion per 1/96 s, rootStiffnessProfile
@@ -336,8 +337,10 @@ using SimProgress = std::function<bool(int done, int count)>;
 
 // How the host's inputs at another time reach the session: it sets them through the session's
 // setters (the scalp, guide poses, colliders, controls at `seconds`), as it does before showing a
-// frame. The session puts back what it had after stepping.
-using SimFeed = std::function<void(double seconds)>;
+// frame, and returns true; false when it cannot read that time now (Maya while it plays), having
+// set nothing (the frame is stepped toward the inputs as they are: GroomSession::setSimulationFeed).
+// The session puts back what it had after stepping.
+using SimFeed = std::function<bool(double seconds)>;
 
 struct SimRun {
     int frames = 0;          // frames stepped

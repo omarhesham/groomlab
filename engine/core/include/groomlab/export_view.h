@@ -135,7 +135,8 @@ std::vector<std::array<float, 3>> pointAppearanceColors(const StrandSet& strands
 std::vector<std::string> usdIdentifiers(const std::vector<std::string>& names,
                                         const std::vector<std::string>& reserved = {});
 // USD primvar names for the channels: usdIdentifiers, never the reserved "st",
-// "strandId", "displayColor", "displayOpacity", "widths" or "points".
+// "strandId", "displayColor", "displayOpacity", "widths", "points" or "normals" (USD takes a
+// primvars:normals for the normals).
 std::vector<std::string> usdChannelNames(const std::vector<std::string>& channels);
 
 // Feathers for engines (feathers.h), by the channels Propagate writes (featherId, isShaft).

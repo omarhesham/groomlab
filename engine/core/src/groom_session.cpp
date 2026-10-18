@@ -2732,11 +2732,19 @@ std::pair<GuidesPtr, std::uint64_t> GroomSession::simFrameAt(const SimNode& node
         }
     }
     if (frame && following_ && followRest_ && scalp_) {
-        if (bakeUsable(node, seconds) && hierarchy_) {
-            // A bake's file keeps no roots: each guide's is its hierarchy guide's.
+        if (bakeUsable(node, seconds)) {
+            // A bake's file keeps no roots: each guide's is its hierarchy guide's, or for a guide
+            // the graph made (ToGuides, ImportCurves: an ID the hierarchy has not) the point of the
+            // scalp as it is nearest its first point, where it is rooted. (Without one it was not
+            // carried back to the rest pose: the strands it shapes stood off the moving head by the
+            // head's motion.)
             auto rooted = std::make_shared<GuideSet>(*frame);
             for (Guide& g : rooted->guides()) {
-                if (const HierarchyGuide* h = hierarchy_->guide(static_cast<GuideId>(g.id))) g.root = h->root;
+                if (const HierarchyGuide* h = hierarchy_ ? hierarchy_->guide(static_cast<GuideId>(g.id)) : nullptr) {
+                    g.root = h->root;
+                } else if (!g.points.empty()) {
+                    g.root = scalp_->closestPoint(g.points.front()).root;
+                }
             }
             frame = rooted;
         }
@@ -2848,17 +2856,24 @@ void GroomSession::advanceSimulations(std::vector<SimRef>& nodes, int target, do
     try {
         for (int f = from; f <= target; ++f) {
             const double seconds = frameToSeconds(f, fps_);
-            // The time the session is bound at, or no feed: the inputs as they are (without a
-            // feed, frames on the way are stepped toward them; what they were fed is not known).
+            // The time the session is bound at, no feed, or a feed that cannot give that time
+            // now: the inputs as they are. Else the feed's for that time.
             const bool now = std::abs(seconds - nowSeconds) <= 1e-9 * std::max(1.0, std::abs(nowSeconds));
+            bool known = now;  // the inputs are the host's at f
             if (now || !simFeed_) {
                 restore();
             } else {
-                simFeed_(seconds);
+                const bool wasFed = fed;
                 fed = true;
-                scratchErrors.clear();
-                scratchMessages.clear();
-                prepareTime(seconds, scratchErrors, scratchMessages);
+                if (simFeed_(seconds)) {
+                    known = true;
+                    scratchErrors.clear();
+                    scratchMessages.clear();
+                    prepareTime(seconds, scratchErrors, scratchMessages);
+                } else {
+                    fed = wasFed;  // it set nothing: back to the inputs as they are, if a frame's are set
+                    restore();
+                }
             }
             ExternalInputs externals;
             fillExternals(externals);
@@ -2870,16 +2885,31 @@ void GroomSession::advanceSimulations(std::vector<SimRef>& nodes, int target, do
             const EvalContext ctx = simContext(seconds, externals);
             for (SimRef& ref : nodes) {
                 SimNode& node = *ref.node;
-                if (nextFrame(node) != f) continue;
+                const int next = nextFrame(node);
+                if (next > f) continue;
                 std::uint64_t hash = 0;
                 const SimInputs in = simInputs(ref, ctx, &hash);
-                if (!now && !simFeed_) hash = 0;
+                // A frame whose inputs are not known (no feed, or one that cannot give them: Maya
+                // while it plays, the frames real-time playback skips) is stepped toward the
+                // inputs as they are. Other inputs than its last frame was stepped toward (the
+                // head moved since): it waits for the next frame whose inputs are known (or the
+                // last), and the frames between are stepped in one go toward those, the roots
+                // moving evenly over them (each stepped toward the inputs shown put the head's
+                // whole motion into the first of them: the hair whipped). Frames stepped toward
+                // inputs not known are stamped 0 (not checked): with the head's inputs as shown
+                // stamped on them, a later view of one (not playing: the feed giving its own)
+                // found other inputs and threw every frame away, and what was simulated again,
+                // and baked, was not what had played.
+                if (node.cache.started() && !known && f < target && hash != node.towardHash) continue;
+                const std::uint64_t stamp = known ? hash : 0;
                 if (!node.cache.started()) {
-                    node.cache.start(in, hash);
-                } else if (!node.cache.step(in, hash, 1)) {
+                    if (next != f) continue;
+                    node.cache.start(in, stamp);
+                } else if (!node.cache.step(in, stamp, f - next + 1)) {
                     stepError(ref);
                     continue;
                 }
+                node.towardHash = hash;
                 const auto [frame, frameHash] = simFrameAt(node, seconds);
                 externals.set(simulationExternal(ref.name), frame ? Value(frame) : Value{}, frameHash);
             }

@@ -6,7 +6,9 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
+#include <limits>
 
 #include "../core/test_helpers.h"
 #include "groomlab/alembic_io.h"
@@ -166,6 +168,125 @@ TEST(SimulationCache, AWetSimulationBakesItsWetness) {
     }
     std::error_code ec;
     std::filesystem::remove(bake, ec);
+}
+
+// The worst distance between two sets of strands' points (infinity for other counts).
+float worstApart(const StrandSet& a, const StrandSet& b) {
+    if (a.pointCount() != b.pointCount()) return std::numeric_limits<float>::infinity();
+    float worst = 0.0f;
+    for (std::size_t i = 0; i < a.pointCount(); ++i) worst = std::max(worst, (a.positions()[i] - b.positions()[i]).length());
+    return worst;
+}
+
+// Guides the graph makes (ToGuides of strands grown from the hand guides) into the Simulate node:
+// IDs that are not the hierarchy's.
+const char* kMadeGuidesGraph = R"({"version": 1, "nodes": [
+    {"name": "scalp", "type": "Scalp"},
+    {"name": "guides", "type": "Guides"},
+    {"name": "even", "type": "Scatter", "params": {"density": 6.0, "randomness": 0.0, "length": 0.5, "previewAll": true}},
+    {"name": "dense", "type": "Interpolate"},
+    {"name": "toGuides", "type": "ToGuides"},
+    {"name": "sim", "type": "Simulate", "params": {"gravity": 9.8, "collisionOffset": 0.02, "damping": 0.2}},
+    {"name": "scatter", "type": "Scatter", "params": {"density": 200.0}},
+    {"name": "interpolate", "type": "Interpolate"},
+    {"name": "output", "type": "Output"}],
+  "connections": [{"from": "scalp", "to": "even", "input": "scalp"},
+                  {"from": "even", "to": "dense", "input": "strands"},
+                  {"from": "guides", "to": "dense", "input": "guides"},
+                  {"from": "scalp", "to": "dense", "input": "scalp"},
+                  {"from": "dense", "to": "toGuides", "input": "strands"},
+                  {"from": "toGuides", "to": "sim", "input": "guides"},
+                  {"from": "scalp", "to": "scatter", "input": "scalp"},
+                  {"from": "scatter", "to": "interpolate", "input": "strands"},
+                  {"from": "sim", "to": "interpolate", "input": "guides"},
+                  {"from": "scalp", "to": "interpolate", "input": "scalp"},
+                  {"from": "interpolate", "to": "output", "input": "strands"}], "output": "output"})";
+
+TEST(SimulationCache, PlayingSimulateRangeAndTheBakeShowTheSameFrames) {
+    // A head turning and moving over frames 1-10 and still after, played frame by frame (the
+    // live view stepping), simulated with Simulate Range (the host's feed giving each frame's
+    // scalp) and baked then read back in cached mode: the same frames. Following the scalp or not,
+    // of the hierarchy's guides or of guides the graph makes.
+    const auto sphere = test::makeSphere(12, 24);
+    auto pointsAt = [&](int frame) {
+        const float t = static_cast<float>(std::clamp(frame - 1, 0, 9));
+        const float a = 0.08f * t, c = std::cos(a), s = std::sin(a);
+        std::vector<Vec3f> points = sphere->points();
+        for (Vec3f& p : points) p = Vec3f{c * p.x + s * p.z + 0.05f * t, p.y + 0.02f * t, -s * p.x + c * p.z};
+        return points;
+    };
+    GuideHierarchy h;
+    const GroupId group = h.addGroup("primary");
+    for (int i = 0; i < 10; ++i) {
+        const float a = 6.2831853f * static_cast<float>(i) / 10.0f;
+        const Vec3f n = Vec3f{std::cos(a) * 0.6f, 0.8f, std::sin(a) * 0.6f}.normalized();
+        h.addGuide(group, test::straightCurve(n, n * 0.8f + Vec3f{0.3f, 0.0f, 0.2f}, 8));
+    }
+    h.evaluate(sphere.get());
+    const std::string sim = R"("damping": 0.2})";
+    for (const int run : {0, 1, 2, 3}) {
+        const bool follow = run % 2 == 1, made = run >= 2;
+        SCOPED_TRACE(std::string(follow ? "following the scalp" : "not following the scalp") + (made ? ", guides made" : ""));
+        GroomData data;
+        auto scalp = std::make_shared<ScalpMesh>(*sphere);
+        scalp->setRestPoints(sphere->points());
+        data.scalp = scalp;
+        data.graphJson = made ? kMadeGuidesGraph : kGraph;
+        data.hierarchyJson = h.toJson();
+        data.followScalp = follow;
+        auto view = [](GroomSession& session, int frame) {
+            ViewRequest request;
+            request.time = frame / 24.0;
+            const ViewResult& result = session.evaluate(request);
+            EXPECT_TRUE(result.errors.empty()) << (result.errors.empty() ? "" : result.errors.front());
+            return result.strands;
+        };
+        auto feed = [&](GroomSession& session) {
+            session.setSimulationFeed([&session, &pointsAt](double seconds) {
+                session.updateScalpPoints(pointsAt(static_cast<int>(std::lround(seconds * 24.0))));
+                return true;
+            });
+        };
+        constexpr int kLast = 16;
+        GroomSession played(data);
+        feed(played);
+        std::vector<StrandsPtr> playedStrands(kLast + 1);
+        for (int f = 1; f <= kLast; ++f) {
+            played.updateScalpPoints(pointsAt(f));
+            playedStrands[f] = view(played, f);
+        }
+        GroomSession ranged(data);
+        feed(ranged);
+        ranged.updateScalpPoints(pointsAt(1));
+        view(ranged, 1);
+        EXPECT_TRUE(ranged.simulateTo(kLast).errors.empty());
+        for (int f = 1; f <= kLast; ++f) {
+            const GuidesPtr a = played.simulatedFrame("sim", f), b = ranged.simulatedFrame("sim", f);
+            ASSERT_TRUE(a && b) << "frame " << f;
+            ASSERT_EQ(a->size(), b->size());
+            for (std::size_t g = 0; g < a->size(); ++g) {
+                EXPECT_EQ(a->guides()[g].points, b->guides()[g].points) << "Simulate Range's frame " << f << ", guide " << g;
+            }
+            ranged.updateScalpPoints(pointsAt(f));
+            EXPECT_EQ(worstApart(*view(ranged, f), *playedStrands[f]), 0.0f) << "Simulate Range's strands at frame " << f;
+        }
+        const std::string bake = tempPath(("groomlab_sim_bake" + std::to_string(run) + ".abc").c_str());
+        writeSimulationCache(ranged, "sim", bake, 1, kLast);
+        {
+            GroomData cachedData = data;
+            cachedData.graphJson.replace(cachedData.graphJson.find(sim), sim.size(), R"("damping": 0.2, "cacheMode": "cached"})");
+            GroomSession cached(cachedData);
+            cached.setBakedSimulation("sim", readSimulationCache(bake, "", cached.simulationStamp("sim")));
+            for (int f = 1; f <= kLast; ++f) {
+                cached.updateScalpPoints(pointsAt(f));
+                EXPECT_LT(worstApart(*view(cached, f), *playedStrands[f]), 1e-6f) << "the bake's strands at frame " << f;
+            }
+            EXPECT_TRUE(cached.simulationStatus()[0].baked);
+            EXPECT_EQ(cached.simulationStatus()[0].frames, 0u);
+        }
+        std::error_code ec;
+        std::filesystem::remove(bake, ec);
+    }
 }
 
 TEST(SimulationCache, GroomFilesKeepTheBakesTheyName) {

@@ -44,9 +44,10 @@ def export_usd(groom, path, start=None, end=None, step=1.0, density=1.0, scales=
     Same frames, density and render_overrides rules as export_alembic. Returns frames written.
     scales: "mesh" (default): the scales' bent mesh (exact, with primvars scaleColor per vertex
     and scaleRootColor, scaleId, scaleUV, scaleVariant per face); "instancer": a PointInstancer
-    of their prototypes, each placed by its scale's tilted frame, with those primvars per
-    instance (light and editable in an engine: Unreal imports it as instanced static meshes; the
-    plates are not bent onto the skin); "both"; "none".
+    of their prototypes, each placed by its scale's tilted frame, with scaleRootColor, scaleId,
+    scaleUV and scaleVariant per instance (light and editable in an engine: Unreal imports it as
+    instanced static meshes; the plates are not bent onto the skin); "both"; "none". The layer's
+    layout is versioned: web/content/docs/usd-layout.mdx.
     """
     kwargs = {"file": path, "step": step, "density": density, "scales": scales, "renderOverrides": bool(render_overrides)}
     if start is not None:

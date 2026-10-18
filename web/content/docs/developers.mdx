@@ -1,6 +1,6 @@
 ---
 title: Developer overview
-description: Overview of GroomLab's developer interfaces (C API, C++ wrapper, .groom format, Python) and their stability and versioning rules.
+description: Overview of GroomLab's developer interfaces (C API, C++ wrapper, .groom format, USD layout, Python) and their stability and versioning rules.
 ---
 
 GroomLab is open source (Apache License 2.0), and its source code is [on GitHub](https://github.com/thekesslereffect/groomlab). You
@@ -15,6 +15,7 @@ the engine itself.
 | **C API** (`groomlab_c.h`) | Plain C99 functions over opaque handles, in one library (`groomlab.dll`). | Host plugins and any language with a C FFI. |
 | **C++ wrapper** (`groomlab.hpp`) | Header-only C++17 over the C API: RAII, views, exceptions. | C++ hosts. It adds no binary of its own. |
 | **The `.groom` format** | A JSON file holding a groom: graph, guides, scalp, maps. | Moving grooms between hosts, and reading them without the library. |
+| **The USD layout** | The evaluated strands as every USD export writes them, versioned. See [USD layout](/docs/usd-layout). | Viewers, renderers and pipeline tools that read finished hair. |
 | **Python** | Maya's `groomlab` package, and the core's `groomlab_core` module. | Scripting inside Maya and Maya's Python. See [Python API](/docs/python-api). |
 | **Samples** | `groom_to_obj` (C++) and `groom_counts` (C), MIT licensed. | A starting point for your own bridge. |
 
@@ -30,7 +31,7 @@ for the steps a bridge takes.
 
 ## What is stable
 
-Three things are versioned, each with its own compatibility rule.
+Four things are versioned, each with its own compatibility rule.
 
 ### The C API: semantic versioning
 
@@ -78,6 +79,20 @@ From the API, `gl_session_node_spec_json` gives a node's `"nodeVersion"` and `"o
 when an upgrade exists), and `gl_session_upgrade_node` upgrades it (API 1.1). See
 [Node versions](/docs/groom-format#node-versions).
 
+### The USD export: a layout version
+
+Every USD export (Maya, the app, Blender, `groomlab-cli`) writes the same layout, and each layer
+carries its version: `customLayerData` and the root prim's `customData` hold
+`groomlab = {layoutVersion = 1, version = "<GroomLab version>"}`.
+
+- Within a layout version, prim paths, attribute and primvar names, types, interpolations and
+  meanings stay as they are. New primvars and prims may be added; ignore what you don't know.
+- Any other change raises the layout version, and [What's new](/docs/whats-new) lists it.
+
+The full layout, with examples for reading one frame or a range, is in
+[USD layout](/docs/usd-layout). Read the exports when you only need the strands (a viewer, a
+renderer, a pipeline check); use the C API when you need to evaluate the groom yourself.
+
 ### Up axis
 
 Points come out in the groom's up axis (`"upAxis"`, Y by default). A Z-up host turns the groom
@@ -98,5 +113,6 @@ and the graph's world directions turn with it.
   <Card title="C and C++ API" href="/docs/c-api" description="Evaluate a groom in 20 lines, and the full function reference." />
   <Card title="Writing a host bridge" href="/docs/host-bridge" description="Load a groom, feed the scalp per frame, read the strands." />
   <Card title="The .groom format" href="/docs/groom-format" description="Every field of the file format." />
+  <Card title="USD layout" href="/docs/usd-layout" description="Every prim and primvar of the USD export, versioned." />
   <Card title="Python API" href="/docs/python-api" description="Maya's groomlab package and the core module." />
 </Cards>

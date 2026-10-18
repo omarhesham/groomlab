@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "groomlab/curve.h"
+#include "groomlab/graph_edit.h"
 #include "groomlab/groom.h"
 #include "groomlab/groom_file.h"
 #include "groomlab/random.h"
@@ -197,6 +198,22 @@ TEST(SculptNode, TextsRoundTripRenameCopyAndClear) {
     const std::string copied = copySculptNode(text, "sculpt1", "sculpt2");
     EXPECT_EQ(sculptedNodes(copied), (std::vector<std::string>{"sculpt1", "sculpt2"}));
     EXPECT_EQ(sculptedNodes(clearSculptNode(copied, "sculpt1")), std::vector<std::string>{"sculpt2"});
+
+    // A compound renamed or copied takes its inner nodes' edits along ("compound1/sculpt1"), not
+    // those of a node whose name only starts the same ("compound10/...").
+    SculptSet inner;
+    inner.nodes["compound1/sculpt1"] = set.nodes.at("sculpt1");
+    inner.nodes["compound1/deep/sculpt1"] = set.nodes.at("sculpt1");
+    inner.nodes["compound10/sculpt1"] = set.nodes.at("sculpt1");
+    const std::string grouped = inner.toJson();
+    EXPECT_EQ(sculptedNodes(renameSculptNode(grouped, "compound1", "shaping")),
+              (std::vector<std::string>{"compound10/sculpt1", "shaping/deep/sculpt1", "shaping/sculpt1"}));
+    EXPECT_EQ(sculptedNodes(copySculptNode(grouped, "compound1/deep", "deep")),
+              (std::vector<std::string>{"compound1/deep/sculpt1", "compound1/sculpt1", "compound10/sculpt1", "deep/sculpt1"}));
+    // Moves in order: grouped, then the compound renamed.
+    EXPECT_EQ(sculptedNodes(moveSculptNodes(text, {{"sculpt1", "compound1/sculpt1"}, {"compound1", "shaping"}})),
+              std::vector<std::string>{"shaping/sculpt1"});
+    EXPECT_EQ(moveSculptNodes(text, {{"other", "x"}}), text);
 }
 
 // ---- Through the graph and a session ------------------------------------------------------------
@@ -436,6 +453,81 @@ TEST(SculptNode, GroomFilesKeepTheEditsAndRenamesCarryThem) {
     w.session->setSculptsJson("{nope");
     ASSERT_FALSE(w.session->inputErrors().empty());
     EXPECT_NE(w.session->inputErrors().back().find("sculptData"), std::string::npos);
+}
+
+TEST(SculptNode, GroupingUngroupingAndRenamingCarryTheEdits) {
+    // Group puts the node inside a compound: its path becomes "compound/sculpt1", and the edits,
+    // kept by node path outside the graph, move with it (GraphEdit::movedNodes), so the guides
+    // stay sculpted; Ungroup moves them back out, a compound renamed takes them along.
+    Workflow w;
+    w.session->setSculptTarget("sculpt1");
+    BrushToolSettings s;
+    s.setMode("comb");
+    s.brush.radius = 0.5f;
+    scriptedStroke(*w.host, s, {{-0.4f, 1.3f, 0.0f}, {0.4f, 1.3f, 0.4f}});
+    const GuidesPtr out = w.output();
+    ASSERT_NE(out, w.input());
+    const std::string sculpts = w.session->data().sculptsJson;
+    auto samePoints = [&](const GuidesPtr& a) {
+        if (!a || a->size() != out->size()) return false;
+        for (std::size_t k = 0; k < out->size(); ++k) {
+            if (a->guides()[k].points != out->guides()[k].points) return false;
+        }
+        return true;
+    };
+
+    GraphEdit group(w.session->data().graphJson);
+    const std::string compound = group.collapse({"toGuides", "sculpt1"});
+    EXPECT_EQ(group.movedNodes(), (std::vector<std::pair<std::string, std::string>>{
+                                      {"toGuides", compound + "/toGuides"}, {"sculpt1", compound + "/sculpt1"}}));
+    const std::string grouped = moveSculptNodes(sculpts, group.movedNodes());
+    EXPECT_EQ(sculptedNodes(grouped), std::vector<std::string>{compound + "/sculpt1"});
+    w.session->setSculptTarget("");
+    w.session->setGraphJson(group.toJson());
+    w.session->setSculptsJson(grouped);
+    w.session->evaluate(ViewRequest{});
+    EXPECT_TRUE(samePoints(w.output(compound))) << "grouped, the guides keep their sculpt";
+    // Left under the old name (what grouping did before): the guides as fed.
+    w.session->setSculptsJson(sculpts);
+    EXPECT_FALSE(samePoints(w.output(compound)));
+
+    // The compound renamed: its inner node's edits go along.
+    GraphEdit rename(group.toJson());
+    rename.renameNode(compound, "shaping");
+    const std::string renamed = moveSculptNodes(grouped, rename.movedNodes());
+    EXPECT_EQ(sculptedNodes(renamed), std::vector<std::string>{"shaping/sculpt1"});
+    w.session->setGraphJson(rename.toJson());
+    w.session->setSculptsJson(renamed);
+    EXPECT_TRUE(samePoints(w.output("shaping")));
+
+    // Grouped again with another node: one compound inside another ("compound/shaping/sculpt1").
+    GraphEdit nest(rename.toJson());
+    const std::string outer = nest.collapse({"dense", "shaping"});
+    const std::string nested = moveSculptNodes(renamed, nest.movedNodes());
+    EXPECT_EQ(sculptedNodes(nested), std::vector<std::string>{outer + "/shaping/sculpt1"});
+    w.session->setGraphJson(nest.toJson());
+    w.session->setSculptsJson(nested);
+    EXPECT_TRUE(samePoints(w.output(outer)));
+
+    // Ungrouped, both levels: back at the top as "sculpt1", the same guides.
+    GraphEdit ungroup(nest.toJson());
+    ungroup.expand(outer);
+    ungroup.expand("shaping");
+    const std::string back = moveSculptNodes(nested, ungroup.movedNodes());
+    EXPECT_EQ(sculptedNodes(back), std::vector<std::string>{"sculpt1"});
+    w.session->setGraphJson(ungroup.toJson());
+    w.session->setSculptsJson(back);
+    w.session->evaluate(ViewRequest{});
+    EXPECT_TRUE(samePoints(w.output("sculpt1")));
+    EXPECT_EQ(SculptSet::fromJson(back).nodes, SculptSet::fromJson(sculpts).nodes);
+
+    // Ungrouped where the name is taken: the node comes out renamed, its edits under the new name.
+    GraphEdit taken(group.toJson());
+    taken.addNode("Sculpt", "sculpt1");
+    const std::vector<std::string> made = taken.expand(compound);
+    ASSERT_EQ(made.size(), 2u);
+    EXPECT_NE(made[1], "sculpt1");
+    EXPECT_EQ(sculptedNodes(moveSculptNodes(grouped, taken.movedNodes())), std::vector<std::string>{made[1]});
 }
 
 TEST(SculptNode, TheEditableGuidesDrawInTheirToGuidesNodesColor) {

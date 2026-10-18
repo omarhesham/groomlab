@@ -270,9 +270,8 @@ float strandLength(uint begin, uint n) {
 // gAux1: per guide 8 words (normal xyz, turns, length) then its offsets (gFlag.x samples, xyz
 // each) at gAux.w + guide * samples * 3. gValue.x: the radius (0: none); gFlag.y:
 // preserveLength; the profile: the falloff. The strand's root normal (zero: none) is its
-// per-strand number. Keeping clearance (gFlag.w), InterpolateCS blends each guide's clearance per
-// sample (gAux1 at gAux.z + guide * samples) into each point's clearance (gOut2), and ClearanceCS
-// walks the strands after it with the scalp's field in gAux2.
+// per-strand number. Keeping clearance (gFlag.w), ClearanceCS walks the strands after it with the
+// scalp's field in gAux2.
 
 #define BIND_SLOTS 16  // look_chain.h kInterpolateSlots
 
@@ -410,8 +409,10 @@ float3 twistAbout(float3 n, float3 x, float angle) {
 //
 // gAux2 as the tables lay it out (their header's words: TABLE_*): regions, bricks, each fine
 // brick's nodes and closest faces, and the mesh the answers from closest faces read. gValue.y: the
-// least clearance a strand keeps, gValue.z: the depth past which points are left alone, gValue.w:
-// how far past an open edge a point is beside the scalp; gFlag.z: the search radius's bits.
+// clearance a strand keeps (times its influence), gValue.z: the depth past which points are left
+// alone, gValue.w: how far past an open edge a point is beside the scalp; gFlag.z: the search
+// radius's bits; gValue2.x: how far an offset eases back over, gValue2.y: how far apart two asked
+// points on the skin walk the points between one by one (Interpolate's walk).
 
 #define TABLE_DIMS 0
 #define TABLE_ORIGIN_REGION 3
@@ -932,7 +933,6 @@ float apartExact(float3 a, float3 b) {
 
 groupshared float4 sBlend[INTERP_SAMPLES];  // the blended samples (xyz), |sample j - sample j - 1| (w)
 groupshared float sArc[INTERP_SAMPLES];     // the arc length to sample j (summed in order)
-groupshared float sLift[INTERP_SAMPLES];    // keeping clearance: the guides' clearance at sample j, blended
 // Each strand's guides: the turn (twisted: its columns c0, c1, c2; else k, then c and 1 / (1 + c)),
 // packed with the weight / sum, the guide and the turn's kind. (The guide and kind as integers,
 // the floats as their bits: a small integer's bits as a float are a denormal, which a float's
@@ -1008,7 +1008,7 @@ void InterpolateCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadI
     const uint lane = local.x % STRAND_LANES;
     const uint slot = local.x / STRAND_LANES;  // the strand's place in the group
     const uint s = threadIndex(id, INTERP_GROUP) / INTERP_GROUP * perGroup + slot;
-    const uint base = slot * (wide ? 64 : 32);  // its samples in sBlend, sArc, sLift
+    const uint base = slot * (wide ? 64 : 32);  // its samples in sBlend and sArc
     const uint guides = slot * BIND_SLOTS;      // its guides in sGuideA...
     // The strand's record (every lane reads it: the same words).
     bool live = false, blend = false;
@@ -1116,26 +1116,6 @@ void InterpolateCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadI
         const uint j = lane + m * STRAND_LANES;
         if (m < rows && j < samples) sBlend[base + j] = float4(pick(b0, b1, b2, b3, m), 0.0f);
     }
-    if (gFlag.w != 0 && rows > 0) {
-        // Keeping clearance: the guides' clearance at the lane's samples, blended as the shape is.
-        float4 lift = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        for (uint i = 0; i < found; ++i) {
-            const uint4 c = sGuideC[guides + i];
-            const uint row = gAux.z + c.z * samples;
-            PRECISE float4 clearance;
-            clearance.x = asfloat(gAux1.Load((row + min(lane, samples - 1)) * 4));
-            clearance.y = asfloat(gAux1.Load((row + min(lane + STRAND_LANES, samples - 1)) * 4));
-            clearance.z = rows > 2 ? asfloat(gAux1.Load((row + min(lane + 2 * STRAND_LANES, samples - 1)) * 4)) : 0.0f;
-            clearance.w = rows > 2 ? asfloat(gAux1.Load((row + min(lane + 3 * STRAND_LANES, samples - 1)) * 4)) : 0.0f;
-            PRECISE float4 weighed = clearance * asfloat(c.y);
-            PRECISE float4 sum = lift + weighed;
-            lift = sum;
-        }
-        [ForceUnroll] for (uint m = 0; m < LANE_SAMPLES; ++m) {
-            const uint j = lane + m * STRAND_LANES;
-            if (m < rows && j < samples) sLift[base + j] = lift[m];
-        }
-    }
     groupSync();
     [ForceUnroll] for (uint m = 0; m < LANE_SAMPLES; ++m) {
         const uint j = lane + m * STRAND_LANES;
@@ -1216,16 +1196,6 @@ void InterpolateCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadI
             p = i == 0 ? incoming : mixed;
         }
         storePoint(gOut, begin + i, p);
-        if (gFlag.w != 0 && i > 0) {
-            // Keeping clearance: the point's clearance for ClearanceCS (gOut2), the blend's at its
-            // share of the strand's length (with the floor, by the influence).
-            PRECISE float x = divExact(float(i), float(n - 1)) * float(samples - 1);
-            const uint k = min(uint(x), samples - 2);
-            PRECISE float f = x - float(k);
-            PRECISE float lerped = sLift[base + k] * (1.0f - f) + sLift[base + k + 1] * f;
-            PRECISE float clearance = max(lerped, gValue.y) * influence;
-            gOut2.Store((begin + i) * 4, asuint(clearance));
-        }
     }
 }
 
@@ -1371,20 +1341,23 @@ uint walkPush(FieldTables t, bool deformed, float3 p, float offset, float maxDep
 // ---- Interpolate keeping clearance: the walk (InterpolateOp::run, blendStrand's last part) ------
 //
 // After InterpolateCS, on the points it wrote (gOut, read and written in place), with its
-// constants and gAux0, each point's clearance as InterpolateCS blended it (gOut2: the guides'
-// clearance blended as the shape is, with the floor, by the influence), and the scalp's field in
-// gAux2: from the root out, a point below its clearance lifted to it, the points after it
-// following it, each kept its segment's length (every step-th point asked and the tip, the points
-// between moved by the moves of the two around them: interpolateClearanceStep). Strands left as
-// they came (not bound, out of reach, not rooted on the scalp) are not walked.
+// constants and gAux0, and the scalp's field in gAux2: from the root out, a point below the
+// clearance (gValue.y times the strand's influence) lifted just onto the skin, the points after it
+// following it, each kept its segment's length and led back toward its shaped path (the offset of
+// the point before eased by gValue2.x / (gValue2.x + their distance as they came)). Every step-th
+// point is asked and the tip, the points between moved by the moves of the two around them, or
+// walked one by one where either of the two was lifted and they are more than gValue2.y apart
+// (interpolateClearanceStep). Strands left
+// as they came (not bound, out of reach, not rooted on the scalp) are not walked.
 //
-// A thread a strand, CLEAR_GROUP strands a group, whose points (a run of them) and clearances
-// come into groupshared memory CLEAR_POINTS at a time (side by side threads reading side by
-// side points), each thread walking its strand there, the points written back the same way. A
-// strand across two such windows walks in gOut itself, after them.
+// A thread a strand, CLEAR_GROUP strands a group, whose points (a run of them) come into
+// groupshared memory CLEAR_POINTS at a time (side by side threads reading side by side points),
+// each thread walking its strand there, the points written back the same way. A strand across two
+// such windows walks in gOut itself, after them.
 #define CLEAR_GROUP 64
 #define CLEAR_POINTS 1024
 #define CLEAR_ASKED 16  // operator_state.h kClearanceAsked
+#define CLEAR_PUSHES 4  // interpolate.cpp kClearancePushes
 #ifdef GROOMLAB_SLANG_GL
 #define CLEAR_TAIL_ROUND 1  // (ClearanceCS)
 #else
@@ -1392,13 +1365,11 @@ uint walkPush(FieldTables t, bool deformed, float3 p, float offset, float maxDep
 #endif
 
 groupshared float sWalkPoints[3 * CLEAR_POINTS];  // xyz, point by point (no padding)
-groupshared float sWalkTargets[CLEAR_POINTS];
 
-// Point (or its clearance) `at` of the walk's points: in the window (groupshared), else gOut (gOut2).
+// Point `at` of the walk's points: in the window (groupshared), else gOut.
 float3 walkPoint(bool staged, uint at) {
     return staged ? float3(sWalkPoints[at * 3], sWalkPoints[at * 3 + 1], sWalkPoints[at * 3 + 2]) : loadOut(at);
 }
-float walkTarget(bool staged, uint at) { return staged ? sWalkTargets[at] : asfloat(gOut2.Load(at * 4)); }
 void walkStore(bool staged, uint at, float3 p) {
     if (staged) {
         sWalkPoints[at * 3] = p.x;
@@ -1409,41 +1380,70 @@ void walkStore(bool staged, uint at, float3 p) {
     }
 }
 
-// The walk of the strand at `at` (n points).
-void clearanceWalk(bool staged, uint at, uint n, FieldTables tables, uint startVertex) {
-    const float floorClearance = gValue.y, depth = gValue.z, searchRadius = asfloat(gFlag.z);
+// The walk of the strand at `base` (n points), keeping `target` above the skin.
+void clearanceWalk(bool staged, uint base, uint n, float target, FieldTables tables, uint startVertex) {
+    const float floorClearance = gValue.y, depth = gValue.z, searchRadius = asfloat(gFlag.z), ease = gValue2.x, span = gValue2.y;
     // Over a deformed scalp: the walk to each point's nearest vertex (restPush), from its root's.
     const bool deformed = gFlag2.z != 0;
     RestCursor cursor;
     cursor.vertex = startVertex;
     cursor.anchor = float3(0.0f, 0.0f, 0.0f);
     cursor.clear = -1.0f;
-    // What the last point asked of the field learnt: a point it says is clear of its own
-    // clearance asks nothing (the height changes at most about twice as fast as a point moves,
-    // the distance no faster).
+    // What the last point asked of the field learnt: a point it says is clear of the clearance
+    // asks nothing (the height changes at most about twice as fast as a point moves, the distance
+    // no faster).
     Probe known, again;
     learnt(known, -infinity(), 0.0f);
     learnt(again, -infinity(), 0.0f);
     float3 anchor = float3(0.0f, 0.0f, 0.0f);
-    bool knows = false, moved = false;
+    bool knows = false;
+    bool moved = false;  // whether a point was lifted yet (until then every point is as it came)
     // The walk asks every step-th point and the tip (operator_state.h interpolateClearanceStep: at
-    // most CLEAR_ASKED; every point of a strand of up to CLEAR_ASKED + 1), the points between moved
-    // by the moves of the two asked around them, blended by index.
+    // most CLEAR_ASKED; every point of a strand of up to CLEAR_ASKED + 1).
     const uint step = n > CLEAR_ASKED + 1 ? (n - 1 + CLEAR_ASKED - 1) / CLEAR_ASKED : 1u;
-    uint asked = 0;  // the point asked before (0: the root)
-    float3 movedBefore = float3(0.0f, 0.0f, 0.0f);  // its move (zero until one moved)
-    // Once a point moved, each next one asked keeps its distance from the one before as they came
-    // (the first after the moved one: from that one as its first push left it).
-    float3 lengthFrom = walkPoint(staged, at);
-    for (uint j = min(step, n - 1);; j = min(j + step, n - 1)) {
-        const float3 came = walkPoint(staged, at + j);  // (the points after `asked` are as they came)
-        const float3 prev = walkPoint(staged, at + asked);  // the one asked before, as the walk left it
-        float3 pj = came;
-        if (moved) pj = keepLength(prev, pj, apartExact(came, lengthFrom));
-        const float target = walkTarget(staged, at + j);
+    // The point the walk settled last (`at`: the root first): where it is, where it came and
+    // whether the field lifted it.
+    uint at = 0;
+    float3 atPoint = walkPoint(staged, base), atCame = atPoint;
+    bool atLifted = false;
+    // The point it leads now (`m`): the next asked (`j`), or, walking one by one (`each`), each
+    // point after `at` up to `j`; `movedThen`: `moved` as it was at `at`. (One loop for both, so
+    // the kernel's code holds one push: a driver compiles each copy of it for seconds.)
+    uint j = min(step, n - 1), m = j;
+    bool each = false, movedThen = false;
+    for (;;) {
+        const float3 came = walkPoint(staged, base + m);  // (the points after `at` are as they came)
+        if (!each) movedThen = moved;
+        const float wanted = apartExact(came, atCame);
+        // Walked one by one from the one after `at` to `j` where the strand touches the skin and
+        // the two are far enough apart that a blend of moves could cut into its curve: `at` lifted
+        // (or, below, `j`, which is then walked again).
+        if (!each && atLifted && m - at > 1 && wanted > span) {
+            each = true;
+            m = at + 1;
+            continue;
+        }
+        float3 p = came;
+        if (moved) {
+            // Led toward where it came plus the offset of the point before: its part along the way
+            // between the two as they came as it is (the lag the kept lengths leave), its part
+            // across that eased over their distance; its length kept.
+            PRECISE float3 way = came - atCame;
+            PRECISE float3 offset = atPoint - atCame;
+            const float way2 = exactDot(way, way);
+            const float share = way2 > 0.0f ? divExact(exactDot(offset, way), way2) : 0.0f;
+            PRECISE float3 along = way * share;
+            PRECISE float3 across = offset - along;
+            PRECISE float sum = ease + wanted;
+            const float left = divExact(ease, sum);
+            PRECISE float3 eased = across * left;
+            PRECISE float3 kept = came + along;
+            PRECISE float3 toward = kept + eased;
+            p = keepLength(atPoint, toward, wanted);
+        }
         bool asks = true;
         if (knows) {
-            PRECISE float moves = apartExact(pj, anchor) * 1.0001f;
+            PRECISE float moves = apartExact(p, anchor) * 1.0001f;
             PRECISE float slack = floorClearance * 1e-3f;
             PRECISE float d = moves + slack;
             PRECISE float twice = 2.0f * d;
@@ -1451,60 +1451,68 @@ void clearanceWalk(bool staged, uint at, uint n, FieldTables tables, uint startV
             PRECISE float distanceLow = known.distanceLow - d;
             asks = !(heightLow >= target || distanceLow > searchRadius);
         }
-        const bool movedEarlier = moved;
+        bool lifted = false;
         if (asks) {
-            const float3 was = pj;
-            anchor = was;
+            anchor = p;
             knows = true;
-            // The push (learning into `known`) and, once it moved the point (its length kept), a
-            // second (into `again`): a loop, so the kernel's code holds one push (a driver
-            // compiles each copy of it for seconds).
-            for (uint attempt = 0; attempt < 2; ++attempt) {
-                const bool second = attempt == 1;
+            // The push (learning into `known`) and, once it moved the point, its length kept and
+            // pushed again (into `again`), up to CLEAR_PUSHES pushes in all: a loop, so the kernel's
+            // code holds one push.
+            for (uint attempt = 0; attempt < CLEAR_PUSHES; ++attempt) {
+                const bool later = attempt > 0;
                 float3 delta;
-                Probe probe = second ? again : known;
-                const uint push = walkPush(tables, deformed, pj, target, depth, searchRadius, probe, delta, cursor);
-                if (second) {
+                Probe probe = later ? again : known;
+                const uint push = walkPush(tables, deformed, p, target, depth, searchRadius, probe, delta, cursor);
+                if (later) {
                     again = probe;
                 } else {
                     known = probe;
                 }
                 if (push != PUSH_MOVED) break;
-                if (second) {
-                    PRECISE float3 pushedAgain = pj + delta;
-                    pj = pushedAgain;
-                    break;
-                }
-                PRECISE float3 pushed = pj + delta;
-                pj = pushed;
+                PRECISE float3 pushed = p + delta;
+                p = pushed;
+                if (attempt == CLEAR_PUSHES - 1) break;
                 knows = false;  // (moved: what it learnt was of where it was)
-                float wanted = apartExact(came, lengthFrom);
-                if (!moved) {  // the first: its distance as it came, the next from it as pushed
-                    wanted = apartExact(was, prev);
-                    lengthFrom = pj;
-                    moved = true;
-                }
-                pj = keepLength(prev, pj, wanted);
+                lifted = true;
+                moved = true;
+                p = keepLength(atPoint, p, wanted);
             }
         }
-        if (movedEarlier) lengthFrom = came;
-        if (moved) {
+        if (!each && lifted && m - at > 1 && wanted > span) {
+            each = true;
+            moved = movedThen;
+            m = at + 1;
+            continue;
+        }
+        if (each) {
+            walkStore(staged, base + m, p);
+        } else if (moved) {
             // The points between: their moves blended from the one before's to this one's.
-            PRECISE float3 move = pj - came;
-            const float span = float(j - asked);
-            for (uint m = asked + 1; m < j; ++m) {
-                const float t = float(m - asked) / span;
-                PRECISE float3 apart = move - movedBefore;
+            PRECISE float3 before = atPoint - atCame;
+            PRECISE float3 move = p - came;
+            const float span = float(m - at);
+            for (uint k = at + 1; k < m; ++k) {
+                const float t = float(k - at) / span;
+                PRECISE float3 apart = move - before;
                 PRECISE float3 part = apart * t;
-                PRECISE float3 by = movedBefore + part;
-                PRECISE float3 q = walkPoint(staged, at + m) + by;
-                walkStore(staged, at + m, q);
+                PRECISE float3 by = before + part;
+                PRECISE float3 q = walkPoint(staged, base + k) + by;
+                walkStore(staged, base + k, q);
             }
-            walkStore(staged, at + j, pj);
-            movedBefore = move;
+            walkStore(staged, base + m, p);
         }
-        if (j == n - 1) break;
-        asked = j;
+        at = m;
+        atPoint = p;
+        atCame = came;
+        atLifted = lifted;
+        if (each && m < j) {
+            ++m;
+            continue;
+        }
+        each = false;
+        if (m == n - 1) break;
+        m = min(m + step, n - 1);
+        j = m;
     }
 }
 // The walks kept (gOut3: every strand's walked points as the last run left them) and gFlag2.y: this
@@ -1537,6 +1545,7 @@ void ClearanceCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID,
     // Whether this strand walks, and whether its walk is the one kept.
     bool walks = false, kept = false;
     uint begin = 0, n = 0, startVertex = TABLE_NONE;
+    float target = 0.0f;  // the clearance it keeps: the least, by its influence
     if (s < gStrandCount) {
         begin = strandBegin(s);
         n = strandCountOf(s);
@@ -1550,6 +1559,8 @@ void ClearanceCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID,
             }
             const float4 data = strandData(s);
             walks = influence > 0.0f && n >= 2 && len3(data.xyz) > 0.0f;
+            PRECISE float byInfluence = gValue.y * influence;
+            target = byInfluence;
             startVertex = asuint(data.w);
             kept = walks && gFlag2.y != 0 && !guidesChanged(header);
         }
@@ -1571,7 +1582,6 @@ void ClearanceCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID,
             sWalkPoints[k * 3] = p.x;
             sWalkPoints[k * 3 + 1] = p.y;
             sWalkPoints[k * 3 + 2] = p.z;
-            sWalkTargets[k] = asfloat(gOut2.Load((from + k) * 4));
         }
         groupSync();
         if (staged ? inWindow && window == w : walks && !inWindow) {
@@ -1579,7 +1589,7 @@ void ClearanceCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID,
             if (kept) {
                 for (uint i = 0; i < n; ++i) walkStore(staged, at + i, loadKept(begin + i));
             } else {
-                clearanceWalk(staged, at, n, tables, startVertex);
+                clearanceWalk(staged, at, n, target, tables, startVertex);
                 for (uint i = 0; i < n; ++i) storePoint(gOut3, begin + i, walkPoint(staged, at + i));
             }
         }
@@ -1594,7 +1604,7 @@ void ClearanceCS(uint3 id : SV_DispatchThreadID, uint3 local : SV_GroupThreadID,
         if (kept) {
             for (uint i = 0; i < n; ++i) storePoint(gOut, begin + i, loadKept(begin + i));
         } else {
-            clearanceWalk(false, begin, n, tables, startVertex);
+            clearanceWalk(false, begin, n, target, tables, startVertex);
             for (uint i = 0; i < n; ++i) storePoint(gOut3, begin + i, loadOut(begin + i));
         }
     }

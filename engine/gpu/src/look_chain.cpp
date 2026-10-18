@@ -635,13 +635,72 @@ bool constantVector(const GraphDocument& doc, const Overrides& overrides, NodeId
     }
 }
 
+// The nodes a drag sets values of.
+std::set<NodeId> draggedNodes(const GraphDocument& doc, const Overrides& overrides) {
+    std::set<NodeId> nodes;
+    for (const auto& [name, values] : overrides) {
+        const auto it = doc.nodesByName.find(name);
+        if (it != doc.nodesByName.end()) nodes.insert(it->second);
+    }
+    return nodes;
+}
+
 }  // namespace
 
 std::size_t firstOverridden(const GraphDocument& doc, const LookChain& chain, const Overrides& overrides) {
+    const std::set<NodeId> dragged = draggedNodes(doc, overrides);
     for (std::size_t k = 0; k < chain.stages.size(); ++k) {
-        if (overrides.count(doc.nameOf(chain.stages[k].node))) return k;
+        const LookStage& s = chain.stages[k];
+        if (dragged.count(s.node)) return k;
+        // A Merge whose input b the drag moves: b's own run (mergedBranch) before it.
+        const NodeId b = s.kind == StageKind::Merge ? upstream(doc.graph, s.node, 1) : 0;
+        if (b && madeFrom(doc.graph, b, dragged)) return k;
     }
     return kNoStage;
+}
+
+namespace {
+
+// A Merge's input b where the drag moves it (a node of the drag makes b's strands): b's own run, from
+// the first of its stages the drag sets, its params read with the drag's values (null: none, b's
+// strands as cached). False with *why where the GPU does not run the dragged node up b.
+bool mergedBranch(const GraphDocument& doc, NodeId merge, const Overrides& overrides, std::shared_ptr<const LookBranch>* out,
+                  std::string* why) {
+    const Graph& graph = doc.graph;
+    out->reset();
+    const NodeId b = upstream(graph, merge, 1);
+    const std::set<NodeId> dragged = draggedNodes(doc, overrides);
+    if (!b || !madeFrom(graph, b, dragged)) return true;
+    const std::string name = doc.nameOf(merge) + "'s input b";
+    LookChain full;
+    std::string whyNot;
+    if (!findLookChainTo(doc, b, &full, &whyNot)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    const std::size_t first = firstOverridden(doc, full, overrides);
+    if (first == kNoStage) {
+        *why = name + " is made from the dragged node through nodes the GPU does not run (" + doc.nameOf(full.base) + ")";
+        return false;
+    }
+    auto branch = std::make_shared<LookBranch>();
+    branch->chain = chainFrom(doc, full, first);
+    if (madeFrom(graph, branch->chain.base, dragged)) {
+        *why = name + ": the strands its run starts from (" + doc.nameOf(branch->chain.base) + ") are made from a dragged node (the CPU's)";
+        return false;
+    }
+    if (!readLookParams(doc, branch->chain, overrides, &branch->params, why)) return false;
+    *out = std::move(branch);
+    return true;
+}
+
+}  // namespace
+
+bool runsWidth(const LookParams& params) {
+    for (const StageParams& s : params.stages) {
+        if (s.stage.kind == StageKind::Width || (s.branch && runsWidth(s.branch->params))) return true;
+    }
+    return false;
 }
 
 bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Overrides& overrides, LookParams* out,
@@ -896,7 +955,7 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
                     *why = doc.nameOf(id) + " asks the mesh at every point (method exact: the CPU's)";
                     return false;
                 }
-                const auto offset = static_cast<float>(params.getDouble("offset"));
+                const auto offset = static_cast<float>(number("offset"));
                 const auto maxDepth = static_cast<float>(params.getDouble("maxDepth"));
                 const auto softness = static_cast<float>(params.getDouble("softness"));
                 s.value[0] = offset;
@@ -1178,7 +1237,11 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
                 s.flag[0] = params.getString("keep") == "inside" ? 1 : 0;
                 break;
             }
-            case StageKind::Merge: s.flag[0] = static_cast<int>(mergedA); break;
+            case StageKind::Merge: {
+                s.flag[0] = static_cast<int>(mergedA);
+                if (!mergedBranch(doc, id, overrides, &s.branch, why)) return false;
+                break;
+            }
         }
         // ---- Affect masks ----
         // Restricted by its affect (or one dragged): its result mixed back by it after its last stage
@@ -1932,6 +1995,57 @@ bool LookInputs::centersRun(const GraphDocument& doc, NodeId clump, NodeId end, 
     return true;
 }
 
+bool LookInputs::branchRun(const GraphDocument& doc, NodeId merge, const LookBranch& branch, const PartLines* parts, const ScalpMesh* scalp,
+                           const std::set<NodeId>& changed, const std::map<NodeId, GuidesPtr>& standIn,
+                           std::shared_ptr<const LookCentersRun>* out, std::string* why) {
+    const Graph& graph = doc.graph;
+    const std::string name = doc.nameOf(merge) + "'s input b";
+    auto run = std::make_shared<LookCentersRun>();
+    run->chain = branch.chain;
+    run->params = branch.params;
+    run->scalp = scalp;  // (the groom's, as the run's own strands take it)
+    StrandsPtr made;
+    std::string whyNot;
+    if (!lookStrands(doc, run->chain, &run->base, &made, &whyNot)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    // b's strands after a's in the Merge's result, as its run's strands are laid out (MergeOp appends them).
+    const StrandsPtr merged = cachedStrands(graph, merge), a = cachedStrands(graph, upstream(graph, merge, 0));
+    if (!merged || !a || merged->strandCount() != a->strandCount() + run->base->strandCount() ||
+        merged->pointCount() != a->pointCount() + run->base->pointCount()) {
+        *why = name + ": its strands are not laid out after a's in " + doc.nameOf(merge) + "'s result";
+        return false;
+    }
+    CentersMemo& memo = branches_[merge];
+    if (!memo.inputs) memo.inputs = std::make_shared<LookInputs>();
+    if (!sameStages(memo.fieldsChain, run->chain) || !sameLookFields(doc, run->chain, memo.fields)) {
+        LookFields read;
+        if (!readLookFields(doc, run->chain, scalp, &read, &whyNot)) {
+            memo.fields = LookFields{};
+            memo.fieldsChain = LookChain{};
+            *why = name + ": " + whyNot;
+            return false;
+        }
+        memo.fields = std::move(read);
+        memo.fieldsChain = run->chain;
+    }
+    if (!lookFieldsHold(doc, run->chain, memo.fields, &whyNot)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    run->fields = memo.fields;
+    if (!memo.inputs->read(doc, run->chain, run->params, parts, &run->inputs, &whyNot, changed, scalp, &run->fields, scalpMesh_, standIn)) {
+        *why = name + ": " + whyNot;
+        return false;
+    }
+    rebinds_ += memo.inputs->rebinds() - memo.rebindsSeen;
+    memo.rebindsSeen = memo.inputs->rebinds();
+    guidesMade_ += memo.inputs->lastGuidesMade();
+    *out = std::move(run);
+    return true;
+}
+
 bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const LookParams& params, const PartLines* parts,
                       std::vector<StageInputs>* inputs, std::string* why, const std::set<NodeId>& changed,
                       const ScalpMesh* groomScalp, const LookFields* fields, const MeshPtr& scalpMesh,
@@ -1953,6 +2067,7 @@ bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const Lo
         shaper_.clear();
         jiggle_.clear();
         meshCut_.clear();
+        branches_.clear();
         doc_ = &doc;
     }
     scalpMesh_ = scalpMesh;
@@ -2044,11 +2159,7 @@ bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const Lo
                     }
                 }
                 auto rows = std::make_shared<InterpolateGuideRows>();
-                // (The last rows' clearances kept for the guides a dab left as they were.)
-                const std::vector<const Guide*> measured = memo.lastRows && memo.guides ? keptGuides(*memo.guides)
-                                                                                         : std::vector<const Guide*>{};
-                interpolateGuideRows(graph.node(id).params(), kept, scalp, samples, rows.get(), memo.lastRows.get(),
-                                     memo.lastRows ? &measured : nullptr);
+                interpolateGuideRows(graph.node(id).params(), kept, scalp, samples, rows.get());
                 // Guide roots moved (a dab bends a guide at its root, and the children following it
                 // root elsewhere): the strands bound again as Interpolate binds them, sharing what no
                 // moved root reaches. A reshaped guide's root moves by rounding alone (the smooth
@@ -2081,7 +2192,6 @@ bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const Lo
                 memo.smooth = smooth;
                 memo.scalp = scalp.get();
                 memo.rows = std::move(rows);
-                memo.lastRows = memo.rows;
                 guidesMade_ += kept.size();
             }
             // keepClearance: the scalp's field as tables, once per scalp.
@@ -2578,16 +2688,46 @@ bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const Lo
             }
             std::uint32_t colliders = 0;
             const std::vector<MeshPtr> meshes = collideMeshes(graph, id, &colliders);
+            // The fields the CPU's Collide asks at this offset (collisionField: one for every
+            // offset of the same cell size and reach), their tables made once for every offset
+            // sharing them (a dragged offset is the kernel's number): for offsets up to the most of
+            // those plus the softness, at the field's reach, more than any of their pushes asks of
+            // the tables (a push the tables' bounds settle at that offset and radius is settled at
+            // a smaller one: the walk's answers are the same).
+            const float offset = p->value[0], softness = p->value2[0];
+            DistanceFieldPtr surfaceFields[2];
+            for (std::size_t m = 0; m < meshes.size() && m < 2; ++m) {
+                surfaceFields[m] = collisionField(meshes[m], offset, p->value[2]);
+                if (!surfaceFields[m]) {
+                    *why = name + ": a surface has no field the GPU can read (deformed: the CPU's)";
+                    return false;
+                }
+            }
             CollideMemo& memo = collide_[id];
-            bool same = memo.inputs && memo.offset == p->value[0] && memo.softness == p->value2[0] && memo.searchRadius == p->value[2];
-            for (std::size_t m = 0; m < 2; ++m) same = same && memo.meshes[m] == (m < meshes.size() ? meshes[m] : nullptr);
+            bool same = memo.inputs && memo.softness == softness;
+            for (std::size_t m = 0; m < 2; ++m) {
+                same = same && memo.meshes[m] == (m < meshes.size() ? meshes[m] : nullptr) && memo.fields[m] == surfaceFields[m] &&
+                       (!surfaceFields[m] || offset + softness <= memo.most[m]);
+            }
             if (!same) {
                 auto made = std::make_shared<CollideInputs>();
-                for (const MeshPtr& mesh : meshes) {
-                    const DistanceFieldPtr field = collisionField(mesh, p->value[0], p->value[2]);
-                    MeshDistanceField::Tables tables = field ? field->tables(p->value[0] + p->value2[0], p->value[2]) : nullptr;
+                float most[2] = {0.0f, 0.0f};
+                for (std::size_t m = 0; m < meshes.size() && m < 2; ++m) {
+                    // cellSizeFor rounds the offset's log2 to the nearest whole number: the offsets of
+                    // a cell are under sqrt 2 times it (any past the largest cell it takes are the
+                    // largest's), and those of a reach are within it.
+                    const MeshDistanceField& field = *surfaceFields[m];
+                    float upTo = field.reach();
+                    if (MeshDistanceField::cellSizeFor(*meshes[m], std::numeric_limits<float>::max()) > field.cellSize()) {
+                        upTo = std::min(upTo, field.cellSize() * 1.4143f + softness);
+                    }
+                    most[m] = std::max(offset + softness, upTo);
+                }
+                for (std::size_t m = 0; m < meshes.size() && m < 2; ++m) {
+                    const MeshPtr& mesh = meshes[m];
+                    MeshDistanceField::Tables tables = surfaceFields[m]->tables(most[m], surfaceFields[m]->reach());
                     if (!tables) {
-                        *why = name + ": a surface has no field the GPU can read (deformed, or too big for its grid: the CPU's)";
+                        *why = name + ": a surface has no field the GPU can read (too big for its grid: the CPU's)";
                         return false;
                     }
                     made->tables.push_back(std::move(tables));
@@ -2601,10 +2741,12 @@ bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const Lo
                     made->boxes.push_back(hi);
                 }
                 memo = CollideMemo{};
-                for (std::size_t m = 0; m < meshes.size() && m < 2; ++m) memo.meshes[m] = meshes[m];
-                memo.offset = p->value[0];
-                memo.softness = p->value2[0];
-                memo.searchRadius = p->value[2];
+                for (std::size_t m = 0; m < meshes.size() && m < 2; ++m) {
+                    memo.meshes[m] = meshes[m];
+                    memo.fields[m] = surfaceFields[m];
+                    memo.most[m] = most[m];
+                }
+                memo.softness = softness;
                 memo.inputs = std::move(made);
             }
             out[k].collide = memo.inputs;
@@ -2634,6 +2776,11 @@ bool LookInputs::read(const GraphDocument& doc, const LookChain& chain, const Lo
             if (!readJiggle(doc, id, params.stages[k], &out[k], why)) return false;
         }
         if (stage.kind == StageKind::MeshCut && !readMeshCut(doc, id, &out[k], why)) return false;
+        // ---- A Merge's input b moved by the drag: b's own run ----
+        if (stage.kind == StageKind::Merge && k < params.stages.size() && params.stages[k].branch &&
+            !branchRun(doc, id, *params.stages[k].branch, parts, groomScalp, changed, standIn, &out[k].merged, why)) {
+            return false;
+        }
         before.insert(id);
     }
     // Mapped params reading channels Interpolate blends from its binding: they hold while it is
@@ -3458,7 +3605,16 @@ LookBounds lookBounds(const LookParams& p, const LookFields& fields, const std::
             }
             case StageKind::Length:
             case StageKind::MeshCut: break;  // trimmed: within the strand
-            case StageKind::Merge: break;    // b's strands as cached: within the base's box
+            case StageKind::Merge: {
+                // b's strands as cached: within the base's box; made by b's own run, within its box.
+                const LookCentersRun* run = k < inputs.size() ? inputs[k].merged.get() : nullptr;
+                const LookBounds made = run && run->base ? lookBounds(run->params, run->fields, run->inputs, *run->base, slack) : LookBounds{};
+                if (made.valid) {
+                    lo = {std::min(lo.x, made.lo.x), std::min(lo.y, made.lo.y), std::min(lo.z, made.lo.z)};
+                    hi = {std::max(hi.x, made.hi.x), std::max(hi.y, made.hi.y), std::max(hi.z, made.hi.z)};
+                }
+                break;
+            }
             case StageKind::Clump: {
                 // Between each point and its center's (the centers' box grown by the lock).
                 const ClumpInputs* in = k < inputs.size() ? inputs[k].clump.get() : nullptr;

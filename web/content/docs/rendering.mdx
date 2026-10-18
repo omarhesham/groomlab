@@ -187,9 +187,10 @@ Attributes whose names start with `_` are internal and removed at the Output nod
   skipped.
 - **USD** makes names valid identifiers: characters other than letters, digits and `_` become `_`,
   and a leading digit gets a `_` prefix. When a name is taken (by another attribute or by `st`,
-  `strandId`, `displayColor`, `displayOpacity`, `widths` or `points`), a `_2`, `_3`... suffix is
-  added. HairColor's per-point RGB, which shares its names with the per-strand RGB, is therefore
-  `primvars:colorR_2`, `colorG_2`, `colorB_2`.
+  `strandId`, `displayColor`, `displayOpacity`, `widths`, `points` or `normals`), a `_2`, `_3`...
+  suffix is added. HairColor's per-point RGB, which shares its names with the per-strand RGB, is
+  therefore `primvars:colorR_2`, `colorG_2`, `colorB_2`. The whole USD file is specified in
+  [USD layout](/docs/usd-layout).
 - **Alembic and USD:** the first exported frame determines which attributes the file has; a later
   frame without one of them writes zeros.
 - The `.groom` file stores no strands, and so no attributes: the procedurals and `groomlab-cli`

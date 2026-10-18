@@ -128,6 +128,9 @@ void bindGroom(py::module_& m) {
           "A sculpts text with node `old`'s edits under `new`.");
     m.def("copy_sculpt_node", &copySculptNode, py::arg("json"), py::arg("source"), py::arg("copy"),
           "A sculpts text with `copy` given a copy of `source`'s edits.");
+    m.def("move_sculpt_nodes", &moveSculptNodes, py::arg("json"), py::arg("moves"),
+          "A sculpts text with each (old, new) node move applied in order (GraphEdit.moved_nodes), a compound's "
+          "inner nodes' edits with it.");
     m.def("clear_sculpt_node", &clearSculptNode, py::arg("json"), py::arg("node"), "A sculpts text without `node`'s edits.");
     m.def("sculpted_nodes", &sculptedNodes, py::arg("json"), "The nodes holding edits in a sculpts text.");
     m.def("flow_sink_angle", &flowSinkAngle, py::arg("kind"), "The angle of a sink kind: whorl, whorlcw, converge, part.");

@@ -32,6 +32,7 @@
     "developers",
     "c-api",
     "host-bridge",
-    "groom-format"
+    "groom-format",
+    "usd-layout"
   ]
 }

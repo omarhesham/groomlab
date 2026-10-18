@@ -616,8 +616,8 @@ GroomData deformedGroom(const std::string& graphJson, float bend = 0.6f);
 
 TEST(GpuPreview, EngagesOnTheGraphsGroomsStartFrom) {
     // The default graph (its Resample even) and hair_basics run on the GPU from Interpolate, keeping
-    // its strands clear of the scalp (the scalp's field as tables, the guides' clearances with
-    // their shapes) or not. A Clump picking its own centers too (from the strands the run moves).
+    // its strands clear of the scalp (the scalp's field as tables) or not. A Clump picking its own
+    // centers too (from the strands the run moves).
     for (const bool clearance : {true, false}) {
         for (const char* which : {"default", "hairBasics", "clumpAlone"}) {
             SCOPED_TRACE(std::string(which) + (clearance ? " keeping clearance" : ""));
@@ -628,7 +628,6 @@ TEST(GpuPreview, EngagesOnTheGraphsGroomsStartFrom) {
             ASSERT_EQ(p.chain.stages.front().kind, gpu::StageKind::Interpolate);
             const gpu::InterpolateInputs& in = *p.run.inputs.front().interpolate;
             EXPECT_EQ(in.clearance != nullptr, clearance);
-            EXPECT_EQ(in.rows->clearances.size(), clearance ? in.rows->offsets.size() : 0u);
             if (clearance) EXPECT_TRUE(in.clearance->tables && in.clearance->tables->size() > 1000u);
             const bool clumps = std::string(which) != "default";
             EXPECT_EQ(p.chain.node(gpu::StageKind::Clump) != 0, clumps);
@@ -3105,6 +3104,79 @@ TEST_P(LookEngineTest, CollideEasesAndSmoothsAsTheCpuDoes) {
     }
 }
 
+TEST_P(LookEngineTest, ACollideOffsetDragGivesWhatTheCpuPushesForIt) {
+    // Collide's offset dragged (through a ball over the head, softened): the GPU runs it, the offset a
+    // number of the kernel's, the surfaces' fields' tables made once for every offset of the fields the
+    // CPU asks (cellSizeFor's cell, reachFor's reach): kept while the dragged offsets share them, made
+    // again for another field. Each value the CPU's Collide for it, to the bit (OpenGL: an ulp or two).
+    const std::string graph =
+        withoutClearance(chainGraph({{"Collide", R"("params": {"offset": 0.12, "maxDepth": 0.6, "softness": 0.1})"}}, true, true));
+    auto withBall = [](const std::string& json) {
+        GroomData data = groom(json);
+        const MeshPtr sphere = test::makeSphere(16, 32, 1.2f);
+        std::vector<Vec3f> points = sphere->points();
+        for (Vec3f& q : points) q = q + Vec3f(0.5f, 6.0f, 0.0f);
+        data.meshes["collider"] = std::make_shared<ScalpMesh>(points, sphere->triangles());
+        return data;
+    };
+    const GroomData data = withBall(graph);
+    GroomSession session(data);
+    ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+    EXPECT_TRUE(gpu::previewableParam("Collide", "offset"));
+    std::string why;
+    ASSERT_TRUE(gpu::previewableOverrides(*session.viewDocument(), {{"n0", {{"offset", 0.13}}}}, &why)) << why;
+    // The fields the CPU's Collide asks at an offset: each surface's cell size and reach (its search
+    // radius as CollideOp makes it).
+    auto fieldsAt = [&](double offset) {
+        const float radius = std::max(static_cast<float>(offset) + 0.1f, 0.6f) * 1.001f + 1e-6f;
+        std::vector<float> keys;
+        for (const MeshPtr& mesh : {session.last().scalp, data.meshes.at("collider")}) {
+            keys.push_back(MeshDistanceField::cellSizeFor(*mesh, static_cast<float>(offset)));
+            keys.push_back(MeshDistanceField::reachFor(radius));
+        }
+        return keys;
+    };
+    gpu::LookInputs kept;
+    const double offsets[] = {0.12, 0.13, 0.125, 0.08, 0.3};
+    std::map<double, std::vector<MeshDistanceField::Tables>> tablesAt;  // (held: compared by address)
+    std::map<double, double> readMs;
+    for (const double offset : offsets) {
+        SCOPED_TRACE(offset);
+        const gpu::Overrides drag{{"n0", {{"offset", offset}}}};
+        Prepared p;
+        const auto started = std::chrono::steady_clock::now();
+        ASSERT_TRUE(prepareRun(session, drag, "", &p, &kept)) << "the GPU previews it: " << p.why;
+        readMs[offset] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        ASSERT_EQ(p.chain.stages.front().kind, gpu::StageKind::Collide);
+        const gpu::CollideInputs& in = *p.run.inputs.front().collide;
+        ASSERT_EQ(in.tables.size(), 2u);
+        tablesAt[offset] = in.tables;
+        GroomSession committed(withBall(withParam(graph, "n0", "offset", offset)));
+        ASSERT_TRUE(committed.evaluate(ViewRequest{}).strands);
+        auto engine = backend_->engine();
+        engine->setBase(p.base, session.last().scalp.get());
+        engine->run(p.run, false);
+        const gpu::PointError e = gpu::compareVectors(engine->readPositions(), committed.last().strands->positions());
+        std::printf("[ %-8s ] Collide's offset dragged to %.3f: the GPU against the CPU: max %.3g; read in %.2f ms\n", GetParam().c_str(),
+                    offset, e.max, readMs[offset]);
+        EXPECT_LE(e.max, GetParam() == "DirectX11" ? 0.0 : 2e-6);
+        expectPointsClose(runAndCompare(session, drag, committed));
+    }
+    // The tables kept from one value to the next of the same fields, made again for others.
+    for (std::size_t i = 1; i < std::size(offsets); ++i) {
+        SCOPED_TRACE(offsets[i]);
+        EXPECT_EQ(tablesAt[offsets[i]] == tablesAt[offsets[i - 1]], fieldsAt(offsets[i]) == fieldsAt(offsets[i - 1]));
+    }
+    EXPECT_TRUE(fieldsAt(0.13) == fieldsAt(0.12) && fieldsAt(0.125) == fieldsAt(0.12)) << "the test's premise: nearby offsets share the fields";
+    EXPECT_FALSE(fieldsAt(0.08) == fieldsAt(0.12)) << "the test's premise: a farther offset asks other fields";
+    // What the drag cost on the CPU: the graph evaluated again for a new offset (ms).
+    const auto started = std::chrono::steady_clock::now();
+    session.setGraphJson(withParam(graph, "n0", "offset", 0.135));
+    ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+    std::printf("[ %-8s ] Collide's offset: the CPU's evaluation for a new value %.2f ms\n", GetParam().c_str(),
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+}
+
 TEST_P(LookEngineTest, CurlCoilsByTheStrandsWidthsAsTheCpuDoes) {
     // A coil coilWidths strand widths across: by the widths the strands carry (from Curl), by those
     // a Width before it makes in the run (from Width, from Interpolate), coiling each clump as one
@@ -3497,7 +3569,7 @@ TEST_P(LookEngineTest, MergeRunsItsInputAAsTheCpuDoes) {
         ASSERT_NE(merge, gpu::kNoStage);
         EXPECT_EQ(chain.stages[merge].kind, gpu::StageKind::Merge);
         for (std::size_t k = 0; k < chain.stages.size(); ++k) EXPECT_EQ(chain.stages[k].prefix, k < merge) << k;
-        EXPECT_EQ(chain.indexOf(doc.nodesByName.at("noiseB")), gpu::kNoStage) << "b's side is the CPU's";
+        EXPECT_EQ(chain.indexOf(doc.nodesByName.at("noiseB")), gpu::kNoStage) << "b's side: a run of its own";
         // A drag up a: a's Noise and Width, then the Merge, then the node after it.
         GroomSession committed(groom(mergedGraph(0.55, 0.1, collide)));
         ASSERT_TRUE(committed.evaluate(ViewRequest{}).strands);
@@ -3530,6 +3602,105 @@ TEST_P(LookEngineTest, MergeRunsItsInputAAsTheCpuDoes) {
             ASSERT_TRUE(after.evaluate(ViewRequest{}).strands);
             expectPointsClose(runAndCompare(session, {{"after", {{"amplitude", 0.25}}}}, after));  // (no Width runs)
         }
+    }
+}
+
+// `graphJson` with each of `params` set (node, param, value): what a drag's release commits.
+std::string withParams(std::string graphJson, const std::vector<std::tuple<std::string, std::string, nlohmann::json>>& params) {
+    for (const auto& [node, param, value] : params) graphJson = withParam(graphJson, node, param, value);
+    return graphJson;
+}
+
+TEST_P(LookEngineTest, MergeRunsADragUpItsInputBAsTheCpuDoes) {
+    // A drag up a Merge's input b (b's Noise, b's Width): the GPU runs from the Merge, b's own run (its
+    // chain up b from the dragged node) on a sibling before it, a's strands as cached; then the node
+    // after the Merge on all. A drag on both sides: a's stages on a's strands, b's run, then the rest.
+    for (const bool collide : {false, true}) {
+        SCOPED_TRACE(collide ? "a Collide after the Merge" : "a Noise after the Merge");
+        const std::string graph = mergedGraph(0.3, 0.1, collide);
+        GroomSession session(groom(graph));
+        ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+        const GraphDocument& doc = *session.viewDocument();
+        struct Drag {
+            const char* name;
+            gpu::Overrides overrides;
+            std::vector<std::tuple<std::string, std::string, nlohmann::json>> committed;
+            const char* first;   // the node the main run starts from
+            const char* firstB;  // ... b's run
+        };
+        const Drag drags[] = {
+            {"b's Noise", {{"noiseB", {{"amplitude", 0.35}}}}, {{"noiseB", "amplitude", 0.35}}, "merge", "noiseB"},
+            {"b's Width", {{"widthB", {{"width", 0.03}}}}, {{"widthB", "width", 0.03}}, "merge", "widthB"},
+            {"both sides", {{"noise", {{"amplitude", 0.55}}}, {"noiseB", {{"amplitude", 0.35}}}},
+             {{"noise", "amplitude", 0.55}, {"noiseB", "amplitude", 0.35}}, "noise", "noiseB"}};
+        for (const Drag& d : drags) {
+            SCOPED_TRACE(d.name);
+            Prepared p;
+            ASSERT_TRUE(prepareRun(session, d.overrides, "", &p)) << "the GPU previews it: " << p.why;
+            EXPECT_EQ(doc.nameOf(p.chain.stages.front().node), d.first);
+            const std::size_t merge = p.chain.indexOf(doc.nodesByName.at("merge"));
+            ASSERT_NE(merge, gpu::kNoStage);
+            ASSERT_TRUE(p.run.params.stages[merge].branch) << "b's own run";
+            ASSERT_TRUE(p.run.inputs[merge].merged);
+            const gpu::LookChain& b = p.run.params.stages[merge].branch->chain;
+            EXPECT_EQ(doc.nameOf(b.stages.front().node), d.firstB);
+            EXPECT_EQ(doc.nameOf(b.stages.back().node), "widthB");
+            GroomSession committed(groom(withParams(graph, d.committed)));
+            ASSERT_TRUE(committed.evaluate(ViewRequest{}).strands);
+            expectClose(runAndCompare(session, d.overrides, committed));
+        }
+        // A drag up b through a node the GPU does not run there (b's Scatter's strands): the CPU's.
+        Prepared refused;
+        EXPECT_FALSE(prepareRun(session, {{"resampleB", {{"segments", 8.0}}}}, "", &refused));
+        if (!collide) {  // a preview holding hidden core strands (preview_core.h): b's run holds them too
+            ViewRequest half;
+            half.density = 0.5f;
+            GroomSession thinned(groom(graph));
+            ASSERT_TRUE(thinned.evaluate(half).strands);
+            GroomSession thinnedCommitted(groom(withParam(graph, "noiseB", "amplitude", 0.35)));
+            ASSERT_TRUE(thinnedCommitted.evaluate(half).strands);
+            expectClose(runAndCompare(thinned, {{"noiseB", {{"amplitude", 0.35}}}}, thinnedCommitted));
+        }
+    }
+    // A denser groom: b's drag on the GPU against the CPU's evaluation of the same value (ms).
+    {
+        nlohmann::json g = nlohmann::json::parse(mergedGraph(0.3, 0.1, false));
+        for (auto& n : g["nodes"]) {
+            if (n["name"] == "scatter") n["params"]["density"] = 400.0;
+            if (n["name"] == "scatterB") n["params"]["density"] = 400.0;
+        }
+        const std::string dense = g.dump();
+        GroomSession session(groom(dense));
+        ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+        const gpu::Overrides drag{{"noiseB", {{"amplitude", 0.35}}}};
+        Prepared p;
+        ASSERT_TRUE(prepareRun(session, drag, "", &p)) << p.why;
+        auto engine = backend_->engine();
+        engine->setBase(p.base, session.last().scalp.get());
+        engine->run(p.run, true);
+        engine->finish();
+        std::vector<double> gpuMs;
+        gpu::LookInputs kept;
+        for (int i = 0; i < 5; ++i) {
+            const auto start = std::chrono::steady_clock::now();
+            Prepared q;
+            ASSERT_TRUE(prepareRun(session, {{"noiseB", {{"amplitude", 0.3 + 0.01 * i}}}}, "", &q, &kept)) << q.why;
+            engine->setBase(q.base, session.last().scalp.get());
+            engine->run(q.run, true);
+            engine->finish();
+            gpuMs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        }
+        std::vector<double> cpuMs;
+        for (int i = 0; i < 5; ++i) {
+            session.setGraphJson(withParam(dense, "noiseB", "amplitude", 0.3 + 0.01 * (i + 1)));
+            const auto start = std::chrono::steady_clock::now();
+            ASSERT_TRUE(session.evaluate(ViewRequest{}).strands);
+            cpuMs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        }
+        std::sort(gpuMs.begin(), gpuMs.end());
+        std::sort(cpuMs.begin(), cpuMs.end());
+        std::printf("[ %-8s ] b's Noise dragged on %zu strands: GPU plan and run %.2f ms (median of 5), the CPU's evaluation %.2f ms\n",
+                    GetParam().c_str(), p.base->strandCount(), gpuMs[2], cpuMs[2]);
     }
 }
 INSTANTIATE_TEST_SUITE_P(Backends, LookEngineTest, ::testing::Values(std::string("DirectX11"), std::string("OpenGL")),
@@ -4644,7 +4815,8 @@ TEST(GpuPreview, TakesOnlyWhatItRuns) {
         EXPECT_TRUE(gpu::previewableParam("Curl", "frequencyProfile"));
         EXPECT_TRUE(gpu::previewableParam("Curl", "weight"));
         EXPECT_TRUE(gpu::previewableParam("Curl", "weightDirection"));
-        EXPECT_FALSE(gpu::previewableParam("Collide", "offset"));  // its fields' tables: the CPU's
+        EXPECT_TRUE(gpu::previewableParam("Collide", "offset"));     // a number of the kernel's (its fields' tables made for it)
+        EXPECT_FALSE(gpu::previewableParam("Collide", "softness"));  // its fields' tables: the CPU's
         EXPECT_FALSE(gpu::previewableParam("Gravity", "direction"));
     }
 }

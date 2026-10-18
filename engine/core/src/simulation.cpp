@@ -10,6 +10,10 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#if defined(_M_X64) || defined(__SSE2__)
+#include <emmintrin.h>
+#endif
+
 #include "groomlab/distance_field.h"
 #include "groomlab/field.h"
 #include "groomlab/follow_scalp.h"
@@ -233,6 +237,178 @@ private:
     Key lastKey_;
 };
 
+// ---- Four guides side by side ------------------------------------------------------------------
+//
+// The rods are solved four guides at a time, one guide per lane of a four-wide float (SSE2 where
+// the processor has it, else a loop over the lanes). Each lane does exactly the arithmetic its
+// guide alone did, operation for operation and in the same order: an add, multiply, divide or
+// square root rounds the same in a lane as alone, and the rare turn that needs a sine or an
+// arctangent is taken lane by lane. So a guide's result is the same to the bit whichever guides
+// share its lanes (or none: a lane left over repeats the first guide and is thrown away). The
+// sweep down a guide is one long chain of operations, each segment waiting for the one before:
+// four chains side by side keep the processor busy where one left it waiting.
+
+#if defined(_M_X64) || defined(__SSE2__)
+#define GROOMLAB_SIM_SSE2 1
+#else
+#define GROOMLAB_SIM_SSE2 0
+#endif
+
+constexpr int kLanes = 4;
+
+#if GROOMLAB_SIM_SSE2
+struct F4 {
+    __m128 v;
+};
+struct M4 {  // a lane mask (all bits set: true)
+    __m128 v;
+};
+inline F4 all(float a) { return {_mm_set1_ps(a)}; }
+inline F4 lanesOf(float a, float b, float c, float d) { return {_mm_setr_ps(a, b, c, d)}; }
+inline void store(const F4& a, float* out) { _mm_storeu_ps(out, a.v); }
+inline F4 load(const float* in) { return {_mm_loadu_ps(in)}; }
+inline F4 operator+(const F4& a, const F4& b) { return {_mm_add_ps(a.v, b.v)}; }
+inline F4 operator-(const F4& a, const F4& b) { return {_mm_sub_ps(a.v, b.v)}; }
+inline F4 operator*(const F4& a, const F4& b) { return {_mm_mul_ps(a.v, b.v)}; }
+inline F4 operator/(const F4& a, const F4& b) { return {_mm_div_ps(a.v, b.v)}; }
+inline F4 operator-(const F4& a) { return {_mm_xor_ps(a.v, _mm_set1_ps(-0.0f))}; }  // the sign flipped, as -x
+inline F4 sqrt4(const F4& a) { return {_mm_sqrt_ps(a.v)}; }
+inline M4 operator<(const F4& a, const F4& b) { return {_mm_cmplt_ps(a.v, b.v)}; }
+inline M4 operator>(const F4& a, const F4& b) { return {_mm_cmpgt_ps(a.v, b.v)}; }
+inline M4 operator>=(const F4& a, const F4& b) { return {_mm_cmpge_ps(a.v, b.v)}; }
+inline M4 operator==(const F4& a, const F4& b) { return {_mm_cmpeq_ps(a.v, b.v)}; }
+inline M4 both(const M4& a, const M4& b) { return {_mm_and_ps(a.v, b.v)}; }
+inline F4 select(const M4& m, const F4& a, const F4& b) { return {_mm_or_ps(_mm_and_ps(m.v, a.v), _mm_andnot_ps(m.v, b.v))}; }
+inline int bits(const M4& m) { return _mm_movemask_ps(m.v); }  // lane k's truth at bit k
+#else
+struct F4 {
+    float v[4];
+};
+struct M4 {
+    bool v[4];
+};
+inline F4 all(float a) { return {{a, a, a, a}}; }
+inline F4 lanesOf(float a, float b, float c, float d) { return {{a, b, c, d}}; }
+inline void store(const F4& a, float* out) {
+    for (int k = 0; k < kLanes; ++k) out[k] = a.v[k];
+}
+inline F4 load(const float* in) { return {{in[0], in[1], in[2], in[3]}}; }
+#define GROOMLAB_SIM_LANES(op)                       \
+    F4 out;                                          \
+    for (int k = 0; k < kLanes; ++k) out.v[k] = op; \
+    return out
+#define GROOMLAB_SIM_MASK(op)                        \
+    M4 out;                                          \
+    for (int k = 0; k < kLanes; ++k) out.v[k] = op; \
+    return out
+inline F4 operator+(const F4& a, const F4& b) { GROOMLAB_SIM_LANES(a.v[k] + b.v[k]); }
+inline F4 operator-(const F4& a, const F4& b) { GROOMLAB_SIM_LANES(a.v[k] - b.v[k]); }
+inline F4 operator*(const F4& a, const F4& b) { GROOMLAB_SIM_LANES(a.v[k] * b.v[k]); }
+inline F4 operator/(const F4& a, const F4& b) { GROOMLAB_SIM_LANES(a.v[k] / b.v[k]); }
+inline F4 operator-(const F4& a) { GROOMLAB_SIM_LANES(-a.v[k]); }
+inline F4 sqrt4(const F4& a) { GROOMLAB_SIM_LANES(std::sqrt(a.v[k])); }
+inline M4 operator<(const F4& a, const F4& b) { GROOMLAB_SIM_MASK(a.v[k] < b.v[k]); }
+inline M4 operator>(const F4& a, const F4& b) { GROOMLAB_SIM_MASK(a.v[k] > b.v[k]); }
+inline M4 operator>=(const F4& a, const F4& b) { GROOMLAB_SIM_MASK(a.v[k] >= b.v[k]); }
+inline M4 operator==(const F4& a, const F4& b) { GROOMLAB_SIM_MASK(a.v[k] == b.v[k]); }
+inline M4 both(const M4& a, const M4& b) { GROOMLAB_SIM_MASK(a.v[k] && b.v[k]); }
+inline F4 select(const M4& m, const F4& a, const F4& b) { GROOMLAB_SIM_LANES(m.v[k] ? a.v[k] : b.v[k]); }
+inline int bits(const M4& m) {
+    int out = 0;
+    for (int k = 0; k < kLanes; ++k) out |= m.v[k] ? 1 << k : 0;
+    return out;
+}
+#undef GROOMLAB_SIM_LANES
+#undef GROOMLAB_SIM_MASK
+#endif
+constexpr int kAllLanes = (1 << kLanes) - 1;
+// std::max(a, b) lane by lane, to the bit (b only where a < b: a NaN or a signed zero as it picks).
+inline F4 maxOf(const F4& a, const F4& b) { return select(a < b, b, a); }
+
+// Vec3f and Quat over the lanes, each operation as theirs.
+struct V3 {
+    F4 x, y, z;
+};
+inline V3 v3(const Vec3f& a) { return {all(a.x), all(a.y), all(a.z)}; }
+inline V3 operator+(const V3& a, const V3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+inline V3 operator-(const V3& a, const V3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+inline V3 operator*(const V3& a, const F4& s) { return {a.x * s, a.y * s, a.z * s}; }
+inline V3 operator/(const V3& a, const F4& s) { return {a.x / s, a.y / s, a.z / s}; }
+inline F4 dot(const V3& a, const V3& o) { return a.x * o.x + a.y * o.y + a.z * o.z; }
+inline V3 cross(const V3& a, const V3& o) { return {a.y * o.z - a.z * o.y, a.z * o.x - a.x * o.z, a.x * o.y - a.y * o.x}; }
+inline F4 length(const V3& a) { return sqrt4(dot(a, a)); }
+inline V3 select(const M4& m, const V3& a, const V3& b) { return {select(m, a.x, b.x), select(m, a.y, b.y), select(m, a.z, b.z)}; }
+
+struct Q4 {
+    F4 w, x, y, z;
+};
+inline Q4 operator*(const Q4& a, const Q4& b) {
+    return {a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z, a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+            a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w};
+}
+inline Q4 conj(const Q4& q) { return {q.w, -q.x, -q.y, -q.z}; }
+inline F4 dot4(const Q4& a, const Q4& b) { return a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z; }
+inline Q4 normalized(const Q4& q) {
+    const F4 n2 = dot4(q, q);
+    const F4 k = all(1.0f) / sqrt4(n2);
+    const M4 some = n2 > all(0.0f);
+    return {select(some, q.w * k, all(1.0f)), select(some, q.x * k, all(0.0f)), select(some, q.y * k, all(0.0f)),
+            select(some, q.z * k, all(0.0f))};
+}
+inline V3 vec(const Q4& q) { return {q.x, q.y, q.z}; }
+inline V3 thirdAxis(const Q4& q) {
+    const F4 two = all(2.0f);
+    return {two * (q.x * q.z + q.w * q.y), two * (q.y * q.z - q.w * q.x), all(1.0f) - two * (q.x * q.x + q.y * q.y)};
+}
+inline V3 rotate(const Q4& q, const V3& v) {
+    const V3 u = vec(q);
+    const V3 t = cross(u, v) * all(2.0f);
+    return v + t * q.w + cross(u, t);
+}
+
+// halfAngleOver, lane by lane (`lanes`: the lanes wanted; the others' answer is never read).
+F4 halfAngleOver4(const F4& s, const F4& c, int lanes) {
+    const F4 t = s / c, t2 = t * t;
+    const F4 series = (all(1.0f) - t2 * all(1.0f / 3.0f) + t2 * t2 * all(0.2f)) / c;
+    const int far = lanes & ~bits(s < all(0.05f) * c);
+    if (far == 0) return series;
+    float out[kLanes], sv[kLanes], cv[kLanes];
+    store(series, out);
+    store(s, sv);
+    store(c, cv);
+    for (int k = 0; k < kLanes; ++k) {
+        if (far & (1 << k)) out[k] = pm::atan2(sv[k], cv[k]) / sv[k];
+    }
+    return load(out);
+}
+// turnOfHalfAngle, lane by lane.
+Q4 turnOfHalfAngle4(const V3& r) {
+    const F4 h2 = dot(r, r);
+    const F4 k = all(1.0f) - h2 * all(1.0f / 6.0f) + h2 * h2 * all(1.0f / 120.0f);
+    Q4 out{all(1.0f) - all(0.5f) * h2 + h2 * h2 * all(1.0f / 24.0f), r.x * k, r.y * k, r.z * k};
+    const int far = kAllLanes & ~bits(h2 < all(0.0025f));
+    if (far == 0) return out;
+    float w[kLanes], x[kLanes], y[kLanes], z[kLanes], hv[kLanes], rx[kLanes], ry[kLanes], rz[kLanes];
+    store(out.w, w);
+    store(out.x, x);
+    store(out.y, y);
+    store(out.z, z);
+    store(h2, hv);
+    store(r.x, rx);
+    store(r.y, ry);
+    store(r.z, rz);
+    for (int l = 0; l < kLanes; ++l) {
+        if (!(far & (1 << l))) continue;
+        const float half = std::sqrt(hv[l]);
+        const float kk = pm::sin(half) / half;
+        w[l] = pm::cos(half);
+        x[l] = rx[l] * kk;
+        y[l] = ry[l] * kk;
+        z[l] = rz[l] * kk;
+    }
+    return {load(w), load(x), load(y), load(z)};
+}
+
 // ---- The rods' direct solve (Deul, Kugelstadt, Weiler and Bender 2018, "Direct Position-Based
 // Solver for Stiff Rods") ----------------------------------------------------------------------
 //
@@ -256,137 +432,154 @@ struct RodSegment {
 };
 
 struct Block6 {
-    float m[6][6];
+    F4 m[6][6];
 };
 
 // a's lower triangle and diagonal replaced by its Cholesky factor L (a = L L^T, a positive
 // definite), the diagonal's inverses in inv.
-void cholesky6(Block6& a, float* inv) {
+void cholesky6(Block6& a, F4* inv) {
     for (int j = 0; j < 6; ++j) {
-        float d = a.m[j][j];
-        for (int k = 0; k < j; ++k) d -= a.m[j][k] * a.m[j][k];
-        d = std::sqrt(std::max(d, 1e-30f));
+        F4 d = a.m[j][j];
+        for (int k = 0; k < j; ++k) d = d - a.m[j][k] * a.m[j][k];
+        d = sqrt4(maxOf(d, all(1e-30f)));
         a.m[j][j] = d;
-        inv[j] = 1.0f / d;
+        inv[j] = all(1.0f) / d;
         for (int i = j + 1; i < 6; ++i) {
-            float s = a.m[i][j];
-            for (int k = 0; k < j; ++k) s -= a.m[i][k] * a.m[j][k];
+            F4 s = a.m[i][j];
+            for (int k = 0; k < j; ++k) s = s - a.m[i][k] * a.m[j][k];
             a.m[i][j] = s * inv[j];
         }
     }
 }
 // x = (L L^T)^-1 x, with the factor from cholesky6.
-void choleskySolve6(const Block6& l, const float* inv, float* x) {
+void choleskySolve6(const Block6& l, const F4* inv, F4* x) {
     for (int i = 0; i < 6; ++i) {
-        float s = x[i];
-        for (int k = 0; k < i; ++k) s -= l.m[i][k] * x[k];
+        F4 s = x[i];
+        for (int k = 0; k < i; ++k) s = s - l.m[i][k] * x[k];
         x[i] = s * inv[i];
     }
     for (int i = 5; i >= 0; --i) {
-        float s = x[i];
-        for (int k = i + 1; k < 6; ++k) s -= l.m[k][i] * x[k];
+        F4 s = x[i];
+        for (int k = i + 1; k < 6; ++k) s = s - l.m[k][i] * x[k];
         x[i] = s * inv[i];
     }
 }
 // The same for the six columns of x at once.
-void choleskySolve6(const Block6& l, const float* inv, Block6& x) {
+void choleskySolve6(const Block6& l, const F4* inv, Block6& x) {
     for (int i = 0; i < 6; ++i) {
         for (int k = 0; k < i; ++k) {
-            for (int c = 0; c < 6; ++c) x.m[i][c] -= l.m[i][k] * x.m[k][c];
+            for (int c = 0; c < 6; ++c) x.m[i][c] = x.m[i][c] - l.m[i][k] * x.m[k][c];
         }
-        for (int c = 0; c < 6; ++c) x.m[i][c] *= inv[i];
+        for (int c = 0; c < 6; ++c) x.m[i][c] = x.m[i][c] * inv[i];
     }
     for (int i = 5; i >= 0; --i) {
         for (int k = i + 1; k < 6; ++k) {
-            for (int c = 0; c < 6; ++c) x.m[i][c] -= l.m[k][i] * x.m[k][c];
+            for (int c = 0; c < 6; ++c) x.m[i][c] = x.m[i][c] - l.m[k][i] * x.m[k][c];
         }
-        for (int c = 0; c < 6; ++c) x.m[i][c] *= inv[i];
+        for (int c = 0; c < 6; ++c) x.m[i][c] = x.m[i][c] * inv[i];
     }
 }
 
 // A unit quaternion's frame: its rotation matrix's columns.
 struct Axes3 {
-    Vec3f c[3];
+    V3 c[3];
 };
-Axes3 axesOf(const Quat& q) {
-    return {{rotate(q, {1.0f, 0.0f, 0.0f}), rotate(q, {0.0f, 1.0f, 0.0f}), rotate(q, {0.0f, 0.0f, 1.0f})}};
+Axes3 axesOf(const Q4& q) {
+    const F4 zero = all(0.0f), one = all(1.0f);
+    return {{rotate(q, {one, zero, zero}), rotate(q, {zero, one, zero}), rotate(q, {zero, zero, one})}};
 }
 
 // The bend-twist rows' frame of segment j: the orientation before it (the root's frame for the
 // first) times its rest turn, where the groomed shape puts it.
-Quat rodTarget(std::size_t j, const Quat* q, const Quat& rootRot, const Quat* rest) {
+Q4 rodTarget(std::size_t j, const Q4* q, const Q4& rootRot, const Q4* rest) {
     return normalized((j == 1 ? rootRot : q[j - 1]) * rest[j]);
 }
 
-// A guide's solve (one per thread): its system factored for a substep, solved again each iteration.
-struct RodWork {
-    std::vector<Vec3f> d3;       // each segment's direction, as factored
-    std::vector<Axes3> frame;    // each segment's bend-twist frame, as factored
-    std::vector<float> mask;     // 6 per segment: 1 for a row the solve has, 0 for one it has not
-    std::vector<Block6> factor;  // D_j, Cholesky factored
-    std::vector<float> inv;      // 6 per segment: its factor's diagonal inverses
-    std::vector<Block6> u;       // U_j: segment j's rows against segment j + 1's
-    std::vector<Block6> x;       // D_{j-1}^-1 U_{j-1}
-    std::vector<float> rhs;      // 6 per segment: -C - compliance lambda, then dlambda
+// One segment's settings for a substep over the lanes (RodSegment's).
+struct RodSegment4 {
+    F4 length, w, W, stretch, bend, twist;
 };
 
-// The guide's system for a substep, from its orientations then (the Jacobians depend on nothing
+// Four guides' solve (one per thread): their inputs side by side, the system factored for a
+// substep and solved again each iteration.
+struct RodWork {
+    std::vector<V3> p, tgt;         // the points, and the groomed shape they are pulled toward
+    std::vector<Q4> q, rest;        // the orientations (segment j's at j) and rest turns
+    std::vector<RodSegment4> seg;   // the segments' settings
+    std::vector<F4> attract;        // per point: the pull toward the groomed shape per iteration
+    std::vector<F4> lambda;         // 6 per segment: the multipliers
+    std::vector<V3> d3;             // each segment's direction, as factored
+    std::vector<Axes3> frame;       // each segment's bend-twist frame, as factored
+    std::vector<F4> mask;           // 6 per segment: 1 for a row the solve has, 0 for one it has not
+    std::vector<Block6> factor;     // D_j, Cholesky factored
+    std::vector<F4> inv;            // 6 per segment: its factor's diagonal inverses
+    std::vector<Block6> u;          // U_j: segment j's rows against segment j + 1's
+    std::vector<Block6> x;          // D_{j-1}^-1 U_{j-1}
+    std::vector<F4> rhs;            // 6 per segment: -C - compliance lambda, then dlambda
+};
+
+// The guides' systems for a substep, from their orientations then (the Jacobians depend on nothing
 // else; they turn little over a substep): A = J M^-1 J^T + compliance, factored down the guide
 // (D_j = A_jj - U_{j-1}^T D_{j-1}^-1 U_{j-1}). Orientations q[1..n-1] (segment j's at j).
-void rodFactor(std::size_t n, const Quat* q, const Quat& rootRot, const Quat* rest, const RodSegment* seg,
-               RodWork& work) {
-    work.d3.assign(n, Vec3f{});
+void rodFactor(std::size_t n, const Q4& rootRot, RodWork& work) {
+    const F4 zero = all(0.0f), one = all(1.0f);
+    const V3 none{zero, zero, zero};
+    const Q4* q = work.q.data();
+    const Q4* rest = work.rest.data();
+    const RodSegment4* seg = work.seg.data();
+    work.d3.assign(n, none);
     work.frame.resize(n);
-    work.mask.assign(6 * n, 0.0f);
+    work.mask.assign(6 * n, zero);
     work.factor.resize(n);
     work.inv.resize(6 * n);
     work.u.resize(n);
     work.x.resize(n);
-    work.rhs.assign(6 * n, 0.0f);
+    work.rhs.assign(6 * n, zero);
     for (std::size_t j = 1; j < n; ++j) {
-        const RodSegment& s = seg[j];
-        work.frame[j] = Axes3{};
-        if (!(s.length > 1e-8f)) continue;  // no constraints: its rows stay out of the solve
-        work.d3[j] = thirdAxis(q[j]);
-        work.frame[j] = axesOf(rodTarget(j, q, rootRot, rest));
-        float* mask = &work.mask[6 * j];
-        mask[0] = mask[1] = mask[2] = 1.0f;
-        mask[3] = mask[4] = s.bend >= 0.0f ? 1.0f : 0.0f;
-        mask[5] = s.twist >= 0.0f ? 1.0f : 0.0f;
+        const RodSegment4& s = seg[j];
+        // A segment too short has no constraints: its rows stay out of the solve.
+        const M4 has = s.length > all(1e-8f);
+        work.d3[j] = select(has, thirdAxis(q[j]), none);
+        const Axes3 f = axesOf(rodTarget(j, q, rootRot, rest));
+        for (int k = 0; k < 3; ++k) work.frame[j].c[k] = select(has, f.c[k], none);
+        F4* mask = &work.mask[6 * j];
+        mask[0] = mask[1] = mask[2] = select(has, one, zero);
+        mask[3] = mask[4] = select(both(has, s.bend >= zero), one, zero);
+        mask[5] = select(both(has, s.twist >= zero), one, zero);
     }
     for (std::size_t j = 1; j < n; ++j) {
-        const RodSegment& s = seg[j];
-        const float* mask = &work.mask[6 * j];
+        const RodSegment4& s = seg[j];
+        const F4* mask = &work.mask[6 * j];
         Block6& d = work.factor[j];
         // A_jj. Stretch-shear (rows 0-2, world space): through both points and the orientation,
         // compliant along the segment by `stretch` and all but rigid across it (a trace of
         // compliance keeps the system positive definite where both points are held). Bend-twist
         // (rows 3-5, its frame's axes): through this orientation and the one before (the root's
         // frame holds still). The two coupled through this orientation.
-        const float l = std::max(s.length, 1e-8f);
-        const float wBefore = j > 1 ? seg[j - 1].w : 0.0f;
-        const float WBefore = j > 1 ? seg[j - 1].W : 0.0f;
-        const Vec3f& d3 = work.d3[j];
+        const F4 l = maxOf(s.length, all(1e-8f));
+        const F4 wBefore = j > 1 ? seg[j - 1].w : zero;
+        const F4 WBefore = j > 1 ? seg[j - 1].W : zero;
+        const V3& d3 = work.d3[j];
         const Axes3& f = work.frame[j];
-        const float across = (s.w + wBefore) / (l * l) + 1e-4f * s.W;
-        const float dd[3] = {d3.x, d3.y, d3.z};
+        const F4 across = (s.w + wBefore) / (l * l) + all(1e-4f) * s.W;
+        const F4 dd[3] = {d3.x, d3.y, d3.z};
         for (int r = 0; r < 3; ++r) {
-            for (int c = 0; c < 3; ++c) d.m[r][c] = (r == c ? across + s.W : 0.0f) + (s.stretch - s.W) * dd[r] * dd[c];
+            for (int c = 0; c < 3; ++c) d.m[r][c] = (r == c ? across + s.W : zero) + (s.stretch - s.W) * dd[r] * dd[c];
         }
         for (int k = 0; k < 3; ++k) {
-            const Vec3f t = d3.cross(f.c[k]) * (0.5f * s.W);
+            const V3 t = cross(d3, f.c[k]) * (all(0.5f) * s.W);
             d.m[0][3 + k] = d.m[3 + k][0] = t.x;
             d.m[1][3 + k] = d.m[3 + k][1] = t.y;
             d.m[2][3 + k] = d.m[3 + k][2] = t.z;
         }
-        const float turn = 0.25f * (s.W + WBefore);
-        const float comp[3] = {s.bend, s.bend, s.twist};
+        const F4 turn = all(0.25f) * (s.W + WBefore);
+        const F4 comp[3] = {s.bend, s.bend, s.twist};
         for (int r = 0; r < 3; ++r) {
-            for (int c = 0; c < 3; ++c) d.m[3 + r][3 + c] = r == c ? turn + std::max(0.0f, comp[r]) : 0.0f;
+            for (int c = 0; c < 3; ++c) d.m[3 + r][3 + c] = r == c ? turn + maxOf(zero, comp[r]) : zero;
         }
         for (int r = 0; r < 6; ++r) {
-            for (int c = 0; c < 6; ++c) d.m[r][c] *= mask[r] * mask[c];
-            if (mask[r] == 0.0f) d.m[r][r] = 1.0f;
+            for (int c = 0; c < 6; ++c) d.m[r][c] = d.m[r][c] * (mask[r] * mask[c]);
+            d.m[r][r] = select(mask[r] == zero, one, d.m[r][r]);
         }
         if (j > 1) {
             // X_j = D_{j-1}^-1 U_{j-1}, and D_j -= U_{j-1}^T X_j.
@@ -396,8 +589,8 @@ void rodFactor(std::size_t n, const Quat* q, const Quat& rootRot, const Quat* re
             choleskySolve6(work.factor[j - 1], &work.inv[6 * (j - 1)], x);
             for (int k = 0; k < 6; ++k) {
                 for (int r = 0; r < 6; ++r) {
-                    const float ukr = u.m[k][r];
-                    for (int c = 0; c < 6; ++c) d.m[r][c] -= ukr * x.m[k][c];
+                    const F4 ukr = u.m[k][r];
+                    for (int c = 0; c < 6; ++c) d.m[r][c] = d.m[r][c] - ukr * x.m[k][c];
                 }
             }
         }
@@ -406,96 +599,195 @@ void rodFactor(std::size_t n, const Quat* q, const Quat& rootRot, const Quat* re
         // U_j: segment j's rows against segment j + 1's, through segment j's point (stretch-shear
         // with stretch-shear) and orientation (stretch-shear and bend-twist with bend-twist).
         Block6& u = work.u[j];
-        const RodSegment& b = seg[j + 1];
+        const RodSegment4& b = seg[j + 1];
         const Axes3& fb = work.frame[j + 1];
-        const float ss = -s.w / (l * std::max(b.length, 1e-8f));
+        const F4 ss = -s.w / (l * maxOf(b.length, all(1e-8f)));
         for (int r = 0; r < 6; ++r) {
-            for (int c = 0; c < 6; ++c) u.m[r][c] = 0.0f;
+            for (int c = 0; c < 6; ++c) u.m[r][c] = zero;
         }
         for (int r = 0; r < 3; ++r) u.m[r][r] = ss;
         for (int k = 0; k < 3; ++k) {
-            const Vec3f t = d3.cross(fb.c[k]) * (-0.5f * s.W);
+            const V3 t = cross(d3, fb.c[k]) * (all(-0.5f) * s.W);
             u.m[0][3 + k] = t.x;
             u.m[1][3 + k] = t.y;
             u.m[2][3 + k] = t.z;
-            for (int r = 0; r < 3; ++r) u.m[3 + r][3 + k] = -0.25f * s.W * f.c[r].dot(fb.c[k]);
+            for (int r = 0; r < 3; ++r) u.m[3 + r][3 + k] = all(-0.25f) * s.W * dot(f.c[r], fb.c[k]);
         }
-        const float* next = &work.mask[6 * (j + 1)];
+        const F4* next = &work.mask[6 * (j + 1)];
         for (int r = 0; r < 6; ++r) {
-            for (int c = 0; c < 6; ++c) u.m[r][c] *= mask[r] * next[c];
+            for (int c = 0; c < 6; ++c) u.m[r][c] = u.m[r][c] * (mask[r] * next[c]);
         }
     }
 }
 
-// One iteration of the direct solve over a guide (rodFactor's system): points p[0..n-1] (p[0] the
-// root, pinned), orientations q[1..n-1], the multipliers (6 per segment, at 6 j).
-void rodIteration(std::size_t n, Vec3f* p, Quat* q, const Quat& rootRot, const Quat* rest, const RodSegment* seg,
-                  float* lambda, RodWork& work) {
+// One iteration of the direct solve over the guides (rodFactor's systems): points p[0..n-1] (p[0]
+// the root, pinned), orientations q[1..n-1], the multipliers (6 per segment, at 6 j).
+void rodIteration(std::size_t n, const Q4& rootRot, RodWork& work) {
+    const F4 zero = all(0.0f);
+    V3* p = work.p.data();
+    Q4* q = work.q.data();
+    const Q4* rest = work.rest.data();
+    const RodSegment4* seg = work.seg.data();
+    F4* lambda = work.lambda.data();
     // The errors as they are now. Stretch-shear: (p_j - p_{j-1}) / l - d3. Bend-twist: the exact
     // turn from the groomed frame to the segment's, as a rotation vector of half its angle in that
     // frame (x and y bend, z twist), on the shorter arc: exact for a guide pushed far from its
     // shape. Down the guide with them: g_j = b_j - U_{j-1}^T y_{j-1}, y_j = D_j^-1 g_j (in rhs).
     for (std::size_t j = 1; j < n; ++j) {
-        const RodSegment& s = seg[j];
-        const float* mask = &work.mask[6 * j];
-        float* g = &work.rhs[6 * j];
-        const float* lam = &lambda[6 * j];
-        if (s.length > 1e-8f) {
-            const float eps = 1e-4f * s.W;  // (the trace of compliance across)
-            const Vec3f gamma = (p[j] - p[j - 1]) / s.length - thirdAxis(q[j]);
-            const Vec3f& d3 = work.d3[j];
-            const float along = s.stretch * (d3.x * lam[0] + d3.y * lam[1] + d3.z * lam[2]);
-            g[0] = -gamma.x - eps * lam[0] - along * d3.x;
-            g[1] = -gamma.y - eps * lam[1] - along * d3.y;
-            g[2] = -gamma.z - eps * lam[2] - along * d3.z;
-            Quat e = conj(rodTarget(j, q, rootRot, rest)) * q[j];
-            if (e.w < 0.0f) e = {-e.w, -e.x, -e.y, -e.z};
-            const Vec3f u = e.vec();
-            const Vec3f c = u * halfAngleOver(u.length(), e.w);
-            g[3] = mask[3] * (-c.x - s.bend * lam[3]);
-            g[4] = mask[4] * (-c.y - s.bend * lam[4]);
-            g[5] = mask[5] * (-c.z - s.twist * lam[5]);
-        } else {
-            for (int k = 0; k < 6; ++k) g[k] = 0.0f;
-        }
+        const RodSegment4& s = seg[j];
+        const F4* mask = &work.mask[6 * j];
+        F4* g = &work.rhs[6 * j];
+        const F4* lam = &lambda[6 * j];
+        const M4 has = s.length > all(1e-8f);  // (else no constraints: its rows 0)
+        const F4 eps = all(1e-4f) * s.W;       // (the trace of compliance across)
+        const V3 gamma = (p[j] - p[j - 1]) / s.length - thirdAxis(q[j]);
+        const V3& d3 = work.d3[j];
+        const F4 along = s.stretch * (d3.x * lam[0] + d3.y * lam[1] + d3.z * lam[2]);
+        const F4 g0 = -gamma.x - eps * lam[0] - along * d3.x;
+        const F4 g1 = -gamma.y - eps * lam[1] - along * d3.y;
+        const F4 g2 = -gamma.z - eps * lam[2] - along * d3.z;
+        Q4 e = conj(rodTarget(j, q, rootRot, rest)) * q[j];
+        const M4 flip = e.w < zero;
+        e = {select(flip, -e.w, e.w), select(flip, -e.x, e.x), select(flip, -e.y, e.y), select(flip, -e.z, e.z)};
+        const V3 u = vec(e);
+        const V3 c = u * halfAngleOver4(length(u), e.w, bits(has));
+        g[0] = select(has, g0, zero);
+        g[1] = select(has, g1, zero);
+        g[2] = select(has, g2, zero);
+        g[3] = select(has, mask[3] * (-c.x - s.bend * lam[3]), zero);
+        g[4] = select(has, mask[4] * (-c.y - s.bend * lam[4]), zero);
+        g[5] = select(has, mask[5] * (-c.z - s.twist * lam[5]), zero);
         if (j > 1) {
-            const Block6& u = work.u[j - 1];
-            const float* y = &work.rhs[6 * (j - 1)];
+            const Block6& ub = work.u[j - 1];
+            const F4* y = &work.rhs[6 * (j - 1)];
             for (int k = 0; k < 6; ++k) {
-                for (int r = 0; r < 6; ++r) g[r] -= u.m[k][r] * y[k];
+                for (int r = 0; r < 6; ++r) g[r] = g[r] - ub.m[k][r] * y[k];
             }
         }
         choleskySolve6(work.factor[j], &work.inv[6 * j], g);
     }
     // Back up the guide: dlambda_j = y_j - X_{j+1} dlambda_{j+1}.
     for (std::size_t j = n - 1; j >= 2; --j) {
-        const float* after = &work.rhs[6 * j];
-        float* y = &work.rhs[6 * (j - 1)];
+        const F4* after = &work.rhs[6 * j];
+        F4* y = &work.rhs[6 * (j - 1)];
         const Block6& x = work.x[j];
         for (int r = 0; r < 6; ++r) {
-            float sum = 0.0f;
-            for (int c = 0; c < 6; ++c) sum += x.m[r][c] * after[c];
-            y[r] -= sum;
+            F4 sum = zero;
+            for (int c = 0; c < 6; ++c) sum = sum + x.m[r][c] * after[c];
+            y[r] = y[r] - sum;
         }
     }
-    for (std::size_t k = 6; k < 6 * n; ++k) lambda[k] += work.rhs[k];
+    for (std::size_t k = 6; k < 6 * n; ++k) lambda[k] = lambda[k] + work.rhs[k];
     // The corrections, each point and orientation by its own inverse mass: dp = w J_p^T dlambda,
     // and a turn in world space of W J_theta^T dlambda.
-    for (std::size_t j = 1; j < n; ++j) {
-        const RodSegment& s = seg[j];
-        const float* dl = &work.rhs[6 * j];
-        const Vec3f ss{dl[0], dl[1], dl[2]};
+    // Each segment's multipliers move its tip point and turn its orientation, and the segment
+    // before by as much the other way: each such share is made once, for both.
+    const F4 half = all(0.5f);
+    auto ownMove = [&](std::size_t j) {
+        const F4* dl = &work.rhs[6 * j];
+        return V3{dl[0], dl[1], dl[2]} / maxOf(seg[j].length, all(1e-8f));
+    };
+    auto ownTurn = [&](std::size_t j) {
+        const F4* dl = &work.rhs[6 * j];
         const Axes3& f = work.frame[j];
-        Vec3f dp = ss / std::max(s.length, 1e-8f);
-        Vec3f turn = ss.cross(work.d3[j]) + (f.c[0] * dl[3] + f.c[1] * dl[4] + f.c[2] * dl[5]) * 0.5f;
+        return (f.c[0] * dl[3] + f.c[1] * dl[4] + f.c[2] * dl[5]) * half;
+    };
+    V3 move = ownMove(1), bend = ownTurn(1);
+    for (std::size_t j = 1; j < n; ++j) {
+        const RodSegment4& s = seg[j];
+        const F4* dl = &work.rhs[6 * j];
+        const V3 ss{dl[0], dl[1], dl[2]};
+        V3 dp = move;
+        V3 turn = cross(ss, work.d3[j]) + bend;
         if (j + 1 < n) {
-            const float* dn = &work.rhs[6 * (j + 1)];
-            const Axes3& fn = work.frame[j + 1];
-            dp -= Vec3f{dn[0], dn[1], dn[2]} / std::max(seg[j + 1].length, 1e-8f);
-            turn -= (fn.c[0] * dn[3] + fn.c[1] * dn[4] + fn.c[2] * dn[5]) * 0.5f;
+            move = ownMove(j + 1);
+            bend = ownTurn(j + 1);
+            dp = dp - move;
+            turn = turn - bend;
         }
-        if (s.w > 0.0f) p[j] += dp * s.w;
-        q[j] = normalized(turnOfHalfAngle(turn * (0.5f * s.W)) * q[j]);
+        p[j] = select(s.w > zero, p[j] + dp * s.w, p[j]);
+        q[j] = normalized(turnOfHalfAngle4(turn * (half * s.W)) * q[j]);
+    }
+}
+
+// One guide's rod for a substep (rodSolve): its points (p[0] the root) and the groomed shape they
+// are pulled toward, its orientations (segment j's at j, in the solver's array), rest turns, root
+// frame, segments and pull per point.
+struct RodLane {
+    Vec3f* p = nullptr;
+    const Vec3f* tgt = nullptr;
+    Quat* q = nullptr;
+    const Quat* rest = nullptr;
+    Quat rootRot;
+    const RodSegment* seg = nullptr;
+    const float* attract = nullptr;
+};
+
+// The rods of `count` guides of n points (1 to 4) over a substep's iterations: each iteration the
+// direct solve, then the pull toward the groomed shape (root stiffness) along the length. The
+// points and orientations are put back where the lanes came from.
+void rodSolve(std::size_t n, const RodLane* lanes, int count, int iterations, RodWork& work) {
+    const RodLane* l[kLanes];
+    for (int k = 0; k < kLanes; ++k) l[k] = &lanes[k < count ? k : 0];
+    auto v3Of = [&](auto point) {
+        const Vec3f a = point(*l[0]), b = point(*l[1]), c = point(*l[2]), d = point(*l[3]);
+        return V3{lanesOf(a.x, b.x, c.x, d.x), lanesOf(a.y, b.y, c.y, d.y), lanesOf(a.z, b.z, c.z, d.z)};
+    };
+    auto q4Of = [&](auto quat) {
+        const Quat a = quat(*l[0]), b = quat(*l[1]), c = quat(*l[2]), d = quat(*l[3]);
+        return Q4{lanesOf(a.w, b.w, c.w, d.w), lanesOf(a.x, b.x, c.x, d.x), lanesOf(a.y, b.y, c.y, d.y),
+                  lanesOf(a.z, b.z, c.z, d.z)};
+    };
+    auto f4Of = [&](auto value) { return lanesOf(value(*l[0]), value(*l[1]), value(*l[2]), value(*l[3])); };
+    work.p.resize(n);
+    work.tgt.resize(n);
+    work.q.resize(n);
+    work.rest.resize(n);
+    work.seg.resize(n);
+    work.attract.resize(n);
+    work.lambda.assign(6 * n, all(0.0f));
+    for (std::size_t j = 0; j < n; ++j) {
+        work.p[j] = v3Of([j](const RodLane& r) { return r.p[j]; });
+        work.tgt[j] = v3Of([j](const RodLane& r) { return r.tgt[j]; });
+        work.attract[j] = f4Of([j](const RodLane& r) { return r.attract[j]; });
+        work.q[j] = q4Of([j](const RodLane& r) { return r.q[j]; });
+        work.rest[j] = q4Of([j](const RodLane& r) { return r.rest[j]; });
+        RodSegment4& s = work.seg[j];
+        s.length = f4Of([j](const RodLane& r) { return r.seg[j].length; });
+        s.w = f4Of([j](const RodLane& r) { return r.seg[j].w; });
+        s.W = f4Of([j](const RodLane& r) { return r.seg[j].W; });
+        s.stretch = f4Of([j](const RodLane& r) { return r.seg[j].stretch; });
+        s.bend = f4Of([j](const RodLane& r) { return r.seg[j].bend; });
+        s.twist = f4Of([j](const RodLane& r) { return r.seg[j].twist; });
+    }
+    const Q4 rootRot = q4Of([](const RodLane& r) { return r.rootRot; });
+    // The system, factored once for the substep's iterations (it changes with the orientations
+    // alone, little over a substep: solving it again each iteration gave the same motion at twice
+    // the cost).
+    rodFactor(n, rootRot, work);
+    const F4 zero = all(0.0f);
+    for (int it = 0; it < iterations; ++it) {
+        // Stretch-shear and bend-twist over the whole guide at once.
+        rodIteration(n, rootRot, work);
+        // The pull toward the groomed shape (root stiffness), along the length.
+        for (std::size_t j = 1; j < n; ++j) {
+            const F4 a = work.attract[j];
+            work.p[j] = select(a > zero, work.p[j] + (work.tgt[j] - work.p[j]) * a, work.p[j]);
+        }
+    }
+    for (std::size_t j = 1; j < n; ++j) {
+        float px[kLanes], py[kLanes], pz[kLanes], qw[kLanes], qx[kLanes], qy[kLanes], qz[kLanes];
+        store(work.p[j].x, px);
+        store(work.p[j].y, py);
+        store(work.p[j].z, pz);
+        store(work.q[j].w, qw);
+        store(work.q[j].x, qx);
+        store(work.q[j].y, qy);
+        store(work.q[j].z, qz);
+        for (int k = 0; k < count; ++k) {
+            lanes[k].p[j] = {px[k], py[k], pz[k]};
+            lanes[k].q[j] = {qw[k], qx[k], qy[k], qz[k]};
+        }
     }
 }
 
@@ -1100,14 +1392,26 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
         }
     };
 
-    // One substep of guide g, from fraction a0 to a1 of the way between the last inputs and these.
-    auto substep = [&](std::size_t g, float a0, float a1, double seconds, bool frameEnd) {
+    // A guide's substep under way: what its first part (substepBegin) leaves for the rod solve and
+    // the part after it (substepEnd).
+    struct GuideStep {
+        std::size_t g = 0, b = 0, n = 0;
+        RootPose r1;
+        std::vector<Vec3f> p, tgt, corr;
+        std::vector<float> under;
+        std::vector<RodSegment> rod;
+    };
+    // A substep of guide g, from fraction a0 to a1 of the way between the last inputs and these, up
+    // to its rod's solve: false for a guide without segments (done then).
+    auto substepBegin = [&](GuideStep& st, std::size_t g, float a0, float a1, double seconds, bool frameEnd) {
         const std::size_t b = begin[g], n = begin[g + 1] - b;
-        const float pushDepth = std::max(offset * 2.0f, 0.5f * length[g]);  // (collisions)
-        const float pushSearch = std::max(offset, pushDepth) * 1.001f + 1e-6f;
+        st.g = g;
+        st.b = b;
+        st.n = n;
         const float band = std::max(1e-4f, 0.05f * length[g]);  // the surface's band the water fades in over
         const RootPose r0 = blend(prev.roots[g], next.roots[g], a0);
         const RootPose r1 = blend(prev.roots[g], next.roots[g], a1);
+        st.r1 = r1;
         auto target = [&](std::size_t j, const RootPose& r, float a) {
             const Vec3f l = prev.local[b + j] + (next.local[b + j] - prev.local[b + j]) * a;
             return r.toWorld(l);
@@ -1115,7 +1419,7 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
         if (n < 2) {
             if (n == 1) x[b] = target(0, r1, a1);
             if (n == 1 && frameEnd && ps.blends) frameTarget[b] = x[b];
-            return;
+            return false;
         }
         // The share of the root's motion the hair is carried by rigidly (inertia below 1).
         if (carry > 0.0f) {
@@ -1128,7 +1432,9 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
                 q[i] = nlerp(q[i], turn * q[i], carry);
             }
         }
-        thread_local std::vector<Vec3f> p, tgt, corr;
+        std::vector<Vec3f>& p = st.p;
+        std::vector<Vec3f>& tgt = st.tgt;
+        std::vector<Vec3f>& corr = st.corr;
         p.resize(n);
         tgt.resize(n);
         corr.assign(n + 1, Vec3f{});
@@ -1147,7 +1453,7 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
         // Under water: each point's share (0 above the surface's band, 1 below it), from the plane or
         // the water mesh (the height along its closest point's normal); then its wetness: soaking
         // up under water and in the rain, drying out of the water.
-        thread_local std::vector<float> under;
+        std::vector<float>& under = st.under;
         Vec3f flow{};
         if (wetting) {
             under.assign(n, 0.0f);
@@ -1203,11 +1509,8 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
         // row's compliance (per unit of a point's inverse mass) and the bend-twist rows' (per unit
         // of the orientation's), per reference step; wet hair bends more easily, up to half its bend
         // stiffness gone, by wetWeight.
-        thread_local std::vector<RodSegment> rod;
-        thread_local std::vector<float> multipliers;
-        thread_local RodWork work;
+        std::vector<RodSegment>& rod = st.rod;
         rod.assign(n, RodSegment{});
-        multipliers.assign(6 * n, 0.0f);
         const bool bends = custom || bendCompliance >= 0.0f || twistCompliance >= 0.0f;
         for (std::size_t j = 1; j < n; ++j) {
             const std::size_t i = b + j;
@@ -1227,19 +1530,17 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
             seg.bend = bc >= 0.0f ? bc * next.invMassQ[i] : -1.0f;
             seg.twist = tc >= 0.0f ? tc * next.invMassQ[i] : -1.0f;
         }
-        // The guide's system, factored once for the substep's iterations (it changes with the
-        // orientations alone, little over a substep: solving it again each iteration gave the same
-        // motion at twice the cost).
-        rodFactor(n, q.data() + b, r1.rot, next.rest.data() + b, rod.data(), work);
-        for (int it = 0; it < s.iterations; ++it) {
-            // Stretch-shear and bend-twist over the whole guide at once (rodIteration).
-            rodIteration(n, p.data(), q.data() + b, r1.rot, next.rest.data() + b, rod.data(), multipliers.data(), work);
-            // The pull toward the groomed shape (root stiffness), along the length.
-            for (std::size_t j = 1; j < n; ++j) {
-                const float a = custom ? ps.attract[b + j] : attract[b + j];
-                if (a > 0.0f) p[j] += (tgt[j] - p[j]) * a;
-            }
-        }
+        return true;
+    };
+    // The rest of guide st.g's substep, after its rod's solve: lengths kept, collisions, velocities.
+    auto substepEnd = [&](GuideStep& st, bool frameEnd) {
+        const std::size_t g = st.g, b = st.b, n = st.n;
+        const float pushDepth = std::max(offset * 2.0f, 0.5f * length[g]);  // (collisions)
+        const float pushSearch = std::max(offset, pushDepth) * 1.001f + 1e-6f;
+        const RootPose& r1 = st.r1;
+        std::vector<Vec3f>& p = st.p;
+        const std::vector<Vec3f>& tgt = st.tgt;
+        std::vector<Vec3f>& corr = st.corr;
         // Lengths kept: each point at its segment's length from the one before (follow the leader).
         for (std::size_t j = 1; j < n; ++j) {
             const std::size_t i = b + j;
@@ -1464,6 +1765,40 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
         }
     };
 
+    // The guides in batches of up to four of the same point count, their rods solved side by side
+    // (rodSolve): a guide's result is the same in any batch, to the bit.
+    std::vector<std::pair<std::size_t, int>> batches;
+    for (std::size_t g = 0; g < count;) {
+        const std::size_t n = begin[g + 1] - begin[g];
+        int lanes = 1;
+        while (n >= 2 && lanes < kLanes && g + lanes < count && begin[g + lanes + 1] - begin[g + lanes] == n) ++lanes;
+        batches.emplace_back(g, lanes);
+        g += static_cast<std::size_t>(lanes);
+    }
+    // One substep of a batch's guides.
+    auto substep = [&](std::size_t batch, float a0, float a1, double seconds, bool frameEnd) {
+        thread_local GuideStep steps[kLanes];
+        thread_local RodWork work;
+        const auto [first, lanes] = batches[batch];
+        RodLane rods[kLanes];
+        int solving = 0;
+        for (int k = 0; k < lanes; ++k) {
+            GuideStep& st = steps[solving];
+            if (!substepBegin(st, first + static_cast<std::size_t>(k), a0, a1, seconds, frameEnd)) continue;
+            RodLane& rod = rods[solving++];
+            rod.p = st.p.data();
+            rod.tgt = st.tgt.data();
+            rod.q = q.data() + st.b;
+            rod.rest = next.rest.data() + st.b;
+            rod.rootRot = st.r1.rot;
+            rod.seg = st.rod.data();
+            rod.attract = (custom ? ps.attract.data() : attract.data()) + st.b;
+        }
+        if (solving == 0) return;
+        rodSolve(steps[0].n, rods, solving, s.iterations, work);
+        for (int k = 0; k < solving; ++k) substepEnd(steps[k], frameEnd);
+    };
+
     const int base = frame;
     for (int k = 1; k <= substeps; ++k) {
         const float a0 = static_cast<float>(k - 1) / static_cast<float>(substeps);
@@ -1471,7 +1806,7 @@ void GuideSolver::Impl::solve(const SimInputs& in, int frames, const std::functi
         const double seconds = frameToSeconds(base + static_cast<double>(k) / s.substeps, fps);
         const bool frameEnd = k % s.substeps == 0;
         if (!sweeps.empty()) sweepTo(k == substeps ? 1.0f : a1);
-        parallelFor(0, count, [&](std::size_t g) { substep(g, a0, a1, seconds, frameEnd); }, 16);
+        parallelFor(0, batches.size(), [&](std::size_t batch) { substep(batch, a0, a1, seconds, frameEnd); }, 4);
         repel();
         volumize();
         if (frameEnd && ps.blends) {
@@ -1497,12 +1832,18 @@ GuidesPtr GuideSolver::guides() const {
     const Impl& m = *impl_;
     auto out = std::make_shared<GuideSet>();
     const std::vector<Vec3f>& points = m.shown.empty() ? m.x : m.shown;
-    for (std::size_t g = 0; g < m.guideCount(); ++g) {
+    // Every guide made at once and filled side by side (one after another, growing the set, was a
+    // fifth of a frame's time at 10k guides).
+    std::vector<Guide>& guides = out->guides();
+    guides.resize(m.guideCount());
+    parallelFor(0, m.guideCount(), [&](std::size_t g) {
         const auto b = static_cast<std::ptrdiff_t>(m.begin[g]), e = static_cast<std::ptrdiff_t>(m.begin[g + 1]);
-        Guide& guide = out->add(m.ids[g], std::vector<Vec3f>(points.begin() + b, points.begin() + e));
+        Guide& guide = guides[g];
+        guide.id = m.ids[g];
         guide.root = m.roots[g];
+        guide.points.assign(points.begin() + b, points.begin() + e);
         if (!m.wet.empty()) guide.pointAttributes[kWetnessChannel].assign(m.wet.begin() + b, m.wet.begin() + e);
-    }
+    }, 256);
     return out;
 }
 

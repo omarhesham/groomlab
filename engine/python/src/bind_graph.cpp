@@ -625,7 +625,10 @@ void bindGraph(py::module_& m) {
              "outside source; returns its name. GraphError (the graph unchanged) when it cannot.")
         .def("expand", &GraphEdit::expand, py::arg("compound"),
              "Ungroup: a Compound node replaced by the nodes it holds (exposed values applied, every field kept); "
-             "returns their names. GraphError (the graph unchanged) when it cannot.");
+             "returns their names. GraphError (the graph unchanged) when it cannot.")
+        .def("moved_nodes", &GraphEdit::movedNodes,
+             "The node paths this edit's renames, groups and ungroups moved, in order: [(old, new)] ('sculpt1' -> "
+             "'compound1/sculpt1' for Group). What is kept by node path outside the graph follows them.");
     m.def("graph_channels", [](const std::string& graph, const std::vector<std::string>& guideMaps) { return jsonLoads(graphChannelsJson(graph, guideMaps)); },
           py::arg("graph_json"), py::arg("guide_maps") = std::vector<std::string>(),
           "The strand channels (attributes) per node of a graph's JSON, without evaluating it: {node: {'incoming': "

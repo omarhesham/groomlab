@@ -219,8 +219,7 @@ Colors
 Red     #FF4D4F
 Yellow  #FFC53D
 Blue    #2F7BF6
-Ink     #1D1D1F  (the name on light backgrounds)
-Night   #1C1D21  (dark backgrounds)
+Ink     #1D1D1F  (the name on light backgrounds, and dark backgrounds)
 
 Trademarks
 ----------

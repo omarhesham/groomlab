@@ -224,10 +224,12 @@ public:
     // The graph's structure edited by the node graph view: `edit` runs on a copy of the JSON,
     // which the session takes; one undo step named `label` holding the whole graph before and
     // after (graphs are small). "" or why the session refused it (nothing changes then). Sculpt
-    // nodes' edits (sculpt.h) follow in the same step: a renamed node's (`renamed`: old -> new),
-    // a copy's (`copied`: copy -> source), and a node gone loses its (the sculpt target too).
+    // nodes' edits (sculpt.h) follow in the same step: a moved node's (`moved`: old -> new path in
+    // order, GraphEdit::movedNodes: a rename, Group, Ungroup; read after `edit` ran, so `edit` may
+    // fill it), a copy's (`copied`: copy -> source), and a node gone loses its (the sculpt target
+    // too).
     std::string editGraph(const std::string& label, const std::function<void(nlohmann::json&)>& edit,
-                          const std::map<std::string, std::string>& renamed = {},
+                          const std::vector<std::pair<std::string, std::string>>& moved = {},
                           const std::map<std::string, std::string>& copied = {});
     // A node of `type` at a position, named after its type (made unique) unless `name` says;
     // the name made is written to *made. The connections of its strands input and output are

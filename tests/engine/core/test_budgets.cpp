@@ -1378,6 +1378,65 @@ TEST(Budget, InterpolateFollowingTheSurface) {
     }
 }
 
+TEST(Budget, InterpolateKeepingClearanceOnFur) {
+    // What keeping clearance costs on a creature's fur (reported only): a body of radius 40 with
+    // bumps (a shoulder, a hip, a cheek), 150k strands of 51 points from 1500 guides lying 20
+    // degrees off the skin, combed down; the shapes carried over the bumps go into them. A new
+    // Interpolate (bound again), best of 3, keeping clearance and not, the scalp's field made first.
+    const auto sphere = test::makeSphere(120, 240, 40.0f);
+    const Vec3f bumps[3] = {Vec3f(0.6f, 0.5f, 0.6f).normalized(), Vec3f(-0.7f, -0.2f, 0.6f).normalized(),
+                            Vec3f(0.1f, 0.3f, -1.0f).normalized()};
+    std::vector<Vec3f> points;
+    for (const Vec3f& p : sphere->points()) {
+        const Vec3f n = p.normalized();
+        float r = 40.0f;
+        for (const Vec3f& b : bumps) {
+            const float a = std::acos(std::clamp(n.dot(b), -1.0f, 1.0f)) / 0.25f;
+            r += 6.0f * std::exp(-a * a);
+        }
+        points.push_back(n * r);
+    }
+    const auto body = std::make_shared<const ScalpMesh>(points, sphere->triangles());
+    auto guides = std::make_shared<GuideSet>();
+    constexpr int kGuides = 1500;
+    for (int i = 0; i < kGuides; ++i) {  // a Fibonacci lattice
+        const float y = 1.0f - 2.0f * (static_cast<float>(i) + 0.5f) / static_cast<float>(kGuides);
+        const float r = std::sqrt(1.0f - y * y), a = 2.39996323f * static_cast<float>(i);
+        const SurfacePoint at = body->closestPoint(Vec3f(r * std::cos(a), y, r * std::sin(a)) * 40.0f);
+        Vec3f down = Vec3f(0.0f, -1.0f, 0.0f) - at.normal * at.normal.y;
+        down = down.length() > 1e-3f ? down.normalized() : Vec3f(1.0f, 0.0f, 0.0f);
+        const Vec3f dir = (down * std::cos(0.35f) + at.normal * std::sin(0.35f)) * 4.0f;
+        Guide& g = guides->add(static_cast<std::uint64_t>(i + 1), test::straightCurve(at.position, dir, 5));
+        g.root = at.root;
+    }
+    auto strands = std::make_shared<StrandSet>();
+    Rng rng(7);
+    for (StrandId id = 1; id <= 150000; ++id) {
+        Vec3f n;
+        do n = Vec3f(rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1));
+        while (n.length() > 1.0f || n.length() < 0.1f);
+        const SurfacePoint at = body->closestPoint(n.normalized() * 40.0f);
+        strands->addStrand(id, test::straightCurve(at.position, at.normal * 3.0f, 50), {}, at.root);
+    }
+    ExternalInputs none;
+    EvalContext ctx;
+    ctx.externals = &none;
+    auto timed = [&](bool keepClearance) {
+        double best = 1e9;
+        for (int r = 0; r < 4; ++r) {  // (the first makes the field)
+            auto op = OperatorRegistry::instance().create(op::kInterpolate);
+            op->params().set("keepClearance", keepClearance);
+            const auto t0 = std::chrono::steady_clock::now();
+            op->evaluate(ctx, {Value(StrandsPtr(strands)), Value(GuidesPtr(guides)), Value(MeshPtr(body))});
+            if (r > 0) best = std::min(best, msSince(t0));
+        }
+        return best;
+    };
+    const double off = timed(false), on = timed(true);
+    std::printf("[ budget ] Interpolate on fur, %zu strands x 51 points, %d guides: %.1f ms, keeping clearance %.1f ms (+%.1f)\n",
+                strands->strandCount(), kGuides, off, on, on - off);
+}
+
 TEST(Budget, PointIndexMillion) {
     // Build a kd-tree over 1M points, then 1M nearest and 1M 8-nearest queries (parallel).
     constexpr std::size_t kPoints = 1000000;

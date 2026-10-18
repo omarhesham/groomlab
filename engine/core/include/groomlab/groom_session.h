@@ -499,8 +499,11 @@ public:
     void setFramesPerSecond(double fps);
     double framesPerSecond() const { return fps_; }
     // How the host's inputs at another time reach the session (SimFeed): what the frames stepped on
-    // the way to the one asked for read. Without a feed a node steps over those frames in one go
-    // toward the inputs as they are (the roots moving from its last frame's to these).
+    // the way to the one asked for read. Without a feed, or where it cannot give a time (Maya while
+    // it plays reads no other time: the frames real-time playback skips), a node steps over those
+    // frames in one go toward the inputs as they are (the roots moving evenly from its last frame's
+    // to these), and they are stamped as not checked: a later view of one, with the feed giving its
+    // own inputs, keeps them (what played is what a bake writes).
     void setSimulationFeed(SimFeed feed) { simFeed_ = std::move(feed); }
     // Off: a view never steps a node; a frame it has neither cached nor baked shows its guides as
     // groomed. For a host evaluating frames in any order, apart from its live view (Maya's cached
@@ -742,6 +745,8 @@ private:
         bool checked = false;
         double checkedSeconds = 0.0;
         std::uint64_t checkedHash = 0;
+        // The hash of the inputs its last frame was stepped toward (advanceSimulations).
+        std::uint64_t towardHash = 0;
     };
     struct SimRef {
         std::string name;

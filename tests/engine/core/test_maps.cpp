@@ -123,6 +123,17 @@ TEST(Maps, ColorSetDensityScattersOnlyWherePainted) {
     for (std::size_t s = 0; s < painted->strandCount(); ++s) EXPECT_GT(painted->strandPoints(s)[0].x, 0.44f);
 }
 
+TEST(Maps, APaintedMapOnTheScalpsVerticesReadsThere) {
+    // The Graph Editor's "painted map" names any map from Groom Tools > Paint; one painted on the
+    // scalp's vertices is read there, as the color set reference reads it (it once failed: "no
+    // guide carries the layer").
+    MapGraph mg(mappedPlane());
+    mg.g.node(mg.scatter).params().set("density", mapOf(MapRef::Source::ColorSet, "mask", 0.0f, 2000.0f));
+    const std::size_t asColorSet = mg.eval(mg.scatter)->strandCount();
+    mg.g.node(mg.scatter).params().set("density", mapOf(MapRef::Source::Guide, "mask", 0.0f, 2000.0f));
+    EXPECT_EQ(mg.eval(mg.scatter)->strandCount(), asColorSet);
+}
+
 TEST(Maps, TextureDensityFollowsTheImageAndReloads) {
     const std::string path = tempPath("groomlab_density.pgm");
     writePgm(path, 64, 64, [](int x, int) { return x * 255 / 63; });  // black left, white right

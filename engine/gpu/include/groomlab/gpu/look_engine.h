@@ -238,8 +238,8 @@ protected:
     virtual bool bindTargets(const LookTargets& targets, bool frames, std::size_t bytes, std::size_t uvBytes) = 0;
     // Copies own outputs into the targets the kernels could not write.
     virtual void copyToTargets(bool frames, std::size_t bytes) = 0;
-    // `bytes` from byte `offset` of `from` to the same place in `to`.
-    virtual void copy(int from, int to, std::size_t bytes, std::size_t offset = 0) = 0;
+    // `bytes` from byte `fromOffset` of `from` to byte `toOffset` of `to`.
+    virtual void copy(int from, int to, std::size_t bytes, std::size_t fromOffset, std::size_t toOffset) = 0;
     // The constants of every dispatch of a run, one slot each (look_engine_internal.h
     // StageConstants), uploaded together before the dispatches.
     virtual void setConstants(const void* slots, std::size_t count, std::size_t slotBytes) = 0;
@@ -346,9 +346,16 @@ private:
         std::uint32_t wallsAt = 0xFFFFFFFFu;
     };
     std::vector<StageHeld> held_;
-    // Per stage: the sibling running a Clump's centers' branch (null: none), and the last runs'.
+    // Per stage: the sibling running a Clump's centers' branch or a Merge's input b's run (null: none),
+    // and the last runs'.
     std::vector<std::unique_ptr<LookEngine>> centers_;
+    // Stage k's sibling (made at its first), `branch` run on it before this engine's run (the same
+    // queue).
+    LookEngine& runSibling(std::size_t k, const LookCentersRun& branch);
     void runCenters(std::size_t k, const LookCentersRun& run);
+    // A Merge's input b's run (stage k; b's strands after the first `strandsA`): its points (aux 0)
+    // and, where it makes widths, its widths (aux 1) borrowed for the Merge.
+    void runMerged(std::size_t k, std::size_t strandsA, const LookCentersRun& run);
     int allPoints_ = -1;
     std::vector<float> ramps_;
     // The last run, for timings and read-backs.

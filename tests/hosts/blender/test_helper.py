@@ -1267,6 +1267,53 @@ class ToolsTest(HelperTestCase):
         self.call("undo")
         self.assertIn("mask", [m["name"] for m in self.call("maps_list")["maps"]])
 
+    def test_a_vertex_map_shows_again_after_undo_and_a_reload(self):
+        # The map shown on the scalp follows its values through undo and redo, and a groom file
+        # loaded again into the live session (Open Groom File on the same mesh) shows its map at
+        # once: the session's tools are made again then, and their answers' shared memory must not
+        # take a name the add-on still holds open (it did: "exists already", the old map left shown).
+        self.place_guides(3)
+        self.call("map_create", name="mask", kind="vertices", value=0.0)
+
+        def shown(have=None):
+            # (Every array read, so the client holds each block open as the add-on does.)
+            self.call("evaluate", density=0.1)
+            r = self.call("display", map={"name": "mask"}, have=have or {}, strandColors={"mode": "random"})
+            item = r["items"]["scalpMap"]
+            colors = self.h.array(item["arrays"]["colors"]) if item["changed"] else None
+            if r["strandColors"]["changed"]:
+                self.h.array(r["strandColors"]["colors"])
+            return item["version"], colors, r
+
+        blank_version, blank, _ = shown()
+        pts = crown_points(5)
+        events = line(self.cam.pixel(pts[0]), self.cam.pixel(pts[4]), 12)
+        self.stroke("paint", events, settings={"attribute": "mask", "paintKind": "vertices", "value": 1.0})
+        painted_version, painted, _ = shown({"scalpMap": blank_version})
+        self.assertIsNotNone(painted)
+        self.assertGreater(painted.sum(), blank.sum())
+        self.call("undo")
+        version, colors, _ = shown({"scalpMap": painted_version})
+        np.testing.assert_array_equal(colors, blank)
+        self.call("redo")
+        version, colors, _ = shown({"scalpMap": version})
+        np.testing.assert_array_equal(colors, painted)
+        path = os.path.join(self.tmp, "mask.groom")
+        self.call("save_groom", path=path)
+        self.call("undo")  # the session's map blank again; the file's painted
+        self.h.array(self.call("hover", view=self.cam.view(), x=events[0][0], y=events[0][1])["overlay"]["arrays"]["positions"])
+        self.call("load_groom", path=path)
+        version, colors, r = shown({"scalpMap": version})
+        self.assertIsNotNone(colors)
+        np.testing.assert_array_equal(colors, painted)
+        self.assertTrue(r["strandColors"]["changed"])
+        self.assertTrue(self.call("hover", view=self.cam.view(), x=events[0][0], y=events[0][1])["ring"]["valid"])
+        # The state given back to the live session (set_state): the same.
+        state = self.call("get_state", scalp="maps")
+        self.call("set_state", groom=state["groom"], textures=state["textures"], tools=state["tools"], keepScalp=True)
+        version, colors, _ = shown()
+        np.testing.assert_array_equal(colors, painted)
+
     def test_undo_and_redo_restore_exactly(self):
         initial = self.texts()
         self.place_guides(4)

@@ -69,8 +69,9 @@ Good to know:
   maps work on it as on the main scalp. **Remove** on its row takes it out again.
 - **Guides reach along the skin:** Interpolate measures guide reach along the scalp
   (`followSurface`, on), so a guide behind an ear doesn't shape the hair across it. With
-  `keepClearance` (on) each strand stays at least as high above the skin as its guides, so a single
-  guide grows hair that never goes into the scalp. Use a Collide for other meshes (a body, a
+  `keepClearance` (on) strands never go into the scalp: where the skin bulges under a strand (an
+  ear, a cheek) it is lifted just onto the skin and comes back to its groomed path past the bulge,
+  so hair drapes over an ear instead of standing off it. Use a Collide for other meshes (a body, a
   collar).
 - **Speed:** 100k strands through a full look graph evaluate in under 0.1 s, and tweaking one
   parameter redraws in about 5 ms.

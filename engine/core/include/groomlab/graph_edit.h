@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "groomlab/graph.h"
@@ -134,7 +135,17 @@ public:
     // node inside, a link that fits nothing).
     std::vector<std::string> expand(const std::string& compound);
 
+    // The node paths this edit's renames, groups and ungroups moved, in order (old -> new; a node
+    // inside a compound by its path, "compound/inner"): a rename moves the node, Group moves each
+    // grouped node in ("sculpt1" -> "compound1/sculpt1"), Ungroup moves them out (to their new
+    // names when theirs were taken). A compound's move takes the paths inside it along. What a
+    // host keeps by node path outside the graph follows them in the same step (a Sculpt node's
+    // edits: moveSculptNodes, sculpt.h).
+    const std::vector<std::pair<std::string, std::string>>& movedNodes() const;
+
 private:
+    void recordMove(const std::string& from, const std::string& to);  // one more movedNodes entry
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

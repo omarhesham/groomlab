@@ -108,9 +108,18 @@ ScalarField::ScalarField(const ParamSet& params, const std::string& name, const 
         case MapRef::Source::Guide:
             if (guides) {
                 guideSampler_ = std::make_shared<const GuideSampler>(*guides, map_.name, cage_);
+                if (!guideSampler_->carried && scalp_ && scalp_->hasColorSet(map_.name)) {
+                    // A painted map that lives on the scalp's vertices (Groom Tools > Paint offers
+                    // both kinds under one name): read it there, as a Map node would.
+                    guideSampler_.reset();
+                    map_.source = MapRef::Source::ColorSet;
+                    break;
+                }
                 if (!guideSampler_->roots.empty() && !guideSampler_->carried) {
                     throw GraphError(where + "no guide carries the layer '" + map_.name + "'");
                 }
+            } else if (scalp_ && scalp_->hasColorSet(map_.name)) {
+                map_.source = MapRef::Source::ColorSet;
             }
             break;
     }

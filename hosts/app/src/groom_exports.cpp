@@ -111,15 +111,27 @@ ExportResult GroomDocument::exportUsd(const std::string& path, const ExportOptio
     try {
         UsdCurvesWriter::Options usd;
         usd.framesPerSecond = fps;
-        usd.metersPerUnit = file().units == "m" ? 1.0 : file().units == "in" ? 0.0254 : file().units == "mm" ? 0.001 : 0.01;
+        usd.metersPerUnit = usdMetersPerUnit(file().units);
+        usd.upAxis = "Y";  // the app is Y-up (a Z-up file turned on load)
         usd.comment = path_.empty() ? std::string("GroomLab") : path_;
+        // The scales and the Instance nodes' prototypes as every other host writes them: the
+        // file's stored meshes (the built-in plates need none).
+        const GroomFile& groomFile = file();
+        const PrototypeLookup prototypes = [&groomFile](const std::string& name) -> const InstancePrototype* {
+            const auto it = groomFile.prototypes.find(name);
+            return it != groomFile.prototypes.end() && it->second.found ? &it->second : nullptr;
+        };
+        usd.prototypes = prototypes;
+        ScaleMeshBuilder scales;  // bends only the scales that moved since the last frame
         UsdCurvesWriter writer(path, exportName(path), usd);
         const std::size_t count = range.count();
         for (std::size_t i = 0; i < count; ++i) {
             MeshPtr scalp;
             const double frame = range.frame(i);
             const StrandsPtr strands = exportFrame(frameToSeconds(frame, fps), options.density, &scalp);
-            writer.writeFrame(frame, *strands, scalp.get());
+            const bool scaled = strands->instances() && strands->instances()->hasMeshes();
+            const auto scaleMesh = scaled ? scales.build(*strands, scalp, prototypes) : nullptr;
+            writer.writeFrame(frame, *strands, scalp.get(), scaleMesh.get());
             result.strands = strands->strandCount();
             result.frames = i + 1;
             if (!continueExport(progress, i + 1, count)) {

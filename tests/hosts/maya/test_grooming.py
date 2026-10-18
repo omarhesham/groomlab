@@ -426,6 +426,45 @@ class GroomingTest(unittest.TestCase):
         self.assertGreater(sculpts.edited_guides(groom, "sculpt1"), 0)
         self.assertEqual(groomlab.errors(groom), [])
 
+        # Grouped into a compound (the Graph Editor's Ctrl+G): the edits move inside with the node
+        # ("compound/sculpt1"), so its guides stay sculpted, and the target is cleared (brushes
+        # shape top-level nodes); undo brings both back. Renamed, the compound takes the edits
+        # along; Ungroup brings them back out.
+        def guides_of(node):
+            path = os.path.join(folder, "grouped.groom")
+            groomlab.export_groom(groom, path)
+            session = groomlab_core.GroomSession(groomlab_core.read_groom_file(path).data)
+            session.evaluate()
+            return {g.id: [tuple(p[k] for k in range(3)) for p in g.points] for g in session.evaluate_node(node).guides}
+
+        edits = cmds.getAttr(groom + ".sculptData")
+        sculpted = guides_of("sculpt1")
+        model = GraphModel.from_groom(groom)
+        compound = model.collapse(["sculpt1"])
+        model.save(groom)
+        self.assertEqual(sculpts.sculpted_nodes(groom), [compound + "/sculpt1"])
+        self.assertIsNone(sculpts.target(groom))
+        self.assertEqual(guides_of(compound), sculpted)
+        self.assertEqual(groomlab.errors(groom), [])
+        cmds.undo()
+        self.assertEqual(cmds.getAttr(groom + ".sculptData"), edits)
+        self.assertEqual(sculpts.target(groom), "sculpt1")
+        model = GraphModel.from_groom(groom)
+        compound = model.collapse(["sculpt1"])
+        model.save(groom)
+        model = GraphModel.from_groom(groom)
+        model.rename_node(compound, "shaping")
+        model.save(groom)
+        self.assertEqual(sculpts.sculpted_nodes(groom), ["shaping/sculpt1"])
+        self.assertEqual(guides_of("shaping"), sculpted)
+        model = GraphModel.from_groom(groom)
+        self.assertEqual(model.expand("shaping"), ["sculpt1"])
+        model.save(groom)
+        self.assertEqual(sculpts.sculpted_nodes(groom), ["sculpt1"])
+        self.assertEqual(guides_of("sculpt1"), sculpted)
+        cmds.undo()
+        self.assertEqual(sculpts.sculpted_nodes(groom), ["shaping/sculpt1"])
+
     def test_review_tools(self):
         groomlab.density_heatmap(self.groom)
         self.assertEqual(cmds.getAttr(self.groom + ".strandColorMode"), 5)
@@ -663,22 +702,30 @@ class GroomingTest(unittest.TestCase):
         self.assertAlmostEqual(painted[1], unpainted[1], places=3)  # bottom unpainted: unchanged
         self.assertEqual(groomlab.paint_scalp_map(self.groom, "mask", paint=False), node)  # reused, not duplicated
 
-    def test_the_sample_head_comes_in_sized_and_selected(self):
-        # Nika: 34.6 cm tall in any scene unit, turned for a z-up scene, selected, a groom grows on her.
-        for unit, axis in (("cm", "y"), ("m", "y"), ("cm", "z")):
-            cmds.file(new=True, force=True)
-            cmds.currentUnit(linear=unit)
-            cmds.upAxis(axis=axis)
-            head = groomlab.add_sample_head()
-            self.assertEqual(cmds.ls(selection=True), [head])
-            bbox = cmds.exactWorldBoundingBox(head)
-            tall = (bbox[5] - bbox[2]) if axis == "z" else (bbox[4] - bbox[1])
-            want = 34.61 if unit == "cm" else 0.3461
-            self.assertAlmostEqual(tall / want, 1.0, delta=0.01, msg="%s %s-up" % (unit, axis))
-        cmds.upAxis(axis="y")
-        cmds.currentUnit(linear="cm")
-        groom = groomlab.create_groom(head, fit=True)
-        self.assertGreater(cmds.getAttr(groom + ".outStrandCount"), 0)
+    def test_the_sample_meshes_come_in_sized_and_selected(self):
+        # Nika and the wolf: their real size in any scene unit, turned for a z-up scene, the part to
+        # groom selected (the wolf's body, its other parts beside it in a group), a groom grows on it.
+        for sample, extent_cm, part in (("nika", 34.61, "nika_head"), ("wolf", 109.7, "wolf_body")):
+            for unit, axis in (("cm", "y"), ("m", "y"), ("cm", "z")):
+                cmds.file(new=True, force=True)
+                cmds.currentUnit(linear=unit)
+                cmds.upAxis(axis=axis)
+                target = groomlab.add_sample(sample)
+                self.assertEqual(target, part)
+                self.assertEqual(cmds.ls(selection=True), [part])
+                top = cmds.listRelatives(target, parent=True) or [target]
+                bbox = cmds.exactWorldBoundingBox(top[0])
+                extent = max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2])
+                want = extent_cm if unit == "cm" else extent_cm / 100.0
+                self.assertAlmostEqual(extent / want, 1.0, delta=0.01, msg="%s %s %s-up" % (sample, unit, axis))
+            cmds.upAxis(axis="y")
+            cmds.currentUnit(linear="cm")
+            groom = groomlab.create_groom(target, fit=True)
+            self.assertGreater(cmds.getAttr(groom + ".outStrandCount"), 0)
+        self.assertEqual(sorted(cmds.listRelatives("wolf", children=True)),
+                         ["wolf_body", "wolf_eye_l", "wolf_eye_r", "wolf_mouthbag", "wolf_nails"])
+        with self.assertRaises(ValueError):
+            groomlab.add_sample("nope")
 
     def test_leaving_the_paint_brush_puts_the_view_back(self):
         # Painting shows the map on the strands and the scalp; another brush, or another tool
@@ -5112,6 +5159,40 @@ class SimulateTest(unittest.TestCase):
         sim.invalidate_simulation(self.groom)
         self.assertEqual(self.points_at(20), played[20])
         self.assertEqual(sim.simulation_status(self.groom)[0]["ranges"], [[1, 20]])
+
+    def test_simulate_range_meets_a_moving_collider_where_playing_met_it(self):
+        # A ball sweeping through the hair over frames 2-10 into the Simulate node. Played, then
+        # simulated again with Simulate Range from frame 1 (what a bake runs when the frames are
+        # gone): the same frames. The frames on the way read the collider then; they met it where
+        # it stood at the frame shown, so the bake was not what had played.
+        from groomlab import graph as gm
+        ball = cmds.polySphere(radius=0.6, subdivisionsX=16, subdivisionsY=8)[0]
+        cmds.setAttr(ball + ".translateY", 1.7)
+        for frame, x in ((1, -2.5), (2, -2.5), (10, 2.5), (40, 2.5)):
+            cmds.setKeyframe(ball, attribute="translateX", time=frame, value=x)
+        cmds.keyTangent(ball, attribute="translateX", inTangentType="linear", outTangentType="linear")
+        collider = groomlab.add_collider(self.groom, ball, wire=False)
+        node = self.add()
+        model = gm.GraphModel.from_groom(self.groom)
+        model.connect(collider, node, "collider")
+        model.save(self.groom)
+        self.assertEqual(groomlab.errors(self.groom), [])
+        cmds.currentTime(1)
+        played = {f: self.points_at(f) for f in range(1, 15)}
+        sim.invalidate_simulation(self.groom)
+        cmds.currentTime(1)
+        self.points_at(1)
+        sim.simulate(self.groom, 14)
+        self.assertEqual(sim.simulation_status(self.groom)[0]["ranges"], [[1, 14]])
+        for f in (6, 10, 14):
+            self.assertEqual(self.points_at(f), played[f], "frame %d" % f)
+        # (The sweep mattered: the ball held at its first place moves the hair otherwise.)
+        cmds.cutKey(ball, attribute="translateX")
+        cmds.setAttr(ball + ".translateX", -2.5)
+        sim.invalidate_simulation(self.groom)
+        cmds.currentTime(1)
+        held = {f: self.points_at(f) for f in range(1, 11)}
+        self.assertNotEqual(held[10], played[10])
 
     def test_bake_and_exports_read_what_the_viewport_showed(self):
         if not hasattr(cmds, "groomLabExportAlembic"):

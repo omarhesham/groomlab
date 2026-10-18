@@ -410,7 +410,7 @@ bool GpuLookPreview::runPlan(GroomShape& shape, const gpu::LookPlan& p, const Gp
     const MeshPtr scalp = shape.session().last().scalp;
     const bool lit = item.normals && item.tangents;
     // The lines' widths change with a Width the GPU runs: written into their uvs.
-    const bool widths = item.uvs && p.run.params.find(gpu::StageKind::Width) != nullptr;
+    const bool widths = item.uvs && gpu::runsWidth(p.run.params);
     try {
         // OpenGL's kernels still compiling: the CPU's this time (nothing waits for them).
         if (!engine_->kernelsReady(p.run, &why_)) return false;
@@ -656,7 +656,7 @@ std::string GpuLookPreview::checkJson(GroomShape& shape, const std::string& from
     put("positions", gpu::compareVectors(engine_->readPositions(), p.output->positions()));
     put("normals", gpu::compareVectors(gpuFrames[0], cpu[0]));
     put("tangents", gpu::compareVectors(gpuFrames[1], cpu[1]));
-    if (p.run.params.find(gpu::StageKind::Width) && p.output->widths().size() == n) {
+    if (gpu::runsWidth(p.run.params) && p.output->widths().size() == n) {
         const std::vector<float> widths = engine_->readWidths();
         double max = 0, sum = 0;
         for (std::size_t i = 0; i < n; ++i) {

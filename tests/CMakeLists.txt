@@ -89,6 +89,7 @@ add_executable(groomlab_tests
     engine/core/test_self_collide.cpp
     engine/core/test_static.cpp
     engine/core/test_tie.cpp
+    engine/core/test_usd_layout.cpp
     engine/core/test_wet.cpp
     engine/core/test_example_node.cpp
     # The new-node template, built as a test's operator ("TestExample": test_example_node.cpp); its
@@ -112,6 +113,11 @@ groomlab_precompile(groomlab_tests <gtest/gtest.h> <nlohmann/json.hpp>)
 set_source_files_properties(engine/core/test_budgets.cpp engine/core/test_budgets_paint.cpp
     engine/core/test_budgets_stroke.cpp engine/core/test_compat.cpp engine/core/test_golden.cpp
     engine/core/test_self_collide.cpp engine/core/test_static.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+# The USD layout test reads its spec page (web/content/docs/usd-layout.mdx); the definition on this
+# file only, so adding it rebuilds nothing else.
+groomlab_path_literal(_source_root "${PROJECT_SOURCE_DIR}")
+set_source_files_properties(engine/core/test_usd_layout.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+    COMPILE_DEFINITIONS "GROOMLAB_SOURCE_ROOT=${_source_root}")
 set_source_files_properties(${PROJECT_SOURCE_DIR}/tools/dev/new_node/example_op.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON
     INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/engine/core/example_node")
 if(TARGET groomlab_alembic)

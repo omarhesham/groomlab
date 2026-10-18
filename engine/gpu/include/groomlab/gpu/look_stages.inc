@@ -54,8 +54,9 @@ GROOMLAB_STAGE(Part, "part", "strength", "", "profile", "", "affect strength wid
 GROOMLAB_STAGE(Gravity, "gravity", "strength", "", "stiffnessProfile", "", "affect strength stiffness")
 // (Its strays are drawn on the GPU by ID: a fraction or seed dragged picks others.)
 GROOMLAB_STAGE(Flyaway, "flyaway", "stray", "fraction", "", "", "affect stray fraction frequency start standOut lengthen seed")
-// (Its offset and depth make its fields' tables: the CPU's.)
-GROOMLAB_STAGE(Collide, "collide", "", "", "", "", "affect")
+// (Its offset a number of the kernel's, its fields' tables made for every offset sharing the CPU's
+// field: LookInputs::read. Its depth and softness make the tables: the CPU's.)
+GROOMLAB_STAGE(Collide, "collide", "", "", "", "", "affect offset")
 GROOMLAB_STAGE(Wind, "wind", "strength", "", "profile", "", "affect strength gust frequency speed turbulence seed")
 GROOMLAB_STAGE(Blend, "blend", "mix", "", "profile", "", "mix")
 // (The hair grid's layout is the core strands' and the scalp's: none of these change it.)

@@ -604,8 +604,8 @@ TEST(SimulateNode, ScrubbingBackGivesTheFirstPassExactly) {
 
 TEST(SimulateNode, AJumpForwardStepsOnFromTheLastFrameAsPlayingDoes) {
     GroomSession played(simData()), jumped(simData());
-    played.setSimulationFeed([](double) {});  // the inputs are the same at every time
-    jumped.setSimulationFeed([](double) {});
+    played.setSimulationFeed([](double) { return true; });  // the inputs are the same at every time
+    jumped.setSimulationFeed([](double) { return true; });
     for (int f = 1; f <= 6; ++f) viewAt(played, f);
     viewAt(jumped, 6);
     for (int f = 7; f <= 20; ++f) viewAt(played, f);
@@ -779,7 +779,10 @@ TEST(SimulateNode, TheHeadsMotionSwingsTheHairWhichSettles) {
         return points;
     };
     GroomSession session(data);
-    session.setSimulationFeed([&](double seconds) { session.updateScalpPoints(shifted(seconds)); });
+    session.setSimulationFeed([&](double seconds) {
+        session.updateScalpPoints(shifted(seconds));
+        return true;
+    });
     auto tipLag = [&](int frame) {
         session.updateScalpPoints(shifted(frame / kFps));
         viewAt(session, frame);
@@ -795,6 +798,59 @@ TEST(SimulateNode, TheHeadsMotionSwingsTheHairWhichSettles) {
     EXPECT_LT(moving, atRest - 0.02f) << "the tips did not trail the motion";
     const float settled = tipLag(96);
     EXPECT_NEAR(settled, atRest, 0.05f) << "the hair did not settle back";
+}
+
+TEST(SimulateNode, FramesPlaybackSkippedAreSteppedInOneGoAndKept) {
+    // Real-time playback skips frames when a frame takes longer than its time, and while it plays
+    // the host's feed gives nothing (Maya reads no other time then). The frames skipped were each
+    // stepped toward the frame shown: the head's whole motion since the last frame in the first of
+    // them (the hair whipped), and each was stamped with the shown frame's inputs, so scrubbing
+    // back to one (not playing: the feed gives its own) found other inputs and threw every frame
+    // away; what was simulated again, and baked, was not what had played. Now they are stepped in
+    // one go toward the frame shown (the roots moving evenly over them) and kept.
+    GroomData data = simData(simGraph(R"({"gravity": 9.8, "damping": 0.3, "rootStiffnessProfile": 0.0})"));
+    const MeshPtr rest = data.scalp;
+    auto shifted = [&](double seconds) {
+        const float frame = static_cast<float>(seconds * kFps);
+        const float dx = 0.15f * std::clamp(frame - 1.0f, 0.0f, 8.0f);
+        std::vector<Vec3f> points = rest->points();
+        if (dx != 0.0f) {  // (else the points to the bit: -0 + 0 is +0, another scalp's hash)
+            for (Vec3f& p : points) p.x += dx;
+        }
+        return points;
+    };
+    bool playing = true;
+    GroomSession skipped(data), every(data);
+    for (GroomSession* s : {&skipped, &every}) {
+        s->setSimulationFeed([s, &playing, &shifted](double seconds) {
+            if (playing) return false;  // (as Maya's: no other time is read while it plays)
+            s->updateScalpPoints(shifted(seconds));
+            return true;
+        });
+    }
+    auto show = [&](GroomSession& s, int frame) {
+        s.updateScalpPoints(shifted(frame / kFps));
+        return viewAt(s, frame);
+    };
+    std::map<int, std::vector<Vec3f>> played, everyFrame;
+    for (int f = 1; f <= 16; f += 3) played[f] = show(skipped, f)->positions();  // frames 2-3, 5-6... skipped
+    for (int f = 1; f <= 16; ++f) everyFrame[f] = show(every, f)->positions();
+    // Close to playing every frame: the skipped frames' motion spread evenly, not all in one (the
+    // guides 0.8 long: 0.06 apart at most, where stepping each toward the frame shown was 0.42).
+    float worst = 0.0f;
+    for (const auto& [f, points] : played) {
+        ASSERT_EQ(points.size(), everyFrame[f].size());
+        for (std::size_t i = 0; i < points.size(); ++i) worst = std::max(worst, (points[i] - everyFrame[f][i]).length());
+    }
+    EXPECT_LT(worst, 0.1f);
+    // Stopped: scrubbing back to a skipped frame keeps the frames that played.
+    playing = false;
+    show(skipped, 5);
+    EXPECT_EQ(skipped.simulationStatus()[0].ranges[0], std::make_pair(1, 16));
+    for (const auto& [f, points] : played) EXPECT_TRUE(show(skipped, f)->positions() == points) << "frame " << f << " as it played";
+    EXPECT_EQ(skipped.simulationStatus()[0].frames, 16u);
+    // Simulate Range steps nothing more (a bake writes the frames that played).
+    EXPECT_EQ(skipped.simulateTo(16).frames, 0);
 }
 
 // ---- Cost --------------------------------------------------------------------------------------
@@ -1321,6 +1377,7 @@ TEST(Simulation, HairRestingOnASurfaceKeepsItsLength) {
     EXPECT_LT(turning.peakStretch, 0.02f);
     EXPECT_LT(turning.endStretch, 0.005f);
 }
+
 
 }  // namespace
 }  // namespace groomlab

@@ -16,7 +16,7 @@
 // dab's made anew on the CPU up to it, guides alone being few: the hand guides, or a Sculpt
 // node's output, a sculpt stroke's edits or a dragged strength laid on its cached input,
 // sculptedGuides; keeping its strands clear of a scalp, from the scalp's
-// distance field as tables and the guides' clearances, walked as the CPU walks it; over a scalp
+// distance field as tables, walked as the CPU walks it; over a scalp
 // deformed away from its rest pose, through the rest pose's field and each vertex's frame, the
 // strand's nearest vertex walked over the mesh's edges as RestPoseCollision walks it), Length, Clump (the CPU's center choice; centers made by a branch of their own the run
 // moves, centersFrom inputCurves through another Interpolate, made by that branch's own run first:
@@ -71,7 +71,10 @@
 // any order. (Mirror adds and drops strands, new IDs rooted again: the CPU's.) A Merge without a
 // seam to blend: the run goes on up its input a, its stages on a's strands alone (the first of the
 // base's: the Merge's cached result with a's points as the first stage up there takes them), b's
-// strands handed on as the Merge last made them; one Merge a run (a drag on b's side is the CPU's).
+// strands handed on as the Merge last made them; one Merge a run. A drag up its input b (a node
+// making b's strands): b's own run, a chain of its own up b from the first node the drag sets
+// (LookBranch), made on a sibling engine before the Merge, which takes b's points (and widths) from
+// it; a's strands as cached when the drag is on b's side alone.
 // Jiggle with motion to lag behind (its springs over the scalp and history its last evaluation read,
 // operator_state.h jiggleState: each strand's root lag and face's turn made on the CPU as JiggleOp
 // makes them, again for a dragged frequency, damping or history; the strands turned about their
@@ -176,7 +179,8 @@ LookChain chainFrom(const GraphDocument& doc, const LookChain& chain, std::size_
 // randoms; Bend's, Direction's and Displace's direction).
 using OverrideValue = std::variant<double, Ramp, Vec3f>;
 using Overrides = std::map<std::string, std::map<std::string, OverrideValue>>;
-// The first stage whose node takes a value of `overrides` (kNoStage: none).
+// The first stage whose node takes a value of `overrides`, or a Merge whose input b a node of them
+// makes (b's own run: StageParams::branch) (kNoStage: none).
 std::size_t firstOverridden(const GraphDocument& doc, const LookChain& chain, const Overrides& overrides);
 
 // One stage's params as its operator reads them. A mapped param's number is the multiplier of its
@@ -239,7 +243,8 @@ std::size_t firstOverridden(const GraphDocument& doc, const LookChain& chain, co
 //           more[0-1] and [2-3]); flag[0] history (the frames it reads, the lags made of them:
 //           JiggleInputs); ramp: the profile (RampAlong).
 //   MeshCut: value[0] offset; flag[0] 1 keep inside (the mesh a hull), 0 outside (an obstacle).
-//   Merge: flag[0] the strands of its input a (the base's first; b's after them, handed on as cached).
+//   Merge: flag[0] the strands of its input a (the base's first; b's after them, handed on as cached,
+//          or as b's own run makes them: branch).
 // The shapers reading their neighbours or a reference:
 //   Smooth: value[0] strength (mapped, per strand), [1] scale (0-1); flag[0] its cells (smoothCells);
 //           ramp: the profile.
@@ -250,6 +255,7 @@ std::size_t firstOverridden(const GraphDocument& doc, const LookChain& chain, co
 //   Tangle: value[0] strength (mapped, per strand), [1] start, [2] span, [3] reach.
 //   Flow: value[0] lift (degrees; mapped, per strand), [1] bend, [2] rollRandom (radians); seed.
 // Any stage but Tie restricted by its affect: masked, affect, mixWidths below (one way for all).
+struct LookBranch;
 struct StageParams {
     LookStage stage;
     float value[4] = {};
@@ -273,12 +279,23 @@ struct StageParams {
     bool masked = false;
     float affect = 1.0f;
     bool mixWidths = false;
+    // A Merge whose input b the drag moves: b's own run (null: b's strands as the Merge last made them).
+    std::shared_ptr<const LookBranch> branch;
 };
 struct LookParams {
     std::vector<StageParams> stages;  // as the chain's
     const StageParams* find(StageKind kind) const;
     StageParams* find(StageKind kind);
 };
+// A Merge's input b moved by a drag (a node making b's strands dragged): b's own chain (findLookChainTo
+// the node feeding b, from the first of its stages the drag sets) and its params with the drag's values.
+// Its strands, mapped values and inputs are read with the run's (LookInputs::read: StageInputs::merged).
+struct LookBranch {
+    LookChain chain;
+    LookParams params;
+};
+// Whether a run of `params` makes widths: a Width runs, or one of a Merge's input b's run.
+bool runsWidth(const LookParams& params);
 // The chain's params (the nodes' own, with `overrides` on top; a plugged curve is the ramp the
 // node's last evaluation took). False with *why for anything the kernels do not do.
 bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Overrides& overrides, LookParams* params,
@@ -449,9 +466,10 @@ struct PartInputs {
     std::shared_ptr<const std::vector<float>> sides;
     float reach = 0.0f;  // the longest strand it took (the CPU's last run): how far a turned point goes
 };
-// Collide: the surfaces' distance fields as tables (MeshDistanceField::tables at its offset and
-// search radius, read as Interpolate's clearance walk reads them: the field's answers alone, never
-// the mesh's tree), the scalp's then the collider's, and their boxes (lookBounds). Fixed per mesh.
+// Collide: the surfaces' distance fields as tables (MeshDistanceField::tables, the fields the CPU
+// asks at its offset, made for every offset those fields serve: a dragged offset is the kernel's
+// number; read as Interpolate's clearance walk reads them: the field's answers alone, never the
+// mesh's tree), the scalp's then the collider's, and their boxes (lookBounds). Fixed per field.
 struct CollideInputs {
     std::vector<MeshDistanceField::Tables> tables;
     std::vector<Vec3f> boxes;  // per mesh: lo, hi
@@ -564,6 +582,8 @@ struct StageInputs {
     std::shared_ptr<const FlowInputs> flow;
     std::shared_ptr<const JiggleInputs> jiggle;
     std::shared_ptr<const MeshCutInputs> meshCut;
+    // Merge: its input b's own run (StageParams::branch), made on a sibling engine before the Merge.
+    std::shared_ptr<const LookCentersRun> merged;
     // Gravity, Flyaway, Collide, Wind, SelfCollide, Static, Tie, Bend, Direction, Transform, Jiggle and
     // the shapers reading their neighbours or a reference: the longest strand the node took (the CPU's
     // last run; a RestoreLength's reference's too), how far from its root a point it moves can go
@@ -573,10 +593,12 @@ struct StageInputs {
 // A Clump's centers made by a branch of their own that the run moves (ClumpInputs::centersRun): the
 // branch's chain (findLookChainTo the node feeding the centers, from its first node the run
 // changes: Interpolate, for a stroke's guides), the strands it starts from (cached: nothing the run
-// changes makes them) and its run's params, mapped values and inputs, as a chain's.
+// changes makes them) and its run's params, mapped values and inputs, as a chain's. A Merge's input b
+// moved by a drag runs as one too (LookBranch, StageInputs::merged).
 struct LookCentersRun {
     LookChain chain;
     StrandsPtr base;
+    const ScalpMesh* scalp = nullptr;  // where its strands' roots are (their root normals; null: none)
     LookParams params;
     LookFields fields;
     std::vector<StageInputs> inputs;
@@ -618,7 +640,6 @@ private:
         bool smooth = true;
         const void* scalp = nullptr;
         std::shared_ptr<const InterpolateGuideRows> rows;
-        std::shared_ptr<const InterpolateGuideRows> lastRows;  // the last made (kept when the binding changes), of `guides`
         StrandsPtr strands;  // whose root normals
         std::shared_ptr<const std::vector<Vec3f>> normals;
         MeshPtr clearanceScalp;  // keepClearance: the scalp the field's tables were read for
@@ -653,9 +674,13 @@ private:
         const ScalpMesh* scalp = nullptr;
         std::shared_ptr<const PartInputs> inputs;
     };
+    // Collide: its surfaces' fields and their tables, each made for offsets (plus the softness) up
+    // to its `most` at its field's reach: every offset of its field's cell size and reach.
     struct CollideMemo {
         MeshPtr meshes[2];
-        float offset = 0.0f, softness = 0.0f, searchRadius = 0.0f;
+        DistanceFieldPtr fields[2];
+        float most[2] = {0.0f, 0.0f};
+        float softness = 0.0f;
         std::shared_ptr<const CollideInputs> inputs;
     };
     struct ReachMemo {
@@ -754,6 +779,12 @@ private:
                     const ScalpMesh* scalp, std::shared_ptr<const LookCentersRun>* run, std::string* why,
                     const std::map<NodeId, GuidesPtr>& standIn);
     std::map<NodeId, CentersMemo> centers_;
+    // A Merge's input b moved by a drag (`branch`: b's chain and params): its run, its strands, mapped
+    // values and inputs read as centersRun reads a branch's; false with *why.
+    bool branchRun(const GraphDocument& doc, NodeId merge, const LookBranch& branch, const PartLines* parts, const ScalpMesh* scalp,
+                   const std::set<NodeId>& changed, const std::map<NodeId, GuidesPtr>& standIn,
+                   std::shared_ptr<const LookCentersRun>* run, std::string* why);
+    std::map<NodeId, CentersMemo> branches_;  // by Merge
     std::map<NodeId, CollideMemo> collide_;
     std::map<NodeId, ReachMemo> reach_;
     std::map<NodeId, InterpolateMemo> interpolate_;

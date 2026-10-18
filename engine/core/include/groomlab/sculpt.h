@@ -29,6 +29,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "groomlab/guide_hierarchy.h"
@@ -85,12 +86,15 @@ public:
     static SculptSet fromJson(const std::string& text);
 };
 
-// The texts hosts edit without parsing the guides (a node renamed, duplicated, deleted, its edits
-// cleared). Each returns the new text (the same text when nothing changes); throw as fromJson.
-// Renamed: the edits move to `to` (replacing any there). Copied: `to` gets a copy. Removed or
+// The texts hosts edit without parsing the guides (a node renamed, duplicated, grouped, deleted,
+// its edits cleared). Each returns the new text (the same text when nothing changes); throw as
+// fromJson. Renamed: the edits move to `to` (replacing any there), and a compound's inner nodes'
+// with it ("from/x" to "to/x"). Copied: `to` gets a copy (a compound's inner nodes' too). Moved:
+// each rename of `moves` in order (GraphEdit::movedNodes: a rename, Group, Ungroup). Removed or
 // cleared: `name`'s edits go.
 std::string renameSculptNode(const std::string& json, const std::string& from, const std::string& to);
 std::string copySculptNode(const std::string& json, const std::string& from, const std::string& to);
+std::string moveSculptNodes(const std::string& json, const std::vector<std::pair<std::string, std::string>>& moves);
 std::string clearSculptNode(const std::string& json, const std::string& name);
 // The nodes holding edits in a text.
 std::vector<std::string> sculptedNodes(const std::string& json);

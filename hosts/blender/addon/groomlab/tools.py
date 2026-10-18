@@ -751,6 +751,21 @@ def _on_load(*args):
         bpy.app.timers.register(_wake, first_interval=0.5)
 
 
+@bpy.app.handlers.persistent
+def _on_undo(*args):
+    """Blender's undo and redo put the palette's lists (Blender data: the maps, the groups) back as
+    they were, while the groom in the helper keeps to GroomLab's own undo: the lists read again
+    from the helper, so a map made or removed since still shows as it is."""
+    for scalp in groom.scalps():
+        rt = groom.runtime_if_any(scalp)
+        if not is_hierarchy(scalp) or rt is None or rt.session is None or rt.generation != process.generation()                 or not process.running():
+            continue
+        try:
+            refresh_info(scalp)
+        except HelperError as e:
+            print("GroomLab: the palette of %s was not read again: %s" % (scalp.name, e.message))
+
+
 def _wake():
     """A file just opened: its GroomLab-tools grooms back in a helper (their state from the .blend),
     so their guides draw and the tools work at once."""
@@ -765,6 +780,9 @@ def register():
     groom.build_hooks.append(restore)
     if _on_load not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_on_load)
+    for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
+        if _on_undo not in handlers:
+            handlers.append(_on_undo)
 
 
 def unregister():
@@ -774,6 +792,9 @@ def unregister():
         groom.build_hooks.remove(restore)
     if _on_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_on_load)
+    for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
+        if _on_undo in handlers:
+            handlers.remove(_on_undo)
     if bpy.app.timers.is_registered(_wake):
         bpy.app.timers.unregister(_wake)
     if bpy.app.timers.is_registered(_keep_dirty):

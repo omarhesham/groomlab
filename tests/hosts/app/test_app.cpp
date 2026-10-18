@@ -43,6 +43,8 @@
 #include "groomlab/graph_io.h"
 #include "groomlab/groom_file.h"
 #include "groomlab/parts.h"
+#include "groomlab/sculpt.h"
+#include "groomlab/usd_writer.h"
 #include "look.h"
 #include "lookdev_renderer.h"
 #include "mesh_io.h"
@@ -1584,6 +1586,38 @@ TEST(AppDocument, NodeRenameDuplicateOutputAndTidy) {
     EXPECT_EQ(doc->undo(), "");
 }
 
+TEST(AppDocument, SculptEditsFollowTheirNodeIntoAndOutOfACompound) {
+    // A Sculpt node's edits are kept by node path outside the graph ("compound/sculpt" inside a
+    // compound): Group, a rename of the compound, a copy of it and Ungroup take them along in the
+    // same undo step (Group dropped them).
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    std::string sculpt;
+    ASSERT_EQ(doc->addNode("Sculpt", 0.0f, 0.0f, &sculpt), "");
+    SculptSet set;
+    set.nodes[sculpt].guides[7].samples = {{0.0f, 0.1f, 0.0f, 1.0f}, {1.0f, 0.2f, 0.0f, 1.0f}};
+    ASSERT_EQ(doc->editStoredText("sculpt edits", StrokeField::Sculpts, [&](std::string& text) { text = set.toJson(); }), "");
+    ASSERT_EQ(doc->sculptedGuides(sculpt), 1u);
+    std::string compound;
+    ASSERT_EQ(doc->collapseNodes({sculpt}, &compound), "");
+    EXPECT_EQ(doc->sculptedGuides(compound + "/" + sculpt), 1u);
+    EXPECT_EQ(doc->sculptedGuides(sculpt), 0u);
+    EXPECT_EQ(doc->undo(), "");
+    EXPECT_EQ(doc->sculptedGuides(sculpt), 1u) << "one undo step: the graph and the edits";
+    EXPECT_EQ(doc->redo(), "");
+    EXPECT_EQ(doc->sculptedGuides(compound + "/" + sculpt), 1u);
+    ASSERT_EQ(doc->renameNode(compound, "shaping"), "");
+    EXPECT_EQ(doc->sculptedGuides("shaping/" + sculpt), 1u);
+    std::string copy;
+    ASSERT_EQ(doc->duplicateNode("shaping", &copy), "");
+    EXPECT_EQ(doc->sculptedGuides(copy + "/" + sculpt), 1u) << "a compound's copy takes its inner edits";
+    std::vector<std::string> made;
+    ASSERT_EQ(doc->expandNodes({"shaping"}, &made), "");
+    ASSERT_EQ(made, std::vector<std::string>{sculpt});
+    EXPECT_EQ(doc->sculptedGuides(sculpt), 1u);
+    EXPECT_EQ(doc->sculptedGuides("shaping/" + sculpt), 0u);
+}
+
 TEST(AppDocument, StoredTextsEditAsOneStepAndTransferMovesTheGroom) {
     auto doc = GroomDocument::open(kSampleGroom);
     ASSERT_TRUE(doc);
@@ -3117,6 +3151,10 @@ TEST(AppExports, EveryTargetWritesAReadableFile) {
         EXPECT_NE(text.find("timeSamples"), std::string::npos);
         EXPECT_NE(text.find("primvars:st"), std::string::npos);
         EXPECT_NE(text.find("3:"), std::string::npos) << "the third frame's sample";
+        // The versioned layout (web/content/docs/usd-layout.mdx), in the groom file's units.
+        EXPECT_NE(text.find("int layoutVersion = " + std::to_string(kUsdLayoutVersion)), std::string::npos);
+        EXPECT_NE(text.find("metersPerUnit = 0.01\n"), std::string::npos);
+        EXPECT_NE(text.find("upAxis = \"Y\"\n"), std::string::npos);
     }
     std::remove(usda.c_str());
 

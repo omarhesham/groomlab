@@ -447,8 +447,10 @@ TEST(Budget, SimAttributesAndVolumeStayWithinTheSimulationsBudget) {
     const double base = msPerFrame(plain, nullptr), mapped = msPerFrame(plain, maps), full = msPerFrame(volume, maps);
     std::printf("[ sim cost ] 5k guides: %.1f ms/frame; every param mapped: %.1f (+ %.1f ms reading the maps); "
                 "with volume too: %.1f\n", base, mapped, mapMs, full);
-    // Relative (other tests may run beside it): the maps and volume at most add a share of the cost.
-    EXPECT_LT(full, base * 3.0 + 10.0) << full << " ms per frame against " << base;
+    // Relative (other tests may run beside it): the maps and volume at most add a share of the cost,
+    // or keep the whole within the simulation's budget (a frame in 83 ms at 5k guides): the rod
+    // solve got about 3x faster (four guides a lane) while the hair volume's grid did not.
+    EXPECT_LT(full, std::max(base * 3.0 + 10.0, 83.0)) << full << " ms per frame against " << base;
 }
 
 // ---- Through a groom session ------------------------------------------------------------------

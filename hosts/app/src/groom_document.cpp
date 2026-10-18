@@ -506,7 +506,7 @@ void GroomDocument::setNodePosition(const std::string& node, float x, float y) {
 }
 
 std::string GroomDocument::editGraph(const std::string& label, const std::function<void(json&)>& edit,
-                                     const std::map<std::string, std::string>& renamed,
+                                     const std::vector<std::pair<std::string, std::string>>& moved,
                                      const std::map<std::string, std::string>& copied) {
     commitPreview();
     const json before = graph_;
@@ -527,12 +527,12 @@ std::string GroomDocument::editGraph(const std::string& label, const std::functi
     entry.whole = true;
     entry.graphBefore = before;
     entry.graphAfter = graph_;
-    // The Sculpt nodes' edits follow renames, copies and removals, in the same step.
+    // The Sculpt nodes' edits follow renames, groups, ungroups, copies and removals, in the same step.
     const std::string sculptsBefore = storedText(StrokeField::Sculpts);
     std::string sculpts = sculptsBefore;
     std::string target = session().sculptTarget();
     try {
-        for (const auto& [from, to] : renamed) sculpts = renameSculptNode(sculpts, from, to);
+        sculpts = moveSculptNodes(sculpts, moved);
         for (const auto& [copy, source] : copied) sculpts = copySculptNode(sculpts, source, copy);
         if (graph_.contains("nodes")) {
             std::set<std::string> names;
@@ -540,9 +540,10 @@ std::string GroomDocument::editGraph(const std::string& label, const std::functi
             for (const std::string& node : sculptedNodes(sculpts)) {
                 if (!names.count(node.substr(0, node.find('/')))) sculpts = clearSculptNode(sculpts, node);
             }
-            const auto moved = renamed.find(target);
-            if (moved != renamed.end()) target = moved->second;
-            if (!target.empty() && !names.count(target)) target.clear();
+            for (const auto& [from, to] : moved) {
+                if (target == from) target = to;
+            }
+            if (!target.empty() && !names.count(target)) target.clear();  // gone, or grouped
         }
     } catch (const std::exception&) {
         sculpts = sculptsBefore;  // unreadable: left as it is (the session says why)
@@ -726,7 +727,8 @@ std::string GroomDocument::pasteNodes(const std::string& text, float dx, float d
             g["nodes"].push_back(node);
             renamed[from] = name;
             names.push_back(name);
-            if (node.value("type", std::string()) == op::kSculpt && nodeJson(from)) copiedSculpts[name] = from;
+            const std::string type = node.value("type", std::string());
+            if ((type == op::kSculpt || type == "Compound") && nodeJson(from)) copiedSculpts[name] = from;
         }
         GraphEdit edit(g.dump());
         for (const json& c : data.value("connections", json::array())) {
@@ -763,11 +765,13 @@ std::string GroomDocument::disconnectInput(const std::string& to, const std::str
 std::string GroomDocument::renameNode(const std::string& node, const std::string& newName) {
     if (!nodeJson(node)) return "no node '" + node + "'";
     if (newName == node) return {};
+    std::vector<std::pair<std::string, std::string>> moved;
     return editGraph("rename " + node, [&](json& g) {
         GraphEdit edit(g.dump());
         edit.renameNode(node, newName);
         g = json::parse(edit.toJson());
-    }, {{node, newName}});
+        moved = edit.movedNodes();  // a compound's inner nodes' edits go with it
+    }, moved);
 }
 
 std::string GroomDocument::duplicateNode(const std::string& node, std::string* made) {
@@ -780,9 +784,11 @@ std::string GroomDocument::duplicateNode(const std::string& node, std::string* m
     params.erase("seed");
     float x = 0.0f, y = 0.0f;
     const bool placed = nodePosition(node, &x, &y);
-    // A Sculpt node's copy takes its edits too: its name is made first, so the step copies them.
+    // A Sculpt node's copy takes its edits too (a compound's, its inner Sculpt nodes'): its name is
+    // made first, so the step copies them.
     const std::string type = n->value("type", std::string());
-    std::string chosen = type == op::kSculpt ? GraphEdit(graph_.dump()).uniqueName(type) : std::string();
+    const bool sculpted = type == op::kSculpt || type == "Compound";
+    std::string chosen = sculpted ? GraphEdit(graph_.dump()).uniqueName(type) : std::string();
     std::map<std::string, std::string> copied;
     if (!chosen.empty()) copied[chosen] = node;
     const std::string error = editGraph("duplicate " + node, [&](json& g) {
@@ -836,11 +842,13 @@ std::string GroomDocument::tidyLayout() {
 std::string GroomDocument::collapseNodes(const std::vector<std::string>& nodes, std::string* made) {
     if (nodes.empty()) return "select the nodes to group";
     std::string name;
+    std::vector<std::pair<std::string, std::string>> moved;  // each node into the compound: its sculpt edits follow
     const std::string error = editGraph("group " + std::to_string(nodes.size()) + (nodes.size() == 1 ? " node" : " nodes"), [&](json& g) {
         GraphEdit edit(g.dump());
         name = edit.collapse(nodes);
         g = json::parse(edit.toJson());
-    });
+        moved = edit.movedNodes();
+    }, moved);
     if (error.empty() && made) *made = name;
     return error;
 }
@@ -853,6 +861,7 @@ std::string GroomDocument::expandNodes(const std::vector<std::string>& compounds
     }
     if (groups.empty()) return "select the Compound nodes to ungroup";
     std::vector<std::string> names;
+    std::vector<std::pair<std::string, std::string>> moved;  // each node out of its compound: its sculpt edits follow
     const std::string error = editGraph(groups.size() == 1 ? "ungroup " + groups.front() : "ungroup " + std::to_string(groups.size()) + " compounds",
                                         [&](json& g) {
                                             GraphEdit edit(g.dump());
@@ -860,7 +869,8 @@ std::string GroomDocument::expandNodes(const std::vector<std::string>& compounds
                                                 for (std::string& inner : edit.expand(n)) names.push_back(std::move(inner));
                                             }
                                             g = json::parse(edit.toJson());
-                                        });
+                                            moved = edit.movedNodes();
+                                        }, moved);
     if (error.empty() && made) *made = names;
     return error;
 }

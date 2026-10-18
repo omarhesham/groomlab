@@ -333,22 +333,23 @@ cmds.setAttr(groom + ".previewDensity", 1.0)
 - **Interpolate keeps clearance:** a guide's shape is carried rigidly, so where the skin under a
   strand bulges more than under its guide (ears, cheeks, the neck, the back of the skull) the
   strand would go into the scalp. With `keepClearance` (Keep clearance, on; shown with a scalp
-  connected, take shape) each guide's height above the scalp is measured at each of its samples
-  (along the closest point's normal, through the scalp's signed distance field, the one Collide
-  asks; 0 where the guide is inside, at most 1/32 of the scalp's size, about 1 cm on a head), and
-  each strand's, blended with the shape's weights and at least 1/2048 of the scalp's size, is the
-  least it keeps: from the root out, a point lower than that is lifted along the field's normal
-  and the points after it follow, each segment's length kept. Points already that high are not
-  moved (a strand clear of the skin is the same to the bit); points beside the scalp (past an
-  open edge) or deeper than 1/8 of its size (the far side of an open cap) are left alone. One
-  guide on a head gives strands that never go into the scalp, without a Collide (on a head with
-  an ear, 4265 points inside it carried as they are, none keeping clearance). It costs about
-  30-40 ms at 500k strands x 16 points (Interpolate alone about 35-45 ms) and 2-3 ms a brush dab at
-  preview density. The walk takes the field's answers alone (where the field does not blend, the
-  closest point among the triangles around the closest points it holds there: the mesh's own for
-  99.7% of such points on the app's head), so the GPU preview walks it too, from the field as
-  tables (made and uploaded once per scalp: about 56 MB and half a second for a head-sized test
-  scalp) and the guides' clearances: strokes and Interpolate's drags run on the GPU from
+  connected, take shape) each strand is walked from the root through the scalp's signed distance
+  field (the one Collide asks): a point lower than 1/2048 of the scalp's size above the skin
+  (about 0.17 mm on a head, a hair's width or two) is lifted along the field's normal just onto
+  the skin and the points after it follow, each segment's length kept; past the bulge each point
+  is led back toward its groomed path (the offset across it halved over about 1/32 of the
+  scalp's size, about 1 cm on a head), so hair crossing an ear drapes over it, touching it, and
+  comes back to its groomed path below it instead of standing off the head. Points already clear
+  of the skin are not moved (a strand clear of the skin is the same to the bit); points beside the
+  scalp (past an open edge) or deeper than 1/8 of its size (the far side of an open cap) are left
+  alone. One guide on a head gives strands that never go into the scalp, without a Collide (on a
+  head with an ear, 4265 points inside it carried as they are, 1 keeping clearance). It
+  costs about 10-30 ms at 500k strands x 16 points (Interpolate alone about 35-45 ms) and 2-3 ms a
+  brush dab at preview density. The walk takes the field's answers alone (where the field does not
+  blend, the closest point among the triangles around the closest points it holds there: the
+  mesh's own for 99.7% of such points on the app's head), so the GPU preview walks it too, from the
+  field as tables (made and uploaded once per scalp: about 56 MB and half a second for a head-sized
+  test scalp): strokes and Interpolate's drags run on the GPU from
   Interpolate (the walk about 8-13 ms at 500k strands), its strands the CPU's within the GPU's
   rounding. The field's grid is the world's (half a cell off its whole multiples) and the
   distances go by the scalp's size rounded to an eighth of an octave, so editing one side of a
@@ -1230,8 +1231,10 @@ root; the preset `dragon_scales` is the whole chain, `scales_from_guides` and
   - **USD** (`export_usd`, `scales="mesh" | "instancer" | "both" | "none"`): a `Mesh` with the
     same primvars, and/or a `PointInstancer` (`scaleInstances`) of the plates (written as meshes
     inside it) with each scale's tilted frame as position, orientation and scale and the data as
-    per-instance primvars. Unreal 5's USD Importer turns it into instanced static meshes. An
-    instancer loses the bend onto the skin: the mesh is the exact export.
+    per-instance primvars (`scaleRootColor`, `scaleId`, `scaleUV`, `scaleVariant`). Unreal 5's
+    USD Importer turns it into instanced static meshes. An instancer loses the bend onto the skin:
+    the mesh is the exact export. The whole USD layer is a versioned layout
+    (`web/content/docs/usd-layout.mdx`, held by `tests/engine/core/test_usd_layout.cpp`).
   - **FBX** (`export_scales`, Export > Scales Mesh): a static mesh for Unreal (uv sets map1,
     scaleUV, scaleData; color sets scaleColor, scaleRootColor), from `scale_mesh(groom)`, which
     also leaves the mesh in the scene to skin; `export_unreal_groom` writes it beside the groom.

@@ -221,7 +221,8 @@ class GraphModel(object):
         self.connections = []    # [{"from": src, "to": dst, "input": port[, "output": src's output]}]
         self.output = None
         self.backdrops = []      # [{"title", "x", "y", "w", "h", "color"}]: layout only
-        self.renamed = {}        # old name -> new name since the last save (the groom's viewNode follows)
+        self.renamed = {}        # old name -> new name (a path inside a compound: "compound1/sculpt1") since
+                                 # the last save (the groom's viewNode and Sculpt edits follow)
         self.copied = {}         # pasted node -> the node it copies, since the last save (Sculpt edits follow)
         self.groom_size = None   # the groom's scalp size (presets.scalp_size): new nodes' defaults fit it
         if data:
@@ -498,7 +499,7 @@ class GraphModel(object):
         with _core_errors():
             edit.remove_node(name)
         self._take(edit)
-        self.renamed = {k: v for k, v in self.renamed.items() if v != name}
+        self.renamed = {k: v for k, v in self.renamed.items() if v != name and not v.startswith(name + "/")}
 
     def rename_node(self, old, new):
         self._node(old)
@@ -513,10 +514,19 @@ class GraphModel(object):
                 c["to"] = new
         if self.output == old:
             self.output = new
-        for k, v in list(self.renamed.items()):
-            if v == old:
-                self.renamed[k] = new
-        self.renamed.setdefault(old, new)
+        self._moved([(old, new)])
+
+    def _moved(self, moves):
+        """Fold node moves ((old, new) paths in order: a rename, the core's GraphEdit.moved_nodes for
+        Group and Ungroup) into `renamed`; a compound's move takes the paths inside it along."""
+        for old, new in moves:
+            followed = False
+            for k, v in list(self.renamed.items()):
+                if v == old or v.startswith(old + "/"):
+                    self.renamed[k] = new + v[len(old):]
+                    followed = followed or v == old
+            if not followed:
+                self.renamed.setdefault(old, new)
 
     def node_type(self, name):
         return self._node(name)["type"]
@@ -805,7 +815,7 @@ class GraphModel(object):
         with _core_errors():
             name = edit.collapse(list(names), compound or "")
         self._take(edit)
-        self.renamed = {k: v for k, v in self.renamed.items() if v in self.nodes}
+        self._moved(edit.moved_nodes())  # each node into the compound: its Sculpt edits follow on save
         return name
 
     def expose(self, compound, name, target):
@@ -832,7 +842,7 @@ class GraphModel(object):
         with _core_errors():
             made = edit.expand(compound)
         self._take(edit)
-        self.renamed = {k: v for k, v in self.renamed.items() if v in self.nodes}
+        self._moved(edit.moved_nodes())  # each node out of the compound: its Sculpt edits follow on save
         return list(made)
 
     # -- Checks and layout -------------------------------------------------

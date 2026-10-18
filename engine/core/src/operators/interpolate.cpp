@@ -48,31 +48,36 @@
 //
 // A shape carried rigidly from a guide's root to a strand's does not know the skin under the
 // strand: where that bulges more than the skin under the guide (an ear, a cheek, the neck, the
-// back of the skull), the strand goes into it. With `keepClearance` (and a scalp), each guide's
-// clearance is measured at each of its samples: its height above the scalp (along the closest
-// point's normal, as Collide measures it, through the scalp's signed distance field,
-// distance_field.h, made once per scalp and kept; the mesh where the field cannot tell), 0 where
-// the guide is inside, held at kClearanceCap of the scalp's size (a guide far from the skin asks
-// no more than that); a guide the last evaluation measured, unchanged, keeps its clearances. A
-// strand's clearance is its guides', blended with the shape's weights, at least kClearanceFloor
-// of the scalp's size (strands lying on the skin sit just on it), times the guides' influence.
-// Walking the strand from the root, a point lower than its clearance (at its share of the
-// strand's length) is lifted along the field's normal to it, and the points after it follow it,
-// each kept its segment's length (follow the leader, as Collide does): the root and the lengths
-// stay, the strand comes out of the skin. The walk asks at most kClearanceAsked points of a strand
-// (every step-th and the tip, interpolateClearanceStep: every point of a strand of up to 17), each
-// following the one asked before it at their distance as they came; the points between move by the
-// moves of the two asked around them, blended by index (a clearance is a soft target: fur of 50
-// segments asks 13 points, not 50). A point already as high as its clearance is not moved,
-// nor is a strand none of whose points is below its clearance (to the bit); a point the last one
-// asked shows clear of its clearance (the field's bounds, the height changing at most about twice
-// as fast as the point moves) is not asked. Points deeper than kClearanceDepth of the scalp's size
+// back of the skull), the strand goes into it. With `keepClearance` (and a scalp), the strand is
+// walked from the root through the scalp's signed distance field (distance_field.h, made once per
+// scalp and kept): a point lower than the clearance (kClearanceFloor of the scalp's size, about a
+// hair's width on a head, times the guides' influence; along the field's normal, as Collide
+// measures it) is lifted to it, just onto the skin, and the points after it follow it, each kept
+// its segment's length (follow the leader, as Collide does): the root and the lengths stay, the
+// strand comes out of the skin and lies on it. Past the bulge the strand eases back to its shaped
+// path: each point is led toward where it came plus what is left of the point before's offset
+// from where that one came, the offset eased by kClearanceEase / (kClearanceEase + d) over the d
+// between the two as they came (kClearanceEase of the scalp's size, about 1 cm on a head: an
+// offset is halved over that much hair), its length still kept and still lifted out of the skin
+// where that is under it. So hair crossing an ear drapes over it, touching it, and comes back to
+// its groomed path below it, where carrying the offset rigidly on would leave it standing off the
+// head. The walk asks at most kClearanceAsked points of a strand (every step-th and the tip,
+// interpolateClearanceStep: every point of a strand of up to 17), each led from the one asked
+// before it at their distance as they came; the points between move by the moves of the two asked
+// around them, blended by index (fur of 50 segments asks 13 points, not 50). Where either of two
+// asked points was lifted, the strand touches the skin there, and where they are farther apart
+// than kClearanceSpan of the scalp's size a blend of moves would cut into the skin's curve: the
+// points between them are walked one by one instead (the later of the two, once it was the one
+// lifted, walked again). A point already clear of the skin is not moved, nor is a
+// strand none of whose points is below the clearance (to the bit); a point the last one asked
+// shows clear of the clearance (the field's bounds, the height changing at most about twice as
+// fast as the point moves) is not asked. Points deeper than kClearanceDepth of the scalp's size
 // are on the far side of an open scalp, not in it, as with Collide; points beside it (past an open
 // edge, lower than half their distance from it either way) are clear of it. Strands not rooted on
 // the scalp are left as they are. The walk takes the field's answers alone (Probe::fieldOnly:
 // where the field does not blend, the closest point among the triangles around the closest points
-// it holds there; Probe::relaxed: blended across creases up to about 26 degrees), so the GPU preview, walking the field's tables with the guides' clearances
-// (look.slang ClearanceCS), makes the same strands; over a scalp deformed away from its rest pose
+// it holds there; Probe::relaxed: blended across creases up to about 26 degrees), so the GPU
+// preview, walking the field's tables (look.slang ClearanceCS), makes the same strands; over a scalp deformed away from its rest pose
 // the walk asks the rest pose's field vertex by vertex, the CPU's alone. The field's grid is the
 // world's and the distances go by the scalp's size rounded to an eighth of an octave: an edit of
 // one side of the scalp leaves the strands on the other side as they were, to the bit.
@@ -153,16 +158,29 @@ constexpr std::size_t kMaxCandidates = kMaxNeighbors * 4 + 2;  // candidateCount
 
 // keepClearance, as shares of the scalp's size (its rest pose's bounding box diagonal: about 35 cm
 // for a head, rounded to an eighth of an octave, so an edit of the scalp changes none of these
-// unless it steps): the least clearance a strand keeps (about a hair's width on a head), the most a
-// guide asks (its clearance held there: about 1 cm on a head), how deep under the skin a point is
-// still in it (deeper: the far side of an open scalp), and the field's cells (the power of two
-// nearest that share: the world's grid). The field's fine band (in cells) reaches far enough above
-// the cap that a point it does not blend is settled by its brick's bounds (a cap of 8 cells,
-// bricks of 4: their bounds hold to about 3.5 cells), not answered from closest faces; its cells
-// are coarser than Collide's, fine enough that corners of a cell over a head's curve stay within
-// the field's crease test (2.6 degrees).
+// unless it steps): the clearance a strand keeps (about 0.17 mm on a head, a hair's width or two:
+// a strand drawn at its width lies on the skin, its middle clear of it by more than the depth
+// buffer tells apart at any working distance, and a segment of a few millimetres over a head's
+// curve sags less than that between its ends), how far an offset eases back over (an offset is
+// halved over that much of a strand: about 1 cm on a head), how far apart two asked points on the
+// skin walk the points between them one by one (about 3 mm on a head: a span that long over skin
+// curving as tightly as the ease's length, an ear's rim, sags about the clearance between its
+// ends, (size / 128)^2 / (8 size / 32) = size / 2048, so fur's short spans keep the blend of
+// moves and walk no more points than they ask), how far above the skin the field's
+// fine band reaches (the cap: about 1 cm on a head; the field shared with the viewport's hair
+// grid, hair_grid.cpp, and a strand's height known that far above the skin), how deep under the
+// skin a point is still in it (deeper: the far side of an open scalp), and the field's cells (the
+// power of two nearest that share: the world's grid). The field's fine band (in cells) reaches far
+// enough above the cap that a point it does not blend is settled by its brick's bounds (a cap of 8
+// cells, bricks of 4: their bounds hold to about 3.5 cells), not answered from closest faces; its
+// cells are coarser than Collide's, fine enough that corners of a cell over a head's curve stay
+// within the field's crease test (2.6 degrees).
 constexpr float kClearanceFloor = 1.0f / 2048.0f;
+constexpr float kClearanceEase = 1.0f / 32.0f;
+constexpr float kClearanceSpan = 1.0f / 128.0f;
 constexpr float kClearanceCap = 1.0f / 32.0f;
+// The most pushes a lifted point takes, its length kept between them (look.slang CLEAR_PUSHES).
+constexpr int kClearancePushes = 4;
 constexpr float kClearanceDepth = 1.0f / 8.0f;
 constexpr float kClearanceCell = 1.0f / 256.0f;
 constexpr int kClearanceBandAboveCap = 4;
@@ -170,7 +188,7 @@ constexpr int kClearanceBandAboveCap = 4;
 // What keepClearance asks of the scalp: its surface to push against and the distances above.
 struct Clearance {
     CollisionSurface surface;
-    float floor = 0.0f, cap = 0.0f, depth = 0.0f, searchRadius = 0.0f, beside = 0.0f;
+    float floor = 0.0f, ease = 0.0f, span = 0.0f, cap = 0.0f, depth = 0.0f, searchRadius = 0.0f, beside = 0.0f;
 
     // For `scalp` (null: none, when it has no triangles).
     static Clearance of(const std::shared_ptr<const ScalpMesh>& scalp) {
@@ -187,6 +205,8 @@ struct Clearance {
         const float size = pm::exp2(std::round(pm::log2(diagonal) * 8.0f) / 8.0f);
         const float cell = pm::exp2(std::round(pm::log2(size * kClearanceCell)));
         c.floor = size * kClearanceFloor;
+        c.ease = size * kClearanceEase;
+        c.span = size * kClearanceSpan;
         c.cap = size * kClearanceCap;
         c.depth = size * kClearanceDepth;
         c.searchRadius = std::max(c.cap, c.depth) * 1.001f + 1e-6f;  // (as Collide's)
@@ -205,22 +225,6 @@ struct Clearance {
         p.fieldOnly = true;
         p.relaxed = true;  // a soft target: blended across gentle creases
         return p;
-    }
-
-    // The clearance of a guide's point p: its height above the scalp (along the closest point's
-    // normal, beside the scalp too: past an open edge of it, a guide lying in the skin's plane
-    // asks no more of its strands than one lying on the skin), 0 inside it, held at the cap. The
-    // field's push answers most points (a push to the cap, or a bound at least that high); the
-    // others (beyond its search, deeper than the depth) the mesh, so the clearance does not jump
-    // where the search ends.
-    float at(const Vec3f& p, RestPoseCollision::Cursor& cursor) const {
-        Vec3f q = p;
-        MeshDistanceField::Probe probe;  // (no beside rule: the height as it is)
-        if (surface.pushOut(q, cap, depth, searchRadius, cursor, &probe)) return std::clamp(cap - (q - p).length(), 0.0f, cap);
-        if (probe.heightLow >= cap) return cap;
-        const SurfacePoint sp = surface.mesh->closestPoint(p);
-        if (sp.root.face < 0) return cap;
-        return std::clamp((p - sp.position).dot(sp.normal), 0.0f, cap);
     }
 };
 
@@ -760,7 +764,6 @@ struct Scratch {
     std::vector<float> weights, twists;
     std::vector<Vec3f> guided, blended;
     std::vector<float> blendedLayer, strandArc;
-    std::vector<float> clearance;  // keepClearance: the strand's blended clearance
     void reserve(std::size_t stride) {
         if (rows.size() < 5 * stride) rows.resize(5 * stride);
         if (from.size() < kMaxCandidates) {
@@ -1083,10 +1086,11 @@ public:
                                               "point different ways would shorten it; take shape)"}
                 .adv()
                 .when("take", {"shape"}),
-            ParamSpec{"keepClearance", true, "Keep each strand as high above the scalp as its guides are at the same "
-                                             "share of their length: where the skin under a strand bulges more than "
-                                             "under its guides (an ear, a cheek, the neck), the part of it that would "
-                                             "sink in is lifted out, its length kept (take shape; needs the scalp input)"}
+            ParamSpec{"keepClearance", true, "Keep strands out of the skin: where the skin under a strand bulges more "
+                                             "than under its guides (an ear, a cheek, the neck), the part that would "
+                                             "sink in is lifted just onto the skin, its length kept, and past the bulge "
+                                             "the strand eases back to its groomed path, so hair drapes over an ear "
+                                             "instead of standing off it (take shape; needs the scalp input)"}
                 .when("take", {"shape"}),
             ParamSpec{"respectParts", true, "Never blend guides from the other side of a part"},
             ParamSpec{"followSurface", true, "Measure how far guides reach along the scalp (the scalp input), not in a "
@@ -1272,9 +1276,6 @@ private:
         std::vector<std::string> attrNames, layerNames;
         std::uint64_t scalp = 0;
         std::uint64_t baseKey = 0;
-        // keepClearance: the guides' clearances (as `kept`) and what they were measured on.
-        std::shared_ptr<const std::vector<float>> clearances;
-        std::uint64_t clearanceKey = 0;
         // regionMap: what the regions were read from (the strands' colors, kept while the strands
         // and the map are) and the regions.
         std::shared_ptr<const RegionSource> regionSource;
@@ -1366,25 +1367,8 @@ private:
         std::vector<float> offsets(kept.size() * 3 * stride, 0.0f);
         std::vector<float> guideLengths(kept.size());
         const bool smoothGuides = params().getBool("smoothGuides");
-        // keepClearance: the scalp's field and each guide's clearance at each sample (guide g's at
-        // [g samples, (g + 1) samples)). A guide the last result measured, the same to the bit, on
-        // the same scalp at the same resolution, keeps its clearances (a brush dab reshapes a few).
+        // keepClearance: the scalp's field.
         const Clearance clearance = align && !lengthOnly && params().getBool("keepClearance") ? Clearance::of(scalp) : Clearance{};
-        auto measured = std::make_shared<std::vector<float>>(clearance ? kept.size() * samples : 0);
-        std::vector<float>& clearances = *measured;
-        std::uint64_t clearanceKey = 0;
-        Made before;  // the last result's guides and clearances, when measured alike
-        if (clearance) {
-            clearanceKey = hashCombine(hashCombine(hashCombine(scalp->surfaceHash(), scalp->hasRest() ? scalp->restSurfaceHash() : 0),
-                                                   samples),
-                                       smoothGuides ? 1 : 2);
-            const std::lock_guard<std::mutex> lock(madeMutex_);
-            if (made_.clearances && made_.clearanceKey == clearanceKey) {
-                before.guides = made_.guides;
-                before.kept = made_.kept;
-                before.clearances = made_.clearances;
-            }
-        }
         parallelFor(0, kept.size(), [&](std::size_t k) {
             const Guide& g = *kept[k];
             thread_local std::vector<Vec3f> resampled;
@@ -1397,15 +1381,6 @@ private:
                 rows[j] = o.x;
                 rows[stride + j] = o.y;
                 rows[2 * stride + j] = o.z;
-            }
-            if (clearance) {
-                float* row = clearances.data() + k * samples;
-                if (before.clearances && k < before.kept.size() && before.kept[k]->id == g.id && sameGuide(g, *before.kept[k])) {
-                    std::copy_n(before.clearances->data() + k * samples, samples, row);
-                } else {
-                    RestPoseCollision::Cursor cursor = clearance.surface.cursor(g.root, resampled.front());
-                    for (std::size_t j = 0; j < samples; ++j) row[j] = clearance.at(resampled[j], cursor);
-                }
             }
         }, 8);
         std::vector<char> guideTurns(normals.size());  // a guide whose offsets turn to the strand's normal
@@ -1580,7 +1555,7 @@ private:
             }, 1);
             for (const auto& list : found) dirty.insert(dirty.end(), list.begin(), list.end());
             if (dirty.empty()) {  // nothing reaches a strand: the last result as it is
-                remember(last, strands, guides, kept, binding, attrNames, layerNames, scalpKey, baseKey, measured, clearanceKey,
+                remember(last, strands, guides, kept, binding, attrNames, layerNames, scalpKey, baseKey,
                          regionSource, regions);
                 *result = last;
                 *changed = StrandChanges::listed({});
@@ -1784,21 +1759,15 @@ private:
                 for (std::size_t j = 1; j < n; ++j) pts[j] = in[j] * (1.0f - influence) + scratch.guided[j] * influence;
             }
             if (!clearance || !haveNormal) return;
-            // keepClearance: the guides' clearance blended as the shape is (with the floor, by the
-            // influence); from the root out, a point below its clearance at its share of the
-            // strand's length lifted to it, the points after it following it.
-            std::vector<float>& lift = scratch.clearance;
-            lift.assign(samples, 0.0f);
-            for (std::size_t i = 0; i < found; ++i) {
-                const float* row = clearances.data() + idx[i] * samples;
-                const float wi = w[i];
-                for (std::size_t k = 0; k < samples; ++k) lift[k] += row[k] * wi;
-            }
+            // keepClearance: from the root out, a point below the clearance lifted just onto the
+            // skin, the points after it following it and easing back to their shaped path.
+            const float target = clearance.floor * influence;
+            const float ease = clearance.ease;
             RestPoseCollision::Cursor cursor = clearance.surface.cursor(strandRoot, pts[0]);
-            // The walk asks every `step`-th point and the tip (interpolateClearanceStep): each of
-            // those follows the one asked before it (once one moved) at their distance as it came,
-            // and is pushed up to its clearance; the points between two of them move by their
-            // moves, blended by index. At a step of 1, every point as it always was.
+            // The walk asks every `step`-th point and the tip (interpolateClearanceStep), each led
+            // from the one asked before it; the points between two of them move by their moves,
+            // blended by index, or (where either was lifted and they are more than the span apart)
+            // are walked one by one. At a step of 1, every point.
             const std::size_t step = interpolateClearanceStep(n);
             auto keepLength = [](const Vec3f& prev, const Vec3f& p, float wanted) {  // (as Collide's)
                 const Vec3f d = p - prev;
@@ -1806,64 +1775,92 @@ private:
                 return len > 0.0f ? prev + d * (wanted / len) : p;
             };
             // What the last point asked of the field learnt (its height and distance at least, at
-            // `anchor`): a point it says is clear of its own clearance asks nothing (the height
+            // `anchor`): a point it says is clear of the clearance asks nothing (the height
             // changes at most about twice as fast as a point moves, the distance no faster).
             MeshDistanceField::Probe known = clearance.probe(), again = clearance.probe();
             Vec3f anchor;
-            bool knows = false, moved = false;
-            std::size_t asked = 0;  // the point asked before (0: the root)
-            Vec3f movedBefore;      // its move (zero until one moved)
-            // Once a point moved, each next one asked keeps its distance from the one before as
-            // they came (the first after the moved one: from that one as its first push left it).
-            Vec3f lengthFrom = pts[0];
-            // Point j's clearance: the blend's at its share of the strand's length, the floor at least.
-            auto targetAt = [&](std::size_t j) {
-                const float x = static_cast<float>(j) / static_cast<float>(n - 1) * static_cast<float>(samples - 1);
-                const std::size_t k = std::min(static_cast<std::size_t>(x), samples - 2);
-                const float f = x - static_cast<float>(k);
-                return std::max(lift[k] * (1.0f - f) + lift[k + 1] * f, clearance.floor) * influence;
-            };
-            for (std::size_t j = std::min(step, n - 1);; j = std::min(j + step, n - 1)) {
-                const Vec3f came = pts[j];  // (the points after `asked` are as they came)
+            bool knows = false;
+            bool moved = false;  // whether a point was lifted yet (until then every point is as it came)
+            // The point the walk settled last (`at`: the root first): where it is, where it came
+            // and whether the field lifted it.
+            std::size_t at = 0;
+            Vec3f atPoint = pts[0], atCame = pts[0];
+            bool atLifted = false;
+            // The point it leads now (`m`): the next asked (`j`), or, walking one by one (`each`),
+            // each point after `at` up to `j`; `movedThen`: `moved` as it was at `at`.
+            std::size_t j = std::min(step, n - 1), m = j;
+            bool each = false, movedThen = false;
+            for (;;) {
+                const Vec3f came = pts[m];  // (the points after `at` are as they came)
+                if (!each) movedThen = moved;
+                const float wanted = (came - atCame).length();
+                // Walked one by one from the one after `at` to `j` where the strand touches the skin
+                // and the two are far enough apart that a blend of moves could cut into its curve:
+                // `at` lifted (or, below, `j`, which is then walked again).
+                if (!each && atLifted && m - at > 1 && wanted > clearance.span) {
+                    each = true;
+                    m = at + 1;
+                    continue;
+                }
                 Vec3f p = came;
-                if (moved) p = keepLength(pts[asked], came, (came - lengthFrom).length());
-                const float target = targetAt(j);
+                if (moved) {
+                    // Led toward where it came plus the offset of the point before: its part along
+                    // the way between the two as they came as it is (the lag the kept lengths
+                    // leave), its part across that eased over their distance; its length kept.
+                    const Vec3f way = came - atCame, offset = atPoint - atCame;
+                    const float way2 = way.dot(way);
+                    const Vec3f along = way * (way2 > 0.0f ? offset.dot(way) / way2 : 0.0f), across = offset - along;
+                    p = keepLength(atPoint, came + along + across * (ease / (ease + wanted)), wanted);
+                }
                 bool asks = true;
                 if (knows) {
                     const float d = (p - anchor).length() * 1.0001f + clearance.floor * 1e-3f;
                     asks = !(known.heightLow - 2.0f * d >= target || known.distanceLow - d > clearance.searchRadius);
                 }
-                const bool movedEarlier = moved;
+                bool lifted = false;
                 if (asks) {
-                    const Vec3f was = p;
-                    anchor = was;
+                    anchor = p;
                     knows = true;
                     if (clearance.surface.pushOut(p, target, clearance.depth, clearance.searchRadius, cursor, &known)) {
                         knows = false;  // (moved: what it learnt was of where it was)
-                        float wanted = (came - lengthFrom).length();
-                        if (!moved) {  // the first: its distance as it came, the next from it as pushed
-                            wanted = (was - pts[asked]).length();
-                            lengthFrom = p;
-                            moved = true;
+                        lifted = moved = true;
+                        // Its length kept and pushed out again, up to kClearancePushes pushes in all:
+                        // over a steep bulge each brings its length back closer.
+                        for (int push = 1; push < kClearancePushes; ++push) {
+                            p = keepLength(atPoint, p, wanted);
+                            if (!clearance.surface.pushOut(p, target, clearance.depth, clearance.searchRadius, cursor, &again)) break;
                         }
-                        p = keepLength(pts[asked], p, wanted);
-                        clearance.surface.pushOut(p, target, clearance.depth, clearance.searchRadius, cursor, &again);
                     }
                 }
-                if (movedEarlier) lengthFrom = came;
-                if (moved) {
+                if (!each && lifted && m - at > 1 && wanted > clearance.span) {
+                    each = true;
+                    moved = movedThen;
+                    m = at + 1;
+                    continue;
+                }
+                if (each) {
+                    pts[m] = p;
+                } else if (moved) {
                     // The points between: their moves blended from the one before's to this one's.
-                    const Vec3f move = p - came;
-                    const float span = static_cast<float>(j - asked);
-                    for (std::size_t m = asked + 1; m < j; ++m) {
-                        const float t = static_cast<float>(m - asked) / span;
-                        pts[m] = pts[m] + (movedBefore + (move - movedBefore) * t);
+                    const Vec3f before = atPoint - atCame, move = p - came;
+                    const float span = static_cast<float>(m - at);
+                    for (std::size_t k = at + 1; k < m; ++k) {
+                        const float t = static_cast<float>(k - at) / span;
+                        pts[k] = pts[k] + (before + (move - before) * t);
                     }
-                    pts[j] = p;
-                    movedBefore = move;
+                    pts[m] = p;
                 }
-                if (j == n - 1) break;
-                asked = j;
+                at = m;
+                atPoint = p;
+                atCame = came;
+                atLifted = lifted;
+                if (each && m < j) {
+                    ++m;
+                    continue;
+                }
+                each = false;
+                if (m == n - 1) break;
+                j = m = std::min(m + step, n - 1);
             }
         };
         if (last) {
@@ -1902,7 +1899,7 @@ private:
             }
         }
         const StrandsPtr blended = out;
-        remember(blended, strands, guides, kept, binding, attrNames, layerNames, scalpKey, baseKey, measured, clearanceKey,
+        remember(blended, strands, guides, kept, binding, attrNames, layerNames, scalpKey, baseKey,
                  regionSource, regions);
         *result = blended;
         return true;
@@ -1911,8 +1908,7 @@ private:
     void remember(const StrandsPtr& output, const StrandsPtr& strands, const GuidesPtr& guides,
                   const std::vector<const Guide*>& kept, const std::shared_ptr<const Binding>& binding,
                   const std::vector<std::string>& attrNames, const std::vector<std::string>& layerNames,
-                  std::uint64_t scalp, std::uint64_t baseKey, std::shared_ptr<const std::vector<float>> clearances,
-                  std::uint64_t clearanceKey, std::shared_ptr<const RegionSource> regionSource,
+                  std::uint64_t scalp, std::uint64_t baseKey, std::shared_ptr<const RegionSource> regionSource,
                   std::shared_ptr<const RegionSplit> regions) const {
         const std::lock_guard<std::mutex> lock(madeMutex_);
         made_.regionSource = std::move(regionSource);
@@ -1926,8 +1922,6 @@ private:
         made_.layerNames = layerNames;
         made_.scalp = scalp;
         made_.baseKey = baseKey;
-        made_.clearances = clearanceKey ? std::move(clearances) : nullptr;
-        made_.clearanceKey = clearanceKey;
     }
     void forget() const {
         const std::lock_guard<std::mutex> lock(madeMutex_);
@@ -2553,9 +2547,8 @@ std::size_t interpolateSamples(const StrandSet& strands) {
 }
 
 void interpolateGuideRows(const ParamSet& params, const std::vector<const Guide*>& kept, const MeshPtr& scalpPtr,
-                          std::size_t samples, InterpolateGuideRows* rows, const InterpolateGuideRows* before,
-                          const std::vector<const Guide*>* beforeKept) {
-    // As InterpolateOp::run makes them: the same shapes, roots, normals and clearances.
+                          std::size_t samples, InterpolateGuideRows* rows) {
+    // As InterpolateOp::run makes them: the same shapes, roots and normals.
     const ScalpMesh* scalp = scalpPtr.get();
     const bool align = scalp && scalp->triangleCount() > 0;
     const bool smoothGuides = params.getBool("smoothGuides");
@@ -2564,11 +2557,6 @@ void interpolateGuideRows(const ParamSet& params, const std::vector<const Guide*
     rows->roots.assign(kept.size(), Vec3f{});
     rows->normals.assign(kept.size(), Vec3f{});
     rows->lengths.assign(kept.size(), 0.0f);
-    const Clearance clearance = interpolateKeepsClearance(params, scalp) ? Clearance::of(scalpPtr) : Clearance{};
-    rows->clearances.assign(clearance ? kept.size() * samples : 0, 0.0f);
-    rows->clearanceKey = clearance ? hashCombine(hashCombine(scalp->surfaceHash(), samples), smoothGuides ? 1 : 2) : 0;
-    const bool reuse = clearance && before && beforeKept && before->clearanceKey == rows->clearanceKey &&
-                       before->clearances.size() == beforeKept->size() * samples;
     parallelFor(0, kept.size(), [&](std::size_t k) {
         const Guide& g = *kept[k];
         thread_local std::vector<Vec3f> resampled;
@@ -2577,14 +2565,6 @@ void interpolateGuideRows(const ParamSet& params, const std::vector<const Guide*
         rows->normals[k] = align && scalp->contains(g.root) ? scalp->normal(g.root) : Vec3f{};
         Vec3f* row = rows->offsets.data() + k * samples;
         for (std::size_t j = 0; j < samples; ++j) row[j] = resampled[j] - resampled.front();
-        if (!clearance) return;
-        float* measured = rows->clearances.data() + k * samples;
-        if (reuse && k < beforeKept->size() && (*beforeKept)[k]->id == g.id && sameGuide(g, *(*beforeKept)[k])) {
-            std::copy_n(before->clearances.data() + k * samples, samples, measured);
-            return;
-        }
-        RestPoseCollision::Cursor cursor = clearance.surface.cursor(g.root, resampled.front());
-        for (std::size_t j = 0; j < samples; ++j) measured[j] = clearance.at(resampled[j], cursor);
     }, 8);
 }
 
@@ -2612,7 +2592,8 @@ std::shared_ptr<const InterpolateClearance> interpolateClearance(const ParamSet&
         out->rest = c.surface.rest;
     }
     out->floor = c.floor;
-    out->cap = c.cap;
+    out->ease = c.ease;
+    out->span = c.span;
     out->depth = c.depth;
     out->searchRadius = c.searchRadius;
     out->beside = c.beside;

@@ -1,0 +1,388 @@
+---
+title: USD layout
+description: Specification of GroomLab's USD export, layout version 1 - layer metadata, prim hierarchy, every attribute and primvar with its type, interpolation and units, and how to read one frame or a range.
+---
+
+Every USD export GroomLab makes writes the same layout: Maya's **GroomLab > Export > USD...**,
+`groomLabExportUsd` and `groomlab.export_usd`, the app's USD export, Blender's **Export USD**,
+`groomlab-cli eval hair.groom -o hair.usda` and the core's `groomlab_core.UsdCurvesWriter`. Each
+writes one text layer (`.usda`) of `BasisCurves`, plus meshes and point instancers when the groom
+has scales or instances. This page describes **layout version 1**, so that viewers, pipeline
+tools and other hosts can read GroomLab grooms without guessing.
+
+<Callout title="Stability">
+  Within layout version 1, the prim paths, attribute and primvar names, their types,
+  interpolations, units and meanings below do not change. Any such change raises the layout
+  version, which every layer carries, and is listed in [What's new](/docs/whats-new). Version 1
+  may still gain new primvars, prims and metadata, so ignore what you don't know.
+</Callout>
+
+These details are **not** part of the contract: the text of the layer's `doc`, number
+formatting, whitespace and attribute order, and the name of the root prim (read `defaultPrim`).
+Read the files with a USD library (`pxr`, or any reader that follows the `.usda` grammar) rather
+than by matching text.
+
+## Checking the version
+
+The layer's `customLayerData` and the root prim's `customData` both hold a `groomlab`
+dictionary:
+
+| Key | Type | Value |
+| --- | --- | --- |
+| `layoutVersion` | int | The layout version: `1`. |
+| `version` | string | The GroomLab version that wrote the file, e.g. `"0.15.0"`. Informational. |
+
+The layer's copy is easiest to read from the file itself. The prim's copy survives when the layer
+is referenced into another stage, where `customLayerData` is out of reach.
+
+```python
+from pxr import Sdf, Usd
+
+layer = Sdf.Layer.FindOrOpen("hair.usda")
+assert layer.customLayerData["groomlab"]["layoutVersion"] == 1
+
+stage = Usd.Stage.Open("shot.usda")                # a stage referencing the groom
+groom = stage.GetPrimAtPath("/shot/hair")          # where the groom's root prim landed
+assert groom.GetCustomDataByKey("groomlab:layoutVersion") == 1
+```
+
+Files written before layout version 1 have no `groomlab` dictionary; treat them as unversioned.
+
+## Layer metadata
+
+| Key | Value |
+| --- | --- |
+| `defaultPrim` | The root prim's name. Always written. |
+| `doc` | `"GroomLab <version>"`, then `: ` and the source (the Maya scene and groom node, or the groom file) when known. Informational. |
+| `customLayerData` | The `groomlab` dictionary above. |
+| `startTimeCode`, `endTimeCode` | The first and last frame written. Equal for a single frame. |
+| `framesPerSecond`, `timeCodesPerSecond` | Both the groom's frame rate (exact for NTSC rates, e.g. `23.976023976023978`), so one time code is one frame. |
+| `metersPerUnit` | The size of one unit in meters (below). |
+| `upAxis` | `"Y"` or `"Z"`. |
+
+### Units, up axis and root name per exporter
+
+GroomLab never rescales: points and widths are in the groom's own units. Multiply by
+`metersPerUnit` to get meters.
+
+| Exporter | Root prim | `metersPerUnit` | `upAxis` |
+| --- | --- | --- | --- |
+| Maya | The groom's transform name (`:`, `\|` and `/` become `_`) | `0.01`: Maya's internal centimeter, whatever the UI unit | Maya's up-axis preference |
+| Standalone app | The output file's name without extension | The groom file's unit: `cm` 0.01, `m` 1, `mm` 0.001, `in` 0.0254, `ft` 0.3048 | `"Y"` (the app turns Z-up files on load) |
+| Blender | `groom` | `0.01` (GroomLab's space; Blender's USD importer converts) | `"Y"` |
+| `groomlab-cli` | `groom` | The groom file's unit, as the app | The groom file's `upAxis` |
+| `groomlab_core.UsdCurvesWriter` | The name you pass (made a valid identifier; empty: `groom`) | `UsdOptions.meters_per_unit` (default 0.01) | `UsdOptions.up_axis` (default `"Y"`) |
+
+No prim has a transform (`xformOp`). Points are in the groom's object space: in Maya, the groom
+transform's own matrix is not applied, so parent the imported layer under the same transform if it
+was moved.
+
+## Prims
+
+```text
+/<root>                          Xform, kind "component", customData {groomlab}: the default prim
+    strands                      BasisCurves: always
+    instances                    PointInstancer: Instance node instances, when there are some
+        prototypes               Scope
+            <prototype>          Mesh, or an empty Xform placeholder
+    scales                       Mesh: Scales node scales, as a bent mesh
+    scaleInstances               PointInstancer: Scales node scales, as instances
+        prototypes               Scope
+            <prototype>          Mesh, or an empty Xform placeholder
+```
+
+| Prim | Present when |
+| --- | --- |
+| `strands` | Always (with empty arrays when a frame has no strands). |
+| `instances` | The strands carry Instance node instances that are placed by a matrix (not bent along their strand, and not scales). |
+| `scales` | The groom has a Scales node and the export's scales option is `mesh` (the default) or `both`. |
+| `scaleInstances` | The groom has a Scales node and the scales option is `instancer` or `both` (Maya and `groomlab-cli` only). |
+
+The root prim has no attributes.
+
+## strands: BasisCurves
+
+One curve per strand, root first.
+
+| Attribute | Type | Interpolation | Present | Meaning |
+| --- | --- | --- | --- | --- |
+| `type` | `uniform token` | | Always | `"linear"`. Linear curves take no `basis`. |
+| `wrap` | `uniform token` | | Always | `"nonperiodic"`. |
+| `visibility` | `token` | | When the strands only lay out scales | `"invisible"`: a Scales node hides its strands, as in the viewport and Arnold. |
+| `curveVertexCounts` | `int[]` | | Always | Points per strand. |
+| `points` | `point3f[]` | | Always | Positions in scene units, root to tip, strand after strand. |
+| `extent` | `float3[]` | | Always | Bounds of the points padded by the half widths (so renderers don't cull strand edges). Empty in a frame without strands. |
+| `widths` | `float[]` | `vertex` | Always | The strand's **diameter** at each point, in scene units (USD's `widths` are diameters; halve for a radius). |
+| `primvars:strandId` | `int64[]` | `uniform` | Always | The strand's stable ID: the same strand has the same ID on every frame, at every density and in every export (Alembic's `strandId`, Arnold's `strand_id`). Match strands across frames by it, not by index. |
+| `primvars:st` | `texCoord2f[]` | `uniform` | When the scalp has UVs | The root's UV on the scalp; `(0, 0)` for a strand rooted off it. |
+| `primvars:displayColor` | `color3f[]` | `uniform` | When the hair has a color (HairColor) | The hair's appearance color: linear sRGB (Rec. 709 primaries, no transfer curve), what it looks like, for viewers and display. |
+| `primvars:<attribute>` | `float[]` | `uniform` | Per strand attribute | The groom's per-strand attributes (below). |
+| `primvars:<attribute>` | `float[]` | `vertex` | Per point attribute | The groom's per-point attributes (below). |
+
+### Attribute primvars
+
+Every attribute the strands carry at the Output node becomes a `float[]` primvar: per-strand ones
+`uniform`, per-point ones `vertex`. Which ones exist depends on the graph; the full list is in
+[Strand attributes](/docs/rendering#strand-attributes). Common ones:
+
+| Primvar | Interpolation | Meaning |
+| --- | --- | --- |
+| `melanin`, `melaninRedness` | `uniform` | HairColor's pigment, 0-1. |
+| `colorR`, `colorG`, `colorB` | `uniform` | HairColor's RGB, linear 0-1: the base color a hair shader takes (darker than `displayColor`, which is the appearance). |
+| `colorR_2`, `colorG_2`, `colorB_2` | `vertex` | The same RGB per point, when it varies along the strands (a tip color, bands, a feather pattern). |
+| `specular`, `roughness`, `tilt` | `uniform` | HairColor's highlight, when set away from its defaults. |
+| `clumpId` | `uniform` | The strand's clump (-1: none). |
+| `groupId` | `uniform` | A groom group for engines (Attribute node). |
+| `opacity`, `iridescence`, `wetness` | `vertex` | RenderData's opacity, FeatherColor's iridescence, Wet's wetness, 0-1 (`wetness` may also be `uniform`, from an Attribute node). |
+
+Names are made valid USD identifiers, and unique:
+
+- Characters other than letters, digits and `_` become `_`; a leading digit gets a `_` prefix.
+- `st`, `strandId`, `displayColor`, `displayOpacity`, `widths`, `points` and `normals` are
+  reserved: an attribute with one of these names gets a suffix.
+- A name already taken gets `_2`, `_3`, ... Per-strand attributes are named first (sorted by
+  name), then per-point ones (sorted), so a per-point attribute that shares a per-strand one's
+  name gets `_2`. That is why HairColor's per-point RGB is `colorR_2`. Check a primvar's
+  interpolation rather than relying on the suffix.
+
+## instances: PointInstancer
+
+Instance nodes' instances (leaves, plates, any prototype placed along strands).
+
+| Attribute | Type | Meaning |
+| --- | --- | --- |
+| `prototypes` | `rel` | The prototype prims, `</<root>/instances/prototypes/<prototype>>`, in prototype index order. |
+| `protoIndices` | `int[]` | Each instance's index into `prototypes`. |
+| `positions` | `point3f[]` | Each instance's origin, scene units. |
+| `orientations` | `quath[]` | Each instance's rotation, a unit quaternion (written `(w, x, y, z)`, USD's order). |
+| `scales` | `float3[]` | Each instance's scale per axis (USD scales, then rotates: a strand-fitted instance is longer along its +Y). |
+| `ids` | `int64[]` | Each instance's stable ID. |
+
+All but `prototypes` are time-sampled. This instancer has no primvars.
+
+### Prototypes
+
+`prototypes` (a `Scope`) holds one prim per prototype the groom names, the name made a valid
+identifier and unique (`a-b` and `a_b` become `a_b` and `a_b_2`; `groomlab:scale` becomes
+`groomlab_scale`). Its `doc` metadata holds the original name.
+
+- A **`Mesh`** when GroomLab has the geometry: the built-in plates (`groomlab:...`) and scene
+  meshes the groom file stores (or, in Maya, the scene has). Its attributes are plain values,
+  not time-sampled: `subdivisionScheme` (`uniform token`, `"none"`), `faceVertexCounts` (`int[]`,
+  all 3: triangles), `faceVertexIndices` (`int[]`), `points` (`point3f[]`), `extent`
+  (`float3[]`), and when the mesh has them `normals` (`normal3f[]`, `vertex`) and `primvars:st`
+  (`texCoord2f[]`, `vertex`).
+- An empty **`Xform`** otherwise, whose `doc` says to reference the geometry in there.
+
+Prototypes are modelled 1 unit long along +Y, with their base at the origin.
+
+## scales: Mesh
+
+The Scales node's scales as one mesh, each scale bent onto the skin exactly as the viewport and
+Arnold show it. Triangles; no vertex is shared between two scales.
+
+| Attribute | Type | Interpolation | Meaning |
+| --- | --- | --- | --- |
+| `subdivisionScheme` | `uniform token` | | `"none"` (a plain value). |
+| `faceVertexCounts` | `int[]` | | All 3. |
+| `faceVertexIndices` | `int[]` | | Three per triangle. |
+| `points` | `point3f[]` | | Scene units. |
+| `extent` | `float3[]` | | The points' bounds. |
+| `normals` | `normal3f[]` | `vertex` | |
+| `primvars:st` | `texCoord2f[]` | `vertex` | The prototype's own UVs (zeros without). |
+| `primvars:displayColor` | `color3f[]` | `vertex` | The same as `scaleColor`, for viewers. |
+| `primvars:scaleColor` | `color3f[]` | `vertex` | The strand's color along the scale, base to tip, linear. |
+| `primvars:scaleRootColor` | `color3f[]` | `uniform` | The strand's color at the scale's root, linear (every face of a scale the same). |
+| `primvars:scaleId` | `float[]` | `uniform` | A random value 0-1 per scale, from its stable ID: per-scale variation in a shader. |
+| `primvars:scaleUV` | `float2[]` | `uniform` | The skin's UV at the scale's root. |
+| `primvars:scaleVariant` | `int[]` | `uniform` | Which of its Scales node's prototypes the scale is (0-based). |
+
+All but `subdivisionScheme` are time-sampled.
+
+## scaleInstances: PointInstancer
+
+The same scales as instances of their prototypes, each placed by its scale's frame (tilted and
+raised as in the mesh, but not bent onto the skin): light, and editable in an engine (Unreal's USD
+importer makes instanced static meshes of it). It has the attributes of
+[`instances`](#instances-pointinstancer) and its own prototypes (the Scales node's, every one of
+them), plus a primvar per instance (`vertex` interpolation, USD's convention for per-instance
+primvars on a `PointInstancer`):
+
+| Primvar | Type | Meaning |
+| --- | --- | --- |
+| `primvars:scaleRootColor` | `color3f[]` | The strand's color at the scale's root, linear. |
+| `primvars:scaleId` | `float[]` | Random 0-1 per scale. |
+| `primvars:scaleUV` | `float2[]` | The skin's UV at the root. |
+| `primvars:scaleVariant` | `int[]` | Which of the node's prototypes. |
+
+## Frames and time samples
+
+- Everything that can change is written as `timeSamples`, also for a single frame. There are no
+  default values, so read at a time code: `attr.Get(Usd.TimeCode(frame))`, or at
+  `stage.GetStartTimeCode()` for a one-frame file. `attr.Get()` with no time returns nothing.
+  The plain values are `type`, `wrap`, `visibility`, `subdivisionScheme`, the instancers'
+  `prototypes` and the prototype meshes.
+- Time codes are the exporter's frame numbers (Maya's frames; `step=0.5` writes 1, 1.5, 2...).
+- **One frame:** one sample per attribute at that frame, and `startTimeCode` = `endTimeCode`.
+  Viewers that export a file per frame get a complete layer each time.
+- **A range:** one sample per frame, every attribute at the same time codes.
+- Strand counts and point counts may change between frames (on a deforming scalp without a rest
+  pose). Read `curveVertexCounts` for every frame, and match strands by `primvars:strandId`.
+- The first frame decides which prims and primvars the file has. A primvar missing on a later
+  frame is written as zeros; scales missing on a later frame are written as empty arrays.
+
+```python
+from pxr import Usd, UsdGeom
+
+stage = Usd.Stage.Open("hair.usda")
+root = stage.GetDefaultPrim()
+curves = UsdGeom.BasisCurves(root.GetChild("strands"))
+primvars = UsdGeom.PrimvarsAPI(curves)
+for t in curves.GetPointsAttr().GetTimeSamples():   # every frame written, subframes included
+    points = curves.GetPointsAttr().Get(t)            # scene units
+    counts = curves.GetCurveVertexCountsAttr().Get(t)
+    diameters = curves.GetWidthsAttr().Get(t)
+    ids = primvars.GetPrimvar("strandId").Get(t)
+    color = primvars.GetPrimvar("displayColor")       # may be absent: check IsDefined()
+```
+
+## What changes the contents
+
+- **Density:** exports take a density (0-1) and keep a stable subset of the strands, by ID; the
+  kept strands keep their `strandId`.
+- **Render overrides** (Maya's `-renderOverrides`, `render_overrides=True`): the groom's render
+  density, width scale and length scale applied, as in a render. The layout stays the same.
+- **No render-time LOD:** camera-distance thinning and culling only happen in Arnold at render
+  time; exports never apply them.
+- **Motion:** each sample is the groom as evaluated on that frame, its scalp's motion and scale
+  included. There are no velocities: renderers interpolate between samples (export subframes for
+  fast motion).
+
+## Example
+
+A two-strand groom with a scalp UV, a color and a clump ID, one frame (numbers shortened):
+
+```text
+#usda 1.0
+(
+    defaultPrim = "hair"
+    doc = "GroomLab 0.15.0: scene.ma |hair|hairShape"
+    customLayerData = {
+        dictionary groomlab = {
+            int layoutVersion = 1
+            string version = "0.15.0"
+        }
+    }
+    startTimeCode = 1
+    endTimeCode = 1
+    framesPerSecond = 24
+    timeCodesPerSecond = 24
+    metersPerUnit = 0.01
+    upAxis = "Y"
+)
+
+def Xform "hair" (
+    customData = {
+        dictionary groomlab = {
+            int layoutVersion = 1
+            string version = "0.15.0"
+        }
+    }
+    kind = "component"
+)
+{
+    def BasisCurves "strands"
+    {
+        uniform token type = "linear"
+        uniform token wrap = "nonperiodic"
+        int[] curveVertexCounts.timeSamples = {
+        1: [3, 3],
+        }
+        point3f[] points.timeSamples = {
+        1: [(0, 10, 0), (0, 12, 0.5), (0, 14, 1.5), (1, 10, 0), (1, 12, 0.5), (1, 14, 1.4)],
+        }
+        float3[] extent.timeSamples = {
+        1: [(-0.004, 9.996, -0.004), (1.004, 14.004, 1.504)],
+        }
+        float[] widths (
+            interpolation = "vertex"
+        )
+        float[] widths.timeSamples = {
+        1: [0.008, 0.006, 0.002, 0.008, 0.006, 0.002],
+        }
+        int64[] primvars:strandId (
+            interpolation = "uniform"
+        )
+        int64[] primvars:strandId.timeSamples = {
+        1: [1052, 1053],
+        }
+        texCoord2f[] primvars:st (
+            interpolation = "uniform"
+        )
+        texCoord2f[] primvars:st.timeSamples = {
+        1: [(0.41, 0.73), (0.43, 0.73)],
+        }
+        color3f[] primvars:displayColor (
+            interpolation = "uniform"
+        )
+        color3f[] primvars:displayColor.timeSamples = {
+        1: [(0.28, 0.17, 0.09), (0.3, 0.18, 0.1)],
+        }
+        float[] primvars:clumpId (
+            interpolation = "uniform"
+        )
+        float[] primvars:clumpId.timeSamples = {
+        1: [4, 4],
+        }
+    }
+}
+```
+
+## Compared with the Alembic export
+
+The Alembic export carries the same strands from the same data, under Alembic's names:
+
+| USD | Alembic (`/<root>/<root>Shape`) |
+| --- | --- |
+| `widths` (`vertex`, diameters) | `width` (vertex scope, diameters) |
+| `primvars:strandId` (int64) | `strandId` (uint64, uniform scope) |
+| `primvars:st` | The curves' `uvs` (per curve) |
+| `primvars:displayColor` | `Cd` (uniform scope) |
+| `primvars:<attribute>`, per strand | An arbGeomParam of the same name, uniform scope |
+| `primvars:<attribute>`, per point | Not written (unless a writer asks for point channels) |
+| `scales` and its primvars | `/<root>/scales/scalesShape`, with the same primvar names |
+| `instances`, `scaleInstances` | Not written |
+
+Alembic files carry no units, up axis or version marker.
+
+## For contributors
+
+The writer is `engine/core/src/usd_writer.cpp` (`UsdCurvesWriter`); every exporter above calls
+it. `tests/engine/core/test_usd_layout.cpp` exports small grooms (with and without scales, one
+frame and a range), parses the layers and compares every prim, attribute, type, interpolation and
+metadata entry with this page, both ways, and checks that this page names them all. When you
+change the writer:
+
+- **Adding** a primvar, prim or metadata entry: add it to this page and to the test. The layout
+  version stays.
+- **Renaming, retyping, changing an interpolation or a meaning**, or removing something: raise
+  `kUsdLayoutVersion` in `usd_writer.h`, update this page (its version and the example) and the
+  test, and list the change in [What's new](/docs/whats-new).
+
+## Version history
+
+- **Layout version 1:** the first versioned layout. Compared with earlier, unversioned exports:
+  the `groomlab` version marker is new; `scaleInstances`' per-instance root color is
+  `primvars:scaleRootColor` (it was `primvars:scaleColor`, a name the `scales` mesh uses for the
+  color along the scale); an attribute named `normals` is written as `primvars:normals_2`; and the
+  standalone app's export now writes the scales and the stored prototype meshes, as the other
+  exporters do.
+
+## Next
+
+<Cards>
+  <Card title="Strand attributes" href="/docs/rendering#strand-attributes" description="Every attribute the groom can carry, and which output gets which." />
+  <Card title="Other renderers" href="/docs/other-renderers" description="Importing GroomLab's USD and Alembic in RenderMan, Redshift and V-Ray." />
+  <Card title="Writing a host bridge" href="/docs/host-bridge" description="Evaluate grooms in your own host instead of reading exports." />
+  <Card title="The .groom format" href="/docs/groom-format" description="The groom itself: graph, guides, scalp and maps." />
+</Cards>

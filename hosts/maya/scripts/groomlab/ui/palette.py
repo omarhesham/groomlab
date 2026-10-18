@@ -282,9 +282,13 @@ class ToolPalette(QtWidgets.QWidget):
         make.setToolTip("Select the scalp mesh (and any guide curves), then click: a new groom on it")
         make.clicked.connect(self.create_groom)
         column.addWidget(make)
-        sample = QtWidgets.QPushButton("Add Sample Head (Nika)")
-        sample.setToolTip("No scalp yet? Nika, a head and shoulders to start from, added at the origin and selected")
-        sample.clicked.connect(self.add_sample_head)
+        sample = QtWidgets.QPushButton("Add Sample Mesh")
+        sample.setToolTip("No mesh yet? A sample to start from, added at the origin and selected: Nika (a head and "
+                          "shoulders) or a wolf")
+        samples = QtWidgets.QMenu(sample)
+        samples.addAction("Nika (head)", lambda: self.add_sample("nika"))
+        samples.addAction("Wolf", lambda: self.add_sample("wolf"))
+        sample.setMenu(samples)
         column.addWidget(sample)
         # Or bring one in from XGen, Yeti, Alembic curves or a groom file.
         self.empty_import = self.menu_chip("Import", "import", "Bring a groom in: XGen, Yeti, Alembic curves (on the "
@@ -978,15 +982,15 @@ class ToolPalette(QtWidgets.QWidget):
         self.guides_tab.refresh()
         self.status.setText("New guides go into %s." % group)
 
-    def add_sample_head(self):
+    def add_sample(self, sample):
         import groomlab
         try:
-            head = groomlab.add_sample_head()
+            part = groomlab.add_sample(sample)
         except Exception as e:  # noqa: BLE001 (a button never ends in a bare traceback)
             from groomlab.ui import messages
-            self.status.setText("The sample head wasn't added: %s" % messages.error("Add Sample Head", e))
+            self.status.setText("The sample wasn't added: %s" % messages.error("Add Sample Mesh", e))
             return
-        self.status.setText("Added %s: click Create Groom from Selection." % head)
+        self.status.setText("Added %s (selected): click Create Groom from Selection." % part)
 
     def create_groom(self):
         from maya import cmds

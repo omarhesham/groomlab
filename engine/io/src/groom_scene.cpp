@@ -55,7 +55,10 @@ GroomScene::GroomScene(GroomFile file) : file_(std::move(file)) {
     // Simulate nodes: frames at the file's rate, the frames on the way to a time fed as a view
     // feeds its own, the bakes the file names.
     session_->setFramesPerSecond(file_.framesPerSecond);
-    session_->setSimulationFeed([this](double seconds) { feedTime(*session_, *this, guideCache_.get(), seconds, {}); });
+    session_->setSimulationFeed([this](double seconds) {
+        feedTime(*session_, *this, guideCache_.get(), seconds, {});
+        return true;
+    });
     for (const auto& [node, ref] : file_.simCaches) {
         if (!ref.file.empty()) session_->setBakedSimulation(node, readSimulationCache(ref.file, ref.object, ref.stamp));
     }

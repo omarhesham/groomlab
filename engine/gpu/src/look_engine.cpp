@@ -96,7 +96,14 @@ KernelSet kernelsOf(const LookRun& run) {
             case StageKind::Flow: set |= bit(K::Flow); break;
             case StageKind::Jiggle: set |= bit(K::Jiggle); break;
             case StageKind::MeshCut: set |= bit(K::MeshCut); break;
-            case StageKind::Merge: break;  // (copies)
+            case StageKind::Merge:  // (copies; b's own run's kernels where the drag moves b)
+                if (in && in->merged) {
+                    LookRun branch;
+                    branch.params = in->merged->params;
+                    branch.inputs = in->merged->inputs;
+                    set |= kernelsOf(branch);
+                }
+                break;
             default: set.set(); break;  // (a stage this does not know: every kernel)
         }
         if (stages[k].masked) set |= bit(K::Affect);  // (affect masks)
@@ -159,6 +166,7 @@ constexpr std::size_t kFrameFloats = kClumpCenterSamples * 9;    // its frames
 constexpr std::size_t kNormalFloats = 4;                         // its root normal (xyz, a pad)
 constexpr int kClearanceStamp = -5;  // a run's span kind: Interpolate's walk keeping clearance
 constexpr int kPointStrandsStamp = -6;  // ... each point's strand made (counted in the total alone)
+constexpr std::size_t kSameOffset = static_cast<std::size_t>(-1);  // a copy's source offset: its target's
 
 // ---- Tie -----------------------------------------------------------------------------------------
 
@@ -318,10 +326,11 @@ void LookEngine::walkOnlyChanged(std::size_t k, const StageParams& params, const
                       reinterpret_cast<std::uintptr_t>(data.clearance->tables.get()));
     key = hashCombine(hashCombine(key, reinterpret_cast<std::uintptr_t>(data.clearance->walk.get())),
                       reinterpret_cast<std::uintptr_t>(data.cursors.get()));
-    key = hashFloat(hashFloat(hashFloat(hashFloat(hashFloat(key, data.clearance->floor), data.clearance->cap), data.clearance->depth),
+    key = hashFloat(hashFloat(hashFloat(hashFloat(hashFloat(hashFloat(key, data.clearance->floor), data.clearance->ease), data.clearance->span),
+                                                  data.clearance->depth),
                               data.clearance->searchRadius),
                     data.clearance->beside);
-    key = hashCombine(hashCombine(key, rows.samples), rows.clearanceKey);
+    key = hashCombine(key, rows.samples);
     for (int i = 0; i < 4; ++i) key = hashCombine(hashFloat(key, params.value[i]), static_cast<std::uint32_t>(params.flag[i]));
     key = hashCombine(key, params.ramp.straight ? 1u : 0u);
     for (const auto& [x, y] : params.ramp.keys) key = hashFloat(hashFloat(key, x), y);
@@ -337,9 +346,8 @@ void LookEngine::walkOnlyChanged(std::size_t k, const StageParams& params, const
     if (heldWalk) {
         const InterpolateGuideRows& before = *held.walkRows;
         if (before.samples == rows.samples && before.roots.size() == guides && before.offsets.size() == rows.offsets.size() &&
-            before.clearances.size() == rows.clearances.size() && before.normals.size() == rows.normals.size() &&
-            before.lengths.size() == rows.lengths.size() && rows.offsets.size() == guides * rows.samples &&
-            rows.clearances.size() == guides * rows.samples) {
+            before.normals.size() == rows.normals.size() && before.lengths.size() == rows.lengths.size() &&
+            rows.offsets.size() == guides * rows.samples) {
             // Each guide's 8 words (look.slang guideNormal...), word 5 whether it changed since the
             // walk kept (the same to the bit: its strands' walks are the same).
             std::vector<std::uint32_t> words(guides * 8, 0u);
@@ -347,7 +355,6 @@ void LookEngine::walkOnlyChanged(std::size_t k, const StageParams& params, const
             const std::size_t n = rows.samples;
             for (std::size_t g = 0; g < guides; ++g) {
                 const bool same = std::memcmp(&rows.offsets[g * n], &before.offsets[g * n], n * sizeof(Vec3f)) == 0 &&
-                                  std::memcmp(&rows.clearances[g * n], &before.clearances[g * n], n * sizeof(float)) == 0 &&
                                   std::memcmp(&rows.normals[g], &before.normals[g], sizeof(Vec3f)) == 0 &&
                                   std::memcmp(&rows.roots[g], &before.roots[g], sizeof(Vec3f)) == 0 &&
                                   std::memcmp(&rows.lengths[g], &before.lengths[g], sizeof(float)) == 0;
@@ -606,22 +613,39 @@ void LookEngine::putFields(const LookFields& fields, const std::vector<StagePara
     runUploadMegabytes_ += fieldMegabytes_;
 }
 
-void LookEngine::runCenters(std::size_t k, const LookCentersRun& centers) {
-    if (!centers.base) throw std::runtime_error("GPU preview: a Clump's centers' branch has no strands");
+LookEngine& LookEngine::runSibling(std::size_t k, const LookCentersRun& branch) {
+    if (!branch.base) throw std::runtime_error("GPU preview: a branch run on a sibling has no strands");
     std::unique_ptr<LookEngine>& engine = centers_[k];
     if (!engine) engine = sibling();
     engine->setPointThreads(pointThreads_);  // (as this engine's now: they may have changed since)
     engine->setDispatchLimit(dispatchLimit_);
-    // Its strands (fixed through a stroke: uploaded once), then its run, which the GPU does before
-    // this engine's (the same queue); its points and offsets read by the Clump's centers (CentersCS).
-    engine->setBase(centers.base, nullptr);
+    // Its strands (fixed through a stroke or a drag: uploaded once), then its run, which the GPU does
+    // before this engine's (the same queue).
+    engine->setBase(branch.base, branch.scalp);
     LookRun run;
-    run.params = centers.params;
-    run.fields = centers.fields;
-    run.inputs = centers.inputs;
+    run.params = branch.params;
+    run.fields = branch.fields;
+    run.inputs = branch.inputs;
     engine->run(run, false);
-    borrow(auxBuffer(k, 6), *engine, engine->allPointsBuffer());
-    borrow(auxBuffer(k, 7), *engine, kOffsets);
+    return *engine;
+}
+
+void LookEngine::runCenters(std::size_t k, const LookCentersRun& centers) {
+    // Its points and offsets read by the Clump's centers (CentersCS).
+    LookEngine& engine = runSibling(k, centers);
+    borrow(auxBuffer(k, 6), engine, engine.allPointsBuffer());
+    borrow(auxBuffer(k, 7), engine, kOffsets);
+}
+
+void LookEngine::runMerged(std::size_t k, std::size_t strandsA, const LookCentersRun& merged) {
+    LookEngine& engine = runSibling(k, merged);
+    // b's strands after a's (StageParams flag[0] of them), point for point.
+    if (strandsA > strandCount_ || engine.strandCount_ != strandCount_ - strandsA ||
+        engine.pointCount_ != pointCount_ - base_->strandBegin(strandsA)) {
+        throw std::runtime_error("GPU preview: a Merge's input b's run is for other strands");
+    }
+    borrow(auxBuffer(k, 0), engine, engine.allPointsBuffer());
+    if (engine.widthsRun_) borrow(auxBuffer(k, 1), engine, kWidths);
 }
 
 void LookEngine::putStageInputs(const LookRun& run) {
@@ -638,8 +662,10 @@ void LookEngine::putStageInputs(const LookRun& run) {
             for (int b = 0; b < kAuxPerStage; ++b) release(auxBuffer(k, b));
         }
         const ClumpInputs* clump = stages[k].stage.kind == StageKind::Clump && k < run.inputs.size() ? run.inputs[k].clump.get() : nullptr;
-        if (!clump || !clump->centersRun) centers_[k].reset();
+        const LookCentersRun* merged = stages[k].stage.kind == StageKind::Merge && k < run.inputs.size() ? run.inputs[k].merged.get() : nullptr;
+        if ((!clump || !clump->centersRun) && !merged) centers_[k].reset();
         const StageInputs* in = k < run.inputs.size() ? &run.inputs[k] : nullptr;
+        if (merged) runMerged(k, static_cast<std::size_t>(std::max(stages[k].flag[0], 0)), *merged);
         if (stages[k].stage.kind == StageKind::Interpolate) {
             const InterpolateInputs* data = in ? in->interpolate.get() : nullptr;
             if (!data || !data->binding || !data->rows) throw std::runtime_error("GPU preview: Interpolate's binding and guides missing");
@@ -779,11 +805,10 @@ void LookEngine::putStageInputs(const LookRun& run) {
             held.a = data->binding.get();
             held.keep = data->binding;
             if (held.b != data->rows.get()) {
-                // The guides: 8 words each (normal xyz, turns, length), then their offsets, then
-                // (keeping clearance) their clearances.
+                // The guides: 8 words each (normal xyz, turns, length), then their offsets.
                 const InterpolateGuideRows& rows = *data->rows;
                 const std::size_t count = rows.roots.size();
-                std::vector<float> words(count * 8 + rows.offsets.size() * 3 + rows.clearances.size(), 0.0f);
+                std::vector<float> words(count * 8 + rows.offsets.size() * 3, 0.0f);
                 for (std::size_t gi = 0; gi < count; ++gi) {
                     float* h = words.data() + gi * 8;
                     h[0] = rows.normals[gi].x;
@@ -794,19 +819,13 @@ void LookEngine::putStageInputs(const LookRun& run) {
                     h[4] = rows.lengths[gi];
                 }
                 if (!rows.offsets.empty()) std::memcpy(words.data() + count * 8, rows.offsets.data(), rows.offsets.size() * 12);
-                const std::size_t clearancesAt = count * 8 + rows.offsets.size() * 3;
-                if (!rows.clearances.empty()) std::memcpy(words.data() + clearancesAt, rows.clearances.data(), rows.clearances.size() * 4);
                 write(auxBuffer(k, 1), words.data(), words.size() * 4, false);
                 held.b = data->rows.get();
-                held.aux[2] = rows.clearances.empty() ? 0xFFFFFFFFu : static_cast<std::uint32_t>(clearancesAt);
                 held.aux[3] = static_cast<std::uint32_t>(count * 8);
                 runUploadMegabytes_ += static_cast<double>(words.size() * 4) / 1e6;
             }
             // keepClearance: the scalp's field as tables, once per scalp.
             if (data->clearance) {
-                if (data->rows->clearances.size() != data->rows->offsets.size()) {
-                    throw std::runtime_error("GPU preview: Interpolate keeps clearance without its guides' clearances");
-                }
                 const MeshDistanceField::Tables& tables = data->clearance->tables;
                 if (!tables) throw std::runtime_error("GPU preview: Interpolate's clearance field missing");
                 // Over a deformed scalp the walk's words after the rest field's tables (held.aux[1]:
@@ -1351,6 +1370,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
         std::size_t repeat = 0;  // > 0: that many dispatches, its slot and the next in turn (dispatchAlternating)
         int copyFrom = kBasePoints, copyTo = kOut0;  // `copy`: what into what (copyBytes; 0: the points)
         std::size_t copyBytes = 0, copyOffset = 0;    // (from that byte of both)
+        std::size_t copyFromOffset = kSameOffset;     // (from that byte of copyFrom instead)
     };
     std::vector<Step> steps;
     std::vector<StageConstants> slots;
@@ -1377,8 +1397,9 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
             c.aux[i] = held_[k].aux[i];
         }
         if (p.stage.kind == StageKind::Interpolate) {
-            // keepClearance (flag 3): the least clearance, the depth, beside; flag 2 the search
-            // radius's float bits. (Value 0 is limitDistance.)
+            // keepClearance (flag 3): the clearance, the depth, beside; flag 2 the search radius's
+            // float bits; value2 0 how far an offset eases back over, value2 1 how far apart two
+            // asked points walk the points between one by one. (Value 0 is limitDistance.)
             const InterpolateInputs* in = k < r.inputs.size() ? r.inputs[k].interpolate.get() : nullptr;
             const InterpolateClearance* clearance = in ? in->clearance.get() : nullptr;
             c.flag[3] = clearance ? 1u : 0u;
@@ -1424,6 +1445,11 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
         if (p.stage.kind == StageKind::Interpolate) {
             c.flag2[0] = needInfluence ? 1u : 0u;  // the influence for FieldCS
             c.flag2[2] = held_[k].aux[1];          // keeping clearance over a deformed scalp: its walk words (0: none)
+            const InterpolateInputs* in = k < r.inputs.size() ? r.inputs[k].interpolate.get() : nullptr;
+            if (in && in->clearance) {  // keeping clearance: how far an offset eases back over, the span walked one by one
+                c.value2[0] = in->clearance->ease;
+                c.value2[1] = in->clearance->span;
+            }
         }
         if (p.stage.kind == StageKind::Clump) {
             const ClumpInputs* in = k < r.inputs.size() ? r.inputs[k].clump.get() : nullptr;
@@ -1756,12 +1782,16 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
         if (p.stage.kind == StageKind::Merge) {
             // b's strands follow a's: their points (and their widths, where a Width up a made a's in
             // kWidths) from the base, after a's result, in place (into the output when nothing after
-            // the Merge moves points).
+            // the Merge moves points). Moved by the drag, from b's own run on the sibling (aux 0, its
+            // widths aux 1 where it made them: a's then the base's where no Width up a made them),
+            // into a buffer of the run's (never the base).
             const std::size_t strandsA = std::min<std::size_t>(static_cast<std::size_t>(std::max(p.flag[0], 0)), n);
             const std::size_t pointsA = base_->strandBegin(strandsA);
+            const bool branch = k < r.inputs.size() && r.inputs[k].merged;
+            const bool branchWidths = branch && runsWidth(r.inputs[k].merged->params);
             int out = input;
-            if (k == lastMover && input != finalOut) {
-                out = finalOut;
+            if ((k == lastMover && input != finalOut) || (branch && input == kBasePoints)) {
+                out = k == lastMover ? finalOut : freeBuffer(k, input, -1);
                 if (out != kOut0) allocate(out, bytes);
                 Step a{Kernel::Count, Binding{}, 0, true, -3};
                 a.copyFrom = input;
@@ -1771,17 +1801,28 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
             }
             if (out != kBasePoints && pointCount_ > pointsA) {
                 Step b{Kernel::Count, Binding{}, 0, true, -3};
-                b.copyFrom = kBasePoints;
+                b.copyFrom = branch ? auxBuffer(k, 0) : static_cast<int>(kBasePoints);
                 b.copyTo = out;
                 b.copyOffset = pointsA * 12;
+                if (branch) b.copyFromOffset = 0;
                 b.copyBytes = (pointCount_ - pointsA) * 12;
                 steps.push_back(b);
             }
-            if (widthsMade && pointCount_ > pointsA) {
+            if (branchWidths && !widthsMade) {
+                allocate(kWidths, pointCount_ * 4);
                 Step w{Kernel::Count, Binding{}, 0, true, -3};
                 w.copyFrom = kBaseWidths;
                 w.copyTo = kWidths;
+                w.copyBytes = pointsA * 4;
+                if (pointsA) steps.push_back(w);
+                widthsMade = true;
+            }
+            if (widthsMade && pointCount_ > pointsA) {
+                Step w{Kernel::Count, Binding{}, 0, true, -3};
+                w.copyFrom = branchWidths ? auxBuffer(k, 1) : static_cast<int>(kBaseWidths);
+                w.copyTo = kWidths;
                 w.copyOffset = pointsA * 4;
+                if (branchWidths) w.copyFromOffset = 0;
                 w.copyBytes = (pointCount_ - pointsA) * 4;
                 steps.push_back(w);
             }
@@ -1862,11 +1903,6 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
                 b.aux[0] = auxBuffer(k, 0);
                 b.aux[1] = auxBuffer(k, 1);
                 b.aux[2] = r.inputs[k].interpolate && r.inputs[k].interpolate->clearance ? auxBuffer(k, 2) : -1;
-                if (c.flag[3] != 0) {
-                    // Keeping clearance: each point's clearance, blended with the shape, for the walk.
-                    b.out[1] = auxBuffer(k, 3);
-                    allocate(b.out[1], pointCount_ * 4);
-                }
                 if (needInfluence) b.out[2] = kInfluence;
                 break;
             case StageKind::Length: kernel = Kernel::Length; break;
@@ -2041,13 +2077,12 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
             steps.push_back({kernel, again, groups, false, static_cast<int>(p.stage.kind)});
         }
         if (kernel == Kernel::Interpolate && c.flag[3] != 0) {
-            // Keeping clearance: the walk, on the points Interpolate wrote (in place) with the
-            // clearances it blended, with its constants.
+            // Keeping clearance: the walk, on the points Interpolate wrote (in place), with its
+            // constants.
             // Every strand's walked points kept (aux 4) for the next run, which walks only the
             // strands bound to the guides it changed (flags beside the guides' rows, aux 1).
             Binding walk;
             walk.out[0] = to;
-            walk.out[1] = b.out[1];
             walk.out[2] = auxBuffer(k, 4);
             allocate(walk.out[2], bytes);
             walk.aux[0] = b.aux[0];
@@ -2113,7 +2148,7 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
         }
         current = kOut0;
     }
-    const bool widthsRun = r.params.find(StageKind::Width) != nullptr;
+    const bool widthsRun = runsWidth(r.params);  // (a Width's, or a Merge's input b's run's)
     // The lines' uvs: Width's widths into each shown point's second float (the shown strands'
     // places among the run's points where it holds hidden ones).
     uvsWritten_ = widthsRun && targets.uvs && has(kOutUvs);
@@ -2180,7 +2215,8 @@ void LookEngine::run(const LookRun& r, bool frames, const LookTargets& targets) 
     for (std::size_t i = 0; i < steps.size(); ++i) {
         const Step& s = steps[i];
         if (s.copy) {
-            copy(s.copyFrom, s.copyTo, s.copyBytes ? s.copyBytes : bytes, s.copyOffset);
+            copy(s.copyFrom, s.copyTo, s.copyBytes ? s.copyBytes : bytes, s.copyFromOffset == kSameOffset ? s.copyOffset : s.copyFromOffset,
+                 s.copyOffset);
             continue;
         }
         if (s.repeat) {

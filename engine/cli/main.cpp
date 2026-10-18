@@ -242,8 +242,7 @@ int evalGroom(int argc, char** argv) {
         options.comment = scene.file().source;
         // The file's own up axis and unit (a Z-up groom stays Z-up; meters stay meters).
         options.upAxis = scene.file().upAxis == "Z" ? "Z" : "Y";
-        const std::string& unit = scene.file().units;
-        options.metersPerUnit = unit == "m" ? 1.0 : unit == "mm" ? 0.001 : unit == "in" ? 0.0254 : unit == "ft" ? 0.3048 : 0.01;
+        options.metersPerUnit = groomlab::usdMetersPerUnit(scene.file().units);
         using S = groomlab::UsdCurvesWriter::Options::Scales;
         options.scales = a.scales == "instancer" ? S::Instancer : a.scales == "both" ? S::Both : a.scales == "none" ? S::None : S::Mesh;
         options.prototypes = storedPrototypes(scene);

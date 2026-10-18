@@ -58,8 +58,9 @@ struct ArrayRef {
 // The blocks one purpose answers in (a session's strands, its guides...): every answer is laid out
 // from the start of the current block, 64-byte aligned, so the arrays of the last answer are valid
 // until the next answer of the same purpose. A block that is too small is replaced by a bigger one
-// with a new name; the old one lives on for a client still holding it (Windows: until it closes
-// it; POSIX: the name is unlinked, the client's mapping stays).
+// with a new name (numbered across the process: never one a client may still hold); the old one
+// lives on for a client still holding it (Windows: until it closes it; POSIX: the name is
+// unlinked, the client's mapping stays).
 class Arena {
 public:
     explicit Arena(std::string prefix) : prefix_(std::move(prefix)) {}
@@ -75,7 +76,6 @@ private:
     std::string prefix_;
     std::unique_ptr<SharedBlock> block_;
     std::size_t used_ = 0;
-    unsigned generation_ = 0;
 };
 
 // A unique block name for this process: "groomlab_<pid>_<purpose>_<n>".

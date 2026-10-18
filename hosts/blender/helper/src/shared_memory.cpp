@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "shared_memory.h"
 
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -159,7 +160,12 @@ void Arena::begin(std::size_t bytes) {
     std::size_t size = bytes + bytes / 2;
     size = (size + 0xFFFFF) & ~static_cast<std::size_t>(0xFFFFF);  // whole MiB
     block_.reset();
-    block_ = SharedBlock::create(blockName(prefix_, ++generation_), size);
+    // Numbered across the process, not per arena: an arena made again for the same purpose (a
+    // session's tools reset when a groom file is loaded into it) would otherwise name its first
+    // block as the old one did, which the client still holds open (Windows keeps the name while it
+    // does), and the answer would fail.
+    static std::atomic<unsigned> made{0};
+    block_ = SharedBlock::create(blockName(prefix_, ++made), size);
 }
 
 void* Arena::add(std::size_t count, std::size_t itemSize, const std::string& dtype, std::vector<std::size_t> shape,

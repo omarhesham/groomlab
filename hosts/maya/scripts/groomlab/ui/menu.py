@@ -61,10 +61,10 @@ def create_groom_from_selection():
     cmds.select(groom)
 
 
-def add_sample_head_action():
+def add_sample_action(sample):
     import groomlab
-    head = groomlab.add_sample_head()
-    cmds.inViewMessage(amg="Added <hl>%s</hl>: Create Groom from Selection grows hair on her." % head,
+    part = groomlab.add_sample(sample)
+    cmds.inViewMessage(amg="Added <hl>%s</hl> (selected): Create Groom from Selection grows hair on it." % part,
                        pos="topCenter", fade=True)
 
 
@@ -1615,8 +1615,12 @@ def install():
     _item("Create Groom from Selection", create_groom_from_selection,
           "Selected mesh becomes the scalp; selected curves become guides (an untitled scene goes on: its files move "
           "beside it when it is saved)")
-    _item("Add Sample Head (Nika)", add_sample_head_action,
-          "Nika, a head and shoulders to start from, at the origin and selected: then Create Groom from Selection")
+    cmds.menuItem(label="Add Sample Mesh", subMenu=True, annotation="A mesh to start from, at the origin and selected")
+    _item("Nika (head)", lambda: add_sample_action("nika"),
+          "Nika, a head and shoulders, at the origin and selected: then Create Groom from Selection")
+    _item("Wolf", lambda: add_sample_action("wolf"),
+          "A sitting wolf (body, eyes, nails, mouth), at the origin, its body selected: then Create Groom from Selection")
+    cmds.setParent("..", menu=True)
     _item("Guides from Photos (experimental)...", open_guides_from_reference,
           "Grow guides from reference photos: the photo and the mesh side by side, a few landmarks to line the camera "
           "up, optional flow arrows and mask touch-ups, Generate")

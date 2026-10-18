@@ -1967,10 +1967,10 @@ default) runs on the GPU too: its walk takes the scalp's distance field's answer
 (`MeshDistanceField::Probe::fieldOnly`: where the field does not blend, the closest point among the
 triangles around the closest points it holds there), which the GPU reads from the field's tables
 (`MeshDistanceField::tables`, made in full and uploaded once per scalp: tens of MB for a head,
-about half a second to make the first time), with the guides' clearances beside their shapes
-(`interpolateGuideRows`), in a kernel of its own after the blend (look.slang `ClearanceCS`: the
-blend makes each point's clearance as it makes the point, and the walk, a thread a strand, takes
-its group's points and clearances into groupshared memory a window at a time, side by side; where
+about half a second to make the first time), in a kernel of its own after the blend (look.slang
+`ClearanceCS`: the walk, a thread a strand, lifts points just onto the skin and eases them back to
+their shaped path past a bulge, the clearance by the strand's influence; it takes its group's
+points into groupshared memory a window at a time, side by side; where
 the field does not blend, the closest point is found from the mesh, `answerNear`, which skips the
 triangles at corners it already scanned, on the CPU as on the GPU: about 2.4 times faster on a
 creature's fur walk; and those whose sphere, `MeshDistanceField::TriangleBound` (in the tables:
@@ -2107,8 +2107,10 @@ of per-strand numbers; the strays' noise the Noise kernel's `vectorNoise` with o
 `flyaway` channel it writes is not made on the GPU, so a mapped param after it reading anything but
 fixed values refuses). Collide (`CollideCS`) walks each strand as `CollideOp` does, pass by pass,
 asking its surfaces' fields through their tables as the clearance walk asks the scalp's
-(`MeshDistanceField::tables` at Collide's offset and search radius, the scalp's then a collider's
-in one buffer, `sTableBase` in look.slang naming whose; `CollideInputs`, made once per surface):
+(`MeshDistanceField::tables` of the fields the CPU asks at Collide's offset, made for every offset
+those fields serve, the most a cell size takes plus the softness, at the field's reach: a dragged
+offset is the kernel's number, the tables made again only where it asks another field; the scalp's
+then a collider's in one buffer, `sTableBase` in look.slang naming whose; `CollideInputs`):
 the field's answers alone (`Probe::fieldOnly`), every step rounded as the CPU rounds it, so it is
 the CPU's `method` `field` walk (which takes the field's answers alone too) to the bit (DirectX 11;
 OpenGL within an ulp or two; CollideKeepsStrandsOutAsTheCpuDoes). Where the field cannot blend
@@ -2667,10 +2669,13 @@ participates as a node whose state is its outputs:
   groom's own).
 - *No evaluation at other times while playing.* The live lane reads the scalp at other times
   (the Simulate nodes' frames on the way, Jiggle's history: `scalpPointsAt`, an `MDGContextGuard`
-  inside compute) only while Maya neither plays nor scrubs; playing, those reads give nothing (a
-  frame stepped over takes the scalp as shown, a history frame not seen yet reads as still), so
+  inside compute) only while Maya neither plays nor scrubs; playing, those reads give nothing (the
+  feed returns false: the frames stepped over, those real-time playback drops, are stepped in one
+  go toward the inputs as shown, stamped unchecked so a later view of one keeps them; a history
+  frame not seen yet reads as still), so
   the Evaluation Manager's playback never evaluates the graph at another time from inside compute.
-  Stopped (a jump, Simulate Range, a bake), the frames are read exactly. The groom stays
+  Stopped (a jump, Simulate Range, a bake), the frames are read exactly: the scalp, the other
+  scalps and the colliders at that time (guide curves, guide caches and controls as shown). The groom stays
   `kUntrusted` for that reason: never evaluated alongside other nodes.
 - *The same groom however a frame is reached.* Maya triangulates a polygon by its shape: a bent
   quad splits across the other diagonal than at rest, and strands are placed by triangle. With a
@@ -2704,7 +2709,8 @@ the graph stats (`notes`) and by the CLI.
 it lays the frame the session made (the external `sim:<node>`) on the guides it is fed, by ID, and
 gives them through without one. The session steps each live node to the frame a view asks for
 (before the graph evaluates: `stepSimulations`), from its last frame, the frames on the way fed
-by the host's `SimFeed` (the inputs put back after), and keeps every frame; a node's settings
+by the host's `SimFeed` (the inputs put back after; frames it cannot feed are stepped in one go
+toward the next inputs known, the roots moving evenly, and stamped 0), and keeps every frame; a node's settings
 (`SimSettings::hash`) or its input at a frame it shows changing drops them. The solver
 (`GuideSolver`) is Kugelstadt and Schoemer's position and orientation based rods: per segment a
 quaternion, stretch-shear coupling it to its points, bend-twist (XPBD) toward the groomed
@@ -2714,7 +2720,9 @@ collisions: the scalp through the distance field of its rest pose (or of the sta
 each point taken there by its root's rigid motion, so the field is made once for a moving head;
 colliders through their own, or a deforming one through its rest pose's (`CollisionSurface`).
 Each guide's root frame (the follow-the-scalp frame on its face) is interpolated over the substeps (origin linearly, rotation spherically) and the groomed shape rides
-it. Guides are independent (`parallelFor` over guides, grain 16); repulsion is a Jacobi pass over a
+it. Guides are independent (`parallelFor` over batches of up to four guides of a point count, their
+rods solved side by side in the lanes of a four-wide float, each lane the arithmetic of its guide
+alone, to the bit); repulsion is a Jacobi pass over a
 hash grid built in index order. Parallel and serial give the same bits (a test checks). Bakes are
 Alembic guide caches (`sim_cache.h`); GroomScene attaches a groom file's (`simCaches`), Maya's
 sessions the node's `simCaches` attribute (`prepareSimulation` in maya_inputs.h, which also sets

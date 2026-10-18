@@ -52,43 +52,59 @@ def create_groom(scalp=None, guides=None, name="groomLab1", fit=False):
     return shape
 
 
-# Nika, the sample head and shoulders shipped with GroomLab (CC BY 4.0, Nick Rutlinh): centimetres,
-# y up, facing +z, 34.6 cm from the shoulders to the top of the head.
-SAMPLE_HEAD = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "meshes", "nika_head.obj"))
-SAMPLE_HEAD_HEIGHT_CM = 34.61
+# The sample meshes shipped with GroomLab (CC BY 4.0, Nick Rutlinh), in meshes/: centimetres, y up,
+# facing +z. Each: its file, its largest extent in cm (it comes in that size in any scene unit),
+# the name it gets, and the part the groom grows on (None: the only one).
+SAMPLES = {
+    "nika": ("nika_head.obj", 34.61, "nika_head", None),  # a head and shoulders
+    "wolf": ("wolf.obj", 109.7, "wolf", "wolf_body"),     # a sitting wolf: body, eyes, nails, mouth
+}
+MESHES_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "meshes"))
 
 
-def add_sample_head(name="nika_head"):
-    """Add Nika, the sample head and shoulders, to the scene at the origin (sized for the scene's
-    units, turned for a z-up scene) and select her: Create Groom from Selection grows hair on her.
-    One undo step. Returns the mesh's transform."""
-    if not os.path.isfile(SAMPLE_HEAD):
-        raise RuntimeError("the sample head is missing from the GroomLab install (%s)" % SAMPLE_HEAD)
+def add_sample(sample="nika"):
+    """Add a sample mesh (SAMPLES: "nika", a head and shoulders; "wolf", a sitting wolf) to the
+    scene at the origin, sized for the scene's units and turned for a z-up scene, and select the
+    part to groom: Create Groom from Selection grows hair on it. A sample of several parts comes
+    in under a group of its name. One undo step. Returns the selected part's transform."""
+    if sample not in SAMPLES:
+        raise ValueError("no sample %r (%s)" % (sample, ", ".join(sorted(SAMPLES))))
+    filename, extent_cm, name, scalp = SAMPLES[sample]
+    path = os.path.join(MESHES_DIR, filename)
+    if not os.path.isfile(path):
+        raise RuntimeError("the %s sample is missing from the GroomLab install (%s)" % (sample, path))
     if not cmds.pluginInfo("objExport", query=True, loaded=True):
         cmds.loadPlugin("objExport", quiet=True)
-    with undo_chunk("add sample head"):
+    with undo_chunk("add sample %s" % sample):
         before = set(cmds.ls(type="transform", long=True))
-        cmds.file(SAMPLE_HEAD, i=True, type="OBJ", options="mo=0", ignoreVersion=True, mergeNamespacesOnClash=False,
+        cmds.file(path, i=True, type="OBJ", options="mo=1", ignoreVersion=True, mergeNamespacesOnClash=False,
                   namespace="groomlab_sample")
         made = [t for t in cmds.ls(type="transform", long=True) if t not in before and cmds.listRelatives(t, shapes=True)]
         if not made:
-            raise RuntimeError("the sample head did not import")
-        head = cmds.rename(made[0], name)
+            raise RuntimeError("the %s sample did not import" % sample)
+        made = [cmds.rename(t, t.split("|")[-1].split(":")[-1]) for t in made]
         cmds.namespace(removeNamespace="groomlab_sample", mergeNamespaceWithRoot=True)
-        # Sized in the scene's own units: whatever unit the import read the numbers in, she ends
-        # up 34.6 cm tall.
-        bbox = cmds.exactWorldBoundingBox(head)
-        height = max(bbox[4] - bbox[1], bbox[5] - bbox[2])
+        if len(made) == 1:
+            top = made[0] = cmds.rename(made[0], name)
+        else:
+            top = cmds.group(made, name=name, world=True)
+            made = cmds.listRelatives(top, children=True, type="transform", fullPath=False)
+        # Sized in the scene's own units: whatever unit the import read the numbers in, it ends up
+        # its real size.
+        bbox = cmds.exactWorldBoundingBox(top)
+        extent = max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2])
         unit = cmds.currentUnit(query=True, linear=True)
-        want = float(cmds.convertUnit(SAMPLE_HEAD_HEIGHT_CM, fromUnit="cm", toUnit=unit).rstrip("abcdefghijklmnopqrstuvwxyz"))
-        if height > 0 and abs(height / want - 1.0) > 1e-3:
-            cmds.setAttr(head + ".scale", want / height, want / height, want / height)
+        want = float(cmds.convertUnit(extent_cm, fromUnit="cm", toUnit=unit).rstrip("abcdefghijklmnopqrstuvwxyz"))
+        if extent > 0 and abs(extent / want - 1.0) > 1e-3:
+            cmds.setAttr(top + ".scale", want / extent, want / extent, want / extent)
         if cmds.upAxis(query=True, axis=True) == "z":
-            cmds.setAttr(head + ".rotateX", 90)
-        cmds.makeIdentity(head, apply=True, translate=True, rotate=True, scale=True)
-        cmds.delete(head, constructionHistory=True)
-        cmds.select(head, replace=True)
-    return head
+            cmds.setAttr(top + ".rotateX", 90)
+        cmds.makeIdentity(top, apply=True, translate=True, rotate=True, scale=True)
+        for part in made:
+            cmds.delete(part, constructionHistory=True)
+        target = next((m for m in made if m.split("|")[-1] == scalp), made[0]) if scalp else made[0]
+        cmds.select(target, replace=True)
+    return cmds.ls(target, long=False)[0]
 
 
 def set_follow_scalp(groom, on=True):

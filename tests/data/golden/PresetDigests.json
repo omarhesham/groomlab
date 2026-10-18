@@ -33,13 +33,13 @@
     "strand.melanin": "9c433b002ba246d0",
     "strand.melaninRedness": "88dc3bf9277a8513"
    },
-   "everything": "e85d04d4ca24109e",
+   "everything": "b321016756df0627",
    "ids": "20ed751c376a9e91",
    "points": 207993,
-   "positions": "6c011a6bda31fd5e",
+   "positions": "226e63aeced1867d",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "dc4297aab3ee7ce8"
+   "widths": "593fdba31cc6f944"
   },
   "braids": {
    "channels": {
@@ -51,13 +51,13 @@
     "strand.melanin": "c720e5903ce46757",
     "strand.melaninRedness": "ba12ffef6db79a34"
    },
-   "everything": "0ed585baca3b168e",
+   "everything": "daf9b284f6f1bcf3",
    "ids": "20ed751c376a9e91",
    "points": 309453,
-   "positions": "573660e9cce59c90",
+   "positions": "d1a12c321fdd2702",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "d179b234c04c7b4e"
+   "widths": "439f33c179f1caa6"
   },
   "cards_mid": {
    "channels": {},
@@ -117,13 +117,13 @@
     "strand.melanin": "dad6a7052491619b",
     "strand.melaninRedness": "e10b4fe3f7ad70b5"
    },
-   "everything": "357744f478a6bf88",
+   "everything": "791d0eaa35af934f",
    "ids": "20ed751c376a9e91",
    "points": 207993,
-   "positions": "4a0f15285cf67f0a",
+   "positions": "3ab6390272184df1",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "9e38a4665064cdb8"
+   "widths": "acb51f22569393d6"
   },
   "dragon_scales": {
    "channels": {
@@ -153,13 +153,13 @@
     "strand.melanin": "e4fe0f692e16a780",
     "strand.melaninRedness": "88dc3bf9277a8513"
    },
-   "everything": "09602db638dd5a8a",
+   "everything": "b74fb2c474d7bc58",
    "ids": "20ed751c376a9e91",
    "points": 86241,
-   "positions": "a7c2dba3b1d3b5be",
+   "positions": "93b42bb2992ee951",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "2345c5a7a1aca8c1"
+   "widths": "7b21c3b5d6d3c1bc"
   },
   "expression_driven": {
    "channels": {
@@ -170,13 +170,13 @@
     "strand.melanin": "36c1fc2c3567efc9",
     "strand.melaninRedness": "e10b4fe3f7ad70b5"
    },
-   "everything": "a4d470a21a5bf839",
+   "everything": "75b8b1a4f29bd013",
    "ids": "20ed751c376a9e91",
    "points": 86241,
-   "positions": "d4119892864f3431",
+   "positions": "8414b7e0f5cfb553",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "40ad0e24d805de83"
+   "widths": "e72376e7f869c2f3"
   },
   "feathers_afterfeather": {
    "channels": {
@@ -495,13 +495,13 @@
     "strand.melanin": "c69a1723ec1fb8fe",
     "strand.melaninRedness": "e10b4fe3f7ad70b5"
    },
-   "everything": "ccb9427d524cdc1f",
+   "everything": "9eb6652238002b82",
    "ids": "20ed751c376a9e91",
    "points": 86241,
-   "positions": "bb62d3955881ba57",
+   "positions": "3a27172d07e83150",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "7e6d3fcdb7cb6ee8"
+   "widths": "0330d7a62ba8f282"
   },
   "layered_feathers": {
    "channels": {
@@ -535,13 +535,13 @@
     "strand.melanin": "7a3730f1bc56abcf",
     "strand.melaninRedness": "23466d20c870ab34"
    },
-   "everything": "76a028aa3de6a874",
+   "everything": "a988920cfe178af3",
    "ids": "883d112633c26dfe",
    "points": 89386,
-   "positions": "ad466f3fee78b56f",
+   "positions": "2d6c94b43b9a1685",
    "roots": "b0518e0aa1a57890",
    "strands": 5258,
-   "widths": "673b1e7eaeaa1f47"
+   "widths": "5d17210c6167c358"
   },
   "painted_maps": {
    "error": "node 'groomMasks': Map: no map or image named 'groomMasks' (Groom Tools > Paint > New... makes a map)"
@@ -576,13 +576,13 @@
     "strand.melanin": "796271b0a5ae7123",
     "strand.melaninRedness": "20d13dd49794de15"
    },
-   "everything": "9a1fd3baa1286223",
+   "everything": "7cbcb459b1936237",
    "ids": "20ed751c376a9e91",
    "points": 86241,
-   "positions": "c1838ddd59ced669",
+   "positions": "092f63352c4bb708",
    "roots": "3489599712871aca",
    "strands": 5073,
-   "widths": "bbb10058a2530a40"
+   "widths": "3cc9c19d9106898b"
   },
   "scales_from_flow": {
    "channels": {
@@ -673,13 +673,13 @@
     "strand.melanin": "38b8b434287d8ff9",
     "strand.melaninRedness": "8e7501db85c21a65"
    },
-   "everything": "2394d40630a38a36",
+   "everything": "08c20a19d618af61",
    "ids": "c04cfe6e72c2e911",
    "points": 140928,
-   "positions": "379765a1ea64133f",
+   "positions": "2a0407d447379f37",
    "roots": "5f06ef95f2e7231c",
    "strands": 8808,
-   "widths": "320e4782bf499553"
+   "widths": "34932cb903d95949"
   },
   "vine_leaves": {
    "channels": {},
@@ -721,13 +721,13 @@
     "strand.melanin": "1e420dffea704214",
     "strand.melaninRedness": "205364499e1d6368"
    },
-   "everything": "8a075a13743e1c24",
+   "everything": "a32fdaf24231af9a",
    "ids": "d01a0c3fbaec036d",
    "points": 191148,
-   "positions": "a1f43559ce300a2d",
+   "positions": "d4bb884bd9bc17b9",
    "roots": "516384f8da469902",
    "strands": 11244,
-   "widths": "7d804306706b4f66"
+   "widths": "b78834385b8992cb"
   },
   "white_wool": {
    "channels": {

@@ -18,8 +18,9 @@ precedence = "closest"
 SPDX-FileCopyrightText = "2026 Nick Rutlinh"
 SPDX-License-Identifier = "Apache-2.0"
 
-# Nika, the sample head shipped with the Maya plugin: CC BY 4.0 (credit "Nika head by Nick Rutlinh
-# (GroomLab), CC BY 4.0"), separate from the code's Apache-2.0.
+# The sample meshes shipped with the Maya plugin (Nika, the wolf): CC BY 4.0 (credit "Nika head by
+# Nick Rutlinh (GroomLab), CC BY 4.0", "Wolf by Nick Rutlinh (GroomLab), CC BY 4.0"), separate from
+# the code's Apache-2.0.
 [[annotations]]
 path = ["hosts/maya/meshes/**"]
 precedence = "override"

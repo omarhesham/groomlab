@@ -13,6 +13,51 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.16.0 (October 17, 2026)
+
+- **A wolf to start from.** **GroomLab > Add Sample Mesh** now offers a sitting wolf (body, eyes,
+  nails and mouth, its body selected for Create Groom from Selection) beside Nika. Free to use,
+  commercially too, with credit: "Wolf by Nick Rutlinh (GroomLab), CC BY 4.0". Add Sample Head
+  (Nika) is now Add Sample Mesh > Nika (head), and in Python `add_sample("nika")` or
+  `add_sample("wolf")` (was `add_sample_head()`).
+- **A painted map works wherever you pick it.** Choosing a map painted on the scalp's vertices
+  from a param's map menu (Painted map) no longer fails with "no guide carries the layer".
+- **More drags preview live on the GPU.** Dragging a param of a node feeding a Merge's second input
+  (a whisker or eyebrow branch merged with the fur), and Collide's **Offset**, now update instantly
+  instead of waiting for a full evaluation.
+- **Faster simulation.** The Simulate node steps nearly three times as fast (5,000 guides: about
+  17 ms a frame instead of 48 on a 12-core machine), with exactly the same results.
+- **A bake is what played.** Baking (and Simulate Range) now gives the simulation you watched:
+  frames that real-time playback skipped are spread evenly instead of making the hair whip, and
+  they are kept when you scrub back; Simulate Range meets colliders and other scalps where they
+  are on each frame (it met them where they stood on the current frame); and a bake of guides the
+  graph makes (ToGuides, imported curves) follows the head with Follow Scalp on. For the closest
+  match, set Maya's playback to **Play every frame** while you simulate.
+- **Hair drapes over ears.** Interpolate's **Keep Clearance** now only lifts strands out of the
+  skin and lets them return to their groomed path after an ear or a cheek, so hair drapes over ears
+  instead of standing off them (no more gap below the ear).
+- **A documented, versioned USD layout.** Every USD export (Maya, the app, Blender,
+  `groomlab-cli`) now follows one specification, [USD layout](/docs/usd-layout): every prim,
+  attribute and primvar with its type, interpolation and units, and how to read one frame or a
+  range. Each file carries its version (`groomlab:layoutVersion` 1, in the layer's
+  `customLayerData` and the root prim's `customData`), so viewers and pipeline tools can build on
+  it. The app's USD export now also writes the scales and the groom file's prototype meshes.
+
+- **Sculpt edits survive grouping.** Grouping a Sculpt node into a compound (Ctrl+G in Maya's Graph
+  Editor or the app's node graph) no longer throws its brushed edits away: they move into the
+  compound with the node, in the same undo step, and come back out with Ungroup. Renaming or
+  duplicating a compound takes the edits of the Sculpt nodes inside it along.
+- **Blender: painted maps show again after reloading.** Opening a groom file again onto the same
+  mesh shows its painted map on the scalp at once (the first redraws failed and left the old map
+  shown). After Blender's own undo or redo, the Paint tab's map list (and the guide groups) show
+  the groom's maps as they are, instead of the list from before.
+
+Grooms saved before: strands crossing ears and cheeks sit closer to the skin.
+
+Exports: in USD, a scales instancer's (`scaleInstances`) per-instance root color is now
+`primvars:scaleRootColor` (was `primvars:scaleColor`), the name the scales mesh uses for it; an
+attribute named `normals` is written as `primvars:normals_2`.
+
 ## 0.15.0 (October 17, 2026)
 
 - **Simulated hair no longer flips at the ends.** In fast head motion the ends of simulated guides

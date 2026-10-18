@@ -482,16 +482,26 @@ MTime mayaTime(double seconds) { return MTime(secondsToFrame(seconds, mayaFrames
 
 void prepareSimulation(const MObject& node, GroomSession& session, SimCacheInputs& inputs) {
     session.setFramesPerSecond(mayaFramesPerSecond());
-    // The frames on the way: the scalp's points at that time on the scalp the session has (other
-    // inputs as they are now: guide curves, colliders and controls at other times are not read).
-    // Not while Maya plays or scrubs (playing): frames stepped over then (playback started past a
-    // node's last frame, frames real-time playback dropped) take the scalp as shown.
+    // The frames on the way: the scalp's points at that time on the scalp the session has, and the
+    // groom's other scalps and its colliders then (each read as a frame shows it), so Simulate
+    // Range, and the bake it makes, meets a body moving through the hair where playing met it (it
+    // was met where it stood at the frame shown). Guide curves, guide caches and controls at other
+    // times are not read. Not while Maya plays or scrubs (playing): frames stepped over then
+    // (playback started past a node's last frame, frames real-time playback dropped) are stepped in
+    // one go toward the inputs as shown (GroomSession::setSimulationFeed).
     const MObjectHandle handle(node);
     session.setSimulationFeed([handle, &session](double seconds) {
         const MeshPtr& scalp = session.rawScalp();
-        if (!handle.isValid() || !scalp || playing()) return;
-        std::vector<Vec3f> points = scalpPointsAt(handle.object(), mayaTime(seconds));
-        if (points.size() == scalp->pointCount()) session.updateScalpPoints(std::move(points));
+        if (!handle.isValid() || !scalp || playing()) return false;
+        const MTime time = mayaTime(seconds);
+        std::vector<Vec3f> points = scalpPointsAt(handle.object(), time);
+        if (points.size() != scalp->pointCount()) return false;
+        session.updateScalpPoints(std::move(points));
+        MDGContext context(time);
+        MDGContextGuard guard(context);
+        session.setScalps(extraScalpsFromNode(handle.object()));
+        session.setMeshes(colliderMeshesFromNode(handle.object()));
+        return true;
     });
     const MPlug plug = MFnDependencyNode(node).findPlug("simCaches", true);
     attachSimulationCaches(nodePathResolver(node), plug.isNull() ? std::string() : plug.asString().asChar(), session, inputs);

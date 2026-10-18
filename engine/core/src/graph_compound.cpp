@@ -167,6 +167,7 @@ std::string GraphEdit::collapse(const std::vector<std::string>& names, const std
     for (const json& c : outgoing) work.connect(name, str(c, "to"), str(c, "input"));
     if (inside.count(graphOutput)) work.setOutputNode(name);
     *this = work;
+    for (const json* n : group) recordMove(str(*n, "name"), name + "/" + str(*n, "name"));
     return name;
 }
 
@@ -289,7 +290,10 @@ std::vector<std::string> GraphEdit::expand(const std::string& compound) {
     const std::string out = newName(innerOutput);
     for (const json& c : consumers) work.connect(out, str(c, "to"), str(c, "input"));
     if (wasOutput) work.setOutputNode(out);
+    const auto moved = movedNodes();  // work was made from the text alone: this edit's moves so far
     *this = work;
+    for (const auto& [from, to] : moved) recordMove(from, to);
+    for (const auto& [from, to] : renamed) recordMove(compound + "/" + from, to);
     std::vector<std::string> made;
     for (const auto& [from, to] : renamed) made.push_back(to);
     return made;

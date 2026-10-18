@@ -170,22 +170,57 @@ SculptSet SculptSet::fromJson(const std::string& text) {
     return set;
 }
 
+namespace {
+
+// The node path `path` takes when node `from` becomes `to`: `to` for `from` itself, "to/x" for
+// "from/x" (a node inside it); "" for any other.
+std::string movedPath(const std::string& path, const std::string& from, const std::string& to) {
+    if (path == from) return to;
+    if (path.size() > from.size() && path.compare(0, from.size(), from) == 0 && path[from.size()] == '/') {
+        return to + path.substr(from.size());
+    }
+    return {};
+}
+
+// The edits of `from` and the nodes inside it copied (`keep`) or moved to `to`; false when none.
+bool carry(SculptSet& set, const std::string& from, const std::string& to, bool keep) {
+    if (from.empty() || from == to) return false;
+    std::vector<std::pair<std::string, SculptEdits>> carried;
+    for (auto it = set.nodes.begin(); it != set.nodes.end();) {
+        const std::string path = movedPath(it->first, from, to);
+        if (path.empty()) {
+            ++it;
+            continue;
+        }
+        if (keep) {
+            carried.emplace_back(path, it->second);
+            ++it;
+        } else {
+            carried.emplace_back(path, std::move(it->second));
+            it = set.nodes.erase(it);
+        }
+    }
+    for (auto& [path, edits] : carried) set.nodes[path] = std::move(edits);
+    return !carried.empty();
+}
+
+}  // namespace
+
 std::string renameSculptNode(const std::string& text, const std::string& from, const std::string& to) {
     SculptSet set = SculptSet::fromJson(text);
-    const auto it = set.nodes.find(from);
-    if (it == set.nodes.end() || from == to) return text;
-    SculptEdits edits = std::move(it->second);
-    set.nodes.erase(it);
-    set.nodes[to] = std::move(edits);
-    return set.toJson();
+    return carry(set, from, to, false) ? set.toJson() : text;
 }
 
 std::string copySculptNode(const std::string& text, const std::string& from, const std::string& to) {
     SculptSet set = SculptSet::fromJson(text);
-    const auto it = set.nodes.find(from);
-    if (it == set.nodes.end() || from == to) return text;
-    set.nodes[to] = it->second;
-    return set.toJson();
+    return carry(set, from, to, true) ? set.toJson() : text;
+}
+
+std::string moveSculptNodes(const std::string& text, const std::vector<std::pair<std::string, std::string>>& moves) {
+    SculptSet set = SculptSet::fromJson(text);
+    bool changed = false;
+    for (const auto& [from, to] : moves) changed = carry(set, from, to, false) || changed;
+    return changed ? set.toJson() : text;
 }
 
 std::string clearSculptNode(const std::string& text, const std::string& name) {

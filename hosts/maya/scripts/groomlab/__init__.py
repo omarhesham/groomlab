@@ -72,7 +72,7 @@ from groomlab.shading import (  # noqa: F401
     assign_shading_group, color_nodes, create_hair_shader, hair_color_node, hair_color_params, hair_look,
     iridescent_tint, render_data_node, render_data_params, sync_hair_shader)
 from groomlab.groom import (  # noqa: F401
-    ACTIVE_VAR, GPU_PREVIEW_VAR, PIN_VAR, active_groom, add_sample_head, clear_rest_mesh, create_groom, errors, gpu_preview,
+    ACTIVE_VAR, GPU_PREVIEW_VAR, PIN_VAR, active_groom, add_sample, clear_rest_mesh, create_groom, errors, gpu_preview,
     guides_text,
     groom_scale, inputs_summary, list_grooms, lock_groom, pin_groom, pin_new_groom, pinned_groom, rest_mesh, scalp_mesh,
     set_follow_scalp, set_scale_reference, set_scale_source, scale_source, set_scale_with_scalp, store_scale_references,

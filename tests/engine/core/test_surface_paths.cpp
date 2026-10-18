@@ -471,8 +471,9 @@ TEST(Interpolate, KeepingClearanceKeepsStrandsOutOfTheScalp) {
     // it is, strands crossing the ear or the bulge go into them; keeping clearance, the roots stay
     // and the lengths are kept, and with strands of 17 points (the walk asks every point) no point is
     // inside the scalp. Strands of 24 points ask every other point (interpolateClearanceStep): the
-    // ear is narrower than two of their segments, and a point between two asked ones, moved by
-    // their blend, may dip into it a little (a soft target: a few points in a thousand, shallow).
+    // ear is narrower than two of their segments, and a point between two asked ones neither of
+    // which was lifted, moved by their blend, may dip into it a little (a soft target: a few
+    // points in a thousand, shallow).
     const MeshPtr head = headWithAnEar();
     std::vector<Vec3f> along;
     for (int i = 0; i <= 40; ++i) {  // over the skin, from the crown to 100 degrees down the +x side
@@ -540,6 +541,100 @@ TEST(Interpolate, KeepingClearanceKeepsStrandsOutOfTheScalp) {
     const auto fresh = interpolate(*clearanceOp(true), strands, combed, head);
     ASSERT_TRUE(dab && fresh);
     EXPECT_TRUE(sameBits(*dab, *fresh));
+}
+
+// The distance from p to the polyline `pts` (n points).
+float distanceToPolyline(const Vec3f* pts, std::size_t n, const Vec3f& p) {
+    float best = (p - pts[0]).length();
+    for (std::size_t j = 1; j < n; ++j) {
+        const Vec3f d = pts[j] - pts[j - 1];
+        const float t = std::clamp((p - pts[j - 1]).dot(d) / std::max(d.dot(d), 1e-12f), 0.0f, 1.0f);
+        best = std::min(best, (p - (pts[j - 1] + d * t)).length());
+    }
+    return best;
+}
+
+TEST(Interpolate, KeepingClearanceDrapesOverAnEarAndComesBack) {
+    // Two guides running down the side of the head 0.3 above the skin, in front of the ear and
+    // behind it (25 degrees round from it either way, where the skin has no ear), then hanging:
+    // their shape blended into strands rooted above the ear goes through the ear. Keeping
+    // clearance, those strands lie on the ear (lifted just onto it, not to the guides' 0.3 above
+    // it), and well below it they are back on their shaped path (not carried on, standing off the
+    // head by the ear's height); no point is inside the skin, the roots stay and the lengths are
+    // kept. Strands of 25 points (every other point asked) and of 41 (every third), walked one by
+    // one where they touch the ear. (Over the ear's crest a point between two on the skin may stand
+    // a little off it: the strand's segments are a large part of the ear's width.)
+    const MeshPtr head = headWithAnEar();
+    auto direction = [](float polarDegrees, float azimuthDegrees) {
+        const float t = polarDegrees * kPi / 180.0f, a = azimuthDegrees * kPi / 180.0f;
+        return Vec3f(std::sin(t) * std::cos(a), std::cos(t), std::sin(t) * std::sin(a));
+    };
+    auto guides = std::make_shared<GuideSet>();
+    for (const float azimuth : {15.0f, 65.0f}) {
+        std::vector<Vec3f> along;
+        for (int i = 0; i <= 32; ++i) {  // over the skin from 30 to 110 degrees down
+            const SurfacePoint at = head->closestPoint(direction(30.0f + 2.5f * static_cast<float>(i), azimuth) * 10.0f);
+            along.push_back(i == 0 ? at.position : at.position + at.normal * 0.3f);
+        }
+        for (int i = 1; i <= 16; ++i) along.push_back(along[32] + Vec3f(0.0f, -0.5f * static_cast<float>(i), 0.0f));
+        Guide& g = guides->add(guides->size() + 1, along);
+        g.root = head->closestPoint(along[0]).root;
+    }
+    Rng rng(4);
+    std::vector<Vec3f> roots;
+    for (int i = 0; i < 300; ++i) roots.push_back(direction(rng.uniform(28.0f, 32.0f), rng.uniform(37.0f, 43.0f)) * 10.0f);
+    for (const int count : {25, 41}) {
+        SCOPED_TRACE(count);
+        const StrandsPtr strands = strandsOn(*head, roots, count);
+        const auto off = interpolate(*clearanceOp(false), strands, guides, head);
+        const auto on = interpolate(*clearanceOp(true), strands, guides, head);
+        ASSERT_TRUE(off && on);
+        std::size_t inside = 0, overEar = 0, below = 0, crossing = 0;
+        float deepest = 0.0f, highestOnEar = 0.0f, farthestBelow = 0.0f, lengthsApart = 0.0f;
+        double onEar = 0.0, offBelow = 0.0;  // summed: the heights over the ear, the distances below it
+        for (std::size_t s = 0; s < strands->strandCount(); ++s) {
+            const std::size_t n = on->strandPointCount(s);
+            const Vec3f* a = off->strandPoints(s);
+            const Vec3f* b = on->strandPoints(s);
+            EXPECT_EQ(std::memcmp(&a[0], &b[0], sizeof(Vec3f)), 0) << "the root of strand " << s << " moved";
+            bool crosses = false;
+            for (std::size_t j = 1; j < n; ++j) {
+                const float h = heightAbove(*head, b[j]);
+                if (h < 0.0f) ++inside;
+                deepest = std::min(deepest, h);
+                if (heightAbove(*head, a[j]) < -0.05f) {  // carried, this point is in the ear: walked, on it
+                    crosses = true;
+                    ++overEar;
+                    onEar += h;
+                    highestOnEar = std::max(highestOnEar, h);
+                }
+                if (a[j].y < -8.0f) {  // well below the ear (its lowest edge is at about y = -1.5)
+                    ++below;
+                    const float apart = distanceToPolyline(a, n, b[j]);
+                    offBelow += apart;
+                    farthestBelow = std::max(farthestBelow, apart);
+                }
+            }
+            crossing += crosses ? 1 : 0;
+            const float length = arcLength(a, n);
+            lengthsApart = std::max(lengthsApart, std::abs(arcLength(b, n) - length) / length);
+        }
+        const double meanOnEar = onEar / static_cast<double>(std::max<std::size_t>(overEar, 1));
+        const double meanBelow = offBelow / static_cast<double>(std::max<std::size_t>(below, 1));
+        std::printf("[ clearance ] %zu strands x %d points over an ear: %zu crossing it; %zu points that were in it %.4f above "
+                    "it on average (at most %.4f); %zu points well below it %.4f off their shaped path on average (at "
+                    "most %.4f); %zu inside the scalp (deepest %.4f); lengths at most %.4f%% apart\n",
+                    strands->strandCount(), count, crossing, overEar, meanOnEar, highestOnEar, below, meanBelow, farthestBelow,
+                    inside, deepest, 100.0f * lengthsApart);
+        EXPECT_GT(crossing, strands->strandCount() * 9 / 10) << "the test's premise: carried, the strands cross the ear";
+        EXPECT_GT(below, strands->strandCount() * 4);
+        EXPECT_LT(meanOnEar, 0.05) << "lying on the ear (the guides float 0.3 above the skin)";
+        EXPECT_LT(highestOnEar, 0.25f);
+        EXPECT_LT(meanBelow, 0.05) << "back on the shaped path below the ear (it stands 2.5 out)";
+        EXPECT_LT(farthestBelow, 0.2f);
+        EXPECT_EQ(inside, 0u);
+        EXPECT_LT(lengthsApart, 0.01f);
+    }
 }
 
 // A sphere of radius 10 and the same sphere with its vertices beyond x = 7.5 pushed out by 6%
@@ -621,15 +716,17 @@ TEST(Interpolate, KeepingClearanceIsLocalToTheScalp) {
     std::printf("[ clearance ] one side of the scalp edited: %zu of %zu strands on the other side differ (worst %.2e; not keeping "
                 "clearance %zu); %zu of them lifted\n", differ, far, worst, differOff, lifted);
     EXPECT_GT(far, 1000u);
-    EXPECT_GT(lifted, far / 4) << "the test's premise: keeping clearance lifts strands there";
+    // (A fifth of them or so: only points that would sink under the skin are lifted, not every
+    // point lower than its guides are, 0.05 above the skin, as keeping clearance first did.)
+    EXPECT_GT(lifted, far / 8) << "the test's premise: keeping clearance lifts strands there";
     EXPECT_EQ(differOff, 0u);
     EXPECT_EQ(differ, 0u);
 }
 
-TEST(Interpolate, KeepingClearanceLeavesAStrandAboveItsGuidesClearanceAlone) {
+TEST(Interpolate, KeepingClearanceLeavesAStrandClearOfTheSkinAlone) {
     // A dome on a plane: strands on its top, one guide on the flat rising at 45 degrees. On the
-    // dome the guide's shape stands higher over the skin than the guide does over the flat, so no
-    // point is below its clearance: the strands are the same to the bit with the option and without.
+    // dome the guide's shape stands clear of the skin, so no point is below the clearance: the
+    // strands are the same to the bit with the option and without.
     const auto plane = test::makePlane(90, 6.0f);
     std::vector<Vec3f> points = plane->points();
     for (Vec3f& p : points) {

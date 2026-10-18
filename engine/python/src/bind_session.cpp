@@ -375,13 +375,14 @@ void bindSession(py::module_& m) {
                 auto fn = std::make_shared<py::object>(std::move(feed));
                 s.setSimulationFeed([fn](double seconds) {
                     py::gil_scoped_acquire gil;
-                    (*fn)(seconds);
+                    const py::object fed = (*fn)(seconds);
+                    return fed.is_none() || fed.cast<bool>();  // False: it cannot give that time now
                 });
             },
             py::arg("feed"),
             "feed(seconds) sets the moving inputs (scalp points, guide poses, colliders) at another time through the "
-            "set_* methods, as before a view: Simulate nodes step over frames with it. None: frames on the way are "
-            "stepped toward the inputs as they are.")
+            "set_* methods, as before a view: Simulate nodes step over frames with it. It returns False when it cannot give "
+            "that time now (having set nothing). None: frames on the way are stepped toward the inputs as they are.")
         .def("simulate_nodes", &GroomSession::simulateNodes, "The Simulate nodes making the output, upstream first.")
         .def(
             "simulate_to",

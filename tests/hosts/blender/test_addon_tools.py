@@ -705,6 +705,22 @@ class ToolsTest(unittest.TestCase):
         bpy.ops.groomlab.tool_undo(redo=True)
         t.group = "primary"
         self.assert_hair_is_the_helpers(head)
+        # Blender's own undo puts the palette's lists (Blender data) back as they were, while the
+        # groom in the helper keeps to GroomLab's undo: the lists are read again from the helper, so
+        # a map made since still shows (it did not: the list lost it, the helper still had it).
+        bpy.ops.ed.undo_push(message="before the map")
+        self.assertEqual(bpy.ops.groomlab.map_new(name="extra", kind="vertices", value=0.5), {"FINISHED"})
+        bpy.ops.ed.undo_push(message="the map")
+        helper_maps = sorted(mm["name"] for mm in hcall(head, "maps_list")["maps"] if not mm.get("freezeMask"))
+        self.assertIn("extra", helper_maps)
+        bpy.ops.ed.undo()
+        head = ToolsTest.head = bpy.data.objects["Head"]  # Blender's undo made its data again
+        t = bpy.context.scene.groomlab_tools
+        self.assertEqual(sorted(mm.name for mm in t.maps), helper_maps)
+        t.paint_map = "extra"
+        self.assertEqual(bpy.ops.groomlab.map_remove(), {"FINISHED"})
+        self.assertNotIn("extra", [mm.name for mm in t.maps])
+        t.group = "primary"
 
     def test_6_state_in_the_blend_and_a_new_helper(self):
         head = self.head

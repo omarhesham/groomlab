@@ -140,7 +140,7 @@ std::vector<std::string> usdIdentifiers(const std::vector<std::string>& names, c
 }
 
 std::vector<std::string> usdChannelNames(const std::vector<std::string>& channels) {
-    return usdIdentifiers(channels, {"st", "strandId", "displayColor", "displayOpacity", "widths", "points"});
+    return usdIdentifiers(channels, {"st", "strandId", "displayColor", "displayOpacity", "widths", "points", "normals"});
 }
 
 StrandSet exportCopy(const StrandSet& strands, float scale, std::size_t pointsPerStrand) {

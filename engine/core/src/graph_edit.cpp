@@ -252,6 +252,7 @@ json specOfNode(const json& node) {
 
 struct GraphEdit::Impl {
     json graph;
+    std::vector<std::pair<std::string, std::string>> moved;  // movedNodes
 
     json& nodes() {
         if (!graph.contains("nodes") || !graph["nodes"].is_array()) graph["nodes"] = json::array();
@@ -525,6 +526,13 @@ void GraphEdit::renameNode(const std::string& name, const std::string& newName) 
         if (c.value("to", std::string()) == name) c["to"] = newName;
     }
     if (impl_->graph.value("output", std::string()) == name) impl_->graph["output"] = newName;
+    recordMove(name, newName);
+}
+
+const std::vector<std::pair<std::string, std::string>>& GraphEdit::movedNodes() const { return impl_->moved; }
+
+void GraphEdit::recordMove(const std::string& from, const std::string& to) {
+    if (from != to) impl_->moved.emplace_back(from, to);
 }
 
 std::string GraphEdit::outputNode() const { return impl_->graph.value("output", std::string()); }

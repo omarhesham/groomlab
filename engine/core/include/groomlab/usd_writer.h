@@ -6,6 +6,12 @@
 // any USD reader load it (convert to .usdc with usdcat when size matters: the
 // text form is large, about 60 bytes per point per frame).
 //
+// The layout is a public contract, versioned: web/content/docs/usd-layout.mdx describes every
+// prim, attribute and primvar, and tests/engine/core/test_usd_layout.cpp holds the writer to it.
+// Renaming or retyping anything below, or changing a meaning, raises kUsdLayoutVersion (and the
+// page); adding a primvar does not. The layer's customLayerData and the root prim's customData
+// carry {groomlab: {layoutVersion, version}}.
+//
 //   /<name>            Xform, the default prim
 //   /<name>/strands    BasisCurves, linear, nonperiodic
 //     points, curveVertexCounts, widths (vertex), extent
@@ -28,14 +34,14 @@
 //   /<name>/scaleInstances  PointInstancer of the scales' prototypes, each placed by its scale's
 //                      frame (tilted and raised as the mesh's, not bent onto the skin): light and
 //                      editable in an engine (Unreal imports it as instanced static meshes), with
-//                      per instance primvars:scaleColor (the root's), scaleId, scaleUV, scaleVariant
+//                      per instance primvars:scaleRootColor, scaleId, scaleUV, scaleVariant
 //   The strands only laying scales out (InstanceSet::hidesStrands) are written invisible.
 //
 // What is exported is described by export_view.h, shared with the Alembic,
 // Unreal and Arnold writers. Channel names become USD identifiers; two that
-// collide (a-b and a_b), or one that is reserved (st, strandId, displayColor),
-// get a numbered suffix (a_b_2). The layer is written to "<path>.tmp" and
-// moved over `path` on close.
+// collide (a-b and a_b, or a point channel beside a strand channel of its name: colorR and
+// colorR_2), or one that is reserved (usdChannelNames), get a numbered suffix (a_b_2). The layer
+// is written to "<path>.tmp" and moved over `path` on close.
 
 #include <cstddef>
 #include <memory>
@@ -52,6 +58,13 @@ class UsdError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
+
+// The layout's version (web/content/docs/usd-layout.mdx), written as groomlab.layoutVersion.
+constexpr int kUsdLayoutVersion = 1;
+
+// USD's metersPerUnit for a groom file's unit (GroomFile::units): "m", "mm", "in", "ft", else
+// centimeters (0.01).
+double usdMetersPerUnit(const std::string& unit);
 
 class UsdCurvesWriter {
 public:

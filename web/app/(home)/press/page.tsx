@@ -74,8 +74,7 @@ const colors = [
   { name: 'Red', hex: '#FF4D4F', use: 'First strand' },
   { name: 'Yellow', hex: '#FFC53D', use: 'Second strand' },
   { name: 'Blue', hex: '#2F7BF6', use: 'Third strand, links' },
-  { name: 'Ink', hex: '#1D1D1F', use: 'The name on light backgrounds' },
-  { name: 'Night', hex: '#1C1D21', use: 'Dark backgrounds' },
+  { name: 'Ink', hex: '#1D1D1F', use: 'The name on light backgrounds, and dark backgrounds' },
   { name: 'Paper', hex: '#FFFFFF', use: 'Light backgrounds' },
 ];
 
@@ -91,7 +90,7 @@ const zipSize = () => {
 
 const preview: Record<Bg, string> = {
   light: 'bg-white ring-1 ring-inset ring-black/[0.06]',
-  dark: 'bg-gl-night',
+  dark: 'bg-[#1D1D1F]',
 };
 
 function Section({ id, title, intro, children }: { id: string; title: string; intro?: ReactNode; children: ReactNode }) {
@@ -235,7 +234,7 @@ export default function PressPage() {
           </Section>
         ))}
 
-        <Section id="colors" title="Colors" intro={<p>The strands&apos; primaries and the site&apos;s ink and night.</p>}>
+        <Section id="colors" title="Colors" intro={<p>The strands&apos; primaries and the site&apos;s ink.</p>}>
           <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             {colors.map((c) => (
               <li key={c.hex} className="overflow-hidden rounded-[20px] bg-gl-mist">
