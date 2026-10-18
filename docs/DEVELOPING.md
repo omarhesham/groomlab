@@ -2512,7 +2512,7 @@ Expression of `longest`), a kept binding or center choice, the layout. Nodes tha
 first input on as it came (Output, a
 bypass, a Resample with nothing to do) pass its changes on. Incremental now: Interpolate (each
 guide told from the last result's to the bit: the strands bound to changed guides, and those
-whose binding changed when roots moved), Clump (the moved strands and the members of moved
+whose binding changed when roots moved; with fillTubes in full), Clump (the moved strands and the members of moved
 centers; centers it picks stay the same while no root moves, the moved ones taking their
 strands' points), Noise, Curl, Length, Width, HairColor, Bands (guard hairs not by length),
 FeatherColor, RenderData, Resample (even, or by curvature while
@@ -3148,10 +3148,10 @@ hosts (`missingInstancePrototypes`, `scales.h`).
 
 | Maya command | Does |
 | --- | --- |
-| `groomLabGuides` | Guides and groups: from curves, generate children, lock, mirror, selection, layers (`-listAttributes`, `-setAttribute`, `-removeAttribute`, `-renameAttribute`), resample, `-reshape <id> <curve>` (guides take edited curves' edit points in place: Curves to Guides). |
+| `groomLabGuides` | Guides and groups: from curves, generate children, lock, mirror, selection, layers (`-listAttributes`, `-setAttribute`, `-removeAttribute`, `-renameAttribute`), resample, `-reshape <id> <curve>` (guides take edited curves' edit points in place: Curves to Guides), tube guides (`-setTube <json>` on the targets, `editedTube` in `tube.h`; `-tube <id>` returns one as JSON), the tube shape library (`-tubeShapes`, `-editTubeShape <json>`, `-previewTubeShape <json>`: `GuideHierarchy::setTubeShape` and friends, `CustomTubeShape` in `tube.h`), and `-tubeTargets` (the Tubes panel's targets: the selection, else the soloed guides). |
 | `groomLabConvert` | GroomLab > Utilities' geometry (`convert_cmd.h`): `-guideCurves` (a curve per guide, tagged `glGuideId`/`glGuideGroup`, a transform per group), `-strandCurves` (a node's strands, capped by `-maxCount` through `thinStrandsById`, `-attributes` for channels), `-strandMesh` (tubes or ribbons, `strand_geometry.h`). Made through the API in one go; undo deletes them (the `delete` command, outside the queue), redo makes them again from the data the command keeps. |
 | `groomLabScalpMaps` | Painted maps of every kind: `-list` (`name\|kind\|texture\|channels`), `-kindOf`, `-channelsOf`, `-make <name> -kind <k> [-color [-fillColor r g b a]]`, `-remove`, `-rename`, `-fill (-value v \| -fillColor r g b a [-fillChannels rgba])`, `-convert`, `-setChannels <name> 1\|4`, `-values`, `-relink <name> -texture <png> [-copyFrom <image>]` (a map reads another image: a PNG in place, or any image written as a PNG copy by `writeImagePng`, removed on undo). A texture file it rewrites keeps its bytes for undo; it only ever writes a `.png` (painting writes PNG, so the brush refuses a map naming another format). |
-| `groomLabBrushCtx` / `groomLabBrushStroke` | The interactive brush context and its undoable stroke command; the stroke command also runs scripted strokes (`-point`). Paint flags: `-attribute`, `-value`, `-paintKind`, `-paintTexture`, `-paintResolution`, `-hardness`, `-smoothStrength`, `-paintColor r g b a` and `-paintChannels rgba` (a color map; the tool's query of `-paintColor` returns `"r g b a"`). |
+| `groomLabBrushCtx` / `groomLabBrushStroke` | The interactive brush context and its undoable stroke command; the stroke command also runs scripted strokes (`-point`). Paint flags: `-attribute`, `-value`, `-paintKind`, `-paintTexture`, `-paintResolution`, `-hardness`, `-smoothStrength`, `-paintColor r g b a` and `-paintChannels rgba` (a color map; the tool's query of `-paintColor` returns `"r g b a"`). The Shape brush (`-mode shape`) paints tubes: `-tubeChannel width\|flatness\|twist`; while it is on, the groom draws the tubes of every guide it can shape as wires (`GroomShape::setTubeWires`, `activeTubeGuides`, `appendTubeWire`; the selected ones brighter), and Shift+drag smooths its channel (`BrushSettings::smoothTube`, `useShiftSmoothing`). Place and Draw take `-placeTube <json>` (`setPlacementTube`: the new guides' shape, and their sections where no guides are near). |
 | `groomLabParts` | Parts (part lines on the scalp). |
 | `groomLabPaths` | Path resolution: the search folders, `-resolve <path>` (`-node n`: as n resolves it), `-assetName <groom>`, `-assetFolder <kind>`. |
 | `groomLabBakeCards` | Bakes the cards' maps and atlas (`-scalp`: the scalp bake; `-noStore`: an export copy, `cardMaps` untouched; `-layout unity`: Unity's PNG maps instead of Unreal's TGAs, never stored). |
@@ -3170,7 +3170,8 @@ hosts (`missingInstancePrototypes`, `scales.h`).
 | `groomLabDefaultGraph`, `groomLabOperators`, `groomLabVersion`, `groomLabDisplayTheme` | The default graph JSON, operator specs (what editors list), version, viewport theme. |
 
 Python (`import groomlab`): grooms and inputs (`create_groom`, `set_scalp`, `add_collider`),
-guides (`guides_from_curves`, `generate_children`, selection, groups), brushes (`brush_tool`,
+guides (`guides_from_curves`, `generate_children`, selection, groups, `set_tube`, `get_tube`, `scale_tube`,
+`fill_tubes`, `set_fill_tubes`), brushes (`brush_tool`,
 `brush_stroke`, `clump_paint`), maps (`add_map`, `paint_map`, `fill_map`, `use_map`, `paint_param`,
 `convert_map`, `map_channels`, `set_map_channels`, `export_map`, `map_users`, `show_map_on_scalp`;
 a map's image: `set_map_texture`, `reload_map`, `missing_files`, `find_missing_files`), the graph (`get_graph`, `set_graph`,

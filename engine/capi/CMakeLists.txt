@@ -42,6 +42,15 @@ add_library(GroomLab::groomlab ALIAS groomlab_capi)
 set(GROOMLAB_SDK_RUNTIME_DLLS "")  # the library needs no DLL of its own beside it
 add_subdirectory(samples)
 target_link_libraries(groom_to_obj PRIVATE groomlab::warnings)
+# The samples copy the library beside them when they link; a library rebuilt without new exports
+# does not relink them, so the library also copies itself there after each build (else they run
+# the old one).
+if(WIN32)
+    add_custom_command(TARGET groomlab_capi POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:groom_to_obj> $<TARGET_FILE_DIR:groom_counts>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:groomlab_capi> $<TARGET_FILE_DIR:groom_to_obj>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:groomlab_capi> $<TARGET_FILE_DIR:groom_counts>)
+endif()
 if(MSVC)
     target_compile_options(groom_counts PRIVATE /W4 /WX)
 else()

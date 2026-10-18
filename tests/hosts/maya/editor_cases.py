@@ -9,6 +9,7 @@ step of its own between the test's steps.
 """
 
 import json
+import math
 import os
 import unittest
 
@@ -2827,8 +2828,8 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertIn("Unreal Cards...", exports)
             self.assertNotIn("Groom File...", exports)
             self.assertNotIn("Bake Scale Maps", exports)
-            self.assertEqual(entries_of("Help"), ["Docs", "Keyboard Shortcuts", "Check for Updates...", "Support GroomLab",
-                                                  "About GroomLab"])
+            self.assertEqual(entries_of("Help"), ["Docs", "Keyboard Shortcuts", "Check for Updates...", "Discord",
+                                                  "Support GroomLab", "About GroomLab"])
             self.assertTrue(menu.docs_folder().endswith("docs"))
             self.assertIn("B + drag", menu.shortcuts_text())
             self.assertIn("GroomLab", menu.about_text())
@@ -2989,12 +2990,13 @@ class DockableWindowsTest(unittest.TestCase):
                 self.assertEqual(cmds.currentCtx(), groomlab.BRUSH_CONTEXT)
             self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, attribute=True), "fur")
             # The palette is the core's catalog: Comb (with Stretch) and no Grab, no separate Clump
-            # tile, Tube under Shape, every section in order.
+            # tile, Shape (the tubes' brush) under Shape, every section in order.
             self.assertEqual([section for section, _ in palette.SECTIONS], ["Create", "Shape", "Trim", "Paint", "Guides"])
             self.assertEqual(len(palette.CATALOG), sum(len(tools) for _, tools in palette.SECTIONS))
             self.assertNotIn("grab", window.buttons)
             self.assertNotIn("clump", window.buttons)
-            self.assertIn("tube", [t for t, _, _ in dict(palette.SECTIONS)["Shape"]])
+            self.assertIn("shape", [t for t, _, _ in dict(palette.SECTIONS)["Shape"]])
+            self.assertNotIn("tube", window.buttons)
             self.assertEqual(palette.NAMES["straighten"], "Straighten")
             self.assertEqual(window.mask_scalp.text(), "Front facing only")
             self.assertEqual(window.falloff_label.text(), "Falloff")
@@ -3025,6 +3027,73 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertTrue(window.part_box.isVisibleTo(window))
             window.buttons["twist"].click()
             self.assertEqual(window.strength.lo, -1.0)  # signed tools get a signed strength
+            # The Shape brush: what it paints (Width, Flatness, Twist), and the selected guides' tubes
+            # as a whole with the groom's Fill Tubes (each change one undo step).
+            window.groom_picked(window.grooms.findData(self.groom))
+            window.buttons["shape"].click()
+            self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), "shape")
+            self.assertEqual(window.strength.lo, -1.0)  # Ctrl does the opposite
+            self.assertTrue(window.tube_channel_box.isVisibleTo(window))
+            self.assertTrue(window.tube_panel.isVisibleTo(window))
+            self.assertFalse(window.collide.isVisibleTo(window))  # it moves no guide point
+            window.tube_channel_buttons["flatness"].click()
+            self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, tubeChannel=True), "flatness")
+            panel = window.tube_panel
+            guide = groomlab.guide_ids(self.groom, "primary")[0]
+            groomlab.clear_guide_selection(self.groom)
+            panel.refresh(self.groom)
+            self.assertFalse(panel.smooth.isEnabled())  # nothing selected: nothing to smooth (the shape: Place's)
+            groomlab.select_guides(self.groom, guides=[guide])
+            panel.refresh(self.groom)
+            self.assertTrue(panel.smooth.isEnabled())
+            panel.shape.setCurrentIndex(panel.shape.findData("ribbon"))
+            panel.shape.activated.emit(panel.shape.currentIndex())
+            self.assertEqual(groomlab.get_tube(self.groom, guide)["shape"], "ribbon")
+            cmds.undo()
+            self.assertEqual(groomlab.get_tube(self.groom, guide)["shape"], "round")
+            panel.refresh(self.groom)
+            widest = max(groomlab.get_tube(self.groom, guide)["width"])
+            panel.width.committed.emit(panel.width.value() * 2.0)
+            self.assertAlmostEqual(max(groomlab.get_tube(self.groom, guide)["width"]), 2.0 * widest, places=4)
+            panel.flatness.committed.emit(0.75)
+            self.assertAlmostEqual(groomlab.get_tube(self.groom, guide)["aspect"][0], 0.25, places=4)
+            panel.twist.committed.emit(90.0)
+            self.assertAlmostEqual(groomlab.get_tube(self.groom, guide)["twist"][0], math.pi / 2, places=4)
+            # Each guide keeps its own tube: the panel edits the selection only, and its shape picker
+            # says "Mixed" while the selected guides' shapes differ.
+            other = groomlab.guides_from_curves(self.groom, [cmds.curve(degree=1, point=[(1, 0, 0), (2, 0, 0)])],
+                                                group="extra")[0]
+            cmds.select(self.groom)  # (the curve made selected the curve: the palette follows the selection)
+            self.assertEqual(groomlab.get_tube(self.groom, other)["twist"][0], 0.0)
+            groomlab.set_tube(self.groom, guides=[guide], shape="blade")
+            groomlab.select_guides(self.groom, guides=[guide, other])
+            panel.refresh(self.groom)
+            self.assertEqual(panel.shape.currentText(), "Mixed")
+            groomlab.select_guides(self.groom, guides=[guide])
+            panel.refresh(self.groom)
+            self.assertEqual(panel.shape.currentData(), "blade")
+            self.assertEqual(panel.shape.findText("Mixed"), -1)
+            # Smooth: the channel the brush paints (Flatness) evened out along the selected guide.
+            groomlab.set_tube(self.groom, guides=[guide], aspect=[1.0, 0.2, 1.0, 0.2, 1.0])
+            panel.smooth_what.setCurrentIndex(panel.smooth_what.findData("current"))
+            panel.smooth.click()
+            smoothed = groomlab.get_tube(self.groom, guide)["aspect"]
+            self.assertGreaterEqual(len(smoothed), 5)  # one section per guide point (or the list's own, if more)
+            self.assertGreater(min(smoothed), 0.3)  # the dips filled in
+            self.assertAlmostEqual(smoothed[0], 1.0, places=4)  # the root's kept
+            self.assertAlmostEqual(groomlab.get_tube(self.groom, guide)["twist"][0], math.pi / 2, places=4)  # not smoothed
+            cmds.undo()
+            self.assertEqual(len(groomlab.get_tube(self.groom, guide)["aspect"]), 5)
+            self.assertTrue(panel.fill.isEnabled())  # the default graph's Interpolate
+            panel.fill.setChecked(True)
+            self.assertTrue(groomlab.fill_tubes(self.groom)["fillTubes"])
+            panel.blend.committed.emit(40.0)
+            self.assertAlmostEqual(groomlab.fill_tubes(self.groom)["tubeBlend"], 0.4, places=5)
+            cmds.undo()
+            cmds.undo()
+            self.assertFalse(groomlab.fill_tubes(self.groom)["fillTubes"])
+            groomlab.clear_guide_selection(self.groom)
+            window.groom_picked(0)  # Follow selection again
             window.radius.setValue(150)
             window.radius.committed.emit(150)
             self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, radius=True), 150)
@@ -3109,6 +3178,118 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertNotEqual(cmds.currentCtx(), groomlab.BRUSH_CONTEXT)
             self.assertIsNone(window.tool)
             self.assertFalse(window.buttons["paint"].isChecked())
+        finally:
+            window.close()
+
+    def test_tube_shape_editor_and_library(self):
+        # The Tubes panel's shape editor: a built-in shown read-only, Edit as Custom copying it into
+        # the library (the targets take it), points dragged (mirrored), added and removed, each a
+        # commit every guide taking the shape follows; New, Duplicate, Rename in place, Delete on a
+        # second click (no dialogs); the panel following a Shift+click solo; Place's tube.
+        from groomlab.ui import palette
+        guides = groomlab.guides_from_curves(self.groom, [cmds.curve(degree=1, point=[(0, 1, 0), (0, 2, 0)]),
+                                                          cmds.curve(degree=1, point=[(0.3, 0.95, 0), (0.6, 1.9, 0)])])
+        cmds.select(self.groom)
+        window = palette.show()
+        try:
+            window.groom_picked(window.grooms.findData(self.groom))
+            window.buttons["shape"].click()
+            panel = window.tube_panel
+            editor = panel.editor
+            groomlab.select_guides(self.groom, guides=[guides[0]])
+            panel.refresh(self.groom)
+            self.assertIn("1 guide selected", panel.targets.text())
+            self.assertEqual(panel.shape.currentData(), "round")
+            self.assertFalse(editor.editable)  # a built-in: read-only
+            self.assertTrue(panel.edit_custom.isVisible())
+            panel.shape.setCurrentIndex(panel.shape.findData("ribbon"))
+            panel.shape.activated.emit(panel.shape.currentIndex())
+            self.assertEqual(groomlab.get_tube(self.groom, guides[0])["shape"], "ribbon")
+            panel.edit_custom.click()  # a copy in the library, the selected guide taking it
+            self.assertEqual(panel._choice, "ribbon 1")
+            self.assertEqual(groomlab.get_tube(self.groom, guides[0])["shape"], "ribbon 1")
+            self.assertTrue(editor.editable)
+            self.assertFalse(panel.edit_custom.isVisible())
+            self.assertEqual([s["name"] for s in groomlab.tube_shapes(self.groom) if not s["builtin"]], ["ribbon 1"])
+            panel.refresh(self.groom)
+            self.assertEqual(panel._choice, "ribbon 1")
+            # A drag (mirrored: the point's mirror image moves too), committed on release.
+            right = max(range(len(editor.points)), key=lambda i: editor.points[i][0] + 0.01 * editor.points[i][1])
+            u, v = editor.points[right]
+            editor.move_point(right, u + 0.3, v)
+            mates = [i for i, p in enumerate(editor.points) if abs(p[0] + u + 0.3) < 1e-6 and abs(p[1] - v) < 1e-6]
+            self.assertEqual(len(mates), 1, "its mirror image moved with it")
+            editor.committed.emit(list(editor.points))
+            saved = [s for s in groomlab.tube_shapes(self.groom) if s["name"] == "ribbon 1"][0]["points"]
+            self.assertEqual(len(saved), len(editor.points))
+            us = sorted(round(p[0], 4) for p in saved)
+            self.assertEqual(us, sorted(round(-x, 4) for x in us), "symmetric about the v axis")
+            # A point added on the outline (and its mirror image), then removed (with it).
+            count = len(editor.points)
+            span, at = editor.edge_at(editor.to_screen(*editor._curve[3])) or (None, None)
+            self.assertIsNotNone(span)
+            editor.add_point(span, at)
+            added = list(editor.points)
+            editor.committed.emit(list(editor.points))
+            self.assertIn(len(editor.points), (count + 1, count + 2), "%s: %s" % (window.status.text(), added))
+            self.assertEqual(len([s for s in groomlab.tube_shapes(self.groom) if s["name"] == "ribbon 1"][0]["points"]),
+                             len(editor.points))
+            self.assertTrue(editor.remove_point(0))
+            editor.committed.emit(list(editor.points))
+            # A crossing outline is refused: said, the shape as it was.
+            before = [s for s in groomlab.tube_shapes(self.groom) if s["name"] == "ribbon 1"][0]["points"]
+            editor.mirror = False
+            editor.points = [(-1, -1), (1, 1), (1, -1), (-1, 1)]
+            editor.committed.emit(list(editor.points))
+            self.assertIn("crosses itself", window.status.text())
+            self.assertEqual([s for s in groomlab.tube_shapes(self.groom) if s["name"] == "ribbon 1"][0]["points"], before)
+            panel.mirror.setChecked(True)
+            # A live preview while dragging: nothing stored, no undo step.
+            data = cmds.getAttr(self.groom + ".guideData")
+            panel.shape_dragged(editor.points)
+            panel.send_preview()
+            self.assertEqual(cmds.getAttr(self.groom + ".guideData"), data)
+            groomlab.end_guide_preview(self.groom)
+            # New, Duplicate, Rename in place, Delete on a second click.
+            panel.new_library_shape()
+            self.assertEqual(panel._choice, "shape 1")
+            panel.duplicate_library_shape()
+            self.assertEqual(panel._choice, "shape 1 1")
+            panel.start_rename()
+            self.assertTrue(panel.rename_field.isVisible())
+            panel.rename_field.setText("leaf")
+            panel.finish_rename()
+            self.assertFalse(panel.rename_field.isVisible())
+            self.assertIn("leaf", [s["name"] for s in groomlab.tube_shapes(self.groom)])
+            panel.apply_shape.click()
+            self.assertEqual(groomlab.get_tube(self.groom, guides[0])["shape"], "leaf")
+            panel.delete_shape.click()  # armed: says what goes round
+            self.assertIn("1 goes round", panel.delete_shape.text())
+            self.assertIn("leaf", [s["name"] for s in groomlab.tube_shapes(self.groom)])
+            panel.delete_shape.click()
+            self.assertNotIn("leaf", [s["name"] for s in groomlab.tube_shapes(self.groom)])
+            self.assertEqual(groomlab.get_tube(self.groom, guides[0])["shape"], "round")
+            self.assertEqual(panel.delete_shape.text(), "Delete")
+            # The panel follows a brush's Shift+click solo (no selection): the soloed guide's tube.
+            groomlab.set_tube(self.groom, guides=[guides[1]], shape="blade")
+            groomlab.clear_guide_selection(self.groom)
+            groomlab.set_guide_attribute(self.groom, "freeze", 1.0, guides=guides)
+            groomlab.set_guide_attribute(self.groom, "freeze", 0.0, guides=[guides[1]])
+            window.poll()
+            self.assertIn("soloed", panel.targets.text())
+            self.assertEqual(panel.shape.currentData(), "blade")
+            # Place's tube: the panel's shape (and values) as the brush's placement tube.
+            groomlab.set_guide_attribute(self.groom, "freeze", 0.0, guides=guides)
+            groomlab.clear_guide_selection(self.groom)
+            window.buttons["place"].click()
+            self.assertTrue(panel.isVisibleTo(window))
+            panel.refresh(self.groom)
+            panel.shape.setCurrentIndex(panel.shape.findData("teardrop"))
+            panel.shape.activated.emit(panel.shape.currentIndex())
+            self.assertEqual(groomlab.placement_tube()["shape"], "teardrop")
+            panel.flatness.setValue(0.5)  # (as a drag of the slider leaves it, then commits)
+            panel.flatness.committed.emit(0.5)
+            self.assertAlmostEqual(groomlab.placement_tube()["aspect"][0], 0.5, places=4)
         finally:
             window.close()
 

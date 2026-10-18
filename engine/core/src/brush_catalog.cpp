@@ -31,9 +31,9 @@ std::vector<BrushEntry> makeCatalog() {
         {"place", "Place", C::Create, 0, "place", 1.0f, false,
          "Click the scalp for a guide; drag to place many, spaced. New guides copy their neighbors' shape. "
          "With a child group picked, places children by hand (each follows the nearest parent).",
-         {"symmetry", "collide", "newGuides", "spacing", "soloNewGuides"}},
+         {"symmetry", "collide", "newGuides", "spacing", "soloNewGuides", "tube"}},
         {"draw", "Draw", C::Create, 0, "draw", 1.0f, false, "Press on the scalp and draw a guide's shape.",
-         {"symmetry", "collide", "newGuides", "soloNewGuides"}},
+         {"symmetry", "collide", "newGuides", "soloNewGuides", "tube"}},
         {"part", "Part", C::Create, 0, "part", 1.0f, false,
          "Draw a part freehand on the scalp: hair does not mix across it, and the Part node opens it.", {"symmetry", "parts"}},
         {"flow", "Flow", C::Create, 0, "flow", 1.0f, false,
@@ -61,8 +61,11 @@ std::vector<BrushEntry> makeCatalog() {
         {"noise", "Noise", C::Shape, 0, "noise", 0.5f, true,
          "Add smooth random jitter along guides, the same pattern each stroke builds up (negative or Ctrl: smooth it out).",
          kShaping},
-        {"tube", "Tube", C::Shape, 0, "tube", 1.0f, true,
-         "Widen a guide's tube, where its children grow (negative: narrow).", kBrushCommon},
+        {"shape", "Shape", C::Shape, 0, "shape", 0.5f, true,
+         "Paint guides' tubes near the brush: Width grows them (Ctrl shrinks), Flatness flattens them toward a "
+         "ribbon (Ctrl rounds them), Twist turns them about the guide (Ctrl the other way); Shift smooths what it "
+         "paints along the guides. Children and Fill Tubes strands follow.",
+         with(without(kShaping, {"collide"}), {"tubeChannel", "tube"})},
         // Trim.
         {"cut", "Cut", C::Trim, 0, "cut", 1.0f, false, "Trim guides where the brush touches them (Ctrl grows).",
          with(kBrushCommon, {"targets"})},
@@ -159,6 +162,12 @@ const std::vector<BrushSettingSpec>& brushSettingSpecs() {
         {"smoothStrength", "Smooth", "How much Shift+drag smooths a map per stamp (past 1: several passes)"},
         {"selection", "Selection", "How the lasso adds to or replaces the selection, and the soft radius"},
         {"freezeMask", "Freeze mask", "The frozen guides draw blue; Unfreeze All clears the mask"},
+        {"tubeChannel", "Paints", "What the Shape brush paints on the tubes near it: their width, their flatness (toward "
+                                  "a flat ribbon) or their twist about the guide; Ctrl does the opposite"},
+        {"tube", "Tube", "The selected (or soloed) guides' tubes as a whole: their shape, width, flatness and twist, "
+                         "the groom's shape library (custom outlines, drawn in the shape editor), the shape new guides "
+                         "take (Place, Draw), and the groom's Fill Tubes (strands fill the tubes) and Tube Blend (the "
+                         "soft edge round them)"},
     };
     return specs;
 }

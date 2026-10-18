@@ -6,6 +6,7 @@
 #include <map>
 #include <filesystem>
 #include <mutex>
+#include <set>
 
 #include <cstring>
 
@@ -904,6 +905,13 @@ float readSoftSelectRadius(const MObject& node) {
 std::shared_ptr<GuideHierarchy> toHierarchy(const std::string& json, const ScalpMesh* scalp, std::string* error, float scale) {
     try {
         auto hierarchy = std::make_shared<GuideHierarchy>(GuideHierarchy::fromJson(json));
+        // What it could not read as saved (a guide's missing library shape): said once a session.
+        static std::mutex warnedMutex;
+        static std::set<std::string> warned;
+        for (const std::string& w : hierarchy->loadWarnings()) {
+            const std::lock_guard<std::mutex> lock(warnedMutex);
+            if (warned.insert(w).second) MGlobal::displayWarning(MString("GroomLab: ") + w.c_str());
+        }
         hierarchy->setScale(scale);
         hierarchy->evaluate(scalp);
         return hierarchy;

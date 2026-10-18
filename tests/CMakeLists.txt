@@ -35,6 +35,7 @@ add_executable(groomlab_tests
     engine/core/test_graph.cpp
     engine/core/test_grooming.cpp
     engine/core/test_hierarchy.cpp
+    engine/core/test_tubes.cpp
     engine/core/test_incremental.cpp
     engine/core/test_keyed_params.cpp
     engine/core/test_value_inputs.cpp

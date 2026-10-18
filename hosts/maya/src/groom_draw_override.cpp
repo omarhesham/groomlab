@@ -296,7 +296,7 @@ bool GroomSubSceneOverride::needsUpdate() const {
 bool GroomSubSceneOverride::hasUIDrawables() const { return true; }
 
 bool GroomSubSceneOverride::areUIDrawablesDirty() const {
-    return uiDirty_ || (shape_ && shape_->symmetrySeamVersion() != seamDrawn_);
+    return uiDirty_ || (shape_ && (shape_->symmetrySeamVersion() != seamDrawn_ || shape_->tubeWires() != tubeWiresDrawn_));
 }
 
 void GroomSubSceneOverride::addUIDrawables(MHWRender::MUIDrawManager& draw, const MHWRender::MFrameContext& context) {
@@ -320,6 +320,7 @@ void GroomSubSceneOverride::addUIDrawables(MHWRender::MUIDrawManager& draw, cons
                 draw.endDrawable();
             }
         }
+        addTubeWires(draw);
         // Viewing a node other than the output: say so, since nodes after it (width, color,
         // cards...) don't show until the output is viewed again.
         if (shape_ && !shape_->viewedNode().empty()) {
@@ -338,6 +339,54 @@ void GroomSubSceneOverride::addUIDrawables(MHWRender::MUIDrawManager& draw, cons
         points_.clear();
         pointColors_.clear();
     }
+}
+
+void GroomSubSceneOverride::addTubeWires(MHWRender::MUIDrawManager& draw) {
+    tubeWiresDrawn_ = shape_ && shape_->tubeWires();
+    if (!tubeWiresDrawn_) {
+        if (!tubeWires_.empty() || !tubeWiresSelected_.empty()) tubeWires_ = {}, tubeWiresSelected_ = {};
+        tubeWiresKey_ = ~std::uint64_t{0};
+        return;
+    }
+    const HierarchyPtr hierarchy = shape_->evaluatedHierarchy();
+    if (!hierarchy) return;
+    const std::string hidden = MPlug(object_, GroomShape::aHiddenGuideGroups).asString().asChar();
+    std::uint64_t key = hashCombine(hashCombine(shape_->hierarchyVersion(), shape_->selectionHash()), hashChars(0x7B3u, hidden));
+    key = hashCombine(key, reinterpret_cast<std::uintptr_t>(hierarchy.get()));
+    if (key != tubeWiresKey_) {
+        tubeWiresKey_ = key;
+        tubeWires_.clear();
+        tubeWiresSelected_.clear();
+        // Every guide the brush can shape (shown, not frozen: activeTubeGuides), the selected
+        // ones (soft-selected left out) apart, to stand out.
+        const std::map<GuideId, float> selection = shape_->guideSelectionWeights();
+        const std::vector<const HierarchyGuide*> guides = activeTubeGuides(*hierarchy, hidden);
+        std::size_t points = 0;
+        for (const HierarchyGuide* g : guides) points += g->points.size();
+        // Within a budget of lines: fewer rings along each tube on a groom of many guides.
+        constexpr std::size_t kBudget = 400000;  // segment ends
+        const std::size_t perPoint = 2 * 32 + 2 * 8;
+        const std::size_t ringStep = std::max<std::size_t>(1, (points * perPoint + kBudget - 1) / kBudget);
+        for (const HierarchyGuide* g : guides) {
+            const auto it = selection.find(g->id);
+            const bool selected = it != selection.end() && it->second >= 1.0f;
+            appendTubeWire(selected ? tubeWiresSelected_ : tubeWires_, *g, hierarchy->scale(), 8, ringStep);
+        }
+    }
+    auto lines = [&](const std::vector<Vec3f>& wire, const MColor& color, float width) {
+        if (wire.size() < 2) return;
+        MPointArray points;
+        points.setLength(static_cast<unsigned>(wire.size()));
+        for (unsigned i = 0; i < wire.size(); ++i) points.set(MPoint(wire[i].x, wire[i].y, wire[i].z), i);
+        draw.beginDrawable();
+        draw.setColor(color);
+        draw.setLineWidth(width);
+        draw.setDepthPriority(5);
+        draw.lineList(points, false);
+        draw.endDrawable();
+    };
+    lines(tubeWires_, MColor(0.45f, 0.85f, 1.0f, 0.6f), 1.0f);
+    lines(tubeWiresSelected_, MColor(1.0f, 0.7f, 0.15f, 1.0f), 2.0f);  // the selected: warm, opaque, thicker
 }
 
 void GroomSubSceneOverride::addDots(MHWRender::MUIDrawManager& draw, const MHWRender::MFrameContext& context) {

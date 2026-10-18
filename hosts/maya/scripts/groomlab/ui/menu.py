@@ -1401,6 +1401,12 @@ def open_docs():
     return DOCS_URL
 
 
+def open_discord():
+    """GroomLab > Help > Discord: the GroomLab community."""
+    from groomlab import links
+    return links.open_discord()
+
+
 def open_donate():
     """GroomLab > Help > Support GroomLab: GroomLab is free for any use, funded by donations (Ko-fi)."""
     from groomlab import links
@@ -1750,6 +1756,7 @@ def install():
     cmds.menuItem(divider=True)
     _item("Check for Updates...", open_updates,
           "This version and the newest one with what's new; update in place (restart Maya to finish)")
+    _item("Discord", open_discord, "The GroomLab community: questions, work in progress, feedback")
     _item("Support GroomLab", open_donate,
           "GroomLab is free for any use: support it with a donation at %s" % DONATE_URL)
     cmds.menuItem(divider=True)

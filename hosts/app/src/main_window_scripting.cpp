@@ -476,6 +476,8 @@ bool MainWindow::setDisplayText(const QString& text) {
         colorMax_->setValue(value.toDouble(&ok));
     } else if (name == QStringLiteral("guides")) {
         guides_->setChecked(flag());
+    } else if (name == QStringLiteral("tubes")) {
+        tubes_->setChecked(flag());
     } else if (name == QStringLiteral("widthcoverage")) {
         widthCoverage_->setChecked(flag());
     } else if (name == QStringLiteral("coveragedensity")) {

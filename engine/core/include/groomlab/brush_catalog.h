@@ -10,14 +10,16 @@
 //
 // A tool's settings name what its card shows (BrushSettingSpec: the label and the hint every
 // host uses, and the direction a number runs in): "radius", "strength" (signed for the tools
-// that work both ways: lift, twist, curl, attract, length, tube), "falloff" (0 hard: full
+// that work both ways: lift, twist, curl, attract, length, shape), "falloff" (0 hard: full
 // strength to the brush's edge, 1 soft: fading from the center; BrushSettings::hardness is
 // 1 - falloff), "falloffProfile" (the falloff as a curve, center to edge), "strengthProfile"
 // (the shaping brushes' strength root to tip), "symmetry", "selectedOnly", "pressure", "collide" (keep off scalp),
 // "frontFacingOnly" (what the scalp hides gets no weight), "stretch" (Comb),
 // "targets" (what the shaping brushes act on: guides, parts, flow), "erases", "newGuides"
 // (Place and Draw: match neighbors, length, segments), "spacing" (Place), "parts", "flow",
-// "map" (Paint: the map, the value, the channels), "smoothStrength", "selection", "freezeMask".
+// "map" (Paint: the map, the value, the channels), "smoothStrength", "selection", "freezeMask",
+// "tubeChannel" (Shape: width, flatness or twist), "tube" (Shape: the selected guides' tubes as a
+// whole, Fill Tubes and Tube Blend).
 // A setting's map (density, width...) is painted with Paint: + New Map > for a setting makes and
 // links it (stroke.h, paintableSettings, paintParamMap).
 

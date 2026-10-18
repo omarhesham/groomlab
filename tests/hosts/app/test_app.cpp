@@ -593,7 +593,7 @@ TEST(AppTheme, FontsBrushesAndColors) {
     EXPECT_EQ(brushes.back().name, "freeze");
     ASSERT_TRUE(theme::brush("cut"));
     EXPECT_EQ(theme::brush("cut")->category, theme::BrushCategory::Trim);
-    EXPECT_EQ(theme::brush("tube")->category, theme::BrushCategory::Shape);
+    EXPECT_EQ(theme::brush("shape")->category, theme::BrushCategory::Shape);
     EXPECT_EQ(theme::brush("grab"), nullptr) << "Comb does what Grab did";
     EXPECT_EQ(theme::brush("clump"), nullptr) << "the Paint brush paints the clump attribute";
     EXPECT_EQ(theme::brush("no such brush"), nullptr);

@@ -30,6 +30,21 @@ def red_pixels(name):
     """The active view redrawn and read back (its color buffer: what is on screen, not a
     playblast): how many pixels are the symmetry line's red. The picture is kept as
     groomlab_brush_<name>.png (in GROOMLAB_BRUSH_OUT, else the temp folder)."""
+    return view_pixels(name, "red", lambda r, g, b: r > 170 and r > 2 * max(g, b))
+
+
+def cyan_pixels(name):
+    """The same for the Shape brush's tube wires (light cyan, 0.45 0.85 1)."""
+    return view_pixels(name, "cyan", lambda r, g, b: b > 200 and g > 160 and 70 < r < 0.8 * g)
+
+
+def warm_pixels(name):
+    """The same for the selected guides' tube wires (warm orange, 1 0.7 0.15)."""
+    return view_pixels(name, "warm", lambda r, g, b: r > 180 and 100 < g < r and b < 0.6 * g)
+
+
+def view_pixels(name, what, test):
+    """The active view redrawn and read back: how many pixels pass test(r, g, b)."""
     from maya.api import OpenMaya as om
     from maya.api import OpenMayaUI as omui2
     from PySide2 import QtGui
@@ -43,8 +58,8 @@ def red_pixels(name):
     image.writeToFile(path, "png")
     picture = QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
     data = bytes(picture.constBits())[:picture.byteCount()]  # b, g, r, a
-    count = sum(1 for i in range(0, len(data), 4) if data[i + 2] > 170 and data[i + 2] > 2 * max(data[i + 1], data[i]))
-    say("%s: %d red pixels (%s)" % (name, count, path))
+    count = sum(1 for i in range(0, len(data), 4) if test(data[i + 2], data[i + 1], data[i]))
+    say("%s: %d %s pixels (%s)" % (name, count, what, path))
     return count
 
 
@@ -151,6 +166,55 @@ def step_partial_upload():
     check("the brush put away, the groom lets its stroke document go",
           not json.loads(cmds.groomLabGraphStats(groom))["strokeDocument"])
     cmds.setToolTo(ctx)
+    later(step_shape_wires)
+
+
+def step_shape_wires():
+    # The Shape brush: while it is on, the groom draws its guides' tubes as wires (every guide's,
+    # none being selected), on OpenGL and DirectX 11 alike; a stroke paints the tubes near it, one
+    # undo step; another brush and the wires go.
+    groomlab, groom, ctx = state["groomlab"], state["groom"], state["ctx"]
+    before = cyan_pixels("shape_off")
+    groomlab.brush_tool("shape", radius=120, strength=1.0, tube_channel="width")
+    on = cyan_pixels("shape_on")
+    check("the Shape brush draws the tubes as wires (%d cyan pixels, %d before)" % (on, before), on > before + 40)
+    data0 = cmds.getAttr(groom + ".guideData")
+    x0, y0 = to_view((0.0, 0.85, 0.5))
+    cmds.groomLabBrushCtx(ctx, edit=True, debugStroke=" ".join("%d %d" % (x0 + 10 * k, y0) for k in range(10)))
+    painted = [g for g in cmds.groomLabGuides(groom, listGuides="primary")
+               if len(groomlab.get_tube(groom, g)["width"]) > 2]
+    check("a Shape stroke paints the tubes near it, a section per guide point (%d guides)" % len(painted), bool(painted))
+    check("... with the wires still drawn after it", cyan_pixels("shape_stroked") > before + 40)
+    cmds.undo()
+    check("the Shape stroke is one undo step", cmds.getAttr(groom + ".guideData") == data0)
+    # Every guide's tube draws while shaping; a selected guide's stands out (warm), the rest stay.
+    guides = cmds.groomLabGuides(groom, listGuides="primary")
+    warm0 = warm_pixels("shape_none_selected")
+    groomlab.select_guides(groom, guides=[guides[0]])
+    warm1 = warm_pixels("shape_one_selected")
+    check("a selected guide's tube draws brighter (%d warm pixels, %d before)" % (warm1, warm0), warm1 > warm0 + 20)
+    check("... and the other guides' tubes still draw", cyan_pixels("shape_one_selected_rest") > before + 40)
+    groomlab.clear_guide_selection(groom)
+    # Shift+drag smooths the channel it paints (width) along the guides under it, the guides kept.
+    groomlab.set_tube(groom, group="primary", width=[0.1, 0.25, 0.1, 0.25, 0.1, 0.25, 0.1])
+    points0 = [cmds.groomLabGuides(groom, guidePoints=g) for g in guides]
+
+    def wiggle():  # how much the widths go up and down along the guides, all told
+        total = 0.0
+        for g in guides:
+            w = groomlab.get_tube(groom, g)["width"]
+            total += sum(abs(w[i + 1] - w[i]) for i in range(len(w) - 1))
+        return total
+    jagged = wiggle()
+    cmds.groomLabBrushCtx(ctx, edit=True, debugStroke="shift " + " ".join("%d %d" % (x0 + 10 * k, y0) for k in range(10)))
+    check("Shift+drag with the Shape brush smooths the tubes' width (%.3f, %.3f before)" % (wiggle(), jagged),
+          wiggle() < 0.9 * jagged)
+    check("... and leaves the guides' shape", [cmds.groomLabGuides(groom, guidePoints=g) for g in guides] == points0)
+    cmds.undo()
+    cmds.undo()
+    groomlab.brush_tool("comb", radius=260, strength=1.0)
+    off = cyan_pixels("shape_put_away")
+    check("another brush: the tube wires go (%d cyan pixels)" % off, off < before + 10)
     later(step_stroke)
 
 

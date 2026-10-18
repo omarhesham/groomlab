@@ -103,7 +103,7 @@ std::string goldenHierarchy(const ScalpMesh& scalp) {
     GuideHierarchy h;
     const GroupId primary = h.addGroup("primary");
     TubeProfile tube;
-    tube.radius = {0.2f, 0.12f};
+    tube.width = {0.2f, 0.12f};
     Rng rng(11);
     for (int i = 0; i < 8; ++i) {
         const Vec3f n = Vec3f{rng.uniform(-1, 1), rng.uniform(-0.2f, 1), rng.uniform(-1, 1)}.normalized();

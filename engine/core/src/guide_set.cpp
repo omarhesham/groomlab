@@ -47,9 +47,9 @@ void GuideSet::orientAndRoot(const ScalpMesh& mesh) {
     rootOnMesh(mesh);
 }
 
-std::uint64_t GuideSet::contentHash() const {
-    std::uint64_t h = hash64(guides_.size());
-    for (const Guide& g : guides_) {
+namespace {
+
+std::uint64_t hashGuide(std::uint64_t h, const Guide& g) {
         h = hashCombine(h, g.id);
         h = hashCombine(h, static_cast<std::uint64_t>(static_cast<std::int64_t>(g.root.face)));
         h = hashFloat(hashFloat(h, g.root.u), g.root.v);
@@ -60,6 +60,23 @@ std::uint64_t GuideSet::contentHash() const {
         }
         h = hashCombine(h, g.points.size());
         for (const Vec3f& p : g.points) h = hashFloat(hashFloat(hashFloat(h, p.x), p.y), p.z);
+        if (g.hasTube) h = hashTube(hashFloat(hashFloat(hashFloat(h, g.frameUp.x), g.frameUp.y), g.frameUp.z), g.tube);
+        if (g.hasTube && !g.tube.roll.empty()) {  // (the sections' roll on the scalp: not in hashTube)
+            h = hashCombine(h, g.tube.roll.size() + 0x7011u);
+            for (const float r : g.tube.roll) h = hashFloat(h, r);
+        }
+        if (g.depth != 0) h = hashCombine(h, static_cast<std::uint64_t>(g.depth) + 0xDE7u);
+    return h;
+}
+
+}  // namespace
+
+std::uint64_t GuideSet::contentHash() const {
+    std::uint64_t h = hash64(guides_.size());
+    for (const Guide& g : guides_) h = hashGuide(h, g);
+    if (levelTubes_) {
+        h = hashCombine(h, levelTubes_->size() + 0x7B5u);
+        for (const Guide& g : *levelTubes_) h = hashGuide(h, g);
     }
     return h;
 }

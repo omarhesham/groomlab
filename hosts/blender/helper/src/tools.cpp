@@ -444,7 +444,7 @@ void applySettings(ToolState& t, const json& settings) {
             else if (key == "segments") s.setSegments(settingInt(v, k));
             else if (key == "tubeRadius") {
                 const float r = toGroomLength(space, settingNumber(v, k));
-                s.place.tube.radius = {r, r};
+                s.place.tube.width = {r, r};
             } else if (key == "spacing") s.place.spacing = toGroomLength(space, settingNumber(v, k));
             else if (key == "matchNeighbors") s.place.matchNeighbors = settingBool(v, k);
             else if (key == "soloNewGuides") s.place.soloNewGuides = settingBool(v, k);
@@ -527,7 +527,7 @@ json settingsJson(const ToolState& t) {
     j["propagate"] = s.brush.propagate;
     j["length"] = toHostLength(space, s.place.length);
     j["segments"] = s.place.segments;
-    j["tubeRadius"] = toHostLength(space, s.place.tube.radius.empty() ? 0.0f : s.place.tube.radius.front());
+    j["tubeRadius"] = toHostLength(space, s.place.tube.width.empty() ? 0.0f : s.place.tube.width.front());
     j["spacing"] = toHostLength(space, s.place.spacing);
     j["matchNeighbors"] = s.place.matchNeighbors;
     j["soloNewGuides"] = s.place.soloNewGuides;

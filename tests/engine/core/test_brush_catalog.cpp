@@ -39,7 +39,12 @@ TEST(BrushCatalog, EveryToolOnceInCategoryOrder) {
     EXPECT_STREQ(brushCategoryName(BrushCategory::Create), "Create");
     for (BrushCategory c : categories) EXPECT_FALSE(brushesInCategory(c).empty()) << brushCategoryName(c);
     EXPECT_EQ(catalog.front().id, "place");
-    EXPECT_EQ(brushEntry("tube")->category, BrushCategory::Shape);
+    EXPECT_EQ(brushEntry("shape")->category, BrushCategory::Shape);
+    EXPECT_EQ(brushEntry("shape")->label, "Shape");
+    EXPECT_EQ(brushEntry("tube"), nullptr) << "the Shape brush paints the tubes now";
+    EXPECT_TRUE(brushEntry("shape")->hasSetting("tubeChannel"));
+    EXPECT_TRUE(brushEntry("shape")->hasSetting("tube"));
+    EXPECT_FALSE(brushEntry("shape")->hasSetting("collide")) << "it moves no guide point";
     EXPECT_EQ(brushEntry("grab"), nullptr) << "Comb does what Grab did";
     EXPECT_EQ(brushEntry("clump"), nullptr) << "the Paint brush paints the clump attribute";
     EXPECT_EQ(brushEntry("density"), nullptr) << "Paint on a setting's map (+ New Map > for a setting)";
@@ -50,7 +55,7 @@ TEST(BrushCatalog, EveryToolOnceInCategoryOrder) {
 
 TEST(BrushCatalog, EveryStrokeToolModeIsListedWithItsSettings) {
     // Every mode the stroke tools take is in the catalog, and the hosts' own tools too.
-    for (const char* mode : {"comb", "smooth", "lift", "length", "tube", "paint", "cut", "twist", "curl", "straighten",
+    for (const char* mode : {"comb", "smooth", "lift", "length", "shape", "paint", "cut", "twist", "curl", "straighten",
                              "attract", "erase", "slide", "direction", "noise", "place", "draw", "part",
                              "flow"}) {
         const BrushEntry* e = brushEntry(mode);
@@ -63,7 +68,7 @@ TEST(BrushCatalog, EveryStrokeToolModeIsListedWithItsSettings) {
     EXPECT_TRUE(brushEntry("select"));
     EXPECT_TRUE(brushEntry("freeze"));
     // The signed tools, their default strengths, and the settings the hosts' cards show.
-    for (const char* signedTool : {"lift", "twist", "curl", "attract", "length", "tube"}) EXPECT_TRUE(brushEntry(signedTool)->signedStrength) << signedTool;
+    for (const char* signedTool : {"lift", "twist", "curl", "attract", "length", "shape"}) EXPECT_TRUE(brushEntry(signedTool)->signedStrength) << signedTool;
     EXPECT_FALSE(brushEntry("comb")->signedStrength);
     EXPECT_FLOAT_EQ(brushEntry("smooth")->defaultStrength, 0.5f);
     EXPECT_FLOAT_EQ(brushEntry("comb")->defaultStrength, 1.0f);

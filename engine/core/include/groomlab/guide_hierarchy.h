@@ -15,6 +15,7 @@
 #include "groomlab/math.h"
 #include "groomlab/strand_set.h"
 #include "groomlab/transfer.h"
+#include "groomlab/tube.h"
 
 namespace groomlab {
 
@@ -25,13 +26,6 @@ using GroupId = std::uint32_t;
 constexpr GuideId kNoGuide = 0;
 constexpr GroupId kNoGroup = 0;
 
-// A guide's tube: the volume its child guides are generated in (GH-3).
-struct TubeProfile {
-    std::vector<float> radius{0.1f, 0.1f};  // scene units, evenly spaced root to tip, linear between
-    float twist = 0.0f;                     // radians, root to tip; rotates the children's cross-section
-
-    float radiusAt(float t) const;
-};
 
 // A named set of guides. Groups form a tree (GH-1): each child group's guides
 // have their parents in the parent group. Depth 0 groups hold primary guides.
@@ -51,7 +45,7 @@ struct HierarchyGuide {
     GuideId parent = kNoGuide;  // kNoGuide for primary guides
     bool locked = false;        // locked children keep their own world shape (GH-6)
     StrandRoot root;
-    TubeProfile tube;
+    TubeProfile tube;  // tube.h: its shape and sections, the volume its children (and fillTubes' strands) fill
     // Reference direction for this guide's first frame normal (projected
     // perpendicular to the root tangent). Fixed at creation so the frame, and
     // with it every child, turns smoothly when the guide is reshaped.
@@ -75,11 +69,19 @@ struct HierarchyGuide {
     // cleared by setPoints so the next evaluate re-binds.
     std::vector<Vec3f> rootLocal;
     Vec3f frameUpLocal{1, 0, 0};
+    // Its frame is laid across the scalp at the next evaluate (setTube gave its tube a shape; a
+    // new primary with a shaped tube is laid so when first rooted). Not stored, not hashed.
+    bool layFrame = false;
+    // The scalp's normal at its root, from the last evaluate on a scalp (zero before): where its
+    // children root on a shaped tube's footprint (generateChildren). Not stored, not hashed.
+    Vec3f rootNormal;
 
     // Following children only (GH-5): shape relative to the parent, one entry
-    // per parent sample t = i / (n - 1). x and y are cross-section coordinates
-    // in the parent's rotation-minimizing frame, in units of the parent's tube
-    // radius; z is along the parent's tangent, in scene units.
+    // per parent sample t = i / (n - 1). x and y are the parent tube's section
+    // coordinates (tube.h: in its rotation-minimizing frame, turned by the
+    // section's twist, in units of its width across and width times aspect up),
+    // so children follow the tube as it flattens, twists and tapers; z is along
+    // the parent's tangent, in scene units.
     std::vector<Vec3f> offsets;
 
     bool isChild() const { return parent != kNoGuide; }
@@ -89,13 +91,22 @@ struct HierarchyGuide {
 };
 
 // Settings for GuideHierarchy::generateChildren (GH-4).
+// Children are placed inside the parent tube's shape (a round tube: a disc; other shapes: their
+// outline, uniformly over its area), spread over rootSpread of it at the root and tipSpread at the
+// tip. A child of a shaped tube (TubeProfile::shaped) starts its frames from its parent's root
+// frame, so its own tube (the parent's, narrower) lies the same way. On a scalp, a child of a
+// guide leaving the scalp at a slant has its root on the parent's root footprint (the root section
+// laid flat on the scalp, as TubeSpine::setRootSurface lays it for strands): spread over the
+// section's area rather than squeezed onto a line, its point joining the section over a few
+// section widths along the parent. Leaning up to 30 degrees from the scalp's normal: the root
+// section snapped onto the scalp as it always was; the footprint in full from 60 degrees.
 struct ChildGenerationParams {
     std::size_t count = 5;         // children per parent guide
-    float rootSpread = 0.8f;       // root disc radius, in parent tube radii
-    float tipSpread = 1.0f;        // tip disc radius, in parent tube radii
+    float rootSpread = 0.8f;       // share of the parent's section the roots spread over
+    float tipSpread = 1.0f;        // share of the parent's section the tips spread over
     float twist = 0.0f;            // radians, extra rotation of each child around the parent, root to tip
-    float jitter = 0.1f;           // random tip offset, in parent tube radii
-    float childTubeScale = 0.35f;  // child tube radius as a fraction of the parent's
+    float jitter = 0.1f;           // random tip offset, in section units of the parent's tube
+    float childTubeScale = 0.35f;  // child tube width as a fraction of the parent's (its shape, aspect and twist the parent's)
     std::uint64_t seed = 0;
 };
 
@@ -147,7 +158,7 @@ public:
     // Adds a child of `parent` to `group` (a child group of the parent's group)
     // with the given world shape, e.g. placed by hand. It follows its parent
     // from then on, keeping this shape relative to it. Without a tube (or with
-    // one of no radii) it takes the parent's, scaled by 0.35. Returns its ID.
+    // one of no widths) it takes the parent's, its width scaled by 0.35. Returns its ID.
     GuideId addChildGuide(GroupId group, GuideId parent, std::vector<Vec3f> points,
                           std::optional<TubeProfile> tube = std::nullopt);
 
@@ -164,9 +175,9 @@ public:
     void evaluate(const ScalpMesh* scalp);
     // The size the guides are shown at, as a groom scaled with its scalp is (GroomSession::
     // groomScale): evaluate rebuilds each bound guide's shape (rootLocal) times it about its root,
-    // following children sit at their offsets times it (tube radii and the distance along the
+    // following children sit at their offsets times it (tube widths and the distance along the
     // parent: tubes are that much wider), and binding (a guide edited or added in world space)
-    // divides it out, so what is stored (rootLocal, offsets, tube radii) stays at the groom's own
+    // divides it out, so what is stored (rootLocal, offsets, tube widths) stays at the groom's own
     // size whatever size it is shown at. 1 by default; copies keep it; not stored (toJson). Call
     // evaluate after.
     void setScale(float scale);
@@ -224,7 +235,7 @@ public:
     void transfer(const ScalpMesh& from, const ScalpMesh& to, const ScalpFit& fit = {});
     // The same by any mapping (transfer.h) between the two meshes it was built on: each primary
     // and locked guide re-rooted where the mapping takes its root, its shape carried by the
-    // mapping's local rotation and scale there (closest and bounds: as above); tube radii and
+    // mapping's local rotation and scale there (closest and bounds: as above); tube widths and
     // children's offsets along scale with the guide they hang from (keepLengths: they keep theirs).
     void transfer(const ScalpMapping& mapping);
     // Removes guides and their descendants.
@@ -238,7 +249,32 @@ public:
     // it to offsets; their children follow on the next evaluate. Per-point
     // layers are resampled to the new point count.
     void setPoints(GuideId id, std::vector<Vec3f> points);
+    // A guide's tube. A primary without children given a shape (another shape, or round to
+    // shaped) has its frame laid across the scalp at its next evaluate: the new shape lies flat on
+    // the head at twist 0, across the way the guide lies over the scalp. A library shape (tube.h:
+    // TubeProfile::custom) is the library's entry of that name; one the library lacks is added.
     void setTube(GuideId id, TubeProfile tube);
+
+    // ---- Tube shape library ---------------------------------------------
+    // Custom tube shapes (tube.h: CustomTubeShape), saved with the hierarchy (toJson). Guides take
+    // one by name (TubeProfile::custom) as they take a built-in shape: children, Interpolate's
+    // fillTubes, clumps and the display fill and draw its outline.
+    const TubeShapeLibrary& tubeShapes() const { return tubeShapes_; }
+    CustomTubeShapePtr tubeShape(const std::string& name) const;  // null when absent
+    // Adds a shape, or gives the one of that name new points: every guide taking it takes the new
+    // outline (call evaluate after). Throws std::invalid_argument as makeCustomTubeShape does.
+    CustomTubeShapePtr setTubeShape(const std::string& name, const std::vector<SectionPoint>& points, bool smooth = true);
+    // Renames a shape; the guides taking it keep it. Throws std::invalid_argument on an unknown
+    // name, or a new one taken or not allowed (checkTubeShapeName).
+    void renameTubeShape(const std::string& from, const std::string& to);
+    // Removes a shape (throws std::invalid_argument on an unknown name): the guides taking it
+    // become round. Returns how many did.
+    std::size_t removeTubeShape(const std::string& name);
+    // How many guides take the shape.
+    std::size_t tubeShapeUsers(const std::string& name) const;
+    // What fromJson could not read as saved, said for the user: guides whose library shape was
+    // missing (each loads round).
+    const std::vector<std::string>& loadWarnings() const { return loadWarnings_; }
     void setAttribute(GuideId id, const std::string& name, float value);
     // Sets a per-point layer: `values` are resampled to the guide's point count
     // when they differ. Empty values remove the layer from the guide.
@@ -246,7 +282,8 @@ public:
 
     // ---- Output ---------------------------------------------------------
     // Guides of every group at `level` (-1: the deepest level), as a flat set
-    // for operators such as Interpolate.
+    // for operators such as Interpolate. Each carries its tube (widths at the
+    // size shown, scale()) and frameUp, for Interpolate's fillTubes.
     GuideSet flatten(int level = -1) const;
     // A guide's attributes over those it inherits from its ancestors.
     std::map<std::string, float> effectiveAttributes(const HierarchyGuide& g) const;
@@ -289,9 +326,13 @@ private:
     // Evaluates guides in `order` (parents first), computing each parent's frames once for all its followers.
     void evaluateInOrder(const std::vector<std::size_t>& order, const ScalpMesh* scalp);
     void evaluateGuide(HierarchyGuide& g, const ScalpMesh* scalp, const std::vector<Frame>* parentFrames = nullptr);
+    // evaluateGuide's shape and rooting, before what it reads of the scalp for its children and tube.
+    void placeGuide(HierarchyGuide& g, const ScalpMesh* scalp, const std::vector<Frame>* parentFrames);
     std::vector<std::size_t> depthOrder(const std::vector<std::size_t>& indices) const;
     std::vector<std::size_t> subtrees(const std::vector<GuideId>& roots, bool includeRoots) const;
     std::vector<Vec3f> offsetsFromWorld(const HierarchyGuide& child, const HierarchyGuide& parent) const;
+    // A tube's library shape made this hierarchy's entry of that name (added when it has none).
+    void adoptTubeShape(TubeProfile& tube);
     void rebuildIndex();
     void invalidateHash() { hashMemo_.valid.store(false, std::memory_order_relaxed); }
 
@@ -317,6 +358,8 @@ private:
     GuideId nextGuideId_ = 1;
     std::uint64_t boundTopology_ = 0;
     float scale_ = 1.0f;  // setScale
+    TubeShapeLibrary tubeShapes_;
+    std::vector<std::string> loadWarnings_;
 };
 
 }  // namespace groomlab

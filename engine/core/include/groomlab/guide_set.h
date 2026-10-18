@@ -3,11 +3,13 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "groomlab/math.h"
 #include "groomlab/strand_set.h"
+#include "groomlab/tube.h"
 
 namespace groomlab {
 
@@ -24,6 +26,15 @@ struct Guide {
     // Per-point layers: one value per point of `points`, painted along the
     // guide; Interpolate blends them into point channels of the same name.
     std::map<std::string, std::vector<float>> pointAttributes;
+    // Its tube (tube.h), when it comes from a guide hierarchy (hasTube; widths at the size the
+    // hierarchy shows), and the reference its first frame normal starts from: what
+    // Interpolate's fillTubes fills. Guides from curves, ToGuides and the like have none.
+    bool hasTube = false;
+    TubeProfile tube;
+    Vec3f frameUp{1, 0, 0};
+    // The level of the hierarchy it comes from (0: a root group's): where tubes of several levels
+    // hold a strand's root, fillTubes takes the deepest.
+    int depth = 0;
 };
 
 // Whether a curve was drawn tip-first: its last point nearer the mesh than its
@@ -56,6 +67,14 @@ public:
 
     std::uint64_t contentHash() const;
 
+    // Interpolate's fillTubes fills the tubes of every level of the hierarchy these guides come
+    // from, not only theirs: the guides of the other levels of their groups' family (the groups
+    // above and below theirs; a Guides node's exclude still holds), each with its tube, frameUp
+    // and depth (no attributes). Null: none (a single level, or guides not from a hierarchy).
+    // Copies of the set share it; part of the hash.
+    const std::shared_ptr<const std::vector<Guide>>& levelTubes() const { return levelTubes_; }
+    void setLevelTubes(std::shared_ptr<const std::vector<Guide>> tubes) { levelTubes_ = std::move(tubes); }
+
     // The color these guides draw in when they are shown as guides (a ToGuides node's `color`,
     // carried by copies: a Sculpt node's editable guides). Display only: not part of the hash.
     bool hasDisplayColor() const { return hasDisplayColor_; }
@@ -67,6 +86,7 @@ public:
 
 private:
     std::vector<Guide> guides_;
+    std::shared_ptr<const std::vector<Guide>> levelTubes_;
     Vec3f displayColor_{0, 0, 0};
     bool hasDisplayColor_ = false;
 };

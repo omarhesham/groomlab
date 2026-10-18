@@ -46,6 +46,7 @@ add_library(groomlab_core_objects OBJECT
     src/guide_hierarchy.cpp
     src/guide_selection.cpp
     src/guide_set.cpp
+    src/tube.cpp
     src/instances.cpp
     src/node_catalog.cpp
     src/noise.cpp

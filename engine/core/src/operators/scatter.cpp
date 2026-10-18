@@ -28,6 +28,13 @@
 // moved at random in it, gridRandom), on the first face (in face order) whose UVs hold it. Its IDs come
 // from the cell, so a grid keeps its strands while the scalp deforms; a density map thins it.
 //
+// Around the guides (guideRadius): roots within guideRadius of a guide's root, or, for a guide
+// whose tube has a shape (tube.h: TubeProfile::shaped, whether or not an Interpolate fills it), on
+// its root footprint instead (the root section laid flat on the scalp, TubeSpine::setRootSurface,
+// as Interpolate's fillTubes finds the strands it fills) or within tubeMargin of its outline (in
+// half-widths, Interpolate's tubeBlend's measure): so a flat blade's or a ribbon's footprint is
+// filled, at the scatter's density, and not a disc round it.
+//
 // Subdivision: on a refined scalp (the Scalp node's subdivision, smooth preview, match render) the
 // roots are placed on its cage, as on the scalp without subdivision, and each is carried onto the
 // refined surface (CageBinding): the same strands, with the same IDs, whatever the level; only
@@ -55,6 +62,7 @@
 #include "groomlab/scalp_pieces.h"
 #include "groomlab/subdivision.h"
 #include "groomlab/texture.h"
+#include "groomlab/tube.h"
 #include "internal.h"
 
 namespace groomlab {
@@ -289,6 +297,60 @@ std::vector<StrandRoot> mixRoots(const std::vector<StrandRoot>& even, const std:
     return mixed;
 }
 
+
+// Scatter's guideRadius for guides with a shaped tube: their root footprints (TubeSpine laid on
+// the scalp), each holding the roots on it or within `margin` half-widths of its outline.
+class GuideFootprints {
+public:
+    explicit GuideFootprints(float margin) : margin_(margin) {}
+    // A guide's tube, its root moved to `root` (where the scatter reads it: the rest pose), laid
+    // on the surface of normal `normal` there.
+    void add(const Guide& g, const Vec3f& root, const Vec3f& normal) {
+        std::vector<Vec3f> pts = g.points;
+        const Vec3f move = root - pts.front();
+        for (Vec3f& p : pts) p += move;
+        TubeSpine spine(pts.data(), pts.size(), g.frameUp, g.tube);
+        spine.setRootSurface(normal);
+        if (spine.empty() || !(spine.rootWidth() > 0.0f) || !(spine.rootHeight() > 0.0f)) return;
+        hash_ = hashTube(hashCombine(hash_, g.tube.roll.size()), g.tube);
+        for (const float r : g.tube.roll) hash_ = hashFloat(hash_, r);
+        for (const Vec3f& p : pts) hash_ = hashFloat(hashFloat(hashFloat(hash_, p.x), p.y), p.z);
+        for (const Vec3f& v : {g.frameUp, normal}) hash_ = hashFloat(hashFloat(hashFloat(hash_, v.x), v.y), v.z);
+        spines_.push_back(std::move(spine));
+    }
+    bool empty() const { return spines_.empty(); }
+    std::uint64_t hash() const { return hashFloat(hashCombine(hash_, spines_.size()), margin_); }
+    void index() {
+        std::vector<Vec3f> centers;
+        float cell = 0.0f;
+        for (const TubeSpine& s : spines_) {
+            const float extent = std::max(s.rootWidth(), s.rootHeight());
+            cell = std::max(cell, extent * std::sqrt((1.0f + margin_) * (1.0f + margin_) + kAlong * kAlong));
+            centers.push_back(s.atSample(0, 0.0f, 0.0f));
+        }
+        grid_ = std::make_unique<CellGrid>(centers, cell);
+    }
+    bool covers(const Vec3f& p) const {
+        bool in = false;
+        grid_->around(p, [&](std::uint32_t i) {
+            const TubeSpine& s = spines_[i];
+            float along = 0.0f;
+            const SectionPoint at = s.rootCoords(p, &along);
+            if (std::abs(along) > kAlong * std::max(s.rootWidth(), s.rootHeight())) return true;
+            in = tubeOutsideDistance(s.tube(), s.rootHeight() / s.rootWidth(), at.u, at.v, margin_) <= margin_;
+            return !in;
+        });
+        return in;
+    }
+
+private:
+    static constexpr float kAlong = 4.0f;  // how far off the footprint's plane a root may lie, in root extents (Interpolate's)
+    float margin_;
+    std::vector<TubeSpine> spines_;
+    std::unique_ptr<CellGrid> grid_;
+    std::uint64_t hash_ = 0x7EBEu;
+};
+
 class ScatterOp : public Operator {
 public:
     std::string typeName() const override { return op::kScatter; }
@@ -362,6 +424,13 @@ public:
                 .atLeast(0)
                 .soft(0, 5)
                 .adv(),
+            notAnimatable({"tubeMargin", 0.0, "With guideRadius: guides whose tube has a shape keep the roots on their "
+                                               "tube's root footprint (its outline laid on the scalp) instead of a disc, "
+                                               "and within this share of the tube's half-width round it (as Interpolate's "
+                                               "tubeBlend measures)", "fraction"})
+                .atLeast(0)
+                .soft(0, 1)
+                .adv(),
         };
     }
 
@@ -403,21 +472,41 @@ public:
         // scalp) drop, like a density map that is 1 near the guides and 0 elsewhere.
         const float guideRadius = static_cast<float>(params().getDouble("guideRadius"));
         std::unique_ptr<PointIndex> guideRoots;
+        std::unique_ptr<GuideFootprints> footprints;
         std::uint64_t guideRootsHash = 0;
         if (guideRadius > 0.0f) {
             if (!guides || guides->empty()) {
                 throw GraphError("Scatter: guideRadius needs guides on the guides input (a Guides node)");
             }
+            const float margin = static_cast<float>(std::max(params().getDouble("tubeMargin"), 0.0));
             std::vector<Vec3f> positions;
             positions.reserve(guides->size());
+            auto shaped = std::make_unique<GuideFootprints>(margin);
             for (const Guide& g : guides->guides()) {
                 if (g.points.empty()) continue;
-                positions.push_back(binding.stablePosition(g.root, g.points[0]));
+                const Vec3f root = binding.stablePosition(g.root, g.points[0]);
+                if (g.hasTube && g.tube.shaped() && g.points.size() >= 2) {
+                    shaped->add(g, root, surface.contains(g.root) ? surface.normal(g.root) : Vec3f{});
+                } else {
+                    positions.push_back(root);
+                }
             }
             guideRootsHash = hashFloat(hash64(positions.size()), guideRadius);
+            if (!shaped->empty()) guideRootsHash = hashCombine(guideRootsHash, shaped->hash());  // (none: as it always was)
             for (const Vec3f& p : positions) guideRootsHash = hashFloat(hashFloat(hashFloat(guideRootsHash, p.x), p.y), p.z);
-            guideRoots = std::make_unique<PointIndex>(std::move(positions));
+            if (!positions.empty()) guideRoots = std::make_unique<PointIndex>(std::move(positions));
+            if (!shaped->empty()) {
+                shaped->index();
+                footprints = std::move(shaped);
+            }
         }
+        // A root kept by guideRadius: near a guide's root, or on a shaped tube's footprint.
+        auto nearGuides = [&](const Vec3f& at) {
+            float d2 = 0.0f;
+            if (guideRoots && guideRoots->nearest(at, &d2) != SIZE_MAX && d2 <= guideRadius * guideRadius) return true;
+            return footprints && footprints->covers(at);
+        };
+        const bool aroundGuides = guideRoots || footprints;
 
         if (!std::isfinite(density) || !std::isfinite(surface.restTotalArea())) {
             throw GraphError("Scatter: the density (or the scalp's area) is not a finite number");
@@ -532,11 +621,7 @@ public:
                     const float p = densityField.atCageRoot(root) / static_cast<float>(density);
                     keep[i] = unitFloat(hashCombine(id, 0xD3A5)) < p ? 1 : 0;
                 }
-                if (keep[i] && guideRoots) {
-                    float d2 = 0.0f;
-                    const Vec3f where = surface.restPositionOr(root, surface.position(root));
-                    if (guideRoots->nearest(where, &d2) == SIZE_MAX || d2 > guideRadius * guideRadius) keep[i] = 0;
-                }
+                if (keep[i] && aroundGuides && !nearGuides(surface.restPositionOr(root, surface.position(root)))) keep[i] = 0;
             });
             auto placed = std::make_shared<Placed>();
             for (std::size_t i = 0; i < taken.size(); ++i) {
@@ -592,10 +677,8 @@ public:
                     const float p = densityField.atCageRoot(roots[i]) / static_cast<float>(density);
                     keep[i] = unitFloat(hashCombine(s.id, 0xD3A5)) < p ? 1 : 0;
                 }
-                if (keep[i] && guideRoots) {
-                    float d2 = 0.0f;
-                    const Vec3f at = surface.restPositionOr(roots[i], surface.position(roots[i]));
-                    if (guideRoots->nearest(at, &d2) == SIZE_MAX || d2 > guideRadius * guideRadius) keep[i] = 0;
+                if (keep[i] && aroundGuides && !nearGuides(surface.restPositionOr(roots[i], surface.position(roots[i])))) {
+                    keep[i] = 0;
                 }
             });
             std::size_t kept = 0;

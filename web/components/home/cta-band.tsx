@@ -60,6 +60,7 @@ export function CtaBand() {
             </a>
           </p>
           <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-8">
+            <TextLink href={siteConfig.discordUrl}>Join the Discord</TextLink>
             <TextLink href="/docs/installation">Read the install guide</TextLink>
             <TextLink href="/docs/whats-new">What&apos;s new</TextLink>
           </div>

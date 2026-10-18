@@ -115,7 +115,7 @@ def guides(points, tris):
             t = k / 4.0
             pts.extend((q[0] + d[0] * t, q[1] + d[1] * t, q[2] + d[2] * t))
         out.append({"id": gid, "group": 1, "root": [face, u, v], "frameUp": [1.0, 0.0, 0.0],
-                    "tube": {"radius": [0.5, 0.5], "twist": 0.0}, "points": pts, "attributes": {"side": side}})
+                    "tube": {"shape": "round", "width": [0.5, 0.5]}, "points": pts, "attributes": {"side": side}})
     return {"groups": [{"id": 1, "name": "primary", "parent": 0}], "guides": out}
 
 

@@ -775,6 +775,10 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
                     *why = doc.nameOf(id) + " takes the guides' length alone: the CPU's";
                     return false;
                 }
+                if (params.getBool("fillTubes")) {
+                    *why = doc.nameOf(id) + " fills the guides' tubes (fillTubes): the CPU's";
+                    return false;
+                }
                 const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
                 const std::size_t samples = in ? interpolateSamples(*in) : 0;
                 if (samples > kMaxInterpolateSamples) {
@@ -795,6 +799,17 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
                 break;
             }
             case StageKind::Clump: {
+                // Strands filling tube guides (an Interpolate's fillTubes) clumped inside their tubes
+                // (a Clump's followTubes picking its own centers, a Wet's levels): the CPU's.
+                if (stage.level >= 0 || (params.getBool("followTubes") && params.getString("centersFrom") == "pick")) {
+                    const StrandsPtr in = cachedStrands(graph, upstream(graph, id));
+                    const std::vector<float>* tubes = in ? in->strandChannel("tubeId") : nullptr;
+                    if (tubes && in->strandChannel("tubeU") && in->strandChannel("tubeV") &&
+                        std::any_of(tubes->begin(), tubes->end(), [](float t) { return t >= 0.0f; })) {
+                        *why = doc.nameOf(id) + " clumps strands inside their tubes (followTubes): the CPU's";
+                        return false;
+                    }
+                }
                 // A Clump's params but its strength, volumize and profiles, `get` reading a number.
                 auto shape = [&](const ParamSet& clump, const auto& get) {
                     s.value[2] = static_cast<float>(get("flatness"));

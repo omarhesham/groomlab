@@ -1,6 +1,6 @@
 ---
 title: Guides & brushes
-description: The guide hierarchy (primary and child guides), guide groups with show/hide and color, freezing and soloing guides, the grooming brushes and their settings, and how a groom scales with its scalp.
+description: The guide hierarchy (primary and child guides), tube guides (shaped tubes and Fill Tubes), guide groups with show/hide and color, freezing and soloing guides, the grooming brushes and their settings, and how a groom scales with its scalp.
 ---
 
 Guides are the curves you shape by hand; the render strands are interpolated between them. The
@@ -55,6 +55,179 @@ and reshapes all its descendants.
 - **Which guides drive the strands:** by default Interpolate uses the deepest level of the
   hierarchy. Once children exist, the strands are interpolated from the children, and the
   primaries shape the strands through them ([Interpolate](/docs/node-graph#interpolate-and-guide-influence)).
+
+## Tube guides
+
+Every guide has a **tube**: the volume around it that its children are generated in and that
+Interpolate's **Fill Tubes** fills with strands. Shaping tubes gives anime and cartoon hair, Pixar
+style locks and spikes: each lock is shaped as a whole and its strands stay inside it to the tip,
+with no mesh to model.
+
+A tube is one **shape** carried along the guide, changed along the way by its **sections**:
+
+- **Shape:** `round`, `ribbon` (a rounded rectangle), `teardrop` (round against the scalp, pointed
+  away from it) or `blade` (pointed at both edges), or a **custom shape** from the groom's shape library
+  (below). One per tube. Picking a shape for a guide lays its tube flat on the head: at twist 0 its
+  width runs along the scalp, across the way the guide lies, and its height off it.
+- **Width:** half the section's width, in scene units (a round tube's radius).
+- **Aspect:** the section's height over its width. 1 draws the shape as designed; toward 0 it
+  flattens into a ribbon.
+- **Twist:** the angle the section is turned to at that point, in radians (not accumulated: 0 at
+  the root and 3.14 at the tip turns it half a turn along the guide).
+
+Width, aspect and twist are each a list of values spaced evenly from root to tip, blended between
+(one value applies along the whole guide). The tube turns with the guide: its sections follow the
+guide's frames, so bending a guide carries its tube and everything inside it.
+
+**Sections follow the head.** A shaped tube's sections also turn to lie as the scalp does, all
+along the guide: where the guide runs over the head (within a couple of section widths of the
+scalp), twist 0 keeps the section's width along the scalp and its height off it, however the guide
+curves round the head, so a ribbon combed over the head stays flat on it instead of drifting on
+its side. Farther from the scalp the sections carry on as they left it (a lock hanging off the head
+keeps its way), blending smoothly in between; twist turns the section from there. A plain round
+tube is left as it is (its children and strands as before).
+
+**Custom shapes (the shape library).** Each groom has a library of custom tube shapes, saved with
+its guides (in the scene and in `.groom` files). A custom shape is an outline drawn by control
+points in the section's square, -1 to 1 across and up with the guide through the middle: a smooth
+curve through them (**Smooth**, the default) or straight edges with sharp corners. Guides take a
+library shape by name just as they take a built-in one, and everything follows its outline exactly
+as with a built-in: children are made inside it, Fill Tubes fills it, clumps stay in it, the wires
+draw it. Editing a shape changes every guide using it at once (one undo step). An outline must not
+cross itself and must surround its center (where the guide runs): edits that break either are
+refused with a message saying what to fix. Saved points are fitted into the square, so a shape
+drawn small comes back filling it. A guide whose library shape is missing (a hand-edited file)
+loads round, with a warning.
+
+**Children follow the tube.** Children are generated inside the shape's outline, not a disc, and
+keep their place in its sections: flatten a tube and its children flatten with it, twist it and
+they twist, taper it and they gather. A child's own tube is its parent's, narrower (**Tube scale**),
+lying the same way. Children of a shaped tube whose guide leaves the head at a slant root on its
+footprint (the root section laid flat on the scalp, as its strands do), spread over the section's
+area rather than squeezed onto a line across it; guides within 30 degrees of standing straight up
+keep their children's roots as before, and plain round tubes keep theirs.
+
+**Setting up.** Fill Tubes on the Interpolate node is all it takes (the **Tube locks (anime)**
+preset, under Hair in the Presets menu, has it on, with soft clumps that follow the tubes): place
+guides, then shape their tubes with the Shape brush. A Clump after it follows the tubes by itself.
+
+**Fill Tubes.** Turn on Interpolate's `fillTubes` and every strand rooted inside a guide's tube's
+**footprint** (the root section laid flat on the scalp round the guide's root, so it covers the
+section's whole area however steeply or shallowly the guide leaves the head) takes its place in the
+tube's cross-section and keeps it from root to tip: the hair fills the tube exactly, flattening,
+twisting and tapering with it, and is as long as the guide. Within a few widths of the root each
+strand rises from its footprint into the tube. Strands rooted in no tube are interpolated from the guides
+as usual, so tubes can cover the whole scalp or only some locks. The tubes of **every guide level**
+fill, whatever level the Guides node hands Interpolate: where tubes of several levels hold a root
+(a child's tube inside its parent's), the deepest one takes the strand, so the child's tube fills
+its own footprint and the parent's tube the rest of its. A Guides node's `exclude` leaves its
+groups' tubes out too. Where tubes of one level overlap, a strand takes the tube it lies most
+centrally in. Strands in a tube carry `tubeId` (which tube), `tubeU` and `tubeV` (their place in
+its section, -1 to 1).
+
+**Tube Blend** (Interpolate's `tubeBlend`, 25% by default) is the tubes' soft edge, as a share of
+each tube's half-width at its root. A strand rooted just outside a tube, within that distance of
+its outline (measured on the footprint, equally thick all round however flat the tube),
+leans from its usual shape toward riding the tube: all the way at the outline, none at the band's
+edge, smoothly between. So there is no seam between the hair filling a tube and the hair around
+it, nor round a child's tube inside its parent's. Strands past the band are exactly as without
+Fill Tubes. 0 gives a hard edge.
+
+**Clumps in tube space.** A Clump after it (with `followTubes`, on by default: nothing to set)
+picks each tube's clumps among the tube's strands and clumps a strand only toward its own tube's
+centers, so clumps stay inside the tube and flatten, twist and taper with it.
+
+**New guides take the chosen shape.** A guide you place or draw (symmetry's mirror guide too) gets
+the shape chosen in the **Tubes** panel (a built-in or a library shape; round until you pick one),
+and, with **Match neighbors** on, its width, flatness and twist blended from the two nearest guides'
+(the nearer counting more), so a new lock starts as thick and as flat as the locks round it. With no
+guides around (or Match neighbors off), it takes the panel's **Width**, **Flatness** and **Twist**.
+In Python: `brush_tool("place", tube={"shape": "leaf", "width": 0.1})` (and `brush_stroke(...,
+tube=...)`); `placement_tube()` reads it back.
+
+**Scatter fills tube footprints.** A Scatter with **guideRadius** keeps roots only near the guides;
+round a guide with a shaped tube that means its footprint (the root section laid on the scalp, plus
+**tubeMargin**, a share of the half-width as Tube Blend measures; 0 by default: exactly the footprint) instead of a disc round
+its root, so a wide blade's or a ribbon's footprint fills evenly at the scatter's density, upright
+or lying low. Guides without a shaped tube keep the disc of guideRadius.
+
+**Shaping tubes in Maya.** Pick the **Shape** brush (**Groom Tools > Tools > Shape**). While it is
+on, the tubes of every guide it can shape (shown and not frozen) draw as wires: the outline of each
+section at every guide point, where the brush paints, and lines along the tube through the shape's
+corners (a blade's points and crests, a ribbon's corners, a teardrop's point), so the shape reads.
+The selected guides' tubes draw brighter.
+
+- **Paints: Width, Flatness, Twist.** Drag over guides to paint their tubes near the brush, each
+  section by the brush's falloff (and the **Root to tip** curve) at its guide point. **Width**
+  grows the tubes (**Ctrl** shrinks them), **Flatness** flattens them toward a ribbon (**Ctrl**
+  rounds them back), **Twist** turns them about the guide (**Ctrl** the other way). The first
+  stroke on a tube gives it one section per guide point, so you shape it point by point.
+  Symmetry, Selected only, frozen and soloed guides work as with every brush; each stroke is one
+  undo step.
+- **Shift+drag smooths** what the brush paints: the channel picked (width, flatness or twist) of the
+  sections under the brush, each evened out toward its neighbours along the guide. The guides'
+  shape stays as it is (other brushes' Shift+drag smooths the guides, as ever).
+- **Tubes** (in the brush's card, and in Place's and Draw's): each guide keeps its own tube, and the
+  card edits **only its targets**: the selected guides (select them with **Select**), or with none
+  selected the soloed ones (**Shift+click** a guide with a brush). It follows every change of the
+  selection or solo. Pick the **Shape** (the built-ins, then the library's; it shows **Mixed** while
+  the targets' shapes differ), set the **Width** (the tubes scaled so the first one's widest section
+  is that wide; their taper and painted detail kept), **Flatness** and **Twist** (the same from root
+  to tip). The shape and values are also what Place and Draw give new guides. **Smooth** evens out
+  the targets' tubes along their guides, the **Current channel** (the one the brush paints) or **All
+  channels**. **Fill Tubes** and **Tube Blend** set the groom's Interpolate nodes (disabled when the
+  graph has none). Each change is one undo step.
+- **The shape editor** (in the Tubes card): a square showing the chosen shape's outline, the guide
+  at the cross, its height (off the scalp) up. A built-in shows read-only: **Edit as Custom** copies
+  it into the library as a new shape (the targets take it). A library shape's points drag (the
+  groom shows the change live while you drag; letting go saves it, one undo step, every guide using
+  it following); **click the outline** between two points to add one; **right-click** a point to
+  remove it (three stay at least). **Mirror** (on by default) keeps the left and right sides alike:
+  a point and its mirror image move, come and go together, points on the middle line stay on it.
+  **Smooth** switches between a smooth curve and straight edges. Under it: **New** (a circle to start
+  from), **Rename** (type the name in place, Enter), **Duplicate**, **Delete** (click twice: the
+  button says how many guides go round; they become round) and **Apply to Selected**. None of these
+  opens a dialog.
+
+**Seeing tubes.** Turn on **Display Tubes** in the groom's Attribute Editor (`displayTubes`; in
+the app, **Tubes** in the Display panel) to draw every guide's tube with its shape and sections.
+
+**From Python** (Maya), one undo step per call:
+
+```python
+import groomlab
+# A flat ribbon that turns a quarter turn and tapers, on two guides.
+groomlab.set_tube(groom, guides=ids, shape="ribbon", width=[0.4, 0.1], aspect=0.2, twist=[0.0, 1.57])
+groomlab.set_tube(groom, group="primary", samples=8)  # 8 sections along each tube, to shape finely
+groomlab.get_tube(groom, ids[0])  # {"shape": "ribbon", "width": [...], "aspect": [...], "twist": [...]}
+groomlab.scale_tube(groom, 1.5, guides=ids)  # every width times 1.5, the taper kept
+groomlab.smooth_tube(groom, guides=ids, channel="flatness", passes=3)  # or "width", "twist", "all" (None)
+groomlab.set_fill_tubes(groom, on=True, blend=0.25)  # Fill Tubes and Tube Blend on every Interpolate
+groomlab.fill_tubes(groom)  # {"fillTubes": True, "tubeBlend": 0.25}, or None without an Interpolate
+groomlab.brush_stroke(groom, "shape", points, radius=0.3, tube_channel="flatness")  # a scripted stroke
+# The shape library: custom outlines, (u, v) control points in the -1..1 square, in order round it.
+groomlab.add_tube_shape(groom, "leaf", [(0, 1), (-0.6, 0.2), (0, -1), (0.6, 0.2)], smooth=True)
+groomlab.set_tube(groom, guides=ids, shape="leaf")  # guides take it by name
+groomlab.set_tube_shape_points(groom, "leaf", points)  # every guide using it follows (smooth= too)
+groomlab.tube_shapes(groom)  # the built-ins and the library: name, builtin, points, smooth, users
+groomlab.rename_tube_shape(groom, "leaf", "petal")
+groomlab.remove_tube_shape(groom, "petal")  # its guides become round; returns how many
+groomlab.preview_tube_shape(groom, "leaf", points)  # shown live, nothing stored (end_guide_preview)
+groomlab.tube_targets(groom)  # what the Tubes panel edits: the selected guides, else the soloed ones
+```
+
+`set_tube` takes `guides`, `group` or `level` (default: the selected guides) and any of `width`,
+`aspect`, `twist`, `shape` and `samples`; what you leave out stays. The command underneath is
+`groomLabGuides -setTube <json>` (its keys: `shape`, `width`, `aspect`, `twist`, `samples`,
+`scaleWidth`, and `smooth` (`width`, `aspect`, `twist` or `all`) with `passes`) and `-tube <id>`;
+the library is `-tubeShapes` (a query, JSON), `-editTubeShape <json>` (`{"op": "add" | "set" |
+"rename" | "remove", "name", "points", "smooth", "to"}`, one undo step) and `-previewTubeShape
+<json>` (live, no undo step), and `-tubeTargets` gives the panel's targets. The brush takes
+`-placeTube <json>` (Place and Draw) and `tube_channel` (`width`, `flatness`, `twist`;
+`-tubeChannel` on `groomLabBrushCtx` and `groomLabBrushStroke`). Fill Tubes and tube-space clumps
+run on the CPU; the GPU preview hands those nodes to it. The Shape brush's card, the shape editor
+and the wires are Maya's for now; the app and Blender paint width with it and keep (and fill) a
+groom's custom shapes, without an editor yet.
 
 ## Guide groups
 
@@ -161,7 +334,7 @@ and each drag is one undo step. The brushes are the same, in the same order, in 
 | | **Attract** | Pulls tips together (negative strength pushes them apart). |
 | | **Direction** | Rotates guides about their roots toward the stroke direction, keeping lengths. |
 | | **Noise** | Adds smooth random displacement that builds up with each stroke (Ctrl smooths it out). |
-| | **Tube** | Widens a guide's tube, where its children are placed. |
+| | **Shape** | Paints guides' [tubes](#tube-guides) near the brush: **Width**, **Flatness** or **Twist** (Ctrl: the opposite), and sets the selected guides' tube shape, Fill Tubes and Tube Blend. |
 | Trim | **Cut**, **Length**, **Erase** | Cut guides where the brush touches; lengthen or shorten them uniformly; delete guides, part lines or flow arrows (not the scattered hair: see below). |
 | Paint (in the Paint tab) | **Paint** | Paints the map picked in the Paint tab, including the maps that drive settings such as density and width (see below, and [Painting maps](/docs/painting-maps)). |
 | Guides | **Select**, **Freeze** | Select guides; paint the freeze mask. **Unfreeze All** is next to them. |

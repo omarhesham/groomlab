@@ -67,8 +67,8 @@ GroomData scaledGroom(GroomData data, float k) {
                 json& o = g["offsets"];
                 for (std::size_t i = 2; i < o.size(); i += 3) o[i] = o[i].get<double>() * k;
             }
-            if (g.contains("tube") && g["tube"].contains("radius")) {
-                for (json& r : g["tube"]["radius"]) r = r.get<double>() * k;
+            if (g.contains("tube") && g["tube"].contains("width")) {
+                for (json& r : g["tube"]["width"]) r = r.get<double>() * k;
             }
         }
         data.hierarchyJson = h.dump();

@@ -156,6 +156,30 @@ class BasicsTest(unittest.TestCase):
         kept = sum(1 for i in range(10000) if gl.keep_at_density(i, 0.1))
         self.assertTrue(500 < kept < 1500)
 
+    def test_tube_profile(self):
+        # Tube guides: a shape and sections (width, aspect, twist), each a list root to tip.
+        t = gl.TubeProfile([0.2, 0.1], aspect=[0.5], twist=[0.0, 1.0], shape="ribbon")
+        self.assertEqual(t.shape, "ribbon")
+        self.assertAlmostEqual(t.width_at(0.5), 0.15, places=6)
+        self.assertAlmostEqual(t.aspect_at(1.0), 0.5, places=6)
+        self.assertAlmostEqual(t.twist_at(0.5), 0.5, places=6)
+        t.shape = "blade"
+        self.assertEqual(t.shape, "blade")
+        with self.assertRaises(ValueError):
+            t.shape = "star"
+        self.assertEqual(gl.TubeProfile(), gl.TubeProfile([0.1, 0.1]))
+        self.assertEqual(list(gl.tube_shapes()), ["round", "ribbon", "teardrop", "blade"])
+        outline = gl.tube_outline("teardrop")
+        self.assertGreater(len(outline), 32)
+        self.assertAlmostEqual(max(v for _, v in outline), 1.0, places=2)
+        # A hierarchy keeps it, and children follow its aspect.
+        scalp = make_sphere()
+        h = make_hierarchy(scalp, guides=2, children=0)
+        primary = h.guides_in_group(h.find_group("primary"))[0]
+        h.set_tube(primary, gl.TubeProfile([0.2], aspect=[0.1]))
+        self.assertAlmostEqual(h.guide(primary).tube.aspect[0], 0.1, places=6)
+        self.assertEqual(gl.GuideHierarchy.from_json(h.to_json()).guide(primary).tube, h.guide(primary).tube)
+
 
 # ---------------------------------------------------------------------------
 # StrandSet

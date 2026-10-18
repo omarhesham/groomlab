@@ -51,7 +51,7 @@ std::string sculptRefusal(const BrushToolSettings& s) {
         case BrushMode::Cut:
         case BrushMode::Direction:
         case BrushMode::Noise: return {};
-        case BrushMode::ScaleTube:
+        case BrushMode::ShapeTube:
         case BrushMode::Attribute:
         case BrushMode::Erase:
         case BrushMode::Slide: break;
@@ -971,9 +971,9 @@ void BrushTool::drag(StrokeHost& host, const ToolView& view, float x, float y, f
             shiftPending_ = false;
             shiftSmoothing_ = true;
             savedMode_ = settings.brush.mode;
-            settings.brush.mode = BrushMode::Smooth;
+            useShiftSmoothing(settings.brush);  // Smooth, or the Shape brush smoothing its channel
             if (!startStroke(host, view, pressX_, pressY_)) {
-                settings.brush.mode = savedMode_;
+                endShiftSmoothing(settings.brush, savedMode_);
                 shiftSmoothing_ = false;
             }
         }
@@ -993,7 +993,7 @@ StrokeRelease BrushTool::release(StrokeHost& host, const ToolView& view) {
     if (stroking_) end(host, view);
     if (shiftSmoothing_) {
         shiftSmoothing_ = false;
-        settings.brush.mode = savedMode_;
+        endShiftSmoothing(settings.brush, savedMode_);
     }
     return stroked ? StrokeRelease::Stroke : StrokeRelease::None;
 }
@@ -1003,9 +1003,9 @@ bool BrushTool::stroke(StrokeHost& host, const ToolView& view, const std::vector
     inverted_ = (modifiers & kStrokeCtrl) != 0;
     pressure_ = pressure;
     const BrushMode saved = settings.brush.mode;
-    if (modifiers & kStrokeShift) settings.brush.mode = BrushMode::Smooth;  // as a Shift+drag does
+    if (modifiers & kStrokeShift) useShiftSmoothing(settings.brush);  // as a Shift+drag does
     if (points.empty() || !startStroke(host, view, points[0][0], points[0][1])) {
-        settings.brush.mode = saved;
+        endShiftSmoothing(settings.brush, saved);
         return false;
     }
     for (std::size_t i = 1; i < points.size(); ++i) {
@@ -1014,7 +1014,7 @@ bool BrushTool::stroke(StrokeHost& host, const ToolView& view, const std::vector
     }
     const bool result = changed_ || mapChanged_;
     end(host, view);
-    settings.brush.mode = saved;
+    endShiftSmoothing(settings.brush, saved);
     return result;
 }
 

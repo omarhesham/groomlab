@@ -2,6 +2,7 @@
 // Source operators: bring host-supplied data (ExternalInputs) into the graph.
 
 #include <algorithm>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -183,6 +184,40 @@ void excludeGroups(const GuideHierarchy& hierarchy, const std::string& names, Gu
                  guides.end());
 }
 
+// The guides of the other levels of the picked groups' family (GuideSet::levelTubes): those of the
+// groups above any picked group and below any (a group below an excluded one is excluded too),
+// in the hierarchy's order, each handed to `fn` with its group's depth. Nothing for a hierarchy
+// of one level.
+template <class IsExcluded, class Fn>
+void forEachFamilyGuide(const GuideHierarchy& hierarchy, const std::set<GroupId>& picked, const IsExcluded& isExcluded,
+                        const Fn& fn) {
+    if (picked.empty() || hierarchy.maxDepth() == 0) return;
+    std::set<GroupId> above;  // every picked group's ancestors
+    for (const GroupId id : picked) {
+        const GuideGroup* g = hierarchy.group(id);
+        for (int depth = 0; g && g->parent != kNoGroup && depth < 64; ++depth) {
+            above.insert(g->parent);
+            g = hierarchy.group(g->parent);
+        }
+    }
+    std::unordered_map<GroupId, int> family;  // group -> depth
+    for (const GuideGroup& grp : hierarchy.groups()) {
+        if (picked.count(grp.id) || isExcluded(grp.id)) continue;
+        bool in = above.count(grp.id) > 0;
+        for (GroupId up = grp.parent; !in && up != kNoGroup;) {  // below a picked group
+            in = picked.count(up) > 0;
+            const GuideGroup* g = hierarchy.group(up);
+            up = g ? g->parent : kNoGroup;
+        }
+        if (in) family[grp.id] = hierarchy.groupDepth(grp.id);
+    }
+    if (family.empty()) return;
+    for (const HierarchyGuide& g : hierarchy.guides()) {
+        const auto it = family.find(g.group);
+        if (it != family.end() && g.points.size() >= 2) fn(g, it->second);
+    }
+}
+
 class GuidesOp : public Operator {
 public:
     std::string typeName() const override { return op::kGuides; }
@@ -275,11 +310,64 @@ private:
             set = hierarchy.flatten(static_cast<int>(params().getInt("level")));
         }
         excludeGroups(hierarchy, params().getString("exclude"), set);
+        // The tubes of the family's other levels, for Interpolate's fillTubes (one level: none).
+        auto tubes = std::make_shared<std::vector<Guide>>();
+        const float scale = hierarchy.scale();
+        forEachFamilyGuide(hierarchy, pickedGroups(hierarchy), excludedTest(hierarchy), [&](const HierarchyGuide& g, int depth) {
+            Guide out;
+            out.id = g.id;
+            out.root = g.root;
+            out.points = g.points;
+            out.hasTube = true;
+            out.tube = g.tube;
+            out.tube.scaleWidth(scale);
+            out.frameUp = g.frameUp;
+            out.depth = depth;
+            tubes->push_back(std::move(out));
+        });
+        if (!tubes->empty()) set.setLevelTubes(std::move(tubes));
         return set;
     }
 
+    // The groups pick() takes guides from: the params' groups, else those at their level (missing
+    // ones left out: pick() says so).
+    std::set<GroupId> pickedGroups(const GuideHierarchy& hierarchy) const {
+        std::set<GroupId> out;
+        const std::vector<std::string> groupNames = splitNames(params().getString("group"));
+        if (!groupNames.empty()) {
+            for (const std::string& name : groupNames) {
+                const GroupId id = hierarchy.findGroup(name);
+                if (id != kNoGroup) out.insert(id);
+            }
+            return out;
+        }
+        int level = static_cast<int>(params().getInt("level"));
+        if (level < 0) level = hierarchy.maxDepth();
+        for (const GuideGroup& grp : hierarchy.groups()) {
+            if (hierarchy.groupDepth(grp.id) == level) out.insert(grp.id);
+        }
+        return out;
+    }
+
+    // Whether a group is left out by `exclude`, or lies under one that is (missing names skipped).
+    std::function<bool(GroupId)> excludedTest(const GuideHierarchy& hierarchy) const {
+        std::vector<GroupId> excluded;
+        for (const std::string& name : splitNames(params().getString("exclude"))) {
+            const GroupId id = hierarchy.findGroup(name);
+            if (id != kNoGroup) excluded.push_back(id);
+        }
+        return [&hierarchy, excluded](GroupId group) {
+            for (int depth = 0; group != kNoGroup && depth < 64 && !excluded.empty(); ++depth) {
+                if (std::find(excluded.begin(), excluded.end(), group) != excluded.end()) return true;
+                const GuideGroup* g = hierarchy.group(group);
+                group = g ? g->parent : kNoGroup;
+            }
+            return false;
+        };
+    }
+
     // What pick() makes from `hierarchy`, hashed without making it (a brush dab asks on every
-    // dab): each guide it takes as it comes out (ID, root, points, its own attributes and layers
+    // dab): each guide it takes as it comes out (ID, root, points, tube, its own attributes and layers
     // and those of the guides it hangs from, which its effective ones are made of), in order.
     // `whole` (the hierarchy's hash) where the params name a group it lacks: evaluate says so.
     std::uint64_t pickedKey(const GuideHierarchy& hierarchy, std::uint64_t whole) const {
@@ -313,6 +401,9 @@ private:
             key = hashFloat(hashFloat(key, g.root.u), g.root.v);
             key = hashCombine(key, g.points.size());
             for (const Vec3f& p : g.points) key = hashFloat(hashFloat(hashFloat(key, p.x), p.y), p.z);
+            // Its tube (at the size shown) and frame reference: what Interpolate's fillTubes reads.
+            key = hashFloat(hashTube(key, g.tube), hierarchy.scale());
+            key = hashFloat(hashFloat(hashFloat(key, g.frameUp.x), g.frameUp.y), g.frameUp.z);
             key = hashLayers(key, g);
             const HierarchyGuide* up = hierarchy.guide(g.parent);
             for (int depth = 0; up && depth < 64; ++depth, up = hierarchy.guide(up->parent)) {
@@ -338,6 +429,16 @@ private:
                 if (depths[g.group] == level && g.points.size() >= 2 && !isExcluded(g.group)) take(g);
             }
         }
+        // The family's other levels: their tubes as pick() hands them on (GuideSet::levelTubes).
+        forEachFamilyGuide(hierarchy, pickedGroups(hierarchy), isExcluded, [&](const HierarchyGuide& g, int depth) {
+            key = hashCombine(hashCombine(key, g.id + 0x7B5u), static_cast<std::uint64_t>(depth));
+            key = hashCombine(key, static_cast<std::uint64_t>(static_cast<std::int64_t>(g.root.face)));
+            key = hashFloat(hashFloat(key, g.root.u), g.root.v);
+            key = hashCombine(key, g.points.size());
+            for (const Vec3f& p : g.points) key = hashFloat(hashFloat(hashFloat(key, p.x), p.y), p.z);
+            key = hashFloat(hashTube(key, g.tube), hierarchy.scale());
+            key = hashFloat(hashFloat(hashFloat(key, g.frameUp.x), g.frameUp.y), g.frameUp.z);
+        });
         return key;
     }
 

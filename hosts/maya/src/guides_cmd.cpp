@@ -7,6 +7,8 @@
 #include <variant>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include <maya/MArgDatabase.h>
 #include <maya/MIntArray.h>
 #include <maya/MArgList.h>
@@ -94,6 +96,55 @@ const char* kPointCounts[] = {"-pcn", "-pointCounts"};
 const char* kOnlySelected[] = {"-osl", "-onlySelected"};
 const char* kFreezeOthers[] = {"-fzo", "-freezeOthers"};
 const char* kReshape[] = {"-rsh", "-reshape"};  // <guide id> <curve>, multi-use
+// Tube guides (tube.h): a tube edit as JSON on the targets, and one guide's tube as JSON.
+const char* kSetTube[] = {"-stb", "-setTube"};
+const char* kTube[] = {"-tb", "-tube"};
+// The groom's tube shape library (GuideHierarchy::tubeShapes): listed as JSON; edited by a JSON
+// op (one undo step, every guide taking the shape following); a shape's new points shown live
+// without changing the groom or making an undo step (endPreview drops it).
+const char* kTubeShapes[] = {"-tss", "-tubeShapes"};
+const char* kEditTubeShape[] = {"-ets", "-editTubeShape"};
+const char* kPreviewTubeShape[] = {"-pts", "-previewTubeShape"};
+// The guides the Tubes panel edits, as JSON: the selected ones, else the soloed ones (a brush's
+// Shift+click: the guides left unfrozen while others are frozen, not those under them), with the
+// first one's tube and every shape among them.
+const char* kTubeTargets[] = {"-ttg", "-tubeTargets"};
+
+// A tube shape op's points: [[u, v], ...].
+std::vector<SectionPoint> shapePoints(const nlohmann::json& j) {
+    if (!j.is_array()) throw std::invalid_argument("tube shape points: a list of [u, v] pairs");
+    std::vector<SectionPoint> out;
+    for (const nlohmann::json& p : j) {
+        if (!p.is_array() || p.size() != 2 || !p[0].is_number() || !p[1].is_number()) {
+            throw std::invalid_argument("tube shape points: a list of [u, v] pairs");
+        }
+        out.push_back({p[0].get<float>(), p[1].get<float>()});
+    }
+    return out;
+}
+
+nlohmann::json shapeOpJson(const MString& text) {
+    try {
+        nlohmann::json j = nlohmann::json::parse(text.asChar());
+        if (!j.is_object()) throw std::invalid_argument("tube shape op: a JSON object");
+        return j;
+    } catch (const nlohmann::json::exception& e) {
+        throw std::invalid_argument(std::string("tube shape op: ") + e.what());
+    }
+}
+
+// The library as JSON: [{"name", "points": [[u, v], ...], "smooth", "users", "outline"}, ...].
+std::string tubeShapesJson(const GuideHierarchy& h) {
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& [name, shape] : h.tubeShapes()) {
+        nlohmann::json points = nlohmann::json::array(), outline = nlohmann::json::array();
+        for (const SectionPoint& p : shape->points) points.push_back({p.u, p.v});
+        for (const SectionPoint& p : shape->outline.points) outline.push_back({p.u, p.v});
+        out.push_back({{"name", name}, {"points", points}, {"smooth", shape->smooth}, {"users", h.tubeShapeUsers(name)},
+                       {"outline", outline}});
+    }
+    return out.dump();
+}
 
 // A curve's edit points in world space: its points at its distinct knots (a degree 1 curve's
 // CVs; a cubic made through points, those points).
@@ -233,6 +284,12 @@ MSyntax GuidesCmd::newSyntax() {
     s.addFlag(kPointCounts[0], kPointCounts[1]);
     s.addFlag(kOnlySelected[0], kOnlySelected[1]);
     s.addFlag(kFreezeOthers[0], kFreezeOthers[1]);
+    s.addFlag(kSetTube[0], kSetTube[1], MSyntax::kString);
+    s.addFlag(kTube[0], kTube[1], MSyntax::kString);
+    s.addFlag(kTubeShapes[0], kTubeShapes[1]);
+    s.addFlag(kEditTubeShape[0], kEditTubeShape[1], MSyntax::kString);
+    s.addFlag(kPreviewTubeShape[0], kPreviewTubeShape[1], MSyntax::kString);
+    s.addFlag(kTubeTargets[0], kTubeTargets[1]);
     s.addFlag(kReshape[0], kReshape[1], MSyntax::kString, MSyntax::kString);
     s.makeFlagMultiUse(kReshape[0]);
     s.setObjectType(MSyntax::kSelectionList, 1, 1);
@@ -265,7 +322,9 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
                             int(db.isFlagSet(kRemoveAttribute[0])) + int(db.isFlagSet(kRenameAttribute[0])) +
                             int(db.isFlagSet(kResample[0])) + int(db.isFlagSet(kReshape[0])) +
                             int(db.isFlagSet(kPreviewResample[0])) + int(db.isFlagSet(kEndPreview[0])) +
-                            int(db.isFlagSet(kPointCounts[0]));
+                            int(db.isFlagSet(kPointCounts[0])) + int(db.isFlagSet(kSetTube[0])) + int(db.isFlagSet(kTube[0])) +
+                            int(db.isFlagSet(kTubeShapes[0])) + int(db.isFlagSet(kEditTubeShape[0])) +
+                            int(db.isFlagSet(kPreviewTubeShape[0])) + int(db.isFlagSet(kTubeTargets[0]));
         if (actions != 1) return fail(kName, "give exactly one action flag");
 
         // The groups need no rooting: the shape's parse of guideData (kept while it is unchanged).
@@ -301,6 +360,25 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
             }
             return ids;
         };
+        if (db.isFlagSet(kPreviewTubeShape[0])) {
+            // A library shape's new points shown on the groom (the stored guides, the shape
+            // replaced): no change, no undo step; editTubeShape commits, endPreview drops it.
+            auto* shape = dynamic_cast<GroomShape*>(groomFn.userNode());
+            if (!shape) return fail(kName, "not a groom");
+            const HierarchyPtr authored = shape->authoredHierarchy();
+            if (!authored) return fail(kName, "the groom has no guides");
+            try {
+                const nlohmann::json op = shapeOpJson(flagString(db, kPreviewTubeShape[0], ""));
+                auto preview = std::make_shared<GuideHierarchy>(*authored);
+                preview->setTubeShape(op.value("name", std::string()), shapePoints(op.value("points", nlohmann::json::array())),
+                                      op.value("smooth", true));
+                preview->evaluate(joinedScalpFromNode(groomPath.node()).get());
+                shape->setPreviewHierarchy(preview);
+            } catch (const std::exception& e) {
+                return fail(kName, e.what());
+            }
+            return MS::kSuccess;
+        }
         if (db.isFlagSet(kEndPreview[0]) || db.isFlagSet(kPreviewResample[0]) || db.isFlagSet(kPointCounts[0])) {
             auto* shape = dynamic_cast<GroomShape*>(groomFn.userNode());
             if (!shape) return fail(kName, "not a groom");
@@ -426,6 +504,55 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
             setResult(ids);
             return MS::kSuccess;
         }
+        if (db.isFlagSet(kTubeShapes[0])) {
+            setResult(MString(tubeShapesJson(*h).c_str()));
+            return MS::kSuccess;
+        }
+        if (db.isFlagSet(kTubeTargets[0])) {
+            std::vector<GuideId> ids;
+            std::string source = "none";
+            for (const GuideId id : selectedIds) {
+                if (h->guide(id)) ids.push_back(id);
+            }
+            if (!ids.empty()) {
+                source = "selection";
+            } else {
+                // Soloed: some guides frozen, and these not, nor their parents (the solo's own).
+                auto frozen = [&](const HierarchyGuide& g) {
+                    float value = 0.0f;
+                    return h->effectiveAttribute(g, "freeze", &value) && value >= 0.5f;
+                };
+                bool any = false;
+                for (const HierarchyGuide& g : h->guides()) any = any || frozen(g);
+                if (any) {
+                    for (const HierarchyGuide& g : h->guides()) {
+                        if (frozen(g)) continue;
+                        const HierarchyGuide* parent = g.isChild() ? h->guide(g.parent) : nullptr;
+                        if (!parent || frozen(*parent)) ids.push_back(g.id);
+                    }
+                    if (!ids.empty()) source = "solo";
+                }
+            }
+            nlohmann::json out = {{"source", source}, {"guides", nlohmann::json::array()}, {"shapes", nlohmann::json::array()}};
+            std::vector<std::string> shapes;
+            for (const GuideId id : ids) {
+                out["guides"].push_back(std::to_string(id));
+                const std::string name = h->guide(id)->tube.shapeName();
+                if (std::find(shapes.begin(), shapes.end(), name) == shapes.end()) shapes.push_back(name);
+            }
+            out["shapes"] = shapes;
+            out["tube"] = ids.empty() ? nlohmann::json() : nlohmann::json::parse(tubeToJson(h->guide(ids.front())->tube, h->scale()));
+            setResult(MString(out.dump().c_str()));
+            return MS::kSuccess;
+        }
+        if (db.isFlagSet(kTube[0])) {
+            // The tube at the size shown (GuideHierarchy::scale): {"shape", "width", "aspect", "twist"}.
+            const MString idText = flagString(db, kTube[0], "");
+            const HierarchyGuide* g = h->guide(std::strtoull(idText.asChar(), nullptr, 10));
+            if (!g) return fail(kName, "no guide " + idText);
+            setResult(MString(tubeToJson(g->tube, h->scale()).c_str()));
+            return MS::kSuccess;
+        }
         if (db.isFlagSet(kGuidePoints[0])) {
             const MString idText = flagString(db, kGuidePoints[0], "");
             HierarchyPtr shown = h;
@@ -459,7 +586,7 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
         auto tubeFlags = [&]() {
             const double rootRadius = flagDouble(db, kTubeRadius[0], 0.1);
             TubeProfile tube;
-            tube.radius = {static_cast<float>(rootRadius), static_cast<float>(flagDouble(db, kTubeTipRadius[0], rootRadius))};
+            tube.width = {static_cast<float>(rootRadius), static_cast<float>(flagDouble(db, kTubeTipRadius[0], rootRadius))};
             return tube;
         };
 
@@ -684,6 +811,44 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
                 }
                 if (to.length() == 0) return fail(kName, "-renameAttribute needs a new name");
                 h->renameAttribute(from.asChar(), to.asChar());
+            } else if (db.isFlagSet(kSetTube[0])) {
+                // Each target's tube edited by the JSON (editedTube: the keys given replace theirs;
+                // widths at the size shown).
+                const std::string edit = flagString(db, kSetTube[0], "").asChar();
+                const std::vector<GuideId> ids = targets();
+                if (ids.empty()) return fail(kName, "-setTube: no guides (give -guide, -group or -level, or select some)");
+                for (const GuideId id : ids) {
+                    const HierarchyGuide* g = h->guide(id);
+                    if (!g) return fail(kName, MString("no guide ") + std::to_string(id).c_str());
+                    h->setTube(id, editedTube(g->tube, edit, h->scale(), g->points.size(), &h->tubeShapes()));
+                }
+                setResult(static_cast<int>(ids.size()));
+            } else if (db.isFlagSet(kEditTubeShape[0])) {
+                // {"op": "add" | "set" | "rename" | "remove", "name", "points", "smooth", "to"}: the
+                // library edited, every guide taking the shape following (remove: round).
+                const nlohmann::json op = shapeOpJson(flagString(db, kEditTubeShape[0], ""));
+                const std::string kind = op.value("op", std::string());
+                const std::string name = op.value("name", std::string());
+                const bool exists = h->tubeShape(name) != nullptr;
+                if (kind == "add" || kind == "set") {
+                    if (kind == "add" && exists) return fail(kName, ("a tube shape named '" + name + "' exists").c_str());
+                    if (kind == "set" && !exists) return fail(kName, ("no tube shape named '" + name + "'").c_str());
+                    const CustomTubeShapePtr old = h->tubeShape(name);
+                    const bool smooth = op.contains("smooth") ? op["smooth"].get<bool>() : (old ? old->smooth : true);
+                    const std::vector<SectionPoint> points =
+                        op.contains("points") ? shapePoints(op["points"]) : (old ? old->points : std::vector<SectionPoint>{});
+                    h->setTubeShape(name, points, smooth);
+                    setResult(static_cast<int>(h->tubeShapeUsers(name)));
+                } else if (kind == "rename") {
+                    h->renameTubeShape(name, op.value("to", std::string()));
+                    setResult(static_cast<int>(h->tubeShapeUsers(op.value("to", std::string()))));
+                } else if (kind == "remove") {
+                    setResult(static_cast<int>(h->removeTubeShape(name)));
+                } else {
+                    return fail(kName, "-editTubeShape: op is add, set, rename or remove");
+                }
+                auto* shape = dynamic_cast<GroomShape*>(groomFn.userNode());
+                if (shape) shape->setPreviewHierarchy(nullptr);  // a live preview of the shape ends with its commit
             } else if (db.isFlagSet(kSetAttribute[0])) {
                 const std::string name = flagString(db, kSetAttribute[0], "").asChar();
                 if (name.empty() || !db.isFlagSet(kValue[0])) return fail(kName, "-setAttribute needs a name and -value");

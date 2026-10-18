@@ -577,6 +577,11 @@ public:
     void setSymmetrySeam(std::vector<Vec3f> segments);
     const std::vector<Vec3f>& symmetrySeam() const { return symmetrySeam_; }
     std::uint64_t symmetrySeamVersion() const { return symmetrySeamVersion_; }
+    // The Shape brush is on this groom: its guides' tubes drawn as wires (appendTubeWire) with the
+    // groom on every redraw: every guide the brush can shape (activeTubeGuides: shown, not
+    // frozen), the selected ones brighter. Off: nothing drawn and nothing worked out.
+    void setTubeWires(bool on);
+    bool tubeWires() const { return tubeWires_; }
 
     // Selection weights on the evaluated hierarchy (1: selected, below 1: soft),
     // and a hash of what they depend on, for the draw override.
@@ -730,6 +735,7 @@ private:
     std::uint64_t displayVersion_ = 0;
     std::vector<Vec3f> symmetrySeam_;
     std::uint64_t symmetrySeamVersion_ = 0;
+    bool tubeWires_ = false;
     std::string reported_;  // the last message sent to the Script Editor
     std::string reportedHeavy_;  // the last "heavy" Scatter note warned about (finishView)
 

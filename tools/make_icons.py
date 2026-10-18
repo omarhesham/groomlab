@@ -124,7 +124,7 @@ ICONS = {
         '<circle cx="27" cy="16" r="1.8" fill="%s"/>' % T,
         '<circle cx="4" cy="15" r="1.4" fill="%s"/>' % T,
     ],
-    "tube": [
+    "shape": [
         '<path d="M8 8 V24 A8 3.2 0 0 0 24 24 V8 A8 3.2 0 0 1 8 8 Z" fill="%s" opacity=".22"/>' % M,
         line("M16 30 C16 23 17 16 16 3", K, 2.4),
         '<ellipse cx="16" cy="8" rx="8" ry="3.2" stroke="%s" stroke-width="2.6"/>' % M,

@@ -83,7 +83,7 @@ std::string fixtureHierarchy(const MeshPtr& scalp) {
     GuideHierarchy h;
     const GroupId primary = h.addGroup("primary");
     TubeProfile tube;
-    tube.radius = {0.15f, 0.1f};
+    tube.width = {0.15f, 0.1f};
     std::vector<GuideId> ids;
     for (int i = 0; i < 8; ++i) {
         const float a = 6.2831853f * static_cast<float>(i) / 8.0f;  // (pm::: the same fixture on every platform)

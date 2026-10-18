@@ -72,10 +72,13 @@ const char* kAttributeFlag[] = {"-at", "-attribute"};
 const char* kValueFlag[] = {"-v", "-value"};
 const char* kMatchFlag[] = {"-mn", "-matchNeighbors"};
 const char* kSoloNewFlag[] = {"-sng", "-soloNewGuides"};
+// Place and Draw: the new guides' tube as JSON (setPlacementTube: shape, width, aspect, twist).
+const char* kPlaceTubeFlag[] = {"-ptb", "-placeTube"};
 const char* kSpacingFlag[] = {"-sp", "-spacing"};
 const char* kCollideFlag[] = {"-col", "-collide"};
 const char* kMaskScalpFlag[] = {"-msk", "-maskByScalp"};
 const char* kStretchFlag[] = {"-sr", "-stretch"};
+const char* kTubeChannelFlag[] = {"-tch", "-tubeChannel"};
 const char* kPressureFlag[] = {"-prs", "-pressure"};
 const char* kPartNameFlag[] = {"-pn", "-partName"};
 const char* kFlowSinkFlag[] = {"-fsk", "-flowSink"};
@@ -222,10 +225,12 @@ void addBrushFlags(MSyntax& s) {
     s.addFlag(kValueFlag[0], kValueFlag[1], MSyntax::kDouble);
     s.addFlag(kMatchFlag[0], kMatchFlag[1], MSyntax::kBoolean);
     s.addFlag(kSoloNewFlag[0], kSoloNewFlag[1], MSyntax::kBoolean);
+    s.addFlag(kPlaceTubeFlag[0], kPlaceTubeFlag[1], MSyntax::kString);
     s.addFlag(kSpacingFlag[0], kSpacingFlag[1], MSyntax::kDouble);
     s.addFlag(kCollideFlag[0], kCollideFlag[1], MSyntax::kBoolean);
     s.addFlag(kMaskScalpFlag[0], kMaskScalpFlag[1], MSyntax::kBoolean);
     s.addFlag(kStretchFlag[0], kStretchFlag[1], MSyntax::kBoolean);
+    s.addFlag(kTubeChannelFlag[0], kTubeChannelFlag[1], MSyntax::kString);
     s.addFlag(kPartNameFlag[0], kPartNameFlag[1], MSyntax::kString);
     s.addFlag(kFlowSinkFlag[0], kFlowSinkFlag[1], MSyntax::kString);
     s.addFlag(kTargetsFlag[0], kTargetsFlag[1], MSyntax::kString);
@@ -253,12 +258,18 @@ MStatus applyBrushFlags(const Args& args, BrushToolSettings& s, const char* comm
         if (args.isFlagSet(kModeFlag[0]) && args.getFlagArgument(kModeFlag[0], 0, text)) s.setMode(text.asChar());
         if (args.isFlagSet(kSymmetryFlag[0]) && args.getFlagArgument(kSymmetryFlag[0], 0, text)) s.setSymmetry(text.asChar());
         if (args.isFlagSet(kTargetsFlag[0]) && args.getFlagArgument(kTargetsFlag[0], 0, text)) s.setTargets(text.asChar());
+        if (args.isFlagSet(kTubeChannelFlag[0]) && args.getFlagArgument(kTubeChannelFlag[0], 0, text)) {
+            s.brush.tubeChannel = tubeChannelFromString(text.asChar());
+        }
         // The curves as ramps' JSON ("" clears one).
         if (args.isFlagSet(kFalloffProfileFlag[0]) && args.getFlagArgument(kFalloffProfileFlag[0], 0, text)) {
             s.setFalloffProfile(text.asChar());
         }
         if (args.isFlagSet(kStrengthProfileFlag[0]) && args.getFlagArgument(kStrengthProfileFlag[0], 0, text)) {
             s.setStrengthProfile(text.asChar());
+        }
+        if (args.isFlagSet(kPlaceTubeFlag[0]) && args.getFlagArgument(kPlaceTubeFlag[0], 0, text)) {
+            setPlacementTube(s.place, text.asChar());
         }
         if (args.isFlagSet(kFlowSinkFlag[0]) && args.getFlagArgument(kFlowSinkFlag[0], 0, text)) {
             if (text.length() > 0) flowSinkAngle(text.asChar());  // throws for an unknown kind
@@ -278,7 +289,7 @@ MStatus applyBrushFlags(const Args& args, BrushToolSettings& s, const char* comm
     if (args.isFlagSet(kLengthFlag[0]) && args.getFlagArgument(kLengthFlag[0], 0, d)) s.place.length = float(d);
     if (args.isFlagSet(kSegmentsFlag[0]) && args.getFlagArgument(kSegmentsFlag[0], 0, n)) s.setSegments(n);
     if (args.isFlagSet(kTubeRadiusFlag[0]) && args.getFlagArgument(kTubeRadiusFlag[0], 0, d)) {
-        s.place.tube.radius = {float(d), float(d)};
+        s.place.tube.width = {float(d), float(d)};
     }
     if (args.isFlagSet(kSpacingFlag[0]) && args.getFlagArgument(kSpacingFlag[0], 0, d)) s.place.spacing = float(d);
     if (args.isFlagSet(kMatchFlag[0]) && args.getFlagArgument(kMatchFlag[0], 0, b)) s.place.matchNeighbors = b;
@@ -627,6 +638,14 @@ MStatus BrushStrokeCmd::finalize() {
             journal.addArg(MString(kTargetsFlag[1]));
             journal.addArg(MString(settings_.targetsName().c_str()));
         }
+        if (settings_.brush.mode == BrushMode::ShapeTube) {
+            journal.addArg(MString(kTubeChannelFlag[1]));
+            journal.addArg(MString(tubeChannelName(settings_.brush.tubeChannel)));
+        }
+        if (mode_ == "place" || mode_ == "draw") {
+            journal.addArg(MString(kPlaceTubeFlag[1]));
+            journal.addArg(MString(placementTubeJson(settings_.place).c_str()));
+        }
         for (const Vec3f& p : path_) {
             journal.addArg(MString(kPointFlag[1]));
             journal.addArg(double(p.x));
@@ -824,7 +843,7 @@ void BrushContext::getClassName(MString& name) const { name = "groomLabBrush"; }
 void BrushContext::toolOnSetup(MEvent&) {
     setHelpString("Drag: brush the selected groom (Place: click one guide, drag for many; Draw: draw a guide "
                   "from the scalp). Shift+click a guide: solo it (the rest frozen) and brush its group; Shift+click the "
-                  "bare scalp: unfreeze all; Shift+drag: smooth. Ctrl: the opposite. "
+                  "bare scalp: unfreeze all; Shift+drag: smooth (Shape: the tubes' channel it paints). Ctrl: the opposite. "
                   "B/M or middle-drag: radius/strength. Double-click the tool for its settings.");
     installPenPressure();
     active_ = true;
@@ -839,6 +858,7 @@ void BrushContext::toolOffCleanup() {
     });
     active_ = false;
     clearSymmetry();
+    clearTubeWires();
     GroomShape::setBrushTarget(nullptr);  // what strokes keep (the stroke document) goes with the tool
     MPxContext::toolOffCleanup();
 }
@@ -882,7 +902,7 @@ bool BrushContext::simulateStroke(const std::vector<std::pair<short, short>>& po
     const ToolView view = activeToolView();
     BrushToolSettings& s = tool_.settings;
     const BrushMode saved = s.brush.mode;
-    if (shift) s.brush.mode = BrushMode::Smooth;  // as a Shift+drag does
+    if (shift) useShiftSmoothing(s.brush);  // as a Shift+drag does (the Shape brush: smooth its channel)
     debugStrokeTimes_.clear();
     debugStrokeDraws_.clear();
     using Clock = std::chrono::steady_clock;
@@ -910,7 +930,7 @@ bool BrushContext::simulateStroke(const std::vector<std::pair<short, short>>& po
     };
     if (points.empty() || !tool_.begin(*host_, view, points[0].first, points[0].second, penPressure(), ctrl ? kStrokeCtrl : 0u)) {
         unchainUnlessStroking();
-        s.brush.mode = saved;
+        endShiftSmoothing(s.brush, saved);
         return false;
     }
     if (draw) {
@@ -927,7 +947,7 @@ bool BrushContext::simulateStroke(const std::vector<std::pair<short, short>>& po
     const bool changed = tool_.changed();
     endStroke(view);  // the commit, drawn
     if (draw) lap();
-    s.brush.mode = saved;
+    endShiftSmoothing(s.brush, saved);
     return changed;
 }
 
@@ -1123,7 +1143,27 @@ void BrushContext::clearSymmetry() {
     seamOn_ = MObjectHandle();
 }
 
+void BrushContext::clearTubeWires() {
+    if (tubeWiresOn_.isAlive() && tubeWiresOn_.isValid()) {
+        MFnDependencyNode node(tubeWiresOn_.object());
+        if (auto* shape = dynamic_cast<GroomShape*>(node.userNode())) shape->setTubeWires(false);
+    }
+    tubeWiresOn_ = MObjectHandle();
+}
+
+void BrushContext::showTubeWires() {
+    const BrushToolSettings& s = tool_.settings;
+    const bool on = active_ && shape_ && s.tool == BrushToolSettings::Tool::Brush && s.brush.mode == BrushMode::ShapeTube;
+    if (!on || !(tubeWiresOn_.isAlive() && tubeWiresOn_.isValid() && tubeWiresOn_.object() == shape_->thisMObject())) {
+        clearTubeWires();  // off, or on another groom
+    }
+    if (!on) return;
+    tubeWiresOn_ = MObjectHandle(shape_->thisMObject());
+    shape_->setTubeWires(true);
+}
+
 void BrushContext::showSymmetry() {
+    showTubeWires();  // (called wherever the tool, its mode or its groom may have changed)
     const BrushSettings& b = tool_.settings.brush;
     const bool topology = b.mirrorTopology;
     const int axis = topology ? -1 : b.mirrorAxis;
@@ -1277,14 +1317,16 @@ MStatus BrushContextCmd::doQueryFlags() {
         else if (args.isFlagSet(kLengthFlag[0])) setResult(double(s.place.length));
         else if (args.isFlagSet(kSegmentsFlag[0])) setResult(s.place.segments);
         else if (args.isFlagSet(kTubeRadiusFlag[0])) {
-            setResult(double(s.place.tube.radius.empty() ? 0.1f : s.place.tube.radius.front()));
+            setResult(double(s.place.tube.width.empty() ? 0.1f : s.place.tube.width.front()));
         }
         else if (args.isFlagSet(kSpacingFlag[0])) setResult(double(s.place.spacing));
         else if (args.isFlagSet(kMatchFlag[0])) setResult(s.place.matchNeighbors);
         else if (args.isFlagSet(kSoloNewFlag[0])) setResult(s.place.soloNewGuides);
+        else if (args.isFlagSet(kPlaceTubeFlag[0])) setResult(MString(placementTubeJson(s.place).c_str()));
         else if (args.isFlagSet(kCollideFlag[0])) setResult(s.brush.collide);
         else if (args.isFlagSet(kMaskScalpFlag[0])) setResult(s.maskByScalp);
         else if (args.isFlagSet(kStretchFlag[0])) setResult(s.brush.stretch);
+        else if (args.isFlagSet(kTubeChannelFlag[0])) setResult(MString(tubeChannelName(s.brush.tubeChannel)));
         else if (args.isFlagSet(kPressureFlag[0])) setResult(s.pressure);
         else if (args.isFlagSet(kPartNameFlag[0])) setResult(MString(s.partName.c_str()));
         else if (args.isFlagSet(kFlowSinkFlag[0])) setResult(MString(s.flowSink.c_str()));

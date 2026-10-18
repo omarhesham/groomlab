@@ -354,6 +354,182 @@ def set_guide_attribute(groom, name, value, guides=None, group=None, level=None)
     return cmds.groomLabGuides(groom, setAttribute=name, value=value, **_targets(guides, group, level))
 
 
+TUBE_SHAPES = ("round", "ribbon", "teardrop", "blade")
+
+
+def set_tube(groom, guides=None, group=None, level=None, width=None, aspect=None, twist=None, shape=None, samples=None):
+    """Edit guides' tubes (tube guides): their cross-section along the guide and its shape.
+
+    Targets: `guides` (IDs), else `group`, else `level`, else the selected guides. Each of `width`
+    (half the section's width in scene units, as shown: a round tube's radius), `aspect` (height
+    over width: 1 as drawn, toward 0 flat) and `twist` (radians, the section turned at that point)
+    is a number (the same all along) or a list evenly spaced root to tip; None leaves it as it is.
+    `shape`: one of TUBE_SHAPES, or a shape of the groom's library (tube_shapes). `samples` resamples all three lists to that many. Children follow
+    their parent's tube; Interpolate's fillTubes fills tubes with strands. One undo step. Returns
+    how many guides changed."""
+    edit = {}
+    for key, value in (("width", width), ("aspect", aspect), ("twist", twist)):
+        if value is None:
+            continue
+        edit[key] = [float(v) for v in value] if isinstance(value, (list, tuple)) else float(value)
+    if shape is not None:
+        if shape not in TUBE_SHAPES and shape not in _library_names(groom):
+            raise ValueError("shape must be one of %s or a library shape (%s)" %
+                             (", ".join(TUBE_SHAPES), ", ".join(_library_names(groom)) or "the library is empty"))
+        edit["shape"] = shape
+    if samples is not None:
+        edit["samples"] = int(samples)
+    if not edit:
+        raise ValueError("give a width, aspect, twist, shape or samples")
+    return cmds.groomLabGuides(groom, setTube=json.dumps(edit), **_targets(guides, group, level))
+
+
+def _library(groom):
+    return json.loads(cmds.groomLabGuides(groom, tubeShapes=True) or "[]")
+
+
+def _library_names(groom):
+    return [s["name"] for s in _library(groom)]
+
+
+def _points(points):
+    pts = [[float(u), float(v)] for u, v in points]
+    if len(pts) < 3:
+        raise ValueError("a tube shape needs at least 3 points")
+    return pts
+
+
+def tube_shapes(groom):
+    """The tube shapes guides can take: the built-ins (round, ribbon, teardrop, blade) and the groom's
+    library of custom shapes, saved with its guides. Each a dict: name, builtin (bool), points
+    ((u, v) control points in the -1..1 square, counter-clockwise; a built-in's draw it closely),
+    smooth (a smooth curve through them, else straight edges) and users (how many guides take it;
+    None for a built-in)."""
+    import groomlab_core
+    out = []
+    for name in TUBE_SHAPES:
+        points, smooth = groomlab_core.builtin_tube_shape_points(name)
+        out.append({"name": name, "builtin": True, "points": [tuple(p) for p in points], "smooth": smooth, "users": None})
+    for s in _library(groom):
+        out.append({"name": s["name"], "builtin": False, "points": [tuple(p) for p in s["points"]],
+                    "smooth": bool(s["smooth"]), "users": int(s["users"])})
+    return out
+
+
+def add_tube_shape(groom, name, points, smooth=True):
+    """Add a custom shape to the groom's tube shape library: `points` the outline's control points
+    (u, v) in order round it (at least 3; fitted into the -1..1 square), a smooth closed curve
+    through them, or straight edges with smooth=False. RuntimeError saying what to fix when the
+    name is taken or not allowed, or the outline crosses itself or leaves out its center. Guides
+    take it by name: set_tube(shape=name). One undo step."""
+    return cmds.groomLabGuides(groom, editTubeShape=json.dumps(
+        {"op": "add", "name": name, "points": _points(points), "smooth": bool(smooth)}))
+
+
+def set_tube_shape_points(groom, name, points=None, smooth=None):
+    """Give a library shape new control points (and/or smooth): every guide taking it takes the new
+    outline, its strands, children and wires with it. One undo step. Returns how many guides take it."""
+    op = {"op": "set", "name": name}
+    if points is not None:
+        op["points"] = _points(points)
+    if smooth is not None:
+        op["smooth"] = bool(smooth)
+    return cmds.groomLabGuides(groom, editTubeShape=json.dumps(op))
+
+
+def rename_tube_shape(groom, old, new):
+    """Rename a library shape; the guides taking it keep it. One undo step."""
+    return cmds.groomLabGuides(groom, editTubeShape=json.dumps({"op": "rename", "name": old, "to": new}))
+
+
+def remove_tube_shape(groom, name):
+    """Remove a library shape: the guides taking it become round. One undo step. Returns how many did."""
+    return cmds.groomLabGuides(groom, editTubeShape=json.dumps({"op": "remove", "name": name}))
+
+
+def preview_tube_shape(groom, name, points, smooth=True):
+    """Show a library shape with new points on the groom, live, without changing it or making an undo
+    step (the shape editor's drag): set_tube_shape_points commits, end_guide_preview drops it."""
+    cmds.groomLabGuides(groom, previewTubeShape=json.dumps({"name": name, "points": _points(points),
+                                                             "smooth": bool(smooth)}))
+
+
+def tube_targets(groom):
+    """The guides the Groom Tools' Tubes panel edits: {"source": "selection" | "solo" | "none",
+    "guides": [IDs], "tube": the first one's tube (get_tube's dict) or None, "shapes": the shapes
+    among them}. The selected guides; with none selected, the soloed ones (a brush's Shift+click
+    on a guide: those left unfrozen while the rest are frozen)."""
+    return json.loads(cmds.groomLabGuides(groom, tubeTargets=True))
+
+
+def get_tube(groom, guide):
+    """A guide's tube as a dict: shape, width (scene units, as shown), aspect and twist (radians),
+    each list evenly spaced root to tip."""
+    return json.loads(cmds.groomLabGuides(groom, tube=str(guide)))
+
+
+def scale_tube(groom, factor, guides=None, group=None, level=None):
+    """Scale guides' tubes as a whole: every width times `factor` (their taper, and what the Shape
+    brush painted, kept). Targets as in set_tube (else the selected guides). One undo step.
+    Returns how many guides changed."""
+    if not factor >= 0.0:
+        raise ValueError("factor: 0 or more")
+    return cmds.groomLabGuides(groom, setTube=json.dumps({"scaleWidth": float(factor)}), **_targets(guides, group, level))
+
+
+# smooth_tube's channels: the Shape brush's names, and what the tube calls each list.
+_TUBE_LISTS = {"width": "width", "flatness": "aspect", "twist": "twist", "all": "all"}
+
+
+def smooth_tube(groom, guides=None, channel=None, passes=3, group=None, level=None):
+    """Smooth guides' tubes along each guide (what the Shape brush painted, evened out): each
+    section moved toward its neighbours' mean, one value per guide point, `passes` times, the
+    root's and the tip's kept. `channel`: "width", "flatness", "twist", or "all" (None: all).
+    Targets as in set_tube (else the selected guides). One undo step. Returns how many guides
+    changed."""
+    name = "all" if channel is None else channel
+    if name not in _TUBE_LISTS:
+        raise ValueError("channel must be one of width, flatness, twist or all")
+    edit = {"smooth": _TUBE_LISTS[name], "passes": max(1, min(int(passes), 100))}
+    return cmds.groomLabGuides(groom, setTube=json.dumps(edit), **_targets(guides, group, level))
+
+
+def _interpolate_nodes(graph):
+    return [n for n in graph.get("nodes", []) if n.get("type") == "Interpolate"]
+
+
+def fill_tubes(groom):
+    """The groom's Fill Tubes as its graph's Interpolate nodes have it: {"fillTubes": bool,
+    "tubeBlend": share} (the first Interpolate's), or None when the graph has no Interpolate."""
+    from groomlab.params import get_graph
+    nodes = _interpolate_nodes(get_graph(groom, expand_default=True))
+    if not nodes:
+        return None
+    params = nodes[0].get("params", {})
+    return {"fillTubes": bool(params.get("fillTubes", False)), "tubeBlend": float(params.get("tubeBlend", 0.25))}
+
+
+def set_fill_tubes(groom, on=None, blend=None):
+    """Turn Fill Tubes on or off (`on`) and set its soft edge (`blend`, a share of each tube's
+    half-width) on every Interpolate node of the groom's graph: strands rooted in a guide's tube
+    ride it to the tip (the tubes of every guide level fill, the deepest winning). Adds nothing
+    when the graph has no Interpolate. One undo step. Returns how many nodes changed."""
+    from groomlab.params import get_graph, set_graph
+    graph = get_graph(groom, expand_default=True)
+    changed = 0
+    for node in _interpolate_nodes(graph):
+        params = node.setdefault("params", {})
+        before = dict(params)
+        if on is not None:
+            params["fillTubes"] = bool(on)
+        if blend is not None:
+            params["tubeBlend"] = min(max(float(blend), 0.0), 1.0)
+        changed += params != before
+    if changed:
+        set_graph(groom, graph)
+    return changed
+
+
 def get_hierarchy(groom):
     """Return the stored guide hierarchy as a dict (empty dict when none)."""
     text = cmds.getAttr(groom + ".guideData")

@@ -20,7 +20,7 @@ struct Scene {
     Scene() {
         primary = h.addGroup("primary");
         TubeProfile tube;
-        tube.radius = {0.15f, 0.1f};
+        tube.width = {0.15f, 0.1f};
         for (const float a : {0.3f, 0.9f, 1.5f}) {
             const Vec3f n = Vec3f{std::sin(a), std::cos(a), 0.25f}.normalized();
             h.addGuide(primary, test::straightCurve(n, n * 0.8f, 8), tube);

@@ -13,6 +13,74 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.17.0 (October 18, 2026)
+
+- **Join us on Discord.** A GroomLab community for questions, work in progress and feedback:
+  [discord.gg/sr2rxjRVkm](https://discord.gg/sr2rxjRVkm), also under **Help > Discord** in Maya and
+  the app, and in the Blender menu's About.
+- **Tube guides: shape the hair as whole locks.** Every guide's tube now has a shape (round,
+  ribbon, teardrop or blade) and sections along it (width, aspect and twist, root to
+  tip). Children are made inside the shape and follow it as it flattens, twists and tapers.
+  Interpolate's new **Fill Tubes** fills each tube with strands that stay inside it to the tip, and
+  Clump's **Follow Tubes** (on) clumps them inside their own tube: anime and cartoon hair without
+  modelling a mesh. In Python: `set_tube` and `get_tube`; draw them with Display Tubes. See
+  [Tube guides](/docs/guides-and-brushes#tube-guides).
+- **The Shape brush shapes tubes in Maya.** It replaces the Tube brush (same place in Groom Tools >
+  Tools > Shape): drag over guides to paint their tubes' **Width**, **Flatness** or **Twist** near
+  the brush, point by point along each guide (Ctrl does the opposite). Its card sets the selected
+  guides' tube **Shape**, **Width**, **Flatness** and **Twist** as a whole, and the groom's **Fill
+  Tubes**. While it is on, the tubes draw as wires, a section outline at every guide point. In
+  Python: `brush_stroke(..., "shape", tube_channel=...)`, `scale_tube`, `set_fill_tubes`.
+- **Fill Tubes has a soft edge and fills every level.** Interpolate's new **Tube Blend** (25% of a
+  tube's half-width) blends the strands just outside a tube into it, so no seam shows round a lock.
+  And the tubes of every guide level fill now (a child's tube inside its parent's takes its own
+  strands, the parent's the rest), without setting the Guides node's level.
+- **Tubes fill at any angle.** Strands no longer collapse into a thin band when a guide leaves the
+  head at a shallow angle (lying along it): a tube's footprint is now its section laid flat on the
+  scalp, so its strands fill the whole shape (blade, ribbon, teardrop, round, flat or not) at any
+  angle. Picking a shape lays the tube flat on the head (twist 0: its width along the scalp).
+- **Shaping tubes is quicker.** While the Shape brush is on, every guide it can shape shows its
+  tube (the selected ones brighter), with lines along each tube's corners so a blade reads as a
+  blade. **Shift+drag** with it smooths the channel it paints along the guides; the Tubes card's
+  new **Smooth** button does the same for the selected guides (the current channel or all three;
+  `smooth_tube` in Python). The card edits only the selected guides and shows **Mixed** when their
+  shapes differ.
+- **Custom tube shapes.** Draw your own cross-sections: each groom has a **shape library** saved with
+  its guides (in the scene and in `.groom` files), and guides take a library shape by name like a
+  built-in one. Fill Tubes, children, clumps and the wires follow its outline exactly. The Tubes
+  card has a **shape editor**: a square with the outline's points to drag (the groom follows live;
+  letting go saves, one undo step), click the outline to add a point, right-click one to remove it,
+  **Mirror** (on) keeps both sides alike, **Smooth** or straight edges. **Edit as Custom** copies a
+  built-in into the library; **New**, **Rename**, **Duplicate**, **Delete** and **Apply to Selected**
+  manage it, with no dialogs. Editing a shape updates every guide using it. Outlines that cross
+  themselves or leave out their center are refused with a message. In Python: `add_tube_shape`,
+  `set_tube_shape_points`, `rename_tube_shape`, `remove_tube_shape`, `tube_shapes`, and
+  `set_tube(..., shape="<name>")`. See [Tube guides](/docs/guides-and-brushes#tube-guides).
+- **New guides take the shape you chose.** Place and Draw (and their mirrors) give a new guide the
+  shape picked in the Tubes card (a built-in or a library shape), and blend its width, flatness and
+  twist from the two nearest guides; with none near, it takes the card's Width, Flatness and Twist.
+  The card shows for Place and Draw too. In Python: `brush_tool(..., tube={...})`,
+  `brush_stroke(..., tube={...})`, `placement_tube()`.
+- **Tube sections follow the head.** A shaped tube's sections turn to lie as the scalp does all
+  along the guide (twist 0: width along the scalp), so a ribbon combed round the head stays flat on
+  it; off the head they carry on as they left it.
+- **The Tubes card follows solos.** With no guides selected it edits the soloed ones (Shift+click a
+  guide with a brush), and it follows every change of the selection or solo.
+- **Children of slanted tubes spread out.** Children of a shaped tube whose guide leaves the head at
+  a slant root across its footprint instead of bunching on a line (upright guides and plain round
+  tubes keep theirs).
+- **Scatter's guideRadius fills tube footprints.** Round a guide with a shaped tube, Scatter keeps
+  the roots on the tube's footprint (plus the new **tubeMargin**) instead of a disc, so blades and
+  ribbons fill evenly.
+- **Tube locks (anime) preset.** A start for stylized hair (Presets > Hair): Fill Tubes with a soft
+  edge, soft clumps that follow the tubes, a little noise and tapered tips. Place guides, then
+  shape their tubes with the Shape brush.
+- The teardrop shape is round against the scalp and points away from it, and the crescent shape is gone (a
+  saved crescent loads as round).
+
+Grooms saved before: guide tubes return to the default width (0.1); set them again with `set_tube`
+or the Shape brush. Scripts naming the `tube` brush mode use `shape` now.
+
 ## 0.16.1 (October 17, 2026)
 
 - **Fixes in Maya.** Leaving the Paint brush for another tool no longer prints "A scriptJob cannot

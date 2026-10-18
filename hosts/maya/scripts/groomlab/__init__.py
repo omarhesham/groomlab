@@ -55,8 +55,10 @@ from groomlab.guides import (  # noqa: F401
     isolate_level, list_guide_groups, lock_guides, mirror_group, mirror_guide_selection, preview_resample_guides,
     promote_group, remove_guide_group, rename_guide_group, reparent_guides, resample_guides, select_guides, select_tool,
     selected_guides, set_guide_attribute, set_guide_group_color, set_sculpt_display, set_soft_selection,
-    show_guide_group, symmetry_sync, unlock_guides, _group_list)
-from groomlab.brushes import BRUSH_CONTEXT, BRUSH_MODES, brush_stroke, brush_tool  # noqa: F401
+    show_guide_group, symmetry_sync, unlock_guides, set_tube, get_tube, TUBE_SHAPES, _group_list,
+    scale_tube, smooth_tube, fill_tubes, set_fill_tubes, tube_shapes, add_tube_shape, set_tube_shape_points,
+    rename_tube_shape, remove_tube_shape, preview_tube_shape, tube_targets)
+from groomlab.brushes import BRUSH_CONTEXT, BRUSH_MODES, TUBE_CHANNELS, brush_stroke, brush_tool, placement_tube  # noqa: F401
 from groomlab.painting import (  # noqa: F401
     MAP_CHANNELS, MAP_DISPLAY_CHANNELS, MAP_KINDS, MISSING_KINDS, add_map, attribute_map, clump_paint, color_set_map,
     convert_map, export_map, expression_map, feed_map_node, fill_map, find_missing_files, freeze_guides, freeze_tool,

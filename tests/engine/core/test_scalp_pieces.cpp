@@ -524,7 +524,7 @@ TEST(ScalpPieces, EachScalpRefinesAtItsOwnLevelInTheSession) {
     GuideHierarchy h;
     const GroupId group = h.addGroup("primary");
     TubeProfile tube;
-    tube.radius = {0.2f, 0.1f};
+    tube.width = {0.2f, 0.1f};
     for (const Vec3f& at : {Vec3f{0, 1, 0}, Vec3f{0.6f, 0.8f, 0}, Vec3f{3.3f, 0, 0.4f}, Vec3f{3.7f, 0, 0.6f}}) {
         const Vec3f up = at.x > 2.0f ? Vec3f{0, 1, 0} : at.normalized();
         h.addGuide(group, test::straightCurve(at, up * 0.3f, 6), tube);

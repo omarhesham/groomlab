@@ -99,10 +99,16 @@ void applySettings(BrushToolSettings& s, const py::dict& kwargs) {
         else if (key == "propagate") s.brush.propagate = v.cast<bool>();
         else if (key == "length") s.place.length = v.cast<float>();
         else if (key == "segments") s.place.segments = v.cast<int>();
-        else if (key == "tube_radius") s.place.tube.radius = {v.cast<float>(), v.cast<float>()};
+        else if (key == "tube_radius") s.place.tube.width = {v.cast<float>(), v.cast<float>()};
         else if (key == "spacing") s.place.spacing = v.cast<float>();
         else if (key == "match_neighbors") s.place.matchNeighbors = v.cast<bool>();
         else if (key == "solo_new_guides") s.place.soloNewGuides = v.cast<bool>();
+        else if (key == "tube") {  // the placement tube: a dict as groomlab.get_tube gives one, or its JSON
+            if (!v.is_none()) {
+                setPlacementTube(s.place, py::isinstance<py::str>(v) ? v.cast<std::string>()
+                                                                    : py::module_::import("json").attr("dumps")(v).cast<std::string>());
+            }
+        }
         else if (key == "selected_only") s.selectedOnly = v.cast<bool>();
         else if (key == "symmetry") s.setSymmetry(v.is_none() ? std::string() : v.cast<std::string>());
         else if (key == "symmetry_center") s.brush.mirrorCenter = v.cast<float>();
@@ -111,6 +117,7 @@ void applySettings(BrushToolSettings& s, const py::dict& kwargs) {
         } else if (key == "value") s.brush.value = v.cast<float>();
         else if (key == "collide") s.brush.collide = v.cast<bool>();
         else if (key == "stretch") s.brush.stretch = v.cast<bool>();
+        else if (key == "tube_channel") s.brush.tubeChannel = tubeChannelFromString(v.cast<std::string>());
         else if (key == "hardness") s.brush.hardness = std::clamp(v.cast<float>(), 0.0f, 1.0f);
         else if (key == "falloff_profile") s.setFalloffProfile(rampText(v));
         else if (key == "strength_profile") s.setStrengthProfile(rampText(v));

@@ -551,6 +551,7 @@ void MainWindow::reevaluate(bool quiet) {
     // The cards are judged on their own, as a game sees them; the guides belong to Groom mode
     // (Look mode shows the hair alone).
     settings_.guides = guides_->isChecked() && !showCards && host_->mode() == OverlayHost::Mode::Groom;
+    settings_.tubes = tubes_->isChecked() && !showCards && host_->mode() == OverlayHost::Mode::Groom;
     // How the strands differ from the ones shown before (a dab's incremental evaluation): the
     // renderers write only those.
     const HairChanges changes{shown.strandsSerial, shown.changesBase, shown.strandsChanges};

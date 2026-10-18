@@ -226,8 +226,21 @@ float overlayPullDistance(const StrandSet* strands);
 // A guide as drawn: a smooth curve through its points (`subdivisions` pieces per segment);
 // returns the vertices added.
 std::size_t appendGuideCurve(DisplayGeometry& geometry, const std::vector<Vec3f>& points, int subdivisions);
-// A guide's tube as a shaded surface (rings from its profile, capped at the tip).
-void appendTubeSurface(DisplayGeometry& geometry, const HierarchyGuide& guide);
+// The guides whose tubes the Shape brush's wire shows: every guide of two or more points not in a
+// hidden group (parseHiddenGuideGroups of `hiddenGuideGroups`) and not frozen (its `freeze` layer,
+// inherited, 0.5 or more): the ones the brush can shape. In the hierarchy's order.
+std::vector<const HierarchyGuide*> activeTubeGuides(const GuideHierarchy& hierarchy, const std::string& hiddenGuideGroups,
+                                                    const std::string& freeze = "freeze");
+// A guide's tube as a shaded surface: its shape's outline at rings along it, each section turned,
+// flattened and sized as the tube says (tube.h; widths times scale, the size shown), capped at the tip.
+void appendTubeSurface(DisplayGeometry& geometry, const HierarchyGuide& guide, float scale = 1.0f);
+// The same tube as a wire (what the hosts draw while the Shape brush is on): its shape's outline at
+// every guide point, where the sections the brush paints sit (every `ringStep`-th point's, the
+// root's and the tip's always), and `lengthwise` lines along the tube through the same outline
+// points. Line segments as pairs of points, appended to `out`; nothing for a guide of fewer than
+// two points.
+void appendTubeWire(std::vector<Vec3f>& out, const HierarchyGuide& guide, float scale = 1.0f, std::size_t lengthwise = 8,
+                    std::size_t ringStep = 1);
 
 // ---- Instances --------------------------------------------------------------------------------
 

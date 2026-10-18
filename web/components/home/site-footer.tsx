@@ -22,6 +22,7 @@ const columns = [
   {
     title: 'Help',
     links: [
+      { href: siteConfig.discordUrl, label: 'Discord' },
       { href: `mailto:${siteConfig.supportEmail}`, label: 'Support' },
       { href: '/press', label: 'Press kit' },
     ],

@@ -12,6 +12,8 @@
 #include <unordered_set>
 #include <stdexcept>
 
+#include <nlohmann/json.hpp>
+
 #include "groomlab/curve.h"
 #include "groomlab/frames.h"
 #include "groomlab/guide_selection.h"
@@ -125,7 +127,8 @@ float brushWeight(const Vec3f& p, const Vec3f& center, float radius, const Brush
 
 namespace {
 
-constexpr float kPerStampRate = 0.05f;  // Length and ScaleTube change per stamp at strength 1
+constexpr float kPerStampRate = 0.05f;  // Length and the Shape brush's width change per stamp at strength 1
+constexpr float kFlattenRate = 0.1f;    // Shape on flatness: share of the way to flat (or round) per stamp at strength 1
 constexpr float kTwistRate = 0.1f;      // radians per stamp at strength 1
 constexpr float kCurlRate = 0.25f;      // radians of bend per stamp over a whole guide at strength 1
 constexpr float kAttractRate = 0.1f;    // fraction of the way to the center per stamp, at the tip
@@ -199,7 +202,8 @@ std::vector<float> profileAlong(const std::vector<Vec3f>& pts, const BrushSettin
 // What one stamp does to one guide.
 struct Edit {
     std::vector<Vec3f> points;  // new shape, or empty
-    TubeProfile tube;           // new tube when tube.radius is not empty
+    bool tubeEdited = false;    // the Shape brush's: `tube` is the guide's new tube
+    TubeProfile tube;
     float attribute = std::numeric_limits<float>::quiet_NaN();
     std::vector<float> pointWeights;  // pointwise Attribute: how far each point moves toward the value, or empty
     bool erase = false;
@@ -209,7 +213,6 @@ template <class Weigh>
 Edit brushGuide(const HierarchyGuide& g, const ScalpMesh* scalp, const BrushSettings& s, const Weigh& weigh,
                 const Vec3f& center, const Vec3f& drag) {
     Edit e;
-    e.tube.radius.clear();
     const std::vector<Vec3f>& pts = g.points;
     const std::size_t n = pts.size();
     if (n < 2) return e;
@@ -286,27 +289,59 @@ Edit brushGuide(const HierarchyGuide& g, const ScalpMesh* scalp, const BrushSett
             e.points = resampleByArcLength(extended.data(), extended.size(), n);
             return e;
         }
-        case BrushMode::ScaleTube: {
-            // Ring by ring: each station of the profile grows (or shrinks) by the brush's
-            // weight where it sits along the guide, so the tube can bulge or narrow locally.
-            if (guideWeight(pts, weigh) <= 0.0f || s.strength == 0.0f) return e;
-            constexpr std::size_t kMinRings = 8;
+        case BrushMode::ShapeTube: {
+            // Section by section: the painted list resampled to one value per guide point, then
+            // each point's value moved by the brush's weight there (and the root-to-tip profile),
+            // so a stroke shapes the tube near the cursor and leaves the rest of it as it was.
+            if (s.strength == 0.0f) return e;
+            std::vector<float> weights(n, 0.0f);
+            bool touched = false;
+            for (std::size_t i = 0; i < n; ++i) {
+                weights[i] = weigh(pts[i]) * (profiled ? std::max(rootToTip[i], 0.0f) : 1.0f);
+                touched = touched || weights[i] > 0.0f;
+            }
+            if (!touched) return e;
+            if (s.smoothTube) {
+                // Shift+drag: the channel smoothed along the guide where the brush weighs it, each
+                // section toward its neighbours' mean (smoothedTube), the root's and tip's kept.
+                const unsigned which = s.tubeChannel == TubeChannel::Width      ? kTubeWidthList
+                                       : s.tubeChannel == TubeChannel::Flatness ? kTubeAspectList
+                                                                                : kTubeTwistList;
+                e.tube = smoothedTube(g.tube, which, n, 1, std::min(1.0f, std::fabs(s.strength)), &weights);
+                e.tubeEdited = e.tube != g.tube;
+                return e;
+            }
             e.tube = g.tube;
-            if (e.tube.radius.size() < kMinRings) {  // enough rings to shape along the length
-                std::vector<float> finer(kMinRings);
-                for (std::size_t k = 0; k < kMinRings; ++k) finer[k] = g.tube.radiusAt(static_cast<float>(k) / (kMinRings - 1));
-                e.tube.radius = std::move(finer);
+            std::vector<float>* list = s.tubeChannel == TubeChannel::Width      ? &e.tube.width
+                                       : s.tubeChannel == TubeChannel::Flatness ? &e.tube.aspect
+                                                                                : &e.tube.twist;
+            std::vector<float> perPoint(n);
+            for (std::size_t i = 0; i < n; ++i) {
+                const float t = static_cast<float>(i) / static_cast<float>(n - 1);
+                perPoint[i] = s.tubeChannel == TubeChannel::Width      ? g.tube.widthAt(t)
+                              : s.tubeChannel == TubeChannel::Flatness ? g.tube.aspectAt(t)
+                                                                       : g.tube.twistAt(t);
             }
-            const std::size_t rings = e.tube.radius.size();
-            bool changed = false;
-            for (std::size_t k = 0; k < rings; ++k) {
-                const float t = rings > 1 ? static_cast<float>(k) / static_cast<float>(rings - 1) : 0.0f;
-                const float w = weigh(pointAlong(pts.data(), n, t));
+            const float k = std::clamp(s.strength, -1.0f, 1.0f);
+            for (std::size_t i = 0; i < n; ++i) {
+                const float w = weights[i];
                 if (w <= 0.0f) continue;
-                e.tube.radius[k] *= std::max(0.05f, 1.0f + s.strength * w * kPerStampRate);
-                changed = true;
+                float& v = perPoint[i];
+                switch (s.tubeChannel) {
+                    case TubeChannel::Width: v *= std::max(0.05f, 1.0f + k * w * kPerStampRate); break;
+                    case TubeChannel::Flatness: {
+                        // Toward kMinTubeAspect (flat), or back toward 1 (as drawn) from either side.
+                        const float target = k > 0.0f ? kMinTubeAspect : 1.0f;
+                        v += (target - v) * std::min(1.0f, std::fabs(k) * w * kFlattenRate);
+                        break;
+                    }
+                    case TubeChannel::Twist: v += k * w * kTwistRate; break;
+                }
             }
-            if (!changed) e.tube.radius.clear();
+            *list = std::move(perPoint);
+            e.tubeEdited = *list != (s.tubeChannel == TubeChannel::Width      ? g.tube.width
+                                     : s.tubeChannel == TubeChannel::Flatness ? g.tube.aspect
+                                                                              : g.tube.twist);
             return e;
         }
         case BrushMode::Attribute: {
@@ -782,7 +817,7 @@ std::size_t stamp(GuideHierarchy& h, const ScalpMesh* scalp, const BrushSettings
         const HierarchyGuide& g = *h.guide(targets[k].first);
         const MaskedWeigher masked{weigh, targets[k].second};
         Edit e = brushGuide(g, scalp, s, masked, center, drag);
-        if (!e.erase && e.tube.radius.empty() && std::isnan(e.attribute) && e.pointWeights.empty() && !e.points.empty() && collides) {
+        if (!e.erase && !e.tubeEdited && std::isnan(e.attribute) && e.pointWeights.empty() && !e.points.empty() && collides) {
             e.points = keepOffScalp(e.points, *scalp, s.collideOffset);
         }
         edits[r] = std::move(e);
@@ -801,7 +836,7 @@ std::size_t stamp(GuideHierarchy& h, const ScalpMesh* scalp, const BrushSettings
         Edit& e = edits[r];
         if (e.erase) {
             erased.push_back(id);
-        } else if (!e.tube.radius.empty()) {
+        } else if (e.tubeEdited) {
             h.setTube(id, std::move(e.tube));
             edited.push_back(id);  // children sit inside the tube
         } else if (!std::isnan(e.attribute)) {
@@ -926,7 +961,6 @@ GuideId addToGroup(GuideHierarchy& h, GroupId gid, std::vector<Vec3f> pts, const
 // What a guide placed among others takes from them (neighborMatch).
 struct NeighborMatch {
     std::vector<Vec3f> points;  // relative to the new root
-    TubeProfile tube;           // the nearest guide's
     std::map<std::string, float> attributes;  // painted layers (as the neighbors show them), blended
 };
 
@@ -1030,9 +1064,46 @@ NeighborMatch neighborMatch(const GuideHierarchy& h, const std::vector<GroupId>&
     }
     const int segments = std::max(1, static_cast<int>(std::lround(count / wsum)) - 1);
     m.points = neighborShape(h, groups, scalp, at, segments);
-    m.tube = near[0].g->tube;
     m.attributes = neighborAttributes(h, groups, at);
     return m;
+}
+
+// The tube a new guide of `points` points at `at` takes (tube guides): the shape of `own` (the
+// placement's: PlaceSettings::tube and tubeShape), and its width, aspect and twist blended from the
+// two nearest guides of `groups` by inverse distance, at each of its points (blendedTube). `own`
+// as it is when those groups have no guides.
+TubeProfile neighborTube(const GuideHierarchy& h, const std::vector<GroupId>& groups, const SurfacePoint& at,
+                         std::size_t points, const TubeProfile& own) {
+    const std::vector<Near> near = nearestOf(h, groups, at);
+    if (near.empty()) return own;
+    std::vector<const TubeProfile*> tubes;
+    std::vector<float> weights;
+    for (std::size_t k = 0; k < std::min<std::size_t>(2, near.size()); ++k) {
+        tubes.push_back(&near[k].g->tube);
+        weights.push_back(1.0f / std::max(std::sqrt(near[k].d2), 1e-6f));
+    }
+    TubeProfile out = blendedTube(tubes, weights, std::max<std::size_t>(points, 2));
+    out.shape = own.shape;
+    out.custom = own.custom;
+    return out;
+}
+
+// The tube Place and Draw start from: the settings' (widths as shown to as stored), its shape the
+// library shape `tubeShape` names when the groom has it.
+TubeProfile placementTube(const GuideHierarchy& h, const PlaceSettings& s) {
+    TubeProfile own = s.tube;
+    for (float& r : own.width) r /= h.scale();
+    own.roll.clear();
+    if (!s.tubeShape.empty()) {
+        TubeShape builtin = TubeShape::Round;
+        if (parseTubeShape(s.tubeShape, &builtin)) {
+            own.shape = builtin;
+            own.custom = nullptr;
+        } else if (CustomTubeShapePtr custom = h.tubeShape(s.tubeShape)) {
+            own.custom = std::move(custom);
+        }
+    }
+    return own;
 }
 
 }  // namespace
@@ -1043,7 +1114,7 @@ BrushMode brushModeFromString(const std::string& name) {
     if (name == "lift") return BrushMode::Lift;
     if (name == "length") return BrushMode::Length;
     if (name == "cut") return BrushMode::Cut;
-    if (name == "tube") return BrushMode::ScaleTube;
+    if (name == "shape") return BrushMode::ShapeTube;
     if (name == "paint" || name == "attribute" || name == "clump") return BrushMode::Attribute;
     if (name == "twist") return BrushMode::Twist;
     if (name == "curl") return BrushMode::Curl;
@@ -1062,7 +1133,7 @@ const char* brushModeName(BrushMode mode) {
         case BrushMode::Smooth: return "smooth";
         case BrushMode::Lift: return "lift";
         case BrushMode::Length: return "length";
-        case BrushMode::ScaleTube: return "tube";
+        case BrushMode::ShapeTube: return "shape";
         case BrushMode::Attribute: return "paint";
         case BrushMode::Twist: return "twist";
         case BrushMode::Curl: return "curl";
@@ -1075,6 +1146,35 @@ const char* brushModeName(BrushMode mode) {
         case BrushMode::Noise: return "noise";
     }
     return "comb";
+}
+
+void useShiftSmoothing(BrushSettings& settings) {
+    if (settings.mode == BrushMode::ShapeTube) {
+        settings.smoothTube = true;
+    } else {
+        settings.mode = BrushMode::Smooth;
+    }
+}
+
+void endShiftSmoothing(BrushSettings& settings, BrushMode mode) {
+    settings.mode = mode;
+    settings.smoothTube = false;
+}
+
+const char* tubeChannelName(TubeChannel channel) {
+    switch (channel) {
+        case TubeChannel::Width: return "width";
+        case TubeChannel::Flatness: return "flatness";
+        case TubeChannel::Twist: return "twist";
+    }
+    return "width";
+}
+
+TubeChannel tubeChannelFromString(const std::string& name) {
+    if (name == "width") return TubeChannel::Width;
+    if (name == "flatness") return TubeChannel::Flatness;
+    if (name == "twist") return TubeChannel::Twist;
+    throw std::invalid_argument("the Shape brush paints width, flatness or twist, not '" + name + "'");
 }
 
 std::vector<Vec3f> keepOffScalp(const std::vector<Vec3f>& points, const ScalpMesh& scalp, float offset) {
@@ -1500,7 +1600,7 @@ std::size_t flowStamp(FlowSet& flow, const ScalpMesh& scalp, const BrushSettings
         }
         case BrushMode::Lift:
         case BrushMode::Curl:
-        case BrushMode::ScaleTube:
+        case BrushMode::ShapeTube:
         case BrushMode::Attribute:
         case BrushMode::Slide:
         case BrushMode::Cut:
@@ -1664,7 +1764,7 @@ std::size_t partStamp(PartSet& set, const ScalpMesh& scalp, const BrushSettings&
                 break;
             }
             default:
-                return 0;  // Lift, Curl, ScaleTube, Attribute, Slide, Twist, Length: not for parts
+                return 0;  // Lift, Curl, ShapeTube, Attribute, Slide, Twist, Length: not for parts
         }
         bool any = false;
         for (std::size_t i = 0; i < n; ++i) {
@@ -1741,6 +1841,44 @@ std::size_t applyBrushStrokeToParts(PartSet& parts, const ScalpMesh& scalp, cons
 // ---------------------------------------------------------------------------
 // Place and draw
 
+std::string placementTubeJson(const PlaceSettings& s) {
+    nlohmann::json j = nlohmann::json::parse(tubeToJson(s.tube));
+    if (!s.tubeShape.empty()) j["shape"] = s.tubeShape;
+    return j.dump();
+}
+
+void setPlacementTube(PlaceSettings& s, const std::string& json) {
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(json);
+    } catch (const nlohmann::json::exception& e) {
+        throw std::invalid_argument(std::string("placement tube: ") + e.what());
+    }
+    if (!j.is_object()) throw std::invalid_argument("placement tube: a JSON object");
+    std::string shape;
+    if (j.contains("shape")) {
+        if (!j["shape"].is_string() || j["shape"].get<std::string>().empty()) {
+            throw std::invalid_argument("placement tube: shape is a name");
+        }
+        shape = j["shape"].get<std::string>();
+        j.erase("shape");
+    }
+    TubeProfile tube = editedTube(s.tube, j.dump());
+    if (!shape.empty()) {
+        TubeShape builtin = TubeShape::Round;
+        if (parseTubeShape(shape, &builtin)) {
+            tube.shape = builtin;
+            s.tubeShape.clear();
+        } else {
+            checkTubeShapeName(shape);
+            tube.shape = TubeShape::Round;
+            s.tubeShape = shape;
+        }
+    }
+    tube.custom = nullptr;
+    s.tube = std::move(tube);
+}
+
 GuideId placeGuide(GuideHierarchy& hierarchy, const ScalpMesh& scalp, const PlaceSettings& s, const SurfacePoint& at) {
     if (at.root.face < 0) throw std::invalid_argument("placeGuide: not a point on the scalp");
     const GroupId gid = targetGroup(hierarchy, s.group);
@@ -1764,11 +1902,9 @@ GuideId placeGuide(GuideHierarchy& hierarchy, const ScalpMesh& scalp, const Plac
     if (pts.empty()) {
         for (int i = 0; i <= segments; ++i) pts.push_back(at.position + at.normal * (s.length * i / segments));
     }
-    // A neighbor's tube as it is stored; the brush's (world space) at the size the groom is stored at.
-    TubeProfile tube = matched && !match.tube.radius.empty() ? match.tube : s.tube;
-    if (!(matched && !match.tube.radius.empty())) {
-        for (float& r : tube.radius) r /= hierarchy.scale();
-    }
+    // The placement's shape, its sections the two nearest guides' blended (else the placement's own).
+    const TubeProfile own = placementTube(hierarchy, s);
+    const TubeProfile tube = matched ? neighborTube(hierarchy, neighborGroups(hierarchy, gid), at, pts.size(), own) : own;
     const GuideId id = addToGroup(hierarchy, gid, std::move(pts), tube);
     // Painted layers: a root guide takes them from its neighbors (children inherit their parent's).
     if (matched && hierarchy.groupDepth(gid) == 0) {
@@ -1812,10 +1948,12 @@ GuideId drawGuide(GuideHierarchy& hierarchy, const ScalpMesh& scalp, const Place
     pts = resampleByArcLength(pts.data(), pts.size(), static_cast<std::size_t>(std::max(s.segments, 1)) + 1);
     pts = keepOffScalp(pts, scalp);
     const GroupId gid = targetGroup(hierarchy, s.group);
-    // The shape is drawn; painted layers come from the neighbors, as for Place.
+    // The shape is drawn; painted layers and the tube come from the neighbors, as for Place.
     std::map<std::string, float> layers;
     if (s.matchNeighbors && hierarchy.groupDepth(gid) == 0) layers = neighborAttributes(hierarchy, neighborGroups(hierarchy, gid), root);
-    const GuideId id = addToGroup(hierarchy, gid, std::move(pts), s.tube);
+    const TubeProfile own = placementTube(hierarchy, s);
+    const TubeProfile tube = s.matchNeighbors ? neighborTube(hierarchy, neighborGroups(hierarchy, gid), root, pts.size(), own) : own;
+    const GuideId id = addToGroup(hierarchy, gid, std::move(pts), tube);
     for (const auto& [name, value] : layers) hierarchy.setAttribute(id, name, value);
     hierarchy.evaluateSubtrees(&scalp, {id});
     return id;

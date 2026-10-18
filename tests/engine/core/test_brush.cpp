@@ -145,20 +145,173 @@ TEST(Brush, CombWithStretchChangesLength) {
     EXPECT_NEAR(arcLength(h.guide(id)->points.data(), h.guide(id)->points.size()), before, 1e-3f);
 }
 
-TEST(Brush, TubeGrowsRingByRingWhereBrushed) {
+// The Shape brush (ShapeTube): each tube section moves by the brush's weight at its guide point,
+// the painted list resampled to one value per point first; the other lists stay as they were.
+TEST(Brush, ShapePaintsWidthPerPointWhereBrushed) {
     GuideHierarchy h;
     const GroupId g = h.addGroup("primary");
     const GuideId id = h.addGuide(g, test::straightCurve({0, 0, 0}, {0, 2, 0}, 16));
     h.evaluate(nullptr);
     BrushSettings s;
-    s.mode = BrushMode::ScaleTube;
+    s.mode = BrushMode::ShapeTube;
+    s.tubeChannel = TubeChannel::Width;
     s.radius = 0.4f;
     s.strength = 1.0f;
     for (int i = 0; i < 5; ++i) applyBrushStroke(h, nullptr, s, {{0, 1.9f, 0}});  // near the tip
     const TubeProfile& tube = h.guide(id)->tube;
-    ASSERT_GE(tube.radius.size(), 8u);          // enough rings to shape
-    EXPECT_GT(tube.radiusAt(1.0f), 0.12f);      // the tip end grew
-    EXPECT_NEAR(tube.radiusAt(0.0f), 0.1f, 1e-5f);  // the root end didn't
+    ASSERT_EQ(tube.width.size(), 17u);              // one section per guide point
+    EXPECT_GT(tube.width.back(), 0.12f);            // the tip end grew
+    EXPECT_FLOAT_EQ(tube.width.front(), 0.1f);      // the root end didn't
+    EXPECT_FLOAT_EQ(tube.width[8], 0.1f);           // nor the middle, out of the brush
+    EXPECT_EQ(tube.aspect, std::vector<float>{1.0f});  // the other lists untouched
+    EXPECT_EQ(tube.twist, std::vector<float>{0.0f});
+    // Ctrl (negative strength): it shrinks again where brushed.
+    const float grown = tube.width.back();
+    s.strength = -1.0f;
+    applyBrushStroke(h, nullptr, s, {{0, 1.9f, 0}});
+    EXPECT_LT(h.guide(id)->tube.width.back(), grown);
+}
+
+TEST(Brush, ShapePaintsFlatnessAndTwist) {
+    GuideHierarchy h;
+    const GroupId g = h.addGroup("primary");
+    const GuideId id = h.addGuide(g, test::straightCurve({0, 0, 0}, {0, 2, 0}, 16));
+    h.evaluate(nullptr);
+    BrushSettings s;
+    s.mode = BrushMode::ShapeTube;
+    s.radius = 0.4f;
+    s.strength = 1.0f;
+    // Flatness: toward a flat ribbon near the tip; Ctrl rounds it back toward 1.
+    s.tubeChannel = TubeChannel::Flatness;
+    for (int i = 0; i < 10; ++i) applyBrushStroke(h, nullptr, s, {{0, 1.9f, 0}});
+    const TubeProfile flat = h.guide(id)->tube;
+    ASSERT_EQ(flat.aspect.size(), 17u);
+    EXPECT_LT(flat.aspect.back(), 0.6f);
+    EXPECT_GE(flat.aspect.back(), kMinTubeAspect);
+    EXPECT_FLOAT_EQ(flat.aspect.front(), 1.0f);
+    EXPECT_EQ(flat.width, (std::vector<float>{0.1f, 0.1f}));  // width as it was
+    s.strength = -1.0f;
+    applyBrushStroke(h, nullptr, s, {{0, 1.9f, 0}});
+    EXPECT_GT(h.guide(id)->tube.aspect.back(), flat.aspect.back());
+    EXPECT_LE(h.guide(id)->tube.aspect.back(), 1.0f);
+    // Twist: the sections near the cursor turn one way, Ctrl the other; the root's stays.
+    s.tubeChannel = TubeChannel::Twist;
+    s.strength = 1.0f;
+    for (int i = 0; i < 3; ++i) applyBrushStroke(h, nullptr, s, {{0, 1.9f, 0}});
+    const TubeProfile turned = h.guide(id)->tube;
+    ASSERT_EQ(turned.twist.size(), 17u);
+    EXPECT_GT(turned.twist.back(), 0.1f);
+    EXPECT_FLOAT_EQ(turned.twist.front(), 0.0f);
+    s.strength = -1.0f;
+    applyBrushStroke(h, nullptr, s, {{0, 1.9f, 0}});
+    EXPECT_LT(h.guide(id)->tube.twist.back(), turned.twist.back());
+    // Names round trip; an unknown one is refused.
+    for (const TubeChannel c : {TubeChannel::Width, TubeChannel::Flatness, TubeChannel::Twist}) {
+        EXPECT_EQ(tubeChannelFromString(tubeChannelName(c)), c);
+    }
+    EXPECT_THROW(tubeChannelFromString("radius"), std::invalid_argument);
+}
+
+// Shift+drag with the Shape brush smooths the channel it paints along the guides under it (the
+// guide's shape and the other channels untouched); every other brush's Shift is Smooth, as ever.
+TEST(Brush, ShapeShiftSmoothsItsChannel) {
+    GuideHierarchy h;
+    const GroupId g = h.addGroup("primary");
+    const GuideId id = h.addGuide(g, test::straightCurve({0, 0, 0}, {0, 2, 0}, 16));
+    h.evaluate(nullptr);
+    TubeProfile jagged;
+    jagged.width.resize(17);
+    for (std::size_t i = 0; i < 17; ++i) jagged.width[i] = i % 2 ? 0.2f : 0.1f;
+    jagged.twist = {0.0f, 1.0f};
+    h.setTube(id, jagged);
+    const std::vector<Vec3f> shape = h.guide(id)->points;
+    BrushSettings s;
+    s.mode = BrushMode::ShapeTube;
+    s.tubeChannel = TubeChannel::Width;
+    s.radius = 0.6f;
+    s.strength = 1.0f;
+    useShiftSmoothing(s);
+    EXPECT_EQ(s.mode, BrushMode::ShapeTube);
+    EXPECT_TRUE(s.smoothTube);
+    for (int i = 0; i < 4; ++i) applyBrushStroke(h, nullptr, s, {{0, 1.0f, 0}});  // over the middle
+    const TubeProfile& smoothed = h.guide(id)->tube;
+    ASSERT_EQ(smoothed.width.size(), 17u);
+    auto jump = [&](std::size_t i) { return std::abs(smoothed.width[i + 1] - smoothed.width[i]); };
+    EXPECT_LT(jump(7) + jump(8), 0.1f);            // evened out under the brush (was 0.2)
+    EXPECT_NEAR(jump(0), 0.1f, 1e-6f);              // out of reach: as it was
+    EXPECT_EQ(smoothed.twist, jagged.twist);        // the other channels untouched
+    EXPECT_EQ(h.guide(id)->points, shape);          // and the guide
+    endShiftSmoothing(s, BrushMode::ShapeTube);
+    EXPECT_FALSE(s.smoothTube);
+    // Comb's Shift: Smooth, as before.
+    BrushSettings comb;
+    comb.mode = BrushMode::Comb;
+    useShiftSmoothing(comb);
+    EXPECT_EQ(comb.mode, BrushMode::Smooth);
+    EXPECT_FALSE(comb.smoothTube);
+    endShiftSmoothing(comb, BrushMode::Comb);
+    EXPECT_EQ(comb.mode, BrushMode::Comb);
+}
+
+// A guide placed (or drawn) among tube guides takes its tube from them: the nearest's shape, the
+// two nearest's sections blended by inverse distance at its own points.
+// A new guide's tube: the placement's shape (the host's choice: Groom Tools' Tubes panel), its
+// width, flatness and twist blended from the two nearest guides.
+TEST(Brush, NewGuidesInheritTheNeighboursTubes) {
+    Scene s;
+    const GuideId a = s.add(0.3f, 0.5f), b = s.add(0.7f, 0.5f);
+    TubeProfile blade;
+    blade.shape = TubeShape::Blade;
+    blade.width = {0.2f, 0.1f};
+    blade.aspect = {0.5f};
+    TubeProfile ribbon;
+    ribbon.shape = TubeShape::Ribbon;
+    ribbon.width = {0.4f};
+    ribbon.twist = {0.0f, 1.0f};
+    s.h.setTube(a, blade);
+    s.h.setTube(b, ribbon);
+    s.h.evaluate(s.scalp.get());
+    PlaceSettings p;
+    p.tube.shape = TubeShape::Teardrop;
+    const GuideId placed = placeGuide(s.h, *s.scalp, p, s.scalp->closestPoint({0.4f, 0, 0.5f}));  // 0.1 from a, 0.3 from b
+    const TubeProfile& t = s.h.guide(placed)->tube;
+    EXPECT_EQ(t.shape, TubeShape::Teardrop);  // the placement's shape, not the nearest's
+    const float wa = 1.0f / 0.1f, wb = 1.0f / 0.3f;
+    EXPECT_NEAR(t.widthAt(0.0f), (0.2f * wa + 0.4f * wb) / (wa + wb), 1e-3f);
+    EXPECT_NEAR(t.widthAt(1.0f), (0.1f * wa + 0.4f * wb) / (wa + wb), 1e-3f);
+    EXPECT_NEAR(t.aspectAt(0.5f), (0.5f * wa + 1.0f * wb) / (wa + wb), 1e-3f);
+    EXPECT_NEAR(t.twistAt(1.0f), (1.0f * wb) / (wa + wb), 1e-3f);
+    EXPECT_LE(t.width.size(), 2u);  // a line root to tip, said as such
+    // Drawn guides too; not matching the neighbours, the brush's own tube.
+    const GuideId drawn = drawGuide(s.h, *s.scalp, p, {{0.65f, 0, 0.5f}, {0.65f, 0.5f, 0.5f}, {0.65f, 1.0f, 0.5f}});
+    EXPECT_EQ(s.h.guide(drawn)->tube.shape, TubeShape::Teardrop);
+    EXPECT_NEAR(s.h.guide(drawn)->tube.widthAt(0.5f), 0.4f, 0.05f);  // mostly the ribbon's, the nearer
+    p.group = "other";
+    p.matchNeighbors = false;
+    const GuideId bare = placeGuide(s.h, *s.scalp, p, s.scalp->closestPoint({0.5f, 0, 0.2f}));
+    TubeProfile own = p.tube;
+    own.roll = s.h.guide(bare)->tube.roll;  // (worked out on the scalp, not compared)
+    EXPECT_EQ(s.h.guide(bare)->tube, own);
+}
+
+TEST(Brush, ShapeMirrorsAndLeavesFrozenGuidesAlone) {
+    // Symmetry paints the mirror guide too; a frozen guide (the freeze mask) is held back, as with
+    // every brush.
+    Scene s;
+    const GuideId left = s.add(0.25f, 0.75f), right = s.add(0.75f, 0.75f), frozen = s.add(0.25f, 0.25f);
+    s.h.setAttribute(frozen, "freeze", 1.0f);
+    BrushSettings b;
+    b.mode = BrushMode::ShapeTube;
+    b.tubeChannel = TubeChannel::Width;
+    b.radius = 0.2f;
+    b.strength = 1.0f;
+    b.mirrorAxis = 0;
+    b.mirrorCenter = 0.5f;
+    applyBrushStroke(s.h, s.scalp.get(), b, {{0.25f, 0.9f, 0.75f}, {0.25f, 0.9f, 0.25f}});
+    EXPECT_GT(s.h.guide(left)->tube.width.back(), 0.1f);
+    EXPECT_GT(s.h.guide(right)->tube.width.back(), 0.1f);  // the mirror image's stamp
+    EXPECT_NEAR(s.h.guide(left)->tube.width.back(), s.h.guide(right)->tube.width.back(), 1e-5f);
+    EXPECT_EQ(s.h.guide(frozen)->tube.width, (std::vector<float>{0.1f, 0.1f}));
 }
 
 TEST(Brush, NothingOutsideTheRadiusChanges) {
@@ -285,31 +438,31 @@ TEST(Brush, PlaceAndDrawIntoAChildGroupKeepTheTube) {
     Scene s;
     const GuideId parent = s.add(0.5f, 0.5f);
     TubeProfile wide;
-    wide.radius = {0.4f, 0.2f};
+    wide.width = {0.4f, 0.2f};
     s.h.setTube(parent, wide);
     const GroupId kids = s.h.addGroup("kids", s.primary);
     PlaceSettings p;
     p.group = "kids";
     p.matchNeighbors = false;
-    p.tube.radius = {0.05f, 0.02f};
+    p.tube.width = {0.05f, 0.02f};
     const GuideId placed = placeGuide(s.h, *s.scalp, p, s.scalp->closestPoint({0.55f, 0, 0.5f}));
     EXPECT_EQ(s.h.guide(placed)->parent, parent);
-    EXPECT_EQ(s.h.guide(placed)->tube.radius, p.tube.radius);
+    EXPECT_EQ(s.h.guide(placed)->tube.width, p.tube.width);
     const GuideId drawn = drawGuide(s.h, *s.scalp, p, {{0.45f, 0, 0.5f}, {0.45f, 0.5f, 0.5f}});
-    EXPECT_EQ(s.h.guide(drawn)->tube.radius, p.tube.radius);
+    EXPECT_EQ(s.h.guide(drawn)->tube.width, p.tube.width);
     // Placed among children: the nearest child's tube.
     p.matchNeighbors = true;
-    p.tube.radius = {0.3f};
+    p.tube.width = {0.3f};
     const GuideId matched = placeGuide(s.h, *s.scalp, p, s.scalp->closestPoint({0.5f, 0, 0.55f}));
-    EXPECT_EQ(s.h.guide(matched)->tube.radius, (std::vector<float>{0.05f, 0.02f}));
+    EXPECT_EQ(s.h.guide(matched)->tube.width, (std::vector<float>{0.05f, 0.02f}));
     // By hand without a tube (or with no radii): the parent's, scaled by 0.35.
     const std::vector<Vec3f> shape = test::straightCurve({0.5f, 0, 0.6f}, {0, 1, 0}, 4);
     const GuideId bare = s.h.addChildGuide(kids, parent, shape);
-    EXPECT_NEAR(s.h.guide(bare)->tube.radiusAt(0.0f), 0.4f * 0.35f, 1e-6f);
+    EXPECT_NEAR(s.h.guide(bare)->tube.widthAt(0.0f), 0.4f * 0.35f, 1e-6f);
     TubeProfile none;
-    none.radius.clear();
+    none.width.clear();
     const GuideId empty = s.h.addChildGuide(kids, parent, shape, none);
-    EXPECT_NEAR(s.h.guide(empty)->tube.radiusAt(1.0f), 0.2f * 0.35f, 1e-6f);
+    EXPECT_NEAR(s.h.guide(empty)->tube.widthAt(1.0f), 0.2f * 0.35f, 1e-6f);
 }
 
 TEST(Brush, SmoothRelaxesKinks) {
@@ -379,16 +532,17 @@ TEST(Brush, LengthGrowsAndCuts) {
     EXPECT_NEAR(s.pts(id).front().y, 0.0f, 1e-5f);
 }
 
-TEST(Brush, ScaleTubeGrowsTheTube) {
+TEST(Brush, ShapeGrowsTheTube) {
     Scene s;
     const GuideId id = s.add(0.5f, 0.5f);
-    const float r = s.h.guide(id)->tube.radiusAt(0.0f);
+    const float r = s.h.guide(id)->tube.widthAt(0.0f);
     BrushSettings b;
-    b.mode = BrushMode::ScaleTube;
+    b.mode = BrushMode::ShapeTube;
     b.radius = 2.0f;
-    b.strength = 2.0f;
+    b.strength = 1.0f;
+    b.hardness = 1.0f;
     applyBrushStroke(s.h, s.scalp.get(), b, {{0.5f, 0.5f, 0.5f}});
-    EXPECT_NEAR(s.h.guide(id)->tube.radiusAt(0.0f), r * 1.1f, 0.005f);  // each ring by its own brush weight
+    for (const float w : s.h.guide(id)->tube.width) EXPECT_NEAR(w, r * 1.05f, 1e-5f);  // a hard brush: every section alike
 }
 
 TEST(Brush, PlaceAddsAStandingGuide) {
@@ -438,7 +592,7 @@ TEST(Brush, PlaceInterpolatesItsNeighbors) {
     s.h.setAttribute(a, "clump", 0.2f);
     s.h.setAttribute(b, "clump", 0.8f);
     TubeProfile fat;
-    fat.radius = {0.3f, 0.2f};
+    fat.width = {0.3f, 0.2f};
     s.h.setTube(a, fat);
     SurfacePoint hit;
     ASSERT_TRUE(s.scalp->intersectRay({0.4f, 1.0f, 0.5f}, {0, -1, 0}, &hit));
@@ -451,7 +605,9 @@ TEST(Brush, PlaceInterpolatesItsNeighbors) {
     EXPECT_NEAR(totalLength(g.points), 1.0f, 1e-3f);
     EXPECT_GT(g.attributes.at("clump"), 0.2f);
     EXPECT_LT(g.attributes.at("clump"), 0.5f);  // nearer a
-    EXPECT_EQ(g.tube.radius, fat.radius);       // the nearest guide's tube
+    // The two nearest guides' tubes blended by inverse distance (0.1 from a, 0.3 from b).
+    EXPECT_NEAR(g.tube.widthAt(0.0f), (0.3f * 10.0f + 0.1f * 10.0f / 3.0f) / (40.0f / 3.0f), 1e-4f);
+    EXPECT_NEAR(g.tube.widthAt(1.0f), (0.2f * 10.0f + 0.1f * 10.0f / 3.0f) / (40.0f / 3.0f), 1e-4f);
 }
 
 TEST(Brush, IncrementalEvaluationMatchesFull) {
@@ -499,7 +655,7 @@ TEST(Brush, IncrementalEvaluationMatchesFull) {
 }
 
 TEST(Brush, ModeNames) {
-    for (const auto mode : {BrushMode::Comb, BrushMode::Smooth, BrushMode::Lift, BrushMode::Length, BrushMode::ScaleTube}) {
+    for (const auto mode : {BrushMode::Comb, BrushMode::Smooth, BrushMode::Lift, BrushMode::Length, BrushMode::ShapeTube}) {
         EXPECT_EQ(brushModeFromString(brushModeName(mode)), mode);
     }
     EXPECT_EQ(brushModeFromString("cut"), BrushMode::Cut);
@@ -609,7 +765,7 @@ TEST(Brush, CullingAndStrokeCachesChangeTheSameGuidesTheSame) {
     const Vec3f eye{0.3f, 1.6f, 4.5f};
     const auto visibility = std::make_shared<ScalpVisibility>(sphere, eye, (Vec3f{0, 0.7f, 0} - eye).normalized(), false);
     const GuideHierarchy start = groomOnSphere(*sphere, 120, 6);
-    const BrushMode modes[] = {BrushMode::Comb, BrushMode::Smooth, BrushMode::Lift, BrushMode::Length, BrushMode::ScaleTube,
+    const BrushMode modes[] = {BrushMode::Comb, BrushMode::Smooth, BrushMode::Lift, BrushMode::Length, BrushMode::ShapeTube,
                                BrushMode::Attribute, BrushMode::Twist, BrushMode::Curl, BrushMode::Straighten,
                                BrushMode::Attract, BrushMode::Erase, BrushMode::Cut, BrushMode::Slide};
     std::map<GuideId, float> mask;

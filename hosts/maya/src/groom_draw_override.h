@@ -409,6 +409,13 @@ private:
     float pointSize_ = 0.0f;
     mutable bool uiDirty_ = true;
     std::uint64_t seamDrawn_ = ~std::uint64_t{0};  // the brush's symmetry line drawn (GroomShape::symmetrySeamVersion)
+    // The Shape brush's tube wires (GroomShape::tubeWires): every guide it can shape (shown, not
+    // frozen), the selected ones' segments apart (drawn brighter), and what they were made from
+    // (the guides, the selection, the hidden groups), made again only when that changes.
+    void addTubeWires(MHWRender::MUIDrawManager& draw);
+    std::vector<Vec3f> tubeWires_, tubeWiresSelected_;
+    std::uint64_t tubeWiresKey_ = ~std::uint64_t{0};
+    bool tubeWiresDrawn_ = false;
     mutable MMatrix uiCamera_;  // the view-projection the dots were last built for
     mutable int uiHeight_ = 0;
     std::array<float, 3> drawnColor_{};

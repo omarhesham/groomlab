@@ -181,7 +181,7 @@ def main():
                         "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys", "Help"], "top: %r" % top)
         sub = {label: children for label, children, _ in tree}
         _expect([l for l, _, _ in sub["Help"]] == ["Docs", "Keyboard Shortcuts", "Check for Updates...",
-                                                   "Support GroomLab", "About GroomLab"], "Help")
+                                                   "Discord", "Support GroomLab", "About GroomLab"], "Help")
         _expect([l for l, _, _ in sub["Simulate"]][-1] == "Legacy", "nHair under Simulate > Legacy")
         _expect("Simulation" not in [l for l, _, _ in sub["Add"]], "no second Add Simulate")
         _expect([l for l, _, _ in sub["Render"]] == ["Render from Groom File...", "Render as Curves"], "Render")

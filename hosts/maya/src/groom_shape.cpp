@@ -341,6 +341,12 @@ void GroomShape::setSymmetrySeam(std::vector<Vec3f> segments) {
     M3dView::scheduleRefreshAllViews();
 }
 
+void GroomShape::setTubeWires(bool on) {
+    if (on == tubeWires_) return;
+    tubeWires_ = on;
+    M3dView::scheduleRefreshAllViews();
+}
+
 void GroomShape::stopStrokeWarmup() {
     if (gWarmCallback != 0) MMessage::removeCallback(gWarmCallback);
     gWarmCallback = 0;

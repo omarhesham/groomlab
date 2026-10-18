@@ -1970,6 +1970,7 @@ gets more clumps of the same size than a head, not the same number stretched ove
 | Hair | `curly` | Ringlets: small clumps curled together by Curl with `coherence` `clump`, a little frizz, the segments curls need |
 | Hair | `braids` | Box braids with no curves to draw: the Braid node picks its own paths, one per 2.6 cm of scalp (`region`, exposed as `braidSpacing`) |
 | Hair | `parted_style` | A part drawn with the Part tool: Interpolate and Clump respect it, the Part node opens it |
+| Hair | `tube_locks` | Tube locks (anime): Interpolate with `fillTubes` and `tubeBlend` fills each guide's tube, a Clump with `followTubes` and soft clumps, light Noise, HairColor, tapered Width, Resample; place guides, shape their tubes with the Shape brush |
 | Fur | `creature_fur` | Fur for a whole animal: laid by flow arrows (Flow, no guides), soft tufts about a centimetre across, lighter tips |
 | Fur | `agouti_fur` | The creature fur in wild-type banding: guard hairs dark, a pale band, a black tip, the bands wandering hair to hair over a plain undercoat (HairColor, then Bands with guard hairs) |
 | Fur | `white_wool` | Dense, crimped white fleece in soft locks: a picked off-white (HairColor's `color` mode, so no pigment browns it), a little brightness variation, white tips |

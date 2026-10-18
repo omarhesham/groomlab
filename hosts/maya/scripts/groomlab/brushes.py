@@ -9,7 +9,9 @@ from groomlab.base import ensure_plugin
 
 
 BRUSH_MODES = ("comb", "slide", "smooth", "straighten", "lift", "twist", "curl", "attract", "direction", "noise", "length",
-               "cut", "tube", "erase", "paint", "clump", "place", "draw", "part", "flow")
+               "cut", "shape", "erase", "paint", "clump", "place", "draw", "part", "flow")
+# What the Shape brush paints on the guides' tubes (tube guides).
+TUBE_CHANNELS = ("width", "flatness", "twist")
 BRUSH_CONTEXT = "groomLabBrushCtx1"
 # The Width and Density brushes became Paint on a setting's map (paint_param; Paint tab > + New Map >
 # for a setting): scripts naming them hear where they went.
@@ -32,15 +34,18 @@ def brush_stroke(groom, mode, points, radius=0.25, strength=1.0, level=0, group=
                  attribute=None, value=1.0, match_neighbors=True, collide=True, part_name="part", stretch=False,
                  targets="guides", paint_kind="guides", paint_texture="", paint_resolution=1024, hardness=0.0,
                  smooth_strength=1.0, paint_color=None, paint_channels="rgba", strength_profile=None,
-                 falloff_profile=None, solo_new_guides=False):
+                 falloff_profile=None, solo_new_guides=False, tube_channel="width", tube=None):
     """Apply one scripted brush stroke (one undo step) to a groom's guides, parts or flow arrows.
 
     `points` is the stroke path in world space; each point stamps a brush
     sphere of `radius`.
     - comb drags along the path; with `stretch` guides get longer or shorter
       with the drag instead of keeping their length.
-    - smooth, straighten, lift, twist, curl, attract, length, cut, tube and erase
-      act where the path passes. direction turns guides about their roots toward the
+    - smooth, straighten, lift, twist, curl, attract, length, cut, shape and erase
+      act where the path passes. shape paints the guides' tubes near the path, section by
+      section (one per guide point): `tube_channel` "width" grows them (negative strength
+      shrinks), "flatness" flattens them toward a ribbon (negative: back toward round), "twist"
+      turns them about the guide (negative: the other way). direction turns guides about their roots toward the
       path's direction (negative strength: away); noise adds smooth random jitter along
       them, seeded per guide (negative strength smooths it out). Strength is signed: negative length cuts,
       negative lift lays guides down, negative attract pushes apart, and twist
@@ -49,7 +54,10 @@ def brush_stroke(groom, mode, points, radius=0.25, strength=1.0, level=0, group=
       `match_neighbors` it copies the shape of the nearest guides, else it
       stands `length` tall. draw makes one guide shaped like the points,
       rooted at the first. With `solo_new_guides` the new guides stay unfrozen and every
-      other guide is frozen (the freeze map), in the same undo step.
+      other guide is frozen (the freeze map), in the same undo step. `tube` (a dict as get_tube
+      gives: shape, width, aspect, twist; None: the brush's as it is) is the new guides' tube: they
+      take its shape (a built-in or a library shape), and blend their width, flatness and twist
+      from the two nearest guides (with match_neighbors; none near: the tube's own).
     - part adds a part through the points (projected onto the scalp),
       named `part_name` (made unique); symmetry adds its mirror image.
     - paint moves the per-guide `attribute` toward `value` (a painted map);
@@ -81,7 +89,9 @@ def brush_stroke(groom, mode, points, radius=0.25, strength=1.0, level=0, group=
               "value": value, "matchNeighbors": match_neighbors, "collide": collide, "partName": part_name,
               "stretch": stretch, "targets": targets, "hardness": float(hardness), "smoothStrength": float(smooth_strength),
               "strengthProfile": curve_text(strength_profile), "falloffProfile": curve_text(falloff_profile),
-              "soloNewGuides": bool(solo_new_guides)}
+              "soloNewGuides": bool(solo_new_guides), "tubeChannel": _tube_channel(tube_channel)}
+    if tube is not None:
+        kwargs["placeTube"] = _placement_tube(tube)
     if group:
         kwargs["group"] = group
     if attribute:
@@ -90,6 +100,36 @@ def brush_stroke(groom, mode, points, radius=0.25, strength=1.0, level=0, group=
         kwargs.update(paintKind=paint_kind, paintTexture=paint_texture or "", paintResolution=int(paint_resolution))
     kwargs.update(_paint_color_flags(paint_color, paint_channels))
     cmds.groomLabBrushStroke(groom, **kwargs)
+
+
+def _placement_tube(tube):
+    """The placement tube as the brush's -placeTube takes it: a dict (shape, width, aspect, twist; any
+    left out stays the brush's) as JSON."""
+    if isinstance(tube, str):
+        return tube
+    edit = {}
+    for key, value in dict(tube).items():
+        if key not in ("shape", "width", "aspect", "twist"):
+            raise ValueError("tube keys: shape, width, aspect, twist (not %r)" % key)
+        if key == "shape":
+            edit[key] = str(value)
+        else:
+            edit[key] = [float(v) for v in value] if isinstance(value, (list, tuple)) else float(value)
+    return json.dumps(edit)
+
+
+def placement_tube():
+    """The tube Place and Draw give new guides (brush_tool's `tube`) as a dict: shape, width, aspect, twist."""
+    ensure_plugin()
+    if not cmds.contextInfo(BRUSH_CONTEXT, exists=True):
+        cmds.groomLabBrushCtx(BRUSH_CONTEXT)
+    return json.loads(cmds.groomLabBrushCtx(BRUSH_CONTEXT, query=True, placeTube=True))
+
+
+def _tube_channel(name):
+    if name not in TUBE_CHANNELS:
+        raise ValueError("tube_channel must be one of %s" % (TUBE_CHANNELS,))
+    return name
 
 
 def curve_text(curve):
@@ -125,7 +165,7 @@ def brush_tool(mode="comb", radius=60, strength=1.0, level=0, group="", propagat
                attribute=None, value=1.0, match_neighbors=True, spacing=0.1, collide=True, pressure=True,
                part_name="part", erase_guides=True, erase_parts=True, erase_flow=True, stretch=False, flow_sink="",
                targets="guides", paint_color=None, paint_channels="rgba", mask_by_scalp=True, strength_profile=None,
-               falloff_profile=None, solo_new_guides=False, activate=True):
+               falloff_profile=None, solo_new_guides=False, tube_channel="width", tube=None, activate=True):
     """Configure the interactive GroomLab brush (radius in pixels) and make it the current tool.
 
     Select the groom first; then drag over it in the viewport. Each drag is one undo step.
@@ -149,6 +189,10 @@ def brush_tool(mode="comb", radius=60, strength=1.0, level=0, group="", propagat
     - `paint_color` (r, g, b[, a]) and `paint_channels` ("rgba" or a subset): what paint does to a
       color map (Ctrl: toward 1 - the color in those channels; Shift+drag smooths them).
     - `strength_profile` and `falloff_profile`: the brush's curves, as in brush_stroke.
+    - `tube_channel` (shape): what the Shape brush paints on the tubes near it: "width",
+      "flatness" or "twist" (Ctrl does the opposite).
+    - `tube` (place, draw): the new guides' tube, as in brush_stroke (the Groom Tools' Tubes panel
+      sets it to its shape and Width, Flatness and Twist); placement_tube() reads it back.
     - `solo_new_guides` (place, draw): each stroke's new guides stay unfrozen and every other
       guide is frozen, so the brushes after work on them alone (the Groom Tools turn it on).
     - Shift+click a guide with a brush: that guide is soloed (unfrozen, every other frozen, one
@@ -164,10 +208,12 @@ def brush_tool(mode="comb", radius=60, strength=1.0, level=0, group="", propagat
     kwargs = {"paintKind": paint_kind, "paintTexture": paint_texture or "", "paintResolution": int(paint_resolution),
               "hardness": float(hardness), "smoothStrength": float(smooth_strength),
               "strengthProfile": curve_text(strength_profile), "falloffProfile": curve_text(falloff_profile),
-              "soloNewGuides": bool(solo_new_guides)}
+              "soloNewGuides": bool(solo_new_guides), "tubeChannel": _tube_channel(tube_channel)}
     kwargs.update(_paint_color_flags(paint_color, paint_channels))
     if attribute:
         kwargs["attribute"] = attribute
+    if tube is not None:
+        kwargs["placeTube"] = _placement_tube(tube)
     cmds.groomLabBrushCtx(BRUSH_CONTEXT, edit=True, mode=mode, radius=radius, strength=strength, level=level,
                           group=group, propagate=propagate, length=length, segments=segments, tubeRadius=tube_radius,
                           selectedOnly=selected_only, symmetry=symmetry or "none", symmetryCenter=symmetry_center,

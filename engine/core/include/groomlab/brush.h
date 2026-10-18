@@ -25,7 +25,7 @@ enum class BrushMode {
     Smooth,     // relax kinks; lengths kept
     Lift,       // turn guides toward their root normal (negative strength lays them down)
     Length,     // grow (positive strength) or cut (negative) guides touched by the brush
-    ScaleTube,  // grow or shrink the tube radius of touched guides
+    ShapeTube,  // paint touched guides' tube sections near the brush: width, flatness or twist (tubeChannel)
     Attribute,  // paint a per-guide attribute toward `value` (clump paint: attribute "clump")
     Twist,      // swing guides around their root normal (signed: counter-clockwise seen from above)
     Curl,       // bend guides progressively toward the tip (signed), lengths kept
@@ -38,11 +38,28 @@ enum class BrushMode {
     Noise,      // add smooth random jitter along guides, seeded per guide, lengths kept (negative: smooth it out)
 };
 
-// Parses a mode name: comb, smooth, lift, length, tube, paint (attribute, clump),
+// What the Shape brush (BrushMode::ShapeTube) paints on a guide's tube sections (tube.h), each
+// section by the brush's weight at its guide point (the painted list first resampled to one value
+// per point, so edits are per CV):
+//   Width     the section grows (negative strength: shrinks);
+//   Flatness  its aspect goes toward 0, a flat ribbon (negative: back toward 1, as drawn);
+//   Twist     it turns about the guide (negative: the other way).
+enum class TubeChannel { Width, Flatness, Twist };
+// width, flatness, twist; tubeChannelFromString throws std::invalid_argument.
+const char* tubeChannelName(TubeChannel channel);
+TubeChannel tubeChannelFromString(const std::string& name);
+
+// Parses a mode name: comb, smooth, lift, length, shape (ShapeTube), paint (attribute, clump),
 // cut, twist, curl, straighten, attract, erase, slide (move), direction, noise. Throws
 // std::invalid_argument.
 BrushMode brushModeFromString(const std::string& name);
 const char* brushModeName(BrushMode mode);
+
+struct BrushSettings;
+// A brush's Shift+drag: the Shape brush smooths the channel it paints (smoothTube); every other
+// brush becomes Smooth. endShiftSmoothing puts back `mode` (the brush's own) and clears smoothTube.
+void useShiftSmoothing(BrushSettings& settings);
+void endShiftSmoothing(BrushSettings& settings, BrushMode mode);
 
 struct BrushSettings {
     BrushMode mode = BrushMode::Comb;
@@ -97,6 +114,13 @@ struct BrushSettings {
     // Comb: guides stretch with the drag (longer or shorter, points respaced
     // evenly) instead of keeping their length.
     bool stretch = false;
+
+    // Shape (ShapeTube): what it paints on the tubes.
+    TubeChannel tubeChannel = TubeChannel::Width;
+    // Shape: smooth that channel of the tube sections under the brush along each guide (each
+    // section toward its neighbours' mean by the brush's weight there times |strength|) instead
+    // of painting it: its Shift+drag (useShiftSmoothing).
+    bool smoothTube = false;
 
     // Freeze mask: guides carrying this attribute (inherited too) are held back
     // by it (1: untouched). Painting the attribute itself is never held back,
@@ -240,7 +264,7 @@ std::size_t applyBrushStroke(GuideHierarchy& hierarchy, const ScalpMesh* scalp, 
 //               go; the pieces keep the name, then name1, name2...); pins and
 //               sinks unchanged.
 //   Erase       pins, sinks and parts under the brush removed.
-//   Lift, Curl, ScaleTube, Attribute, Slide, Direction, Noise: nothing.
+//   Lift, Curl, ShapeTube, Attribute, Slide, Direction, Noise: nothing.
 // Each returns how many pins and sinks (or parts) changed.
 std::size_t applyBrushStampToFlow(FlowSet& flow, const ScalpMesh& scalp, const BrushSettings& settings,
                                   const Vec3f& center, const Vec3f& drag, const BrushWeightFn& weight = {});
@@ -259,11 +283,16 @@ struct PlaceSettings {
     std::string group = "primary";
     float length = 0.5f;            // standing guides, and when there are no neighbors
     int segments = 12;
+    // The new guides' tube (widths at the size shown): its shape always (a host's chosen shape:
+    // Groom Tools' Tubes panel), its width, aspect and twist where no guides are near to blend them
+    // from (matchNeighbors). `tubeShape`, when set, names the shape instead: a built-in's name or one
+    // of the groom's library shapes (GuideHierarchy::tubeShapes; one the groom lacks: tube.shape).
     TubeProfile tube;
+    std::string tubeShape;
     // Interpolate the nearest guides (inverse-distance blend of the 3 nearest,
-    // turned to the new root's normal): shape, length, point count, tube and
-    // painted layers, instead of standing straight up with `length` and
-    // `segments`. The group's own guides, or while it has none the other
+    // turned to the new root's normal): shape, length, point count, the tube's width, aspect and
+    // twist (the two nearest's; its shape stays `tube`'s) and painted layers, instead of standing
+    // straight up with `length` and `segments`. The group's own guides, or while it has none the other
     // groups' at its level. Draw takes the painted layers.
     bool matchNeighbors = true;
     float spacing = 0.1f;  // Place Many: no new root closer than this to any root of the group
@@ -271,6 +300,13 @@ struct PlaceSettings {
     // (soloGuides), in the same undo step, so the brushes after work on the new ones alone.
     bool soloNewGuides = false;
 };
+
+// The placement tube (PlaceSettings::tube and tubeShape) as JSON, as tubeToJson writes a tube
+// ({"shape", "width", "aspect", "twist"}: widths as shown), and set from such JSON: the keys given
+// replace those (a "shape": a built-in's name, or any other name for a library shape, looked up in
+// the groom at placing). Throws std::invalid_argument as editedTube does.
+std::string placementTubeJson(const PlaceSettings& s);
+void setPlacementTube(PlaceSettings& s, const std::string& json);
 
 // Solo: guides `active` and their descendants unfrozen (the freeze layer `freeze` at 0), every
 // other guide frozen (1): the brushes leave all but those alone (BrushSettings::freeze). Unknown

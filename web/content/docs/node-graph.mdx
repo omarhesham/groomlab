@@ -88,6 +88,7 @@ Clump pulls strands toward clump centers. Main parameters:
 | `volumize`, `strengthRandom`, `lockRadiusRandom`, `copyAmount` | Fill each clump out near the root; randomize each clump's strength and lock radius; copy neighboring clumps' shape so adjacent clumps share one flow. | 0 |
 | `pastTip` | For strands longer than their clump's axis: `gather` them at the axis tip, or `extend` past it while keeping their length. | `gather` |
 | `clumpChannel` | Per-strand attribute that receives the clump index (`clumpId`). Chained Clumps should each use their own; Twist, Cards and HairColor's `clumpShare` read the one named by their own `clumpChannel`. | `clumpId` |
+| `followTubes` | With `pick`, for strands filling [tube guides](/docs/guides-and-brushes#tube-guides) (Interpolate's `fillTubes`): each tube picks its own centers among its strands, as far apart as `clumpBy` says, and a strand clumps only toward its own tube's, so clumps stay inside the tube and flatten, twist and taper with it. Strands in no tube clump as usual. No effect on strands without tubes. | on |
 
 **Custom clump centers.** Connect strands or guides to Clump's `centers` input: a low-density
 Scatter, a guide group or a ToGuides node. Connecting `centers` sets `centersFrom` to
@@ -179,6 +180,8 @@ strand is left unguided. To leave strands far from guides unaffected, use `limit
 | `respectParts` | on | Ignores guides on the other side of a part line drawn with the Part tool. If every candidate guide is across a part, all are used. | Leave on whenever parts are drawn. |
 | `regionMap` | empty | A color map painted on the scalp. Each strand blends only the guides rooted in its own color region (see [Regions](#regions)). | Hard separation between areas, such as bangs and sides. |
 | `regionChannel` | `region` | Per-strand attribute that receives the region index (-1: none). | Rename it when several Interpolates write regions. |
+| `fillTubes` | off | Fills the guides' [tubes](/docs/guides-and-brushes#tube-guides): a strand rooted inside a guide's tube keeps its place in the tube's cross-section from root to tip, so it stays inside the tube as it flattens, twists and tapers, and is as long as the guide. The tubes of every guide level fill (the deepest wins where they nest), whatever level the Guides node hands over. Where tubes of one level overlap, the strand takes the tube it lies most centrally in. Strands rooted in no tube are interpolated as usual. Writes `tubeId`, `tubeU` and `tubeV` (CPU only: the GPU preview hands it to the CPU). | Anime and cartoon hair: locks shaped as a whole (the Shape brush, `set_tube`). |
+| `tubeBlend` | 25% | With `fillTubes`: the tubes' soft edge, as a share of each tube's half-width at its root. Strands rooted outside a tube but within this of its outline lean from the guides' blend toward riding the tube (all the way at the outline, none at the edge of the band), so no seam shows; strands past it are as without Fill Tubes. 0: a hard edge. | Raise it when the edge of a lock still shows; 0 for a crisp cut-out lock. |
 
 Per-guide attributes and painted guide layers are interpolated as well: each becomes a strand
 attribute (or a per-point attribute, for layers painted along the guides) of the same name, with
@@ -267,7 +270,8 @@ attribute is either per strand (one value per curve) or per point (one value per
 nodes **write** one (Clump writes `clumpId`; Interpolate, Wet, Blend, Flyaway, Group and the
 Attribute node write their own), and later nodes **read** it by name: Curl, Twist, Cards and
 HairColor's `clumpShare` read a clump attribute to treat each clump as a unit, Clump reads
-`regionChannel` to clump within a region, and maps and expressions can read any attribute.
+`regionChannel` to clump within a region (and `tubeId` to clump within a tube), and maps and
+expressions can read any attribute.
 
 The **Attribute** node writes a custom per-strand attribute: `name` is the attribute name and
 `value` the value, a constant or any map (a painted mask, a texture, an expression such as

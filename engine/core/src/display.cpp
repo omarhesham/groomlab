@@ -971,25 +971,127 @@ std::size_t appendGuideCurve(DisplayGeometry& batch, const std::vector<Vec3f>& p
     return smooth.size();
 }
 
+std::vector<const HierarchyGuide*> activeTubeGuides(const GuideHierarchy& hierarchy, const std::string& hiddenGuideGroups,
+                                                    const std::string& freeze) {
+    const std::set<std::string> hidden = parseHiddenGuideGroups(hiddenGuideGroups);
+    const bool layers = hierarchy.hasAttributes();
+    std::vector<const HierarchyGuide*> out;
+    for (const HierarchyGuide& g : hierarchy.guides()) {
+        if (g.points.size() < 2) continue;
+        if (!hidden.empty()) {
+            const GuideGroup* grp = hierarchy.group(g.group);
+            if (grp && hidden.count(grp->name)) continue;
+        }
+        float frozen = 0.0f;
+        if (layers && hierarchy.effectiveAttribute(g, freeze, &frozen) && frozen >= 0.5f) continue;
+        out.push_back(&g);
+    }
+    return out;
+}
+
+void appendTubeWire(std::vector<Vec3f>& out, const HierarchyGuide& g, float scale, std::size_t lengthwise, std::size_t ringStep) {
+    const std::size_t n = g.points.size();
+    if (n < 2) return;
+    constexpr std::size_t kAround = 32;  // outline points per ring (of the shape's 96)
+    const std::vector<SectionPoint>& outline = tubeOutline(g.tube);
+    // Evenly round the outline, each corner (tubeOutlineCorners) in place of the ring point
+    // nearest it, so the rings keep a blade's points and a ribbon's corners.
+    std::array<std::size_t, kAround> index;
+    for (std::size_t s = 0; s < kAround; ++s) index[s] = s * outline.size() / kAround;
+    const std::vector<std::size_t>& corners = tubeOutlineCorners(g.tube);
+    std::vector<std::size_t> cornerSlots;  // the ring positions holding a corner
+    for (const std::size_t c : corners) {
+        const std::size_t slot = ((c * kAround + outline.size() / 2) / outline.size()) % kAround;
+        index[slot] = c;
+        if (std::find(cornerSlots.begin(), cornerSlots.end(), slot) == cornerSlots.end()) cornerSlots.push_back(slot);
+    }
+    std::array<SectionPoint, kAround> ring;
+    for (std::size_t s = 0; s < kAround; ++s) ring[s] = outline[index[s]];
+    const TubeSpine spine(g.points.data(), n, g.frameUp, g.tube, scale);
+    const std::size_t step = std::max<std::size_t>(ringStep, 1);
+    std::array<Vec3f, kAround> at;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (i % step != 0 && i + 1 != n) continue;
+        for (std::size_t s = 0; s < kAround; ++s) at[s] = spine.atSample(i, ring[s].u, ring[s].v);
+        for (std::size_t s = 0; s < kAround; ++s) {
+            out.push_back(at[s]);
+            out.push_back(at[(s + 1) % kAround]);
+        }
+    }
+    // The lines along the tube: through the corners first, then each through the ring point
+    // farthest round the ring from those taken (the first of equals), so they fill in evenly.
+    const std::size_t lines = std::min(lengthwise, kAround);
+    std::vector<std::size_t> along;
+    for (std::size_t k = 0; k < cornerSlots.size() && along.size() < lines; ++k) along.push_back(cornerSlots[k]);
+    if (along.empty() && lines > 0) along.push_back(0);
+    while (along.size() < lines) {
+        std::size_t best = 0, bestGap = 0;
+        for (std::size_t s = 0; s < kAround; ++s) {
+            std::size_t gap = kAround;
+            for (const std::size_t a : along) {
+                const std::size_t d = s > a ? s - a : a - s;
+                gap = std::min(gap, std::min(d, kAround - d));
+            }
+            if (gap > bestGap) best = s, bestGap = gap;
+        }
+        if (bestGap == 0) break;
+        along.push_back(best);
+    }
+    for (const std::size_t slot : along) {
+        const SectionPoint& p = ring[slot];
+        for (std::size_t i = 0; i + 1 < n; ++i) {
+            out.push_back(spine.atSample(i, p.u, p.v));
+            out.push_back(spine.atSample(i + 1, p.u, p.v));
+        }
+    }
+}
+
 void appendTubeSurface(DisplayGeometry& batch, const HierarchyGuide& g, float scale) {
     const std::size_t n = g.points.size();
     if (n < 2) return;
-    const std::vector<Frame> frames = rotationMinimizingFrames(g.points.data(), n, g.frameUp);
-    constexpr int kAround = 16, kAlong = 24;
+    constexpr int kAlong = 24;
     const auto base = static_cast<std::uint32_t>(batch.positions.size() / 3);
-    for (int j = 0; j <= kAlong; ++j) {
+    const std::vector<SectionPoint>& outline = tubeOutline(g.tube);
+    // A plain round tube: 16 sides round each ring, in the nearest sample's frame.
+    const bool round = !g.tube.shaped();
+    const int kAround = round ? 16 : static_cast<int>(outline.size() / 2);
+    if (round) {
+        const std::vector<Frame> frames = rotationMinimizingFrames(g.points.data(), n, g.frameUp);
+        for (int j = 0; j <= kAlong; ++j) {
+            const float t = static_cast<float>(j) / kAlong;
+            const float f = t * static_cast<float>(n - 1);
+            const std::size_t i = std::min(static_cast<std::size_t>(f), n - 2);
+            const float w = f - static_cast<float>(i);
+            const Vec3f center = g.points[i] * (1.0f - w) + g.points[i + 1] * w;
+            const Frame& fr = frames[w < 0.5f ? i : i + 1];
+            const float r = g.tube.widthAt(t) * scale;  // the size the hierarchy shows (GuideHierarchy::scale)
+            for (int s = 0; s < kAround; ++s) {
+                const float a = 6.2831853f * static_cast<float>(s) / kAround;
+                const Vec3f out = fr.toWorld({pm::cos(a), pm::sin(a), 0.0f});
+                const Vec3f p = center + out * r;
+                batch.positions.insert(batch.positions.end(), {p.x, p.y, p.z});
+                batch.normals.insert(batch.normals.end(), {out.x, out.y, out.z});
+            }
+        }
+    }
+    // Any other: the tube's sections (tube.h) along the guide, its shape's outline (every other
+    // point) at each ring, turned, flattened and sized as the sections say.
+    const TubeSpine spine = round ? TubeSpine() : TubeSpine(g.points.data(), n, g.frameUp, g.tube, scale);
+    for (int j = 0; j <= kAlong && !round; ++j) {
         const float t = static_cast<float>(j) / kAlong;
-        const float f = t * static_cast<float>(n - 1);
-        const std::size_t i = std::min(static_cast<std::size_t>(f), n - 2);
-        const float w = f - static_cast<float>(i);
-        const Vec3f center = g.points[i] * (1.0f - w) + g.points[i + 1] * w;
-        const Frame& fr = frames[w < 0.5f ? i : i + 1];
-        const float r = g.tube.radiusAt(t) * scale;  // the size the hierarchy shows (GuideHierarchy::scale)
+        const Vec3f center = spine.at(t, 0.0f, 0.0f);
+        const Vec3f axisU = spine.at(t, 1.0f, 0.0f) - center, axisV = spine.at(t, 0.0f, 1.0f) - center;
+        const float uu = std::max(axisU.dot(axisU), 1e-20f), vv = std::max(axisV.dot(axisV), 1e-20f);
         for (int s = 0; s < kAround; ++s) {
-            const float a = 6.2831853f * static_cast<float>(s) / kAround;
-            const Vec3f out = fr.toWorld({pm::cos(a), pm::sin(a), 0.0f});
-            const Vec3f p = center + out * r;
-            batch.positions.insert(batch.positions.end(), {p.x, p.y, p.z});
+            const SectionPoint& p = outline[static_cast<std::size_t>(2 * s)];
+            const SectionPoint& next = outline[static_cast<std::size_t>((2 * s + 1) % outline.size())];
+            const SectionPoint& prev = outline[(static_cast<std::size_t>(2 * s) + outline.size() - 1) % outline.size()];
+            // Out of the outline (counter-clockwise: its edge's right), through the section's axes.
+            const float nu = next.v - prev.v, nv = prev.u - next.u;
+            Vec3f out = axisU * (nu / uu) + axisV * (nv / vv);
+            out = out.length() > 0.0f ? out.normalized() : axisU.normalized();
+            const Vec3f at = center + axisU * p.u + axisV * p.v;
+            batch.positions.insert(batch.positions.end(), {at.x, at.y, at.z});
             batch.normals.insert(batch.normals.end(), {out.x, out.y, out.z});
         }
     }
@@ -1001,12 +1103,13 @@ void appendTubeSurface(DisplayGeometry& batch, const HierarchyGuide& g, float sc
             batch.indices.insert(batch.indices.end(), {a, b, d, a, d, c});
         }
     }
-    // A flat cap at the tip.
-    const Frame& tipFrame = frames[n - 1];
-    const auto cap = static_cast<std::uint32_t>(batch.positions.size() / 3);
+    // A flat cap at the tip (a fan round the guide's tip).
     const Vec3f tip = g.points[n - 1];
+    const Vec3f tipWay = round ? rotationMinimizingFrames(g.points.data(), n, g.frameUp)[n - 1].tangent
+                               : (tip - g.points[n - 2]).normalized();
+    const auto cap = static_cast<std::uint32_t>(batch.positions.size() / 3);
     batch.positions.insert(batch.positions.end(), {tip.x, tip.y, tip.z});
-    batch.normals.insert(batch.normals.end(), {tipFrame.tangent.x, tipFrame.tangent.y, tipFrame.tangent.z});
+    batch.normals.insert(batch.normals.end(), {tipWay.x, tipWay.y, tipWay.z});
     for (int s = 0; s < kAround; ++s) {
         const std::uint32_t ring = base + static_cast<std::uint32_t>(kAlong * kAround);
         batch.indices.insert(batch.indices.end(),

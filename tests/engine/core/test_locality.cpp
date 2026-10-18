@@ -94,7 +94,7 @@ std::string guides() {
             const Vec3f d = (n + Vec3f(0.0f, -1.2f, 0.0f)).normalized();
             std::vector<Vec3f> points;
             for (int k = 0; k <= 8; ++k) points.push_back(n * kRadius + d * (15.0f * static_cast<float>(k) / 8.0f));
-            h.addGuide(group, std::move(points), TubeProfile{{1.5f, 1.0f}});
+            h.addGuide(group, std::move(points), TubeProfile{TubeShape::Round, {1.5f, 1.0f}});
         }
     }
     return h.toJson();

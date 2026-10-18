@@ -60,29 +60,123 @@ std::vector<Vec3f> guidePoints(const GuideHierarchy& h, GuideId id) {
     return g->points;
 }
 
+std::vector<SectionPoint> sectionPoints(const std::vector<std::pair<float, float>>& points) {
+    std::vector<SectionPoint> out;
+    out.reserve(points.size());
+    for (const auto& [u, v] : points) out.push_back({u, v});
+    return out;
+}
+
+std::vector<std::pair<float, float>> pairsOf(const std::vector<SectionPoint>& points) {
+    std::vector<std::pair<float, float>> out;
+    out.reserve(points.size());
+    for (const SectionPoint& p : points) out.emplace_back(p.u, p.v);
+    return out;
+}
+
+// A library shape as a dict: name, points (fitted), smooth, outline (sampled) and corners.
+py::dict customShapeDict(const CustomTubeShape& s) {
+    py::dict d;
+    d["name"] = s.name;
+    d["points"] = pairsOf(s.points);
+    d["smooth"] = s.smooth;
+    d["outline"] = pairsOf(s.outline.points);
+    d["corners"] = s.outline.corners;
+    return d;
+}
+
 }  // namespace
 
 void bindHierarchy(py::module_& m) {
     py::class_<TubeProfile>(m, "TubeProfile",
-                            "A guide's tube: radii evenly spaced root to tip (linear between) and a twist in radians.")
+                            "A guide's tube (groomlab/tube.h): one shape (round, ribbon, teardrop, blade) and "
+                            "sections along it: width (half-width, scene units), aspect (height over width) and twist "
+                            "(radians), each a list evenly spaced root to tip, linear between.")
         .def(py::init<>())
-        .def(py::init([](std::vector<float> radius, float twist) {
+        .def(py::init([](std::vector<float> width, std::vector<float> aspect, std::vector<float> twist, const std::string& shape) {
                  TubeProfile t;
-                 if (!radius.empty()) t.radius = std::move(radius);
-                 t.twist = twist;
+                 if (!width.empty()) t.width = std::move(width);
+                 if (!aspect.empty()) t.aspect = std::move(aspect);
+                 if (!twist.empty()) t.twist = std::move(twist);
+                 if (!parseTubeShape(shape, &t.shape)) throw py::value_error("unknown tube shape '" + shape + "'");
                  return t;
              }),
-             py::arg("radius") = std::vector<float>{}, py::arg("twist") = 0.0f)
-        .def_readwrite("radius", &TubeProfile::radius)
+             py::arg("width") = std::vector<float>{}, py::arg("aspect") = std::vector<float>{},
+             py::arg("twist") = std::vector<float>{}, py::arg("shape") = std::string("round"))
+        .def_readwrite("width", &TubeProfile::width)
+        .def_readwrite("aspect", &TubeProfile::aspect)
         .def_readwrite("twist", &TubeProfile::twist)
-        .def("radius_at", &TubeProfile::radiusAt, py::arg("t"), "Radius at t in [0, 1] along the guide.")
+        .def_property(
+            "shape", [](const TubeProfile& t) { return t.shapeName(); },
+            [](TubeProfile& t, const std::string& name) {
+                if (!parseTubeShape(name, &t.shape)) throw py::value_error("unknown tube shape '" + name + "'");
+                t.custom = nullptr;
+            },
+            "The shape's name: a built-in's (set one here), or a library shape's (set those with "
+            "GuideHierarchy.set_tube_shape_of)")
+        .def_readonly("roll", &TubeProfile::roll, "Radians per guide point: the sections turned to lie as the scalp does")
+        .def("width_at", &TubeProfile::widthAt, py::arg("t"), "Width at t in [0, 1] along the guide.")
+        .def("aspect_at", &TubeProfile::aspectAt, py::arg("t"), "Aspect at t in [0, 1] along the guide.")
+        .def("twist_at", &TubeProfile::twistAt, py::arg("t"), "Twist (radians) at t in [0, 1] along the guide.")
+        .def("__eq__", [](const TubeProfile& a, const TubeProfile& b) { return a == b; })
         .def("__repr__", [](const TubeProfile& t) {
             std::ostringstream s;
-            s << "TubeProfile(radius=[";
-            for (std::size_t i = 0; i < t.radius.size(); ++i) s << (i ? ", " : "") << t.radius[i];
-            s << "], twist=" << t.twist << ")";
+            auto list = [&](const char* name, const std::vector<float>& v) {
+                s << name << "=[";
+                for (std::size_t i = 0; i < v.size(); ++i) s << (i ? ", " : "") << v[i];
+                s << "]";
+            };
+            s << "TubeProfile(shape='" << t.shapeName() << "', ";
+            list("width", t.width);
+            s << ", ";
+            list("aspect", t.aspect);
+            s << ", ";
+            list("twist", t.twist);
+            s << ")";
             return s.str();
         });
+    m.def("tube_shapes", &tubeShapeNames, "The tube shapes' names.");
+    m.def(
+        "tube_outline",
+        [](const std::string& shape) {
+            TubeShape s = TubeShape::Round;
+            if (!parseTubeShape(shape, &s)) throw py::value_error("unknown tube shape '" + shape + "'");
+            std::vector<std::pair<float, float>> out;
+            for (const SectionPoint& p : tubeOutline(s)) out.emplace_back(p.u, p.v);
+            return out;
+        },
+        py::arg("shape"), "A tube shape's outline: (u, v) points counter-clockwise, in the -1..1 domain.");
+    m.def(
+        "tube_shape_curve",
+        [](const std::vector<std::pair<float, float>>& points, bool smooth) {
+            return pairsOf(sampleTubeShapeCurve(sectionPoints(points), smooth));
+        },
+        py::arg("points"), py::arg("smooth") = true,
+        "The closed curve through a custom shape's control points, as sampled (not checked or fitted): what an "
+        "editor draws while points move.");
+    m.def(
+        "make_tube_shape",
+        [](const std::string& name, const std::vector<std::pair<float, float>>& points, bool smooth) {
+            try {
+                return customShapeDict(*makeCustomTubeShape(name, sectionPoints(points), smooth));
+            } catch (const std::invalid_argument& e) {
+                throw py::value_error(e.what());
+            }
+        },
+        py::arg("name"), py::arg("points"), py::arg("smooth") = true,
+        "A custom tube shape checked and fitted (tube.h: makeCustomTubeShape) as a dict: name, points (fitted into "
+        "the -1..1 square, counter-clockwise), smooth, outline and corners. ValueError, saying what to fix, for a "
+        "bad name or outline (too few points, crossing itself, not round its center).");
+    m.def(
+        "builtin_tube_shape_points",
+        [](const std::string& shape) {
+            TubeShape s = TubeShape::Round;
+            if (!parseTubeShape(shape, &s)) throw py::value_error("unknown tube shape '" + shape + "'");
+            bool smooth = true;
+            const std::vector<SectionPoint> pts = builtinTubeShapePoints(s, &smooth);
+            return py::make_tuple(pairsOf(pts), smooth);
+        },
+        py::arg("shape"), "Control points drawing a built-in shape closely, and whether they are smooth: (points, smooth).");
 
     py::class_<GuideGroup>(m, "GuideGroup", "A named set of guides; groups form a tree.")
         .def(py::init<>())
@@ -418,6 +512,69 @@ void bindHierarchy(py::module_& m) {
         .def("set_points", [](GuideHierarchy& h, GuideId id, py::handle points) { h.setPoints(id, toPoints(points)); }, py::arg("id"), py::arg("points"),
              "Replaces a guide's world shape (a brush edit).")
         .def("set_tube", &GuideHierarchy::setTube, py::arg("id"), py::arg("tube"))
+        .def(
+            "tube_shapes",
+            [](const GuideHierarchy& h) {
+                py::list out;
+                for (const auto& entry : h.tubeShapes()) {
+                    py::dict d = customShapeDict(*entry.second);
+                    d["users"] = h.tubeShapeUsers(entry.first);
+                    out.append(d);
+                }
+                return out;
+            },
+            "The library's custom tube shapes, by name: dicts of name, points, smooth, outline, corners, users.")
+        .def(
+            "set_tube_shape",
+            [](GuideHierarchy& h, const std::string& name, const std::vector<std::pair<float, float>>& points, bool smooth) {
+                try {
+                    h.setTubeShape(name, sectionPoints(points), smooth);
+                } catch (const std::invalid_argument& e) {
+                    throw py::value_error(e.what());
+                }
+            },
+            py::arg("name"), py::arg("points"), py::arg("smooth") = true,
+            "Adds a library shape or gives it new points (every guide taking it follows; evaluate after).")
+        .def(
+            "rename_tube_shape",
+            [](GuideHierarchy& h, const std::string& from, const std::string& to) {
+                try {
+                    h.renameTubeShape(from, to);
+                } catch (const std::invalid_argument& e) {
+                    throw py::value_error(e.what());
+                }
+            },
+            py::arg("old"), py::arg("new"))
+        .def(
+            "remove_tube_shape",
+            [](GuideHierarchy& h, const std::string& name) {
+                try {
+                    return h.removeTubeShape(name);
+                } catch (const std::invalid_argument& e) {
+                    throw py::value_error(e.what());
+                }
+            },
+            py::arg("name"), "Removes a library shape; its guides become round. Returns how many did.")
+        .def(
+            "set_tube_shape_of",
+            [](GuideHierarchy& h, GuideId id, const std::string& name) {
+                const HierarchyGuide* g = h.guide(id);
+                if (!g) throw py::value_error("no guide " + std::to_string(id));
+                TubeProfile tube = g->tube;
+                TubeShape builtin = TubeShape::Round;
+                if (parseTubeShape(name, &builtin)) {
+                    tube.shape = builtin;
+                    tube.custom = nullptr;
+                } else if (CustomTubeShapePtr custom = h.tubeShape(name)) {
+                    tube.custom = std::move(custom);
+                } else {
+                    throw py::value_error("no tube shape named '" + name + "'");
+                }
+                h.setTube(id, std::move(tube));
+            },
+            py::arg("id"), py::arg("shape"), "Gives a guide a built-in or library shape by name.")
+        .def_property_readonly("load_warnings", &GuideHierarchy::loadWarnings,
+                               "What from_json could not read as saved (guides whose library shape was missing load round).")
         .def("set_attribute", &GuideHierarchy::setAttribute, py::arg("id"), py::arg("name"), py::arg("value"))
         .def("set_point_attribute", &GuideHierarchy::setPointAttribute, py::arg("id"), py::arg("name"), py::arg("values"),
              "Sets a per-point layer (resampled to the guide's points; empty removes it).")
@@ -456,7 +613,7 @@ void bindHierarchy(py::module_& m) {
         .value("Smooth", BrushMode::Smooth)
         .value("Lift", BrushMode::Lift)
         .value("Length", BrushMode::Length)
-        .value("ScaleTube", BrushMode::ScaleTube)
+        .value("ShapeTube", BrushMode::ShapeTube)
         .value("Attribute", BrushMode::Attribute)
         .value("Twist", BrushMode::Twist)
         .value("Curl", BrushMode::Curl)
@@ -469,6 +626,10 @@ void bindHierarchy(py::module_& m) {
         .value("Noise", BrushMode::Noise);
     m.def("brush_mode_from_string", &brushModeFromString, py::arg("name"), "Parses a mode name (comb, smooth, lift, ...).");
     m.def("brush_mode_name", &brushModeName, py::arg("mode"));
+    py::enum_<TubeChannel>(m, "TubeChannel", "What the Shape brush paints on tube sections.")
+        .value("Width", TubeChannel::Width)
+        .value("Flatness", TubeChannel::Flatness)
+        .value("Twist", TubeChannel::Twist);
 
     py::class_<PyBrushSettings>(m, "BrushSettings",
                                 "A brush: a world-space sphere with smooth falloff. mode, radius, strength, the level "
@@ -499,6 +660,7 @@ void bindHierarchy(py::module_& m) {
         .def_readwrite("collide", &PyBrushSettings::collide)
         .def_readwrite("collide_offset", &PyBrushSettings::collideOffset)
         .def_readwrite("stretch", &PyBrushSettings::stretch)
+        .def_readwrite("tube_channel", &PyBrushSettings::tubeChannel, "Shape brush: width, flatness or twist.")
         .def_readwrite("freeze", &PyBrushSettings::freeze)
         .def_readwrite("hidden_groups", &PyBrushSettings::hiddenGroups);
 

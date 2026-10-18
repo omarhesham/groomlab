@@ -388,7 +388,7 @@ int main(int argc, char** argv) {
                         "                                         [--ui-paint-param node.param]]\n"
                         "surface presets: clay, scalp, plastic, metal, skin, skin light, skin dark, eye brown, eye blue, eye green\n"
                         "display options: colorMode (solid, colorset, attribute, random, clump, density), colorSource, colorMin,\n"
-                        "                colorMax, guides, guidePoints (0-2), scalpMap, scalpMapChannel (rgb, r, g, b, a), cardsView,\n"
+                        "                colorMax, guides, tubes, guidePoints (0-2), scalpMap, scalpMapChannel (rgb, r, g, b, a), cardsView,\n"
                         "                lookdev, scalp, widthCoverage, coverageDensity, clumpLod, clumpLodError\n"
                         "brush settings: mode (comb, smooth, slide, lift, length, cut, curl, twist, straighten, attract,\n"
                         "                clump, paint, tube, erase, place, draw, part, flow, freeze), radius (px), strength, hardness,\n"

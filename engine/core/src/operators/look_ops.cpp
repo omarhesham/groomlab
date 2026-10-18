@@ -327,6 +327,7 @@ struct CenterPlan {
     // The choice depends on the strands' roots and IDs alone (every strand rooted on the scalp, no
     // weight left out): the same strands while no root moves.
     bool byRoots = false;
+    float spacing = 0.0f;  // how far apart the centers were planned (the size, or the count's spacing)
 };
 // Darts per clump (per spacing squared) for kEvenShare 0.7: the density of darts whose priority
 // pick, kept kEvenShare apart, leaves one center per spacing squared (random sequential
@@ -423,6 +424,7 @@ CenterPlan planClumpCenters(const StrandSet& in, const ScalpMesh* scalp, std::si
         spacing = roundToPercentStep(std::sqrt(area / static_cast<float>(count)), scale);
     }
     if (!(spacing > 0.0f) || !std::isfinite(spacing)) return plan;
+    plan.spacing = spacing;
     const float apart = kEvenShare * spacing;
 
     // 1. The darts, each with its priority and the candidate it lands on.
@@ -589,6 +591,81 @@ std::vector<std::size_t> placeClumpCenters(const CenterPlan& plan, float randomn
     return chosen;
 }
 
+// Clump's followTubes: the centers of its own for strands filling tube guides (an Interpolate's
+// fillTubes: tubeId, tubeU, tubeV). Of the centers `strands` (their IDs `ids`, their spots `at`)
+// picked over the whole scalp, those on a strand in a tube give way; then each tube picks its own
+// among its core strands (those `weight` lets through, by ID as planClumpCenters lets them),
+// `spacing` apart (the whole scalp's: clumpBy size's size or count's spacing), as planClumpCenters
+// picks off a scalp (their roots on the rest scalp, CageBinding), moved `randomness` of their way
+// as ever, appended. Each tube's centers are its own strands, so they lie inside its shape, and
+// since a strand in a tube is the tube's point of its section coordinates at every t (fillTubes),
+// gathering it toward one at the same distance along gathers it in section space: the clumps
+// flatten, twist and taper with the tube. Tubes in their numbers' order, each picked on its own:
+// the same whatever the thread count.
+void addTubeCenters(const StrandSet& in, const std::vector<float>& tubeIds, const ScalpMesh* scalp, float spacing,
+                    float randomness, const ScalarField& weight, std::uint64_t seed, double scale,
+                    std::vector<std::size_t>& strands, std::vector<StrandId>& ids, std::vector<Vec3f>& at) {
+    std::size_t kept = 0;
+    for (std::size_t c = 0; c < strands.size(); ++c) {
+        if (tubeIds[strands[c]] >= 0.0f) continue;
+        strands[kept] = strands[c];
+        ids[kept] = ids[c];
+        if (c < at.size()) at[kept] = at[c];
+        ++kept;
+    }
+    strands.resize(kept);
+    ids.resize(kept);
+    at.resize(kept);
+    if (!(spacing > 0.0f) || !std::isfinite(spacing)) return;
+    const PreviewCore core(in);
+    const bool weighted = !weight.isConstant() || weight.maximum() < 1.0f;
+    std::map<float, std::vector<std::size_t>> byTube;
+    for (std::size_t s = 0; s < in.strandCount(); ++s) {
+        if (!(tubeIds[s] >= 0.0f) || !core.core(s) || in.strandPointCount(s) < 2) continue;
+        if (weighted && !(unitFloat(hashCombine(in.ids()[s], seed ^ 0xC3E7ull)) < weight.at(in, s))) continue;
+        byTube[tubeIds[s]].push_back(s);
+    }
+    std::vector<const std::vector<std::size_t>*> tubes;
+    for (const auto& [number, members] : byTube) tubes.push_back(&members);
+    ParamSet every;
+    every.set("weight", 1.0);
+    const ScalarField all(every, "weight", nullptr);
+    const CageBinding binding(scalp);
+    struct Picked {
+        std::vector<std::size_t> strands;
+        std::vector<StrandId> ids;
+        std::vector<Vec3f> at;
+    };
+    std::vector<Picked> picked(tubes.size());
+    parallelFor(0, tubes.size(), [&](std::size_t t) {
+        const std::vector<std::size_t>& members = *tubes[t];
+        StrandSet sub;
+        sub.reserve(members.size(), 2 * members.size());
+        for (const std::size_t s : members) {
+            const Vec3f q = binding.stablePosition(in.roots()[s], in.strandPoints(s)[0]);
+            sub.addStrand(in.ids()[s], {q, q});
+        }
+        const CenterPlan plan = planClumpCenters(sub, nullptr, 0, spacing, all, seed, scale);
+        std::vector<Vec3f> spots;
+        const std::vector<std::size_t> chosen = placeClumpCenters(plan, randomness, &spots);
+        for (std::size_t c = 0; c < chosen.size(); ++c) {
+            picked[t].strands.push_back(members[chosen[c]]);
+            picked[t].ids.push_back(plan.ids[c]);
+            picked[t].at.push_back(spots[c]);
+        }
+    }, 1);
+    for (const Picked& p : picked) {
+        strands.insert(strands.end(), p.strands.begin(), p.strands.end());
+        ids.insert(ids.end(), p.ids.begin(), p.ids.end());
+        at.insert(at.end(), p.at.begin(), p.at.end());
+    }
+}
+
+// The region number followTubes gives a strand in tube n (kTubeRegionBase + n): apart from any
+// region an Interpolate's regionMap numbers (small whole numbers), and whole in a float (tube
+// numbers are below kGroupNumbers).
+constexpr float kTubeRegionBase = static_cast<float>(std::int64_t{1} << 23);
+
 // Each center's number for the clump channel (clumpId): from its ID (stableGroupNumbers), so an
 // edit (or a center picked anew) in one place renumbers no clump elsewhere.
 std::vector<float> clumpNumbers(const std::vector<const Guide*>& centers) {
@@ -658,7 +735,11 @@ Vec3f repelled(const Vec3f& p, const Vec3f* curve, float centerLength, float arc
 // pushes the strands within `repelRadius` of their center away from it instead (repelled):
 // fur parting around whiskers, horns or eyes, the guides of those as the centers. With regions (the
 // `regionChannel` an Interpolate's regionMap writes) a strand clumps only toward a center of its own
-// region, as it never clumps across a part.
+// region, as it never clumps across a part. With followTubes (the default) and strands filling tube
+// guides (an Interpolate's fillTubes writes tubeId, tubeU and tubeV), a Clump picking its own
+// centers picks each tube's among its strands (addTubeCenters) and a strand in a tube clumps only
+// toward its tube's centers, as toward its region's, so clumps keep inside the tube and flatten,
+// twist and taper with it; strands in no tube clump as ever among the centers off the tubes.
 class ClumpOp : public Operator {
 public:
     // The rest scalp places roots for the nearest-center search; parts limit it.
@@ -730,6 +811,13 @@ public:
                       "a channel the strands lack: across regions"}
                 .adv()
                 .readsChannel(true),
+            ParamSpec{"followTubes", true,
+                      "Strands filling tube guides (an Interpolate's fillTubes: tubeId, tubeU and tubeV) clump inside "
+                      "their own tube: each tube's centers are picked among its strands (as far apart as clumpBy says "
+                      "for the whole scalp) and a strand gathers toward its tube's nearest, so the clumps flatten, "
+                      "twist and taper with the tube; strands in no tube clump as ever. Off: by root across tubes. "
+                      "Strands without those channels clump as ever either way"}
+                .when("centersFrom", {"pick"}),
             ParamSpec{"lockRadius", 0.0, "Lock radius: strands gather into a round lock this thick around the center "
                                          "(dreads, wet strings; a Twist node after it turns them into ropes); 0: onto the "
                                          "center", "length"}
@@ -935,6 +1023,17 @@ private:
         std::vector<Vec3f> pickedAt;      // and where each is (its spot on the rest scalp): what strands clump by
         const std::string regionName = params().getString("regionChannel");
         const ClumpSizing sizing = own ? clumpSizing(params()) : ClumpSizing{};
+        // followTubes: strands filling tube guides clump inside their own tube (addTubeCenters,
+        // their tubes as regions below); not on barbs.
+        const std::vector<float>* tubeIds = nullptr;
+        if (own && params().getBool("followTubes") && in->strandChannel("tubeU") && in->strandChannel("tubeV") && !hasVanes(*in)) {
+            tubeIds = in->strandChannel("tubeId");
+            if (tubeIds && (tubeIds->size() != in->strandCount() ||
+                            std::none_of(tubeIds->begin(), tubeIds->end(), [](float t) { return t >= 0.0f; }))) {
+                tubeIds = nullptr;
+            }
+            if (tubeIds && incremental) return false;  // (each tube's centers picked anew)
+        }
         if (own && !in->empty() && !sizing.none()) {
             const auto seed = static_cast<std::uint64_t>(params().getInt("seed"));
             const ScalarField weight(params(), "centerWeight", scalpOf(ctx));
@@ -962,14 +1061,19 @@ private:
                 // nearest there its axis; it keeps its ID (its even strand's) whichever strand it
                 // lands on, and the strands nearest its spot clump to it, so a small change of the
                 // randomness moves the borders between clumps only a little.
-                const std::vector<std::size_t> now = placeClumpCenters(*pick, sizing.randomness, &pickedAt);
+                std::vector<std::size_t> now = placeClumpCenters(*pick, sizing.randomness, &pickedAt);
+                std::vector<StrandId> nowIds = pick->ids;
+                if (tubeIds) {
+                    addTubeCenters(*in, *tubeIds, scalpOf(ctx), pick->spacing, sizing.randomness, weight, seed, ctx.scale, now,
+                                   nowIds, pickedAt);
+                }
                 auto pickedCenters = std::make_shared<GuideSet>();
                 for (std::size_t c = 0; c < now.size(); ++c) {
                     const std::size_t s = now[c];
                     const Vec3f* pts = in->strandPoints(s);
-                    pickedCenters->add(pick->ids[c], std::vector<Vec3f>(pts, pts + in->strandPointCount(s))).root = in->roots()[s];
+                    pickedCenters->add(nowIds[c], std::vector<Vec3f>(pts, pts + in->strandPointCount(s))).root = in->roots()[s];
                 }
-                if (pick->byRoots) chosen = now;
+                if (pick->byRoots && !tubeIds) chosen = now;
                 picked = now;
                 centers = GuidesPtr(pickedCenters);
             }
@@ -1072,6 +1176,19 @@ private:
         // own value of the channel (centers that are strands carry it); else the region of the
         // strand rooted nearest it. A region without a center leaves its strands unclumped.
         const std::vector<float>* strandRegions = vanes.active() ? nullptr : regionsOf(*in, regionName);
+        // followTubes: each tube a region of its own (kTubeRegionBase + its number), the strands in
+        // no tube in theirs (the channel's, else one region), so a strand clumps toward its tube's
+        // centers and the others toward the centers off the tubes.
+        std::vector<float> tubeRegions;
+        if (tubeIds && !picked.empty()) {
+            tubeRegions.resize(in->strandCount());
+            const std::vector<float>* given = strandRegions;
+            parallelFor(0, tubeRegions.size(), [&](std::size_t s) {
+                const float t = (*tubeIds)[s];
+                tubeRegions[s] = t >= 0.0f ? kTubeRegionBase + t : given ? (*given)[s] : 0.0f;
+            }, 4096);
+            strandRegions = &tubeRegions;
+        }
         const PreviewCore core(*in);  // what a center's region and axis come from (preview_core.h)
         const std::uint64_t regionHash = strandRegions ? hashChannel(*strandRegions) : 0;
         std::vector<float> centerRegions;

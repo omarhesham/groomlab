@@ -2109,7 +2109,7 @@ TEST_P(LookEngineTest, AStrokeOnGuidesWithChildrenBindsWhereTheirRootsMoved) {
     GuideHierarchy h;
     const GroupId primary = h.addGroup("primary");
     TubeProfile tube;
-    tube.radius = {0.5f, 0.3f};
+    tube.width = {0.5f, 0.3f};
     const GuidesPtr primaries = guideSet(*data.scalp, 0.6f);
     for (const Guide& guide : primaries->guides()) {
         if (guide.id % 3 == 0) h.addGuide(primary, guide.points, tube);

@@ -14,7 +14,7 @@ export const siteConfig = {
   tagline: 'The universal groom system.',
   description:
     'A free, universal groom system for hair, fur, feathers and scales: groom guides by hand, style with a node graph, render in Arnold and RenderMan and export the same groom to Unreal, Unity, USD and glTF. Runs in Maya 2022 to 2027 (2023 to 2027 in beta), with a standalone app and Blender in beta.',
-  version: '0.16.1',
+  version: '0.17.0',
 
   // The deployed site's address (for social previews). NEXT_PUBLIC_SITE_URL overrides it.
   url: process.env.NEXT_PUBLIC_SITE_URL ?? 'https://getgroomlab.com',
@@ -25,6 +25,8 @@ export const siteConfig = {
   donateUrl: 'https://ko-fi.com/getgroomlab',
   // The source: GroomLab is open source (Apache-2.0).
   repoUrl: 'https://github.com/thekesslereffect/groomlab',
+  // The community: questions, work in progress, feedback.
+  discordUrl: 'https://discord.gg/sr2rxjRVkm',
   supportEmail: 'support@getgroomlab.com',
 
   requirements: {

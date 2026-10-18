@@ -45,6 +45,13 @@ namespace groomlab::maya {
 //   -reshape/-rsh <id> <curve> (multi-use)       guides take their curves' edit points (the CVs of a
 //                                                degree 1 curve); unchanged ones are skipped, parents
 //                                                go first; returns the IDs that changed
+//   -setTube/-stb <json>                         edits the targets' tubes (groomlab/tube.h editedTube:
+//                                                any of "width", "aspect", "twist" (radians; each a
+//                                                number or a list root to tip), "shape", "samples",
+//                                                "scaleWidth", "smooth" (width|aspect|twist|all, one
+//                                                value per guide point) with "passes"; widths in
+//                                                scene units as shown); returns the count
+//   -tube/-tb <id>                               returns a guide's tube as JSON (shape, width, aspect, twist)
 //   -generateChildren with -guide ids or -onlySelected: only those parents get
 //     children (added to, or replacing theirs in, the child group); the parent
 //     group may then be "" (taken from the guides)

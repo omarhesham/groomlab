@@ -52,6 +52,7 @@ namespace groomlab::app {
 
 // GroomLab is free for any use, funded by donations: Help > Support GroomLab and About link here.
 inline constexpr const char* kDonateUrl = "https://ko-fi.com/getgroomlab";
+inline constexpr const char* kDiscordUrl = "https://discord.gg/sr2rxjRVkm";  // the GroomLab community
 // GroomLab is open source (Apache-2.0): About links to the source.
 inline constexpr const char* kRepoUrl = "https://github.com/thekesslereffect/groomlab";
 
@@ -519,6 +520,7 @@ private:
     ValueSlider* density_ = nullptr;
     ValueSlider* budget_ = nullptr;
     QCheckBox* guides_ = nullptr;
+    QCheckBox* tubes_ = nullptr;  // the guides' tubes (tube guides) as shaded surfaces
     QCheckBox* lighting_ = nullptr;
     QCheckBox* widthCoverage_ = nullptr;
     QCheckBox* coverageDensity_ = nullptr;

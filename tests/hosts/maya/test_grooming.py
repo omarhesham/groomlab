@@ -192,6 +192,218 @@ class GroomingTest(unittest.TestCase):
         self.assertEqual(cmds.getAttr(self.groom + ".guideData"), before)
         self.assertEqual(len(groomlab.symmetry_sync(self.groom, "x", from_negative=True)), 3 + 9)
 
+    def test_tube_sections_are_set_read_undone_and_filled(self):
+        # Tube guides: a primary's tube made a flat, twisting ribbon; its children follow; one undo
+        # step; Interpolate's fillTubes then fills it (tubeId on the strands).
+        parent = self.primaries[0]
+        kids = [c for c in self.children if json.loads(cmds.groomLabGuides(self.groom, tube=c))["shape"] == "round"]
+        self.assertEqual(groomlab.get_tube(self.groom, parent)["shape"], "round")
+        before = cmds.getAttr(self.groom + ".guideData")
+        tips = {c: cmds.groomLabGuides(self.groom, guidePoints=c)[-3:] for c in kids}
+        changed = groomlab.set_tube(self.groom, guides=[parent], width=[0.3, 0.15], aspect=0.25, twist=[0.0, 1.5],
+                                    shape="ribbon")
+        self.assertEqual(changed, 1)
+        tube = groomlab.get_tube(self.groom, parent)
+        self.assertEqual(tube["shape"], "ribbon")
+        self.assertEqual(len(tube["width"]), 2)
+        self.assertAlmostEqual(tube["width"][0], 0.3, places=5)
+        self.assertAlmostEqual(tube["aspect"][0], 0.25, places=5)
+        self.assertAlmostEqual(tube["twist"][1], 1.5, places=5)
+        moved = [c for c in kids if cmds.groomLabGuides(self.groom, guidePoints=c)[-3:] != tips[c]]
+        self.assertEqual(len(moved), 3, "the parent's three children follow its tube")
+        groomlab.set_tube(self.groom, guides=[parent], samples=5)
+        self.assertEqual(len(groomlab.get_tube(self.groom, parent)["aspect"]), 5)
+        cmds.undo()
+        cmds.undo()
+        self.assertEqual(cmds.getAttr(self.groom + ".guideData"), before)
+        cmds.redo()
+        self.assertEqual(groomlab.get_tube(self.groom, parent)["shape"], "ribbon")
+        with self.assertRaises(ValueError):
+            groomlab.set_tube(self.groom, guides=[parent], shape="square")
+        with self.assertRaises(RuntimeError):
+            cmds.groomLabGuides(self.groom, setTube='{"width": -1}', guide=[str(parent)])
+        # Every primary's tube at once (by group), then filled with strands.
+        self.assertEqual(groomlab.set_tube(self.groom, group="primary", width=0.25), 6)
+        groomlab.set_param(self.groom, "guides", "level", 0)
+        groomlab.set_param(self.groom, "interpolate", "fillTubes", True)
+        stats = json.loads(cmds.groomLabGraphStats(self.groom))
+        self.assertIn("tubeId", json.dumps(stats["channels"]))
+        self.assertGreater(cmds.getAttr(self.groom + ".outStrandCount"), 0)
+        self.assertEqual(groomlab.errors(self.groom), [])
+
+    def test_shape_brush_paints_tubes_and_fill_tubes_is_set(self):
+        # The Shape brush (it replaced Tube): a stroke paints the tube sections near it, one per
+        # guide point, for each channel, one undo step each; scale_tube scales a tube as a whole;
+        # set_fill_tubes turns Fill Tubes on the graph's Interpolate (every guide level's tubes fill:
+        # the Guides node stays as it is).
+        parent = self.primaries[0]
+        pts = cmds.groomLabGuides(self.groom, guidePoints=parent)
+        count = len(pts) // 3
+        tip = tuple(pts[-3:])
+        before = cmds.getAttr(self.groom + ".guideData")
+        groomlab.brush_stroke(self.groom, "shape", [tip], radius=0.3, strength=1.0, tube_channel="width")
+        tube = groomlab.get_tube(self.groom, parent)
+        self.assertEqual(len(tube["width"]), count)
+        self.assertGreater(tube["width"][-1], tube["width"][0])
+        self.assertEqual(len(tube["aspect"]), 1, "only the channel painted")
+        cmds.undo()
+        self.assertEqual(cmds.getAttr(self.groom + ".guideData"), before)
+        groomlab.brush_stroke(self.groom, "shape", [tip], radius=0.3, strength=1.0, tube_channel="flatness")
+        tube = groomlab.get_tube(self.groom, parent)
+        self.assertLess(tube["aspect"][-1], 1.0)
+        self.assertAlmostEqual(tube["aspect"][0], 1.0, places=5)
+        groomlab.brush_stroke(self.groom, "shape", [tip], radius=0.3, strength=-1.0, tube_channel="twist")
+        self.assertLess(groomlab.get_tube(self.groom, parent)["twist"][-1], 0.0)  # negative: the other way
+        cmds.undo()
+        cmds.undo()
+        self.assertEqual(cmds.getAttr(self.groom + ".guideData"), before)
+        with self.assertRaises(ValueError):
+            groomlab.brush_stroke(self.groom, "shape", [tip], tube_channel="radius")
+        with self.assertRaises(ValueError):
+            groomlab.brush_stroke(self.groom, "tube", [tip])  # the old Tube brush is gone
+        self.assertNotIn("tube", groomlab.BRUSH_MODES)
+        groomlab.brush_tool("shape", tube_channel="twist", activate=False)
+        # The Groom Tools' tube panel: the whole tube scaled (its taper kept), Fill Tubes and Tube Blend.
+        widths = groomlab.get_tube(self.groom, parent)["width"]
+        self.assertEqual(groomlab.scale_tube(self.groom, 2.0, guides=[parent]), 1)
+        for a, b in zip(groomlab.get_tube(self.groom, parent)["width"], widths):
+            self.assertAlmostEqual(a, 2.0 * b, places=5)
+        cmds.undo()
+        # smooth_tube (the card's Smooth): the sections evened out along the guide, one undo step.
+        groomlab.set_tube(self.groom, guides=[parent], aspect=[1.0, 0.2, 1.0, 0.2, 1.0])
+        self.assertEqual(groomlab.smooth_tube(self.groom, guides=[parent], channel="flatness", passes=4), 1)
+        smoothed = groomlab.get_tube(self.groom, parent)["aspect"]
+        self.assertEqual(len(smoothed), max(count, 5))  # a section per guide point
+        self.assertGreater(min(smoothed), 0.3)
+        self.assertAlmostEqual(smoothed[0], 1.0, places=5)
+        with self.assertRaises(ValueError):
+            groomlab.smooth_tube(self.groom, guides=[parent], channel="radius")
+        cmds.undo()
+        cmds.undo()
+        # A guide placed among tube guides takes the placement tube's shape (the Tubes panel's
+        # choice; Place's mirror too) and its neighbours' width, flatness and twist.
+        primaries = cmds.groomLabGuides(self.groom, listGuides="primary")
+        groomlab.set_tube(self.groom, group="primary", shape="blade", aspect=0.4)
+        root = cmds.groomLabGuides(self.groom, guidePoints=parent)[:3]
+        aside = 0.05 if root[0] >= 0.0 else -0.05  # away from the mirror plane: two guides
+        groomlab.brush_stroke(self.groom, "place", [(root[0] + aside, root[1], root[2])], symmetry="x",
+                              tube={"shape": "teardrop"})
+        placed = [g for g in cmds.groomLabGuides(self.groom, listGuides="primary") if g not in primaries]
+        self.assertEqual(len(placed), 2)
+        for g in placed:
+            self.assertEqual(groomlab.get_tube(self.groom, g)["shape"], "teardrop")
+            self.assertAlmostEqual(groomlab.get_tube(self.groom, g)["aspect"][0], 0.4, places=4)
+        cmds.undo()
+        cmds.undo()
+        self.assertEqual(cmds.getAttr(self.groom + ".guideData"), before)
+        self.assertEqual(groomlab.fill_tubes(self.groom), {"fillTubes": False, "tubeBlend": 0.25})
+        self.assertEqual(groomlab.set_fill_tubes(self.groom, on=True, blend=0.5), 1)
+        self.assertEqual(groomlab.fill_tubes(self.groom), {"fillTubes": True, "tubeBlend": 0.5})
+        self.assertEqual(groomlab.set_fill_tubes(self.groom, on=True), 0)  # as it is: nothing to do
+        stats = json.loads(cmds.groomLabGraphStats(self.groom))
+        self.assertIn("tubeId", json.dumps(stats["channels"]))
+        self.assertEqual(groomlab.errors(self.groom), [])
+        cmds.undo()
+        self.assertFalse(groomlab.fill_tubes(self.groom)["fillTubes"])
+
+    def test_tube_shape_library_is_saved_edited_and_applied(self):
+        # Tube guides' custom shapes: a library saved with the groom (scene and .groom file), its
+        # shapes given by name like the built-ins, edits reaching every guide taking one (one undo
+        # step each), a bad outline refused, a missing shape loading round, Place's tube shape.
+        star = [(math.cos(math.pi / 2 + math.pi * i / 5) * (1.0 if i % 2 == 0 else 0.5),
+                 math.sin(math.pi / 2 + math.pi * i / 5) * (1.0 if i % 2 == 0 else 0.5)) for i in range(10)]
+        before = cmds.getAttr(self.groom + ".guideData")
+        groomlab.add_tube_shape(self.groom, "star", star, smooth=False)
+        names = [s["name"] for s in groomlab.tube_shapes(self.groom)]
+        self.assertEqual(names, ["round", "ribbon", "teardrop", "blade", "star"])
+        library = groomlab.tube_shapes(self.groom)[-1]
+        self.assertFalse(library["builtin"])
+        self.assertEqual(library["users"], 0)
+        self.assertEqual(len(library["points"]), 10)
+        self.assertAlmostEqual(max(v for _, v in library["points"]), 1.0, places=2)  # fitted into the square
+        with self.assertRaises(RuntimeError):
+            groomlab.add_tube_shape(self.groom, "star", star)  # taken
+        with self.assertRaises(RuntimeError) as bad:
+            groomlab.add_tube_shape(self.groom, "bowtie", [(-1, -1), (1, 1), (1, -1), (-1, 1)])
+        self.assertIn("crosses itself", str(bad.exception))
+        with self.assertRaises(RuntimeError):
+            groomlab.add_tube_shape(self.groom, "cup", [(-1, 1), (-1, -1), (1, -1), (1, 1), (0.8, 1), (0.8, -0.8),
+                                                         (-0.8, -0.8), (-0.8, 1)])  # its center left out
+        self.assertEqual(groomlab.set_tube(self.groom, group="primary", shape="star"), 6)
+        self.assertEqual(groomlab.get_tube(self.groom, self.primaries[0])["shape"], "star")
+        self.assertEqual(groomlab.tube_shapes(self.groom)[-1]["users"], 6)
+        with self.assertRaises(ValueError):
+            groomlab.set_tube(self.groom, group="primary", shape="moon")
+        # An edit reaches every guide taking it: one undo step.
+        tip = cmds.groomLabGuides(self.groom, guidePoints=self.children[0])[-3:]
+        data = cmds.getAttr(self.groom + ".guideData")
+        self.assertEqual(groomlab.set_tube_shape_points(self.groom, "star", [(x * 0.8, y) for x, y in star], smooth=True), 6)
+        self.assertTrue(groomlab.tube_shapes(self.groom)[-1]["smooth"])
+        cmds.undo()
+        self.assertEqual(cmds.getAttr(self.groom + ".guideData"), data)
+        cmds.redo()
+        # A live preview changes nothing stored and makes no undo step.
+        groomlab.preview_tube_shape(self.groom, "star", star, smooth=False)
+        groomlab.end_guide_preview(self.groom)
+        self.assertTrue(groomlab.tube_shapes(self.groom)[-1]["smooth"])
+        self.assertEqual(cmds.groomLabGuides(self.groom, guidePoints=self.children[0])[-3:], tip)  # (round children)
+        # Fill Tubes fills the custom outline.
+        groomlab.set_param(self.groom, "guides", "level", 0)
+        groomlab.set_param(self.groom, "interpolate", "fillTubes", True)
+        self.assertIn("tubeId", json.dumps(json.loads(cmds.groomLabGraphStats(self.groom))["channels"]))
+        self.assertEqual(groomlab.errors(self.groom), [])
+        # Saved with the scene...
+        scene = os.path.join(tempfile.mkdtemp(), "tube_shapes.ma")
+        cmds.file(rename=scene)
+        cmds.file(save=True, type="mayaAscii", force=True)
+        cmds.file(scene, open=True, force=True)
+        self.assertEqual([s["name"] for s in groomlab.tube_shapes(self.groom)][-1], "star")
+        self.assertEqual(groomlab.get_tube(self.groom, self.primaries[0])["shape"], "star")
+        # ...and in .groom files.
+        path = os.path.join(tempfile.mkdtemp(), "tubes.groom")
+        groomlab.export_groom(self.groom, path)
+        with open(path) as f:
+            self.assertIn("tubeShapes", f.read())
+        copy = groomlab.import_groom(path, scalp=self.scalp, name="tubesCopy")
+        self.assertEqual(groomlab.get_tube(copy, self.primaries[0])["shape"], "star")
+        self.assertTrue([s for s in groomlab.tube_shapes(copy) if s["name"] == "star"][0]["smooth"])
+        # Renamed (its guides keep it), then removed (they go round): one undo step each.
+        groomlab.rename_tube_shape(self.groom, "star", "spiky")
+        self.assertEqual(groomlab.get_tube(self.groom, self.primaries[0])["shape"], "spiky")
+        self.assertEqual(groomlab.remove_tube_shape(self.groom, "spiky"), 6)
+        self.assertEqual(groomlab.get_tube(self.groom, self.primaries[0])["shape"], "round")
+        cmds.undo()
+        self.assertEqual(groomlab.get_tube(self.groom, self.primaries[0])["shape"], "spiky")
+        # A guide whose library shape is missing loads round (a warning says so).
+        text = cmds.getAttr(self.groom + ".guideData")
+        doc = json.loads(text)
+        del doc["tubeShapes"]
+        cmds.setAttr(self.groom + ".guideData", json.dumps(doc), type="string")
+        self.assertEqual(groomlab.get_tube(self.groom, self.primaries[0])["shape"], "round")
+        cmds.setAttr(self.groom + ".guideData", text, type="string")
+        # Place takes the placement tube's shape (here the library's), its sections the neighbours'.
+        primaries = cmds.groomLabGuides(self.groom, listGuides="primary")
+        groomlab.set_tube(self.groom, group="primary", shape="blade", width=0.3)
+        root = cmds.groomLabGuides(self.groom, guidePoints=self.primaries[0])[:3]
+        groomlab.brush_stroke(self.groom, "place", [(root[0] + 0.05, root[1], root[2])], tube={"shape": "spiky"})
+        placed = [g for g in cmds.groomLabGuides(self.groom, listGuides="primary") if g not in primaries]
+        self.assertEqual(len(placed), 1)
+        tube = groomlab.get_tube(self.groom, placed[0])
+        self.assertEqual(tube["shape"], "spiky")
+        self.assertAlmostEqual(max(tube["width"]), 0.3, places=3)  # blended from the blades around it
+        # The Tubes panel's targets: the selection, else the soloed guides (a brush's Shift+click).
+        groomlab.clear_guide_selection(self.groom)
+        self.assertEqual(groomlab.tube_targets(self.groom)["source"], "none")
+        groomlab.set_guide_attribute(self.groom, "freeze", 1.0, group="primary")
+        groomlab.set_guide_attribute(self.groom, "freeze", 0.0, guides=[self.primaries[1]])
+        targets = groomlab.tube_targets(self.groom)
+        self.assertEqual(targets["source"], "solo")
+        self.assertEqual(targets["guides"], [str(self.primaries[1])])
+        self.assertEqual(targets["tube"]["shape"], "blade")
+        groomlab.select_guides(self.groom, guides=[self.primaries[0]])
+        self.assertEqual(groomlab.tube_targets(self.groom)["source"], "selection")
+        del before
+
     def test_flow_arrows_lay_strands(self):
         # A stroke across the top of the head, toward +x: arrows along it.
         path = [(-0.6 + 0.1 * i, 0.9, 0.3) for i in range(13)]

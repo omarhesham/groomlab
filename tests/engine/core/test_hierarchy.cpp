@@ -48,7 +48,7 @@ struct TwoGuides {
     TwoGuides() {
         primary = h.addGroup("primary");
         TubeProfile tube;
-        tube.radius = {0.1f, 0.2f};
+        tube.width = {0.1f, 0.2f};
         h.addGuide(primary, bentGuide({0.3f, 0, 0.3f}), tube);
         h.addGuide(primary, bentGuide({0.7f, 0, 0.7f}), tube);
         h.evaluate(scalp.get());
@@ -187,7 +187,7 @@ TEST(Hierarchy, ChildrenFillTheParentTube) {
         EXPECT_LE((c.points.back() - p.points.back()).length(), 1.0f * 0.2f + 1e-4f);
         // Root near the parent root (disc of 0.8 * 0.1, plus the snap onto the plane).
         EXPECT_LE((c.points.front() - p.points.front()).length(), 0.12f);
-        EXPECT_NEAR(c.tube.radiusAt(1.0f), 0.2f * params.childTubeScale, 1e-6f);
+        EXPECT_NEAR(c.tube.widthAt(1.0f), 0.2f * params.childTubeScale, 1e-6f);
     }
 }
 
@@ -382,7 +382,7 @@ TEST(Hierarchy, EveryChangeChangesTheKeptContentHash) {
         {"setTube",
          [&](GuideHierarchy& h) {
              TubeProfile tube;
-             tube.radius = {0.3f, 0.1f};
+             tube.width = {0.3f, 0.1f};
              h.setTube(primaries[1], tube);
          }},
         {"setAttribute", [&](GuideHierarchy& h) { h.setAttribute(primaries[2], "clump", 0.25f); }},

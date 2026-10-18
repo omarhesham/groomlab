@@ -25,7 +25,7 @@ struct Scene {
     explicit Scene(bool withChildren = true) {
         primary = h.addGroup("primary");
         TubeProfile tube;
-        tube.radius = {0.15f, 0.1f};
+        tube.width = {0.15f, 0.1f};
         const float angles[] = {0.3f, 0.7f, 1.1f};
         for (const float a : angles) {
             const Vec3f n = Vec3f{std::sin(a), std::cos(a), 0.25f}.normalized();

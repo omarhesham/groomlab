@@ -140,7 +140,7 @@ def hierarchy(points, triangles, normals):
         up = cross(n, (0.0, 1.0, 0.0))
         up = normalized(up) if length(up) > 1e-6 else (1.0, 0.0, 0.0)
         guides.append({"id": gid, "group": 1, "root": [t, u, w], "frameUp": list(up),
-                       "tube": {"radius": [TUBE_RADIUS, TUBE_RADIUS], "twist": 0.0}, "points": pts})
+                       "tube": {"shape": "round", "width": [TUBE_RADIUS, TUBE_RADIUS]}, "points": pts})
     return {"groups": [{"id": 1, "name": "primary", "parent": 0}], "guides": guides}
 
 

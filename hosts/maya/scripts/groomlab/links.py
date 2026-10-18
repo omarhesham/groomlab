@@ -4,12 +4,14 @@
 GroomLab is free for any use; it is funded by donations (DONATE_URL).
 
     groomlab.links.open_donate()     opens the Support GroomLab page (Ko-fi)
+    groomlab.links.open_discord()    opens the GroomLab Discord
     groomlab.links.open_url(url)     opens any link; False when no browser opened it
 """
 
 DOCS_URL = "https://getgroomlab.com/docs"
 DONATE_URL = "https://ko-fi.com/getgroomlab"
 REPO_URL = "https://github.com/thekesslereffect/groomlab"  # the source (Apache-2.0)
+DISCORD_URL = "https://discord.gg/sr2rxjRVkm"  # the community: questions, work in progress, feedback
 
 
 def _open_in_browser(url):
@@ -29,6 +31,12 @@ OPEN_URL = _open_in_browser
 
 def open_url(url):
     return OPEN_URL(url)
+
+
+def open_discord():
+    """GroomLab > Help > Discord: the GroomLab community in the browser."""
+    open_url(DISCORD_URL)
+    return DISCORD_URL
 
 
 def open_donate():

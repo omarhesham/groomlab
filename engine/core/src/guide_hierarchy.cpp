@@ -58,6 +58,104 @@ void fitLayers(HierarchyGuide& g) {
     }
 }
 
+float smoothstep01(float x) {
+    x = std::clamp(x, 0.0f, 1.0f);
+    return x * x * (3.0f - 2.0f * x);
+}
+
+// The root footprint a shaped tube's children root on (GuideHierarchy::resolveFollower): the
+// parent's root section turned from its root direction toward the scalp's normal there (the
+// smallest turn, as TubeSpine::setRootSurface lays it for strands), all of the way for a parent
+// leaning kSlanted or more from the normal, none up to kUpright (its children snapped onto the
+// scalp from the root section, as always), smoothly between. A child's shift onto it fades out
+// along the parent by (1 - t / join)^2, join a few root extents (TubeSpine::rootJoin's).
+struct FootprintTurn {
+    bool active = false;
+    Rotation turn, back;  // section to footprint, and back
+    float join = 1.0f;
+    float fade(float t) const {
+        if (!active) return 0.0f;
+        const float f = std::max(1.0f - t / join, 0.0f);
+        return f * f;
+    }
+};
+
+FootprintTurn footprintTurn(const HierarchyGuide& parent, const Frame& rootFrame, float scale) {
+    FootprintTurn out;
+    if (!parent.tube.shaped() || !(parent.rootNormal.length() > 0.0f) || parent.points.size() < 2) return out;
+    constexpr float kUpright = 0.5235988f, kSlanted = 1.0471976f;  // 30 and 60 degrees
+    const Vec3f normal = parent.rootNormal.normalized();
+    const Vec3f tangent = rootFrame.tangent;
+    const float c = std::clamp(tangent.dot(normal), -1.0f, 1.0f);
+    const float w = smoothstep01((std::acos(c) - kUpright) / (kSlanted - kUpright));
+    if (!(w > 0.0f) || c < -1.0f + 1e-4f) return out;
+    const Vec3f target = (tangent * (1.0f - w) + normal * w).normalized();
+    out.turn = Rotation(tangent, target);
+    out.back = Rotation(target, tangent);
+    const TubeSection root = parent.tube.sectionAt(0.0f);
+    const float extent = root.width * scale * std::max(1.0f, root.aspect);
+    float length = 0.0f;
+    for (std::size_t i = 1; i < parent.points.size(); ++i) length += (parent.points[i] - parent.points[i - 1]).length();
+    constexpr float kJoinExtents = 3.0f;
+    out.join = length > 0.0f ? std::clamp(kJoinExtents * extent / length, 1e-3f, 1.0f) : 1.0f;
+    out.active = true;
+    return out;
+}
+
+// A shaped tube's roll on the scalp (TubeProfile::roll): per guide point, the angle its sections
+// turn from the guide's rotation-minimizing frames (`frames`) so that, at twist 0, the section's
+// height (v) points off the scalp and its width (u) lies along it, all along the guide: the
+// scalp's normal at the point nearest each guide point, taken across the guide. It holds
+// where the guide lies within kNear section extents of the scalp and leans at least 30 degrees
+// off the normal there; farther off (none past kFar extents) or more upright, the sections keep
+// the roll they had before (the frames carried on), so a lock hanging off the head keeps the
+// way it left it. Evened out along the guide; empty when it is 0 all along.
+std::vector<float> sectionRoll(const std::vector<Vec3f>& points, const std::vector<Frame>& frames, const TubeProfile& tube,
+                               const ScalpMesh& scalp, float scale) {
+    constexpr float kNear = 2.0f, kFar = 6.0f;
+    constexpr float kPi = 3.14159265358979f;
+    const std::size_t n = points.size();
+    std::vector<float> roll(n, 0.0f);
+    float last = 0.0f;
+    bool any = false;
+    for (std::size_t i = 0; i < n; ++i) {
+        const float t = paramAt(i, n);
+        const float width = tube.widthAt(t) * scale;
+        const float extent = std::max(width, width * tube.aspectAt(t));
+        float target = last, weight = 0.0f;
+        if (extent > 0.0f) {
+            const SurfacePoint sp = scalp.closestPoint(points[i], kFar * extent);
+            if (sp.root.face >= 0) {
+                const Vec3f nrm = scalp.normal(sp.root);
+                const Vec3f& tan = frames[i].tangent;
+                const Vec3f across = nrm - tan * tan.dot(nrm);
+                const float len = across.length();
+                const float nl = std::max(nrm.length(), 1e-12f);
+                if (len > 1e-4f * nl) {
+                    const float d = (sp.position - points[i]).length();
+                    weight = (1.0f - smoothstep01((d - kNear * extent) / ((kFar - kNear) * extent))) *
+                             smoothstep01(len / nl / 0.5f);
+                    // The angle turning the binormal onto `across` about the tangent (twist's way:
+                    // v = cos * binormal - sin * normal).
+                    target = std::atan2(-across.dot(frames[i].normal), across.dot(frames[i].binormal));
+                    while (target - last > kPi) target -= 2.0f * kPi;  // the nearest turn to the last
+                    while (target - last < -kPi) target += 2.0f * kPi;
+                }
+            }
+        }
+        roll[i] = last + (target - last) * weight;
+        last = roll[i];
+        any = any || std::abs(roll[i]) > 1e-6f;
+    }
+    if (!any) return {};
+    for (int pass = 0; pass < 2; ++pass) {  // evened out, the root's kept
+        std::vector<float> next = roll;
+        for (std::size_t i = 1; i < n; ++i) next[i] = (roll[i - 1] + 2.0f * roll[i] + roll[std::min(i + 1, n - 1)]) * 0.25f;
+        roll.swap(next);
+    }
+    return roll;
+}
+
 Vec3f rotateXY(const Vec3f& v, float angle) {
     const float c = pm::cos(angle), s = pm::sin(angle);
     return {v.x * c - v.y * s, v.x * s + v.y * c, v.z};
@@ -65,6 +163,20 @@ Vec3f rotateXY(const Vec3f& v, float angle) {
 
 Vec3f rootTangent(const std::vector<Vec3f>& pts) {
     return pts.size() >= 2 ? (pts[1] - pts[0]).normalized() : Vec3f(0, 1, 0);
+}
+
+// The way across a guide along the scalp (normal n at its root): perpendicular to n and to the
+// way the guide lies over the scalp (root to tip, else its root direction, taken into the scalp's
+// tangent plane), turned so a frame started from it has its binormal off the scalp. `fallback`
+// for a guide standing straight off the scalp.
+Vec3f acrossScalp(const std::vector<Vec3f>& pts, const Vec3f& n, const Vec3f& fallback) {
+    if (pts.size() < 2 || !(n.length() > 0.0f)) return fallback;
+    const Vec3f unit = n.normalized();
+    for (const Vec3f& way : {pts.back() - pts.front(), pts[1] - pts[0]}) {
+        const Vec3f flat = way - unit * way.dot(unit);
+        if (flat.length() > 1e-3f * way.length() && flat.length() > 1e-12f) return unit.cross(flat).normalized();
+    }
+    return fallback;
 }
 
 // Surface frame at a root: normal = the smooth surface normal (local y),
@@ -111,7 +223,6 @@ std::uint64_t hashVec(std::uint64_t h, const Vec3f& v) { return hashFloat(hashFl
 
 // ---------------------------------------------------------------------------
 
-float TubeProfile::radiusAt(float t) const { return sampleEven(radius, t, 0.1f); }
 
 std::vector<Frame> HierarchyGuide::frames() const {
     return rotationMinimizingFrames(points.data(), points.size(), frameUp);
@@ -237,6 +348,7 @@ GuideId GuideHierarchy::addGuide(GroupId groupId, std::vector<Vec3f> points, Tub
     guide.id = id;
     guide.group = groupId;
     guide.tube = std::move(tube);
+    adoptTubeShape(guide.tube);
     guide.frameUp = anyPerpendicular(rootTangent(points));
     guide.points = std::move(points);
     index_[id] = guides_.size();
@@ -250,7 +362,12 @@ std::vector<GuideId> GuideHierarchy::addGuides(GroupId groupId, const GuideSet& 
     for (const Guide& g : set.guides()) {
         if (g.points.size() < 2) continue;
         const GuideId wanted = g.id != kNoGuide && !index_.count(g.id) ? g.id : kNoGuide;
-        const GuideId id = addGuide(groupId, g.points, tube, wanted);
+        TubeProfile own = tube;
+        if (g.hasTube) {  // a hierarchy's guide carries its tube, at the size shown there
+            own = g.tube;
+            own.scaleWidth(1.0f / scale_);
+        }
+        const GuideId id = addGuide(groupId, g.points, std::move(own), wanted);
         HierarchyGuide* h = mutableGuide(id);
         h->attributes = g.attributes;
         h->pointAttributes = g.pointAttributes;
@@ -304,6 +421,8 @@ GroupId GuideHierarchy::generateChildren(GroupId parentGroup, const std::string&
     }
 
     for (const GuideId parentId : chosen) {
+        // The parent's frames, once for all its children (a shaped tube's children start theirs from its root's).
+        const std::vector<Frame> parentFrames = guide(parentId)->frames();
         for (std::size_t k = 0; k < params.count; ++k) {
             const HierarchyGuide& parent = *guide(parentId);  // re-fetch: guides_ grows below
             const std::size_t n = parent.points.size();
@@ -316,26 +435,33 @@ GroupId GuideHierarchy::generateChildren(GroupId parentGroup, const std::string&
             const float u = rng.nextFloat();
             const float angle = kTwoPi * rng.nextFloat();
             const Vec3f dir(pm::cos(angle), pm::sin(angle), 0.0f);
-            const Vec3f rootXY = dir * (params.rootSpread * std::sqrt(u));
+            Vec3f rootXY = dir * (params.rootSpread * std::sqrt(u));
             // Drawn y first, then x, one statement each: C++ leaves the order of a call's
             // arguments to the compiler, and this is the order MSVC gave, kept everywhere.
             const float jitterY = rng.uniform(-1, 1);
             const float jitterX = rng.uniform(-1, 1);
-            const Vec3f tipXY = dir * (params.tipSpread * std::sqrt(u)) + Vec3f(jitterX, jitterY, 0.0f) * params.jitter;
+            Vec3f tipXY = dir * (params.tipSpread * std::sqrt(u)) + Vec3f(jitterX, jitterY, 0.0f) * params.jitter;
+            if (!parent.tube.roundShape()) {
+                // Inside the shape's outline (uniform over its area) rather than a disc.
+                const SectionPoint p = randomPointInTubeShape(parent.tube, hashCombine(id, 0x7B5Eu));
+                const Vec3f spot(p.u, p.v, 0.0f);
+                rootXY = spot * params.rootSpread;
+                tipXY = spot * params.tipSpread + Vec3f(jitterX, jitterY, 0.0f) * params.jitter;
+            }
 
             HierarchyGuide child;
             child.id = id;
             child.group = childGroup;
             child.parent = parentId;
-            child.tube.radius = parent.tube.radius;
-            for (float& r : child.tube.radius) r *= params.childTubeScale;
+            child.tube = parent.tube;
+            child.tube.scaleWidth(params.childTubeScale);
             child.offsets.resize(n);
             for (std::size_t i = 0; i < n; ++i) {
                 const float t = paramAt(i, n);
                 child.offsets[i] = rotateXY(rootXY * (1.0f - t) + tipXY * t, params.twist * t);
             }
-            resolveFollower(child, parent, nullptr);
-            child.frameUp = anyPerpendicular(rootTangent(child.points));
+            resolveFollower(child, parent, nullptr, &parentFrames);
+            if (!parent.tube.shaped()) child.frameUp = anyPerpendicular(rootTangent(child.points));
 
             index_[id] = guides_.size();
             guides_.push_back(std::move(child));
@@ -361,13 +487,15 @@ GuideId GuideHierarchy::addChildGuide(GroupId groupId, GuideId parentId, std::ve
     child.id = nextGuideId();
     child.group = groupId;
     child.parent = parentId;
-    if (tube && !tube->radius.empty()) {
+    if (tube && !tube->width.empty()) {
         child.tube = std::move(*tube);
+        adoptTubeShape(child.tube);
     } else {
         child.tube = parent->tube;
-        for (float& r : child.tube.radius) r *= 0.35f;
+        child.tube.scaleWidth(0.35f);
     }
-    child.frameUp = anyPerpendicular(rootTangent(points));
+    // A shaped parent's children start their frames from its root's (resolveFollower keeps them so).
+    child.frameUp = parent->tube.shaped() ? parent->frames().front().normal : anyPerpendicular(rootTangent(points));
     child.points = std::move(points);
     child.offsets = offsetsFromWorld(child, *parent);
     const GuideId id = child.id;
@@ -384,11 +512,28 @@ void GuideHierarchy::resolveFollower(HierarchyGuide& child, const HierarchyGuide
     if (!parentFrames || parentFrames->size() != n) computed = parent.frames();
     const std::vector<Frame>& frames = computed.empty() ? *parentFrames : computed;
     child.points.resize(n);
+    // The offsets are the parent tube's section coordinates (tube.h): across in its sections,
+    // along in scene units. A plain round tube's sections (no twist, aspect 1) give the offsets
+    // times the width, to the bit as before sections.
     for (std::size_t i = 0; i < n; ++i) {
         const float t = paramAt(i, n);
-        const Vec3f o = rotateXY(sampleEven(child.offsets, t, Vec3f{}), parent.tube.twist * t);
-        const float r = parent.tube.radiusAt(t) * scale_;
-        child.points[i] = parent.points[i] + frames[i].toWorld({o.x * r, o.y * r, o.z * scale_});
+        const Vec3f off = sampleEven(child.offsets, t, Vec3f{});
+        const Vec3f o = sectionOffset(parent.tube.sectionAt(t), off.x, off.y, scale_);
+        child.points[i] = parent.points[i] + frames[i].toWorld({o.x, o.y, off.z * scale_});
+    }
+    // A shaped tube's children keep their frames started from its root's, so their own tubes lie
+    // as the parent's does however it turns.
+    if (parent.tube.shaped() && n > 0) child.frameUp = frames[0].normal;
+
+    // A shaped tube's parent leaving the scalp at a slant: its children's roots on its root
+    // footprint (footprintTurn), not snapped straight down from its root section.
+    if (scalp && scalp->triangleCount() > 0 && n >= 2) {
+        const FootprintTurn foot = footprintTurn(parent, frames[0], scale_);
+        if (foot.active) {
+            const Vec3f rootOffset = child.points[0] - parent.points[0];
+            const Vec3f shift = foot.turn(rootOffset) - rootOffset;
+            for (std::size_t i = 0; i < n; ++i) child.points[i] += shift * foot.fade(paramAt(i, n));
+        }
     }
 
     // The cross-section at the root is not the scalp surface: snap the root
@@ -419,18 +564,40 @@ std::vector<Vec3f> GuideHierarchy::offsetsFromWorld(const HierarchyGuide& child,
                                        ? child.points
                                        : resampleByArcLength(child.points.data(), child.points.size(), n);
     const std::vector<Frame> frames = parent.frames();
+    // A child on its parent's root footprint (resolveFollower): the footprint's shift taken back
+    // out, so the offsets give the same shape again.
+    Vec3f shift;
+    const FootprintTurn foot = n >= 2 ? footprintTurn(parent, frames[0], scale_) : FootprintTurn{};
+    if (foot.active) {
+        const Vec3f onFoot = pts[0] - parent.points[0];
+        shift = onFoot - foot.back(onFoot);
+    }
     std::vector<Vec3f> offsets(n);
     for (std::size_t i = 0; i < n; ++i) {
         const float t = paramAt(i, n);
-        const Vec3f local = frames[i].toLocal(pts[i] - parent.points[i]);
-        const float r = std::max(parent.tube.radiusAt(t) * scale_, 1e-6f);
-        offsets[i] = rotateXY({local.x / r, local.y / r, local.z / scale_}, -parent.tube.twist * t);
+        const Vec3f local = frames[i].toLocal(pts[i] - shift * foot.fade(t) - parent.points[i]);
+        const SectionPoint at = sectionCoords(parent.tube.sectionAt(t), local.x, local.y, scale_);
+        offsets[i] = {at.u, at.v, local.z / scale_};
     }
     return offsets;
 }
 
 void GuideHierarchy::evaluateGuide(HierarchyGuide& g, const ScalpMesh* scalp, const std::vector<Frame>* parentFrames) {
     invalidateHash();
+    placeGuide(g, scalp, parentFrames);
+    // What its children and its tube read of the scalp: the normal at its root (footprintTurn)
+    // and, for a shaped tube, its sections' roll (TubeProfile::roll).
+    if (!scalp || scalp->triangleCount() == 0) return;
+    if (scalp->contains(g.root)) g.rootNormal = scalp->normal(g.root);
+    if (g.tube.shaped() && g.points.size() >= 2) {
+        g.tube.roll = sectionRoll(g.points, rotationMinimizingFrames(g.points.data(), g.points.size(), g.frameUp), g.tube,
+                                  *scalp, scale_);
+    } else {
+        g.tube.roll.clear();
+    }
+}
+
+void GuideHierarchy::placeGuide(HierarchyGuide& g, const ScalpMesh* scalp, const std::vector<Frame>* parentFrames) {
     if (g.followsParent()) {
         if (const HierarchyGuide* parent = guide(g.parent)) resolveFollower(g, *parent, scalp, parentFrames);
         return;
@@ -438,16 +605,29 @@ void GuideHierarchy::evaluateGuide(HierarchyGuide& g, const ScalpMesh* scalp, co
     if (!scalp || scalp->triangleCount() == 0 || g.points.size() < 2) return;
     if (isBound(g, *scalp)) {
         rebuildFromRoot(g, *scalp, scale_);
+        if (g.layFrame) {  // its tube given a shape (setTube): its frame laid across the scalp
+            g.frameUp = acrossScalp(g.points, scalp->normal(g.root), g.frameUp);
+            g.frameUpLocal = rootFrame(*scalp, g.root).toLocal(g.frameUp);
+            g.layFrame = false;
+        }
         return;
     }
     // Never-rooted primaries accept curves drawn tip-first. Edited guides
     // keep their root, so a combed guide lying on the scalp never flips; a
     // curve with both ends on the scalp (a braid path) roots where it starts.
-    if (!g.isChild() && g.root.face < 0 && drawnTipFirst(g.points, *scalp)) {
+    const bool firstRooting = !g.isChild() && g.root.face < 0;
+    if (firstRooting && drawnTipFirst(g.points, *scalp)) {
         std::reverse(g.points.begin(), g.points.end());
         g.frameUp = anyPerpendicular(rootTangent(g.points));
     }
     g.root = rootRigidly(g.points, *scalp);
+    // A new primary with a shaped tube (one it took from its neighbours) starts its frame across
+    // the scalp, so the tube lies flat on the head at twist 0 (a ribbon's width along the scalp,
+    // its height off it) however it leaves the scalp.
+    if (firstRooting && (g.tube.shaped() || g.layFrame) && scalp->contains(g.root)) {
+        g.frameUp = acrossScalp(g.points, scalp->normal(g.root), g.frameUp);
+    }
+    g.layFrame = false;
     bind(g, *scalp, scale_);
 }
 
@@ -875,8 +1055,8 @@ void GuideHierarchy::transfer(const ScalpMapping& mapping) {
     };
     for (HierarchyGuide& g : guides_) {
         const float scale = scaleOf(g);
-        for (float& r : g.tube.radius) r *= scale;
-        // Child offsets are in parent tube radii across (scaled above) and scene units along.
+        g.tube.scaleWidth(scale);
+        // Child offsets are in parent tube sections across (scaled above) and scene units along.
         if (g.followsParent()) {
             for (Vec3f& o : g.offsets) o.z *= scale;
         }
@@ -898,7 +1078,81 @@ void GuideHierarchy::setPoints(GuideId id, std::vector<Vec3f> points) {
 
 void GuideHierarchy::setTube(GuideId id, TubeProfile tube) {
     invalidateHash();
-    if (HierarchyGuide* g = mutableGuide(id)) g->tube = std::move(tube);
+    HierarchyGuide* g = mutableGuide(id);
+    if (!g) return;
+    // A primary given a shape (another shape, or its first: round to shaped) lays its frame across
+    // the scalp at its next evaluate, so the new shape lies flat on the head at twist 0; not one
+    // with children (they would turn round it).
+    const bool newShape = tube.shaped() && (!g->tube.shaped() || !tube.sameShape(g->tube));
+    if (newShape && !g->isChild()) {
+        const bool parent = std::any_of(guides_.begin(), guides_.end(), [&](const HierarchyGuide& c) { return c.parent == id; });
+        if (!parent) g->layFrame = true;
+    }
+    g->tube = std::move(tube);
+    adoptTubeShape(g->tube);
+}
+
+void GuideHierarchy::adoptTubeShape(TubeProfile& tube) {
+    if (!tube.custom) return;
+    invalidateHash();
+    const auto it = tubeShapes_.find(tube.custom->name);
+    if (it == tubeShapes_.end()) {
+        tubeShapes_.emplace(tube.custom->name, tube.custom);
+    } else {
+        tube.custom = it->second;
+    }
+}
+
+CustomTubeShapePtr GuideHierarchy::tubeShape(const std::string& name) const {
+    const auto it = tubeShapes_.find(name);
+    return it == tubeShapes_.end() ? nullptr : it->second;
+}
+
+CustomTubeShapePtr GuideHierarchy::setTubeShape(const std::string& name, const std::vector<SectionPoint>& points, bool smooth) {
+    CustomTubeShapePtr shape = makeCustomTubeShape(name, points, smooth);  // throws before anything changes
+    invalidateHash();
+    tubeShapes_[name] = shape;
+    for (HierarchyGuide& g : guides_) {
+        if (g.tube.custom && g.tube.custom->name == name) g.tube.custom = shape;
+    }
+    return shape;
+}
+
+void GuideHierarchy::renameTubeShape(const std::string& from, const std::string& to) {
+    const auto it = tubeShapes_.find(from);
+    if (it == tubeShapes_.end()) throw std::invalid_argument("no tube shape named '" + from + "'");
+    if (from == to) return;
+    checkTubeShapeName(to);
+    if (tubeShapes_.count(to)) throw std::invalid_argument("a tube shape named '" + to + "' exists");
+    invalidateHash();
+    auto renamed = std::make_shared<CustomTubeShape>(*it->second);
+    renamed->name = to;
+    tubeShapes_.erase(it);
+    tubeShapes_[to] = renamed;
+    for (HierarchyGuide& g : guides_) {
+        if (g.tube.custom && g.tube.custom->name == from) g.tube.custom = renamed;
+    }
+}
+
+std::size_t GuideHierarchy::removeTubeShape(const std::string& name) {
+    if (!tubeShapes_.count(name)) throw std::invalid_argument("no tube shape named '" + name + "'");
+    invalidateHash();
+    tubeShapes_.erase(name);
+    std::size_t reverted = 0;
+    for (HierarchyGuide& g : guides_) {
+        if (g.tube.custom && g.tube.custom->name == name) {
+            g.tube.custom = nullptr;
+            g.tube.shape = TubeShape::Round;
+            ++reverted;
+        }
+    }
+    return reverted;
+}
+
+std::size_t GuideHierarchy::tubeShapeUsers(const std::string& name) const {
+    std::size_t users = 0;
+    for (const HierarchyGuide& g : guides_) users += g.tube.custom && g.tube.custom->name == name ? 1 : 0;
+    return users;
 }
 
 void GuideHierarchy::setAttribute(GuideId id, const std::string& name, float value) {
@@ -1038,10 +1292,16 @@ GuideSet GuideHierarchy::flattenGroup(GroupId groupId) const {
     GuideSet set;
     const bool attributes = hasAttributes();
     const bool layers = hasPointAttributes();
+    const int depth = groupDepth(groupId);
     for (const HierarchyGuide& g : guides_) {
         if (g.group != groupId || g.points.size() < 2) continue;
         Guide& out = set.add(g.id, g.points);
         out.root = g.root;
+        out.hasTube = true;
+        out.tube = g.tube;
+        out.tube.scaleWidth(scale_);
+        out.frameUp = g.frameUp;
+        out.depth = depth;
         if (attributes) out.attributes = effectiveAttributes(g);
         if (layers) out.pointAttributes = effectivePointAttributes(g);
     }
@@ -1059,6 +1319,11 @@ GuideSet GuideHierarchy::flatten(int level) const {
         if (depths[g.group] != level || g.points.size() < 2) continue;
         Guide& out = set.add(g.id, g.points);
         out.root = g.root;
+        out.hasTube = true;
+        out.tube = g.tube;
+        out.tube.scaleWidth(scale_);
+        out.frameUp = g.frameUp;
+        out.depth = level;
         if (attributes) out.attributes = effectiveAttributes(g);
         if (layers) out.pointAttributes = effectivePointAttributes(g);
     }
@@ -1080,6 +1345,10 @@ std::uint64_t GuideHierarchy::computeContentHash() const {
         h = hashCombine(hashCombine(h, g.id), g.parent);
         h = hashString(h, g.name);
     }
+    if (!tubeShapes_.empty()) {  // (a hierarchy without custom shapes hashes as it always has)
+        h = hashCombine(h, tubeShapes_.size());
+        for (const auto& [name, shape] : tubeShapes_) h = hashCombine(hashString(h, name), shape->hash);
+    }
     h = hashCombine(h, guides_.size());
     for (const HierarchyGuide& g : guides_) {
         h = hashCombine(hashCombine(hashCombine(h, g.id), g.group), g.parent);
@@ -1087,8 +1356,7 @@ std::uint64_t GuideHierarchy::computeContentHash() const {
         h = hashCombine(h, static_cast<std::uint64_t>(static_cast<std::int64_t>(g.root.face)));
         h = hashFloat(hashFloat(h, g.root.u), g.root.v);
         h = hashVec(h, g.frameUp);
-        for (float r : g.tube.radius) h = hashFloat(h, r);
-        h = hashFloat(h, g.tube.twist);
+        h = hashTube(h, g.tube);
         for (const auto& [k, v] : g.attributes) h = hashFloat(hashString(h, k), v);
         for (const auto& [k, values] : g.pointAttributes) {
             h = hashCombine(hashString(h, k), values.size());
@@ -1137,7 +1405,7 @@ json guideToJson(const HierarchyGuide& g) {
         {"group", g.group},
         {"root", {g.root.face, g.root.u, g.root.v}},
         {"frameUp", {g.frameUp.x, g.frameUp.y, g.frameUp.z}},
-        {"tube", {{"radius", g.tube.radius}, {"twist", g.tube.twist}}},
+        {"tube", {{"shape", g.tube.shapeName()}, {"width", g.tube.width}, {"aspect", g.tube.aspect}, {"twist", g.tube.twist}}},
     };
     if (g.parent != kNoGuide) j["parent"] = g.parent;
     if (g.locked) j["locked"] = true;
@@ -1155,7 +1423,9 @@ json guideToJson(const HierarchyGuide& g) {
     return j;
 }
 
-HierarchyGuide guideFromJson(const json& j) {
+// A guide from its JSON. Its tube's shape: a built-in's name, or one of `library`'s; another
+// (a library shape that is missing) loads round, its name in `missing`.
+HierarchyGuide guideFromJson(const json& j, const TubeShapeLibrary& library, std::string* missing) {
     HierarchyGuide g;
     g.id = j.at("id").get<GuideId>();
     g.group = j.at("group").get<GroupId>();
@@ -1165,9 +1435,31 @@ HierarchyGuide guideFromJson(const json& j) {
     g.root = {r.at(0).get<std::int32_t>(), r.at(1).get<float>(), r.at(2).get<float>()};
     const json& up = j.at("frameUp");
     g.frameUp = {up.at(0).get<float>(), up.at(1).get<float>(), up.at(2).get<float>()};
-    const json& tube = j.at("tube");
-    g.tube.radius = tube.at("radius").get<std::vector<float>>();
-    g.tube.twist = tube.value("twist", 0.0f);
+    // The tube's sections (tube.h); what is missing keeps its default (a groom saved before
+    // sections: its tubes' old "radius" is not read, by decision: no format migrations).
+    if (j.contains("tube")) {
+        const json& tube = j.at("tube");
+        // (A crescent, a shape there was for a while, reads as round.)
+        if (tube.contains("shape")) {
+            const std::string shape = tube.at("shape").get<std::string>();
+            if (!parseTubeShape(shape, &g.tube.shape) && shape != "crescent") {
+                const auto it = library.find(shape);
+                if (it != library.end()) {
+                    g.tube.custom = it->second;
+                } else if (missing) {
+                    *missing = shape;
+                }
+            }
+        }
+        auto list = [&](const char* key, std::vector<float>& into) {
+            if (!tube.contains(key) || !tube.at(key).is_array()) return;  // (a groom saved before sections: a number)
+            std::vector<float> values = tube.at(key).get<std::vector<float>>();
+            if (!values.empty()) into = std::move(values);
+        };
+        list("width", g.tube.width);
+        list("aspect", g.tube.aspect);
+        list("twist", g.tube.twist);
+    }
     if (j.contains("attributes")) g.attributes = j.at("attributes").get<std::map<std::string, float>>();
     if (j.contains("pointAttributes")) {
         g.pointAttributes = j.at("pointAttributes").get<std::map<std::string, std::vector<float>>>();
@@ -1263,6 +1555,19 @@ std::string GuideHierarchy::toJson() const {
     }
     out += ']';
     if (boundTopology_ != 0) out += ",\"scalpTopology\":" + json(boundTopology_).dump();
+    if (!tubeShapes_.empty()) {
+        // The shape library: each shape's name, its control points (u, v, u, v, ...) and smooth.
+        json shapes = json::array();
+        for (const auto& [name, shape] : tubeShapes_) {
+            json points = json::array();
+            for (const SectionPoint& p : shape->points) {
+                points.push_back(p.u);
+                points.push_back(p.v);
+            }
+            shapes.push_back({{"name", name}, {"points", std::move(points)}, {"smooth", shape->smooth}});
+        }
+        out += ",\"tubeShapes\":" + shapes.dump();
+    }
     out += ",\"version\":" + json(currentSchemaVersion(DocumentKind::GuideData)).dump() + "}";
     return out;
 }
@@ -1278,6 +1583,23 @@ GuideHierarchy GuideHierarchy::fromJson(const std::string& text) {
         std::size_t arrayBegin = 0, arrayEnd = 0;
         json root;
         std::vector<HierarchyGuide> guides;
+        std::vector<std::string> missing;  // per guide: the library shape it lacks
+        // The shape library, before the guides that take its shapes.
+        auto readLibrary = [&h](const json& r) {
+            h.tubeShapes_.clear();
+            if (!r.is_object() || !r.contains("tubeShapes")) return;
+            for (const json& s : r.at("tubeShapes")) {
+                const std::string name = s.at("name").get<std::string>();
+                const std::vector<float> flat = s.at("points").get<std::vector<float>>();
+                std::vector<SectionPoint> points(flat.size() / 2);
+                for (std::size_t i = 0; i < points.size(); ++i) points[i] = {flat[2 * i], flat[2 * i + 1]};
+                try {
+                    h.tubeShapes_[name] = makeCustomTubeShape(name, points, s.value("smooth", true));
+                } catch (const std::invalid_argument& e) {
+                    h.loadWarnings_.push_back(std::string("tube shape library: ") + e.what() + " (left out)");
+                }
+            }
+        };
         bool split = findGuideElements(text, elements, arrayBegin, arrayEnd);
         if (split) {
             try {
@@ -1285,19 +1607,25 @@ GuideHierarchy GuideHierarchy::fromJson(const std::string& text) {
                 // Another key that reads "guides" (escaped) with guides of its own: parsed whole.
                 const auto other = root.is_object() ? root.find("guides") : root.end();
                 if (other == root.end() || !other->is_array() || !other->empty()) throw std::runtime_error("not split");
+                readLibrary(root);
                 guides.resize(elements.size());
+                missing.assign(elements.size(), std::string());
                 parallelFor(0, elements.size(), [&](std::size_t i) {
                     const auto& [begin, end] = elements[i];
                     guides[i] = guideFromJson(json::parse(text.begin() + static_cast<std::ptrdiff_t>(begin),
-                                                          text.begin() + static_cast<std::ptrdiff_t>(end)));
+                                                          text.begin() + static_cast<std::ptrdiff_t>(end)),
+                                              h.tubeShapes_, &missing[i]);
                 }, 4);
             } catch (const std::exception&) {
                 split = false;
+                h.loadWarnings_.clear();
             }
         }
         if (!split) {
             root = json::parse(text);
             guides.clear();
+            missing.clear();
+            readLibrary(root);
         }
         if (root.is_object() && root.empty()) return h;
         detail::checkVersion(DocumentKind::GuideData, root);  // refuses guide data from a newer GroomLab
@@ -1311,7 +1639,19 @@ GuideHierarchy GuideHierarchy::fromJson(const std::string& text) {
         if (split) {
             h.guides_ = std::move(guides);
         } else {
-            for (const json& j : root.value("guides", json::array())) h.guides_.push_back(guideFromJson(j));
+            for (const json& j : root.value("guides", json::array())) {
+                missing.emplace_back();
+                h.guides_.push_back(guideFromJson(j, h.tubeShapes_, &missing.back()));
+            }
+        }
+        // Guides whose library shape is missing load round: said once per shape.
+        std::map<std::string, std::size_t> lacking;
+        for (const std::string& name : missing) {
+            if (!name.empty()) ++lacking[name];
+        }
+        for (const auto& [name, count] : lacking) {
+            h.loadWarnings_.push_back("tube shape '" + name + "' is not in the groom's shape library: " + std::to_string(count) +
+                                      (count == 1 ? " guide" : " guides") + " taking it loaded round");
         }
         h.rebuildIndex();
         for (const HierarchyGuide& g : h.guides_) {

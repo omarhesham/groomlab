@@ -155,6 +155,7 @@ root UV and a color:
 | `clumpId` | strand | Clump (the name is its `clumpChannel`), Wet, Propagate | The strand's clump index, -1 for none |
 | `region` | strand | Interpolate with a `regionMap` (name: `regionChannel`) | Region index, -1 for none |
 | `guideInfluence` | strand | Interpolate with `limitDistance` above 0 (name: `influenceChannel`) | Guide influence, 0-1 |
+| `tubeId`, `tubeU`, `tubeV` | strand | Interpolate with `fillTubes` | The tube the strand fills (-1 for none) and its place in the tube's cross-section, -1 to 1 ([Tube guides](/docs/guides-and-brushes#tube-guides)) |
 | Guide attribute names | strand, or point for layers painted along guides | Interpolate | Attributes and painted layers on the guides, interpolated to the strands |
 | Group name | strand | Group | Mask, 1 inside, 0 outside |
 | Attribute node `name` | strand | Attribute | Any value: a constant, a map, an expression |

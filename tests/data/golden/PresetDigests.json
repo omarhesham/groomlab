@@ -641,6 +641,26 @@
    "strands": 3141,
    "widths": "06dd3fa16213cba2"
   },
+  "tube_locks": {
+   "channels": {
+    "strand.clumpId": "a92f791c2cf7df24",
+    "strand.colorB": "4f1c2267b2a7d52f",
+    "strand.colorG": "8d71afbf8716d419",
+    "strand.colorR": "85ff5ff6fed68daa",
+    "strand.melanin": "fe55dc7d6ab64cb4",
+    "strand.melaninRedness": "014387698f9420a7",
+    "strand.tubeId": "de4558755d74fa41",
+    "strand.tubeU": "0adfe714692509f6",
+    "strand.tubeV": "7d7b3d90608017ab"
+   },
+   "everything": "04a528e1e2669b31",
+   "ids": "20ed751c376a9e91",
+   "points": 86241,
+   "positions": "46a586a525c89da2",
+   "roots": "3489599712871aca",
+   "strands": 5073,
+   "widths": "2ab9d0370d53b3c9"
+  },
   "two_tone_tips": {
    "channels": {
     "point.colorB": "b7cf0598960933b9",

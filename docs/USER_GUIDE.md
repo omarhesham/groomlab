@@ -102,15 +102,15 @@ The tools are the same in Maya, the standalone app and Blender, in the same orde
 | Section | Tools |
 | --- | --- |
 | Create | Place, Draw, Part, Flow |
-| Shape | Comb, Slide, Smooth, Straighten, Lift, Twist, Curl, Attract, Direction, Noise, Tube |
+| Shape | Comb, Slide, Smooth, Straighten, Lift, Twist, Curl, Attract, Direction, Noise, Shape |
 | Trim | Cut, Length, Erase |
 | Paint | Paint, Width, Density |
 | Guides | Select, Freeze (and **Unfreeze All** beside it) |
 
 - **Comb** drags guides along the stroke (**Stretch** lets them lengthen or shorten). **Slide**
   moves roots and keeps the shape. **Smooth**, **Straighten**, **Lift**, **Twist**, **Curl** and
-  **Attract** refine; a negative strength reverses the ones that work both ways. **Tube** widens
-  the tube a guide's children grow in.
+  **Attract** refine; a negative strength reverses the ones that work both ways. **Shape** paints
+  guides' tubes near the brush: their width, their flatness or their twist (Ctrl: the opposite).
 - **Direction** turns guides about their roots toward the way you stroke (Ctrl: away), keeping
   their lean and length.
 - **Noise** adds smooth random jitter along guides. Each stroke builds up the same pattern; Ctrl

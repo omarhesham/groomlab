@@ -14,6 +14,7 @@ DOCS_URL = "https://getgroomlab.com/docs/blender"
 UPDATES_URL = "https://getgroomlab.com/download"  # the Download page (Blender's own updates: the remote repository)
 DONATE_URL = "https://ko-fi.com/getgroomlab"  # Support GroomLab: free for any use, funded by donations
 REPO_URL = "https://github.com/thekesslereffect/groomlab"  # the source: open source (Apache-2.0; this add-on GPL)
+DISCORD_URL = "https://discord.gg/sr2rxjRVkm"  # the GroomLab community
 ABOUT = ("Hair, fur and feather grooming in Blender: the Groom Tools for the guides, the Graph Editor for the "
          "look, Cycles and EEVEE renders, and a .groom file Maya and the GroomLab app open as it is.")
 
@@ -99,6 +100,7 @@ class GROOMLAB_OT_about(_TextPopup):
         _wrap(layout, "Open source (Apache-2.0); this add-on is GPL-3.0-or-later. Free for any use, commercial "
                       "included.", width=64)
         layout.operator("wm.url_open", text="Source on GitHub", icon="URL").url = REPO_URL
+        layout.operator("wm.url_open", text="Discord", icon="URL").url = DISCORD_URL
         layout.operator("wm.url_open", text="Support GroomLab", icon="FUND").url = DONATE_URL
 
 

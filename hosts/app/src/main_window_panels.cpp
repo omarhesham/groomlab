@@ -150,6 +150,11 @@ void MainWindow::buildPanels() {
     guides_ = new QCheckBox(display);
     guides_->setChecked(settings_.guides);
     form->addRow(tr("Guides"), guides_);
+    tubes_ = new QCheckBox(display);
+    tubes_->setChecked(settings_.tubes);
+    tubes_->setToolTip(tr("Each guide's tube, the volume its children and Interpolate's Fill Tubes fill: its shape "
+                          "and sections along it"));
+    form->addRow(tr("Tubes"), tubes_);
     guidePoints_ = new QComboBox(display);
     guidePoints_->addItems({tr("No dots"), tr("Roots and tips"), tr("Every point")});
     guidePoints_->setCurrentIndex(settings_.guidePoints);
@@ -246,6 +251,10 @@ void MainWindow::buildPanels() {
     connect(gpuPreview_, &QCheckBox::toggled, this, [this](bool on) { setGpuPreview(on); });
     connect(guides_, &QCheckBox::toggled, this, [this](bool on) {
         settings_.guides = on;
+        redisplay();
+    });
+    connect(tubes_, &QCheckBox::toggled, this, [this](bool on) {
+        settings_.tubes = on;
         redisplay();
     });
     connect(lighting_, &QCheckBox::toggled, this, [this](bool on) {

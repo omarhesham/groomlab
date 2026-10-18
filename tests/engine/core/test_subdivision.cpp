@@ -312,7 +312,7 @@ std::string guidesOn(const ScalpMesh& scalp) {
     GuideHierarchy h;
     const GroupId primary = h.addGroup("primary");
     TubeProfile tube;
-    tube.radius = {1.5f, 1.0f};
+    tube.width = {1.5f, 1.0f};
     for (int i = 0; i < 8; ++i) {
         const float a = 6.2831853f * static_cast<float>(i) / 8.0f;
         const Vec3f n = Vec3f{std::cos(a) * 0.6f, 0.8f, std::sin(a) * 0.6f}.normalized();

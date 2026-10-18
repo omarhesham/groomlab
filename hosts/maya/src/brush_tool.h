@@ -54,8 +54,9 @@ struct TextureUndo {
 
 // groomLabBrushStroke: applies one brush stroke to a groom's guides (GT-1).
 //
-//   groomLabBrushStroke -mode comb|smooth|lift|length|tube|paint|clump|twist|curl|
+//   groomLabBrushStroke -mode comb|smooth|lift|length|shape|paint|clump|twist|curl|
 //                             straighten|attract|erase|place|draw|part [-partName n]
+//       [-tubeChannel width|flatness|twist]          (shape: what it paints on the tubes)
 //       [-targets guides,parts,flow]                 (what a brush acts on; default guides)
 //       [-radius r] [-strength s] [-level l | -group g] [-propagate true]
 //       [-selectedOnly true] [-symmetry x|y|z|none [-symmetryCenter c]] [-collide true]
@@ -191,8 +192,14 @@ public:
     // groom, the tool put away: the line goes.
     void showSymmetry();
 
+    // The Shape brush on a groom: its tubes drawn as wires (GroomShape::setTubeWires) while it is;
+    // another tool, another groom, the tool put away: they go.
+    void showTubeWires();
+
 private:
     void clearSymmetry();
+    void clearTubeWires();
+    MObjectHandle tubeWiresOn_;  // the groom shape drawing them
     // Dragging: the viewport is redrawn after a dab unless the last redraw took longer than the
     // time since it ended (the events come faster than the groom evaluates and draws); the
     // release always redraws.

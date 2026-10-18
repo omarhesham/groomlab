@@ -299,6 +299,8 @@ void MainWindow::buildMenu() {
     help->addAction(tr("&Docs"), this, [this] { openDocs(); });
     help->addAction(tr("&Keyboard Shortcuts"), this, [this] { showHelp(QStringLiteral("shortcuts")); });
     help->addAction(tr("Check for &Updates..."), this, [this] { checkForUpdates(); });
+    help->addAction(tr("D&iscord"), this, [] { QDesktopServices::openUrl(QUrl(QString::fromLatin1(kDiscordUrl))); })
+        ->setObjectName(QStringLiteral("discord"));
     help->addAction(tr("&Support GroomLab"), this, [this] { openDonate(); })->setObjectName(QStringLiteral("supportGroomLab"));
     help->addAction(tr("&About GroomLab"), this, [this] { showHelp(QStringLiteral("about")); });
     host_->setMenu(menu_);
