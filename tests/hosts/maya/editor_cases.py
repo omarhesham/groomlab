@@ -186,6 +186,65 @@ class GraphEditorTest(unittest.TestCase):
         self.assertEqual(self.editor.model.position(name), (321.0, 654.0))  # where Tab was pressed
         self.assertIn("after length", self.editor.status.text())
 
+    def edge(self, src, dst):
+        return next(i for i in self.editor.scene.items() if isinstance(i, self.ge.EdgeItem)
+                    and i.src_item.name == src and i.dst_item.name == dst)
+
+    def test_tab_on_a_wire_inserts_the_node_there(self):
+        # Over the length -> width wire, nothing selected: the new node goes into that wire.
+        search = self.ge.NodeSearch(self.editor, (321.0, 654.0), on_link=self.edge("length", "width").link())
+        search.choose("Curl")
+        name = [n for n in self.editor.model.order if self.editor.model.node_type(n) == "Curl"][0]
+        self.assertEqual(self.editor.model.source_of(name, "strands"), "length")
+        self.assertEqual(self.editor.model.source_of("width", "strands"), name)
+        # A node that can't take what the wire carries is added unlinked, and says why.
+        search = self.ge.NodeSearch(self.editor, (0.0, 0.0), on_link=self.edge("guides", "interpolate").link())
+        search.choose("Value")
+        value = [n for n in self.editor.model.order if self.editor.model.node_type(n) == "Value"][0]
+        self.assertEqual(self.editor.model.source_of("interpolate", "guides"), "guides")
+        self.assertFalse([c for c in self.editor.model.connections if value in (c["from"], c["to"])])
+        self.assertIn("Not inserted", self.editor.status.text())
+
+    def test_a_node_dropped_on_a_wire_goes_into_it(self):
+        from PySide2 import QtCore, QtWidgets
+        self.editor.resize(1400, 700)
+        self.editor.show()
+        QtWidgets.QApplication.processEvents()
+        try:
+            view = self.editor.view
+            wire = self.edge("length", "width")
+            # An unwired Curl away from the graph, dragged by its title until its body (not the
+            # cursor) lies over the wire's middle.
+            rect = self.editor.scene.itemsBoundingRect()
+            name = self.editor.add_node("Curl", at=(rect.center().x(), rect.bottom() + 120), wire=False)
+            self.editor.scene.clearSelection()
+            QtWidgets.QApplication.processEvents()
+            item = self.editor.items[name]
+            title = item.sceneBoundingRect().topLeft() + QtCore.QPointF(30, 8)
+            target = self.edge("length", "width").path().pointAtPercent(0.5) - QtCore.QPointF(0, 20)
+            drag(view.viewport(), view.mapFromScene(title), view.mapFromScene(target), steps=6)
+            QtWidgets.QApplication.processEvents()
+            wait(50)
+            self.assertEqual(self.editor.model.source_of(name, "strands"), "length")
+            self.assertEqual(self.editor.model.source_of("width", "strands"), name)
+            self.assertIn("inserted %s" % name, self.editor.status.text())
+            del wire
+        finally:
+            self.editor.hide()
+
+    def test_tab_offers_the_painted_maps_as_map_nodes(self):
+        groomlab.add_map(self.groom, "freckles", 0.5, kind="vertices")
+        search = self.ge.NodeSearch(self.editor, (10.0, 20.0))
+        for text in ("freck", "mask", "paint"):
+            search.fill(text)
+            keys = [search.list.item(i).data(0x0100) for i in range(search.list.count())]  # Qt.UserRole
+            self.assertIn(self.ge.MAP_ENTRY + "freckles", keys, text)
+        search.choose(self.ge.MAP_ENTRY + "freckles")
+        maps = [n for n in self.editor.model.order if self.editor.model.node_type(n) == "Map"]
+        self.assertEqual(len(maps), 1)
+        self.assertEqual(self.editor.model.param(maps[0], "name"), "freckles")
+        self.assertEqual(maps[0], "freckles")
+
     def test_an_invalid_link_drop_says_why_and_keeps_the_link(self):
         from PySide2 import QtCore, QtWidgets
         self.editor.resize(1200, 600)
@@ -1283,6 +1342,48 @@ class GraphEditorTest(unittest.TestCase):
         wait(60)
         self.assertEqual(cmds.getAttr(self.groom + ".graph"), stored)
         slider.slider.setSliderDown(False)
+        self.editor.hide()
+
+    def test_undo_after_a_node_move_shows_the_undone_graph(self):
+        # A node moved (its layout written to the groom outside undo), then an edit: undoing the
+        # edit puts the graph back to the text the move wrote, and the editor shows it (its model,
+        # canvas and panel), whether undone here (Ctrl+Z) or by Maya (Edit > Undo); before, it kept
+        # showing the edit until reopened.
+        from PySide2 import QtCore
+        self.editor.resize(1200, 600)
+        self.editor.show()
+        wait(30)
+        view = self.editor.view
+        for how in ("editor", "maya"):
+            settle_undo()
+            item = self.editor.items["resample"]
+            item.setPos(item.pos() + QtCore.QPointF(0, 30))
+            self.editor.node_moved("resample", item.pos())
+            self.editor.commit_layout()
+            wait(30)
+            moved = cmds.getAttr(self.groom + ".graph")
+            self.editor.scene.clearSelection()
+            self.editor.items["scatter"].setSelected(True)
+            density = self.editor.model.param("scatter", "density")
+            self.editor.set_param("scatter", "density", density * 0.5)
+            self.editor.items["length"].setSelected(True)
+            name = self.editor.add_node("Curl")
+            self.editor.scene.clearSelection()
+            self.editor.items["scatter"].setSelected(True)
+            wait(30)
+            for _ in range(2):  # the node, then the param
+                if how == "editor":
+                    press(view, QtCore.Qt.Key_Z, QtCore.Qt.ControlModifier)
+                else:
+                    cmds.undo()
+                wait(60)
+            self.assertEqual(cmds.getAttr(self.groom + ".graph"), moved)
+            self.assertEqual(self.editor.model.to_json(), moved, how)
+            self.assertNotIn(name, self.editor.items)
+            self.assertEqual(self.editor.model.param("scatter", "density"), density)
+            self.assertEqual(self.editor.params.node, "scatter")
+            field = self.editor.params.key_widgets["density"]
+            self.assertAlmostEqual(field.value() / field.unit_factor, density, places=3)
         self.editor.hide()
 
     def test_drive_a_param_with_a_slider(self):
@@ -3622,6 +3723,24 @@ class DockableWindowsTest(unittest.TestCase):
             cmds.setToolTo("selectSuperContext")
             window.poll()
             self.assertEqual(shown(), before)
+            # Back to the Tools tab: done painting (no brush left painting a map out of sight).
+            window.buttons["paint"].click()
+            self.app_events()
+            self.assertEqual(shown(), (2, "mask"))
+            window.show_tab("tools")
+            self.app_events()
+            self.assertEqual(shown(), before)
+            self.assertIsNone(window.tool)
+            self.assertNotEqual(cmds.currentCtx(), groomlab.BRUSH_CONTEXT)
+            # GroomLab's Select tool from elsewhere (a shelf button, a script).
+            window.buttons["paint"].click()
+            self.app_events()
+            self.assertEqual(shown(), (2, "mask"))
+            groomlab.select_tool()
+            window.poll()
+            self.assertEqual(shown(), before)
+            cmds.setToolTo("selectSuperContext")
+            window.poll()
             # A map already on the scalp before painting stays on after.
             groomlab.show_map_on_scalp(self.groom, "mask")
             window.buttons["paint"].click()

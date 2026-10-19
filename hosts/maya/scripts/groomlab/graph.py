@@ -815,6 +815,26 @@ class GraphModel(object):
         for c in links:
             self.connect(node, dst, c["input"])
 
+    def insert_on_link(self, src, dst, input_name, node, output=None):
+        """Route the one link src (its output `output`; None: its first) -> dst.input_name through
+        `node`: node reads src on its first input that takes src's output, dst reads node. A
+        GraphError (nothing changed) when no input of node takes it or node can't feed dst."""
+        first = self.output_names(src)[0]
+        if not any(c["from"] == src and c["to"] == dst and c["input"] == input_name and
+                   (c.get("output") or first) == (output or first) for c in self.connections):
+            raise GraphError("%s is not connected to %s.%s" % (src, dst, input_name))
+        out_type = self.output_type(src, output)
+        node_input = next((p["name"] for p in self.node_spec(node)["inputs"] if types_match(out_type, p["type"])), None)
+        if node_input is None:
+            raise GraphError("%s has no input that takes %s's %s" % (node, src, out_type))
+        before = copy.deepcopy(self.connections)
+        try:
+            self.connect(src, node, node_input, output=output)
+            self.connect(node, dst, input_name)
+        except GraphError:
+            self.connections = before
+            raise
+
     def insert_after(self, anchor, node, input_name=None):
         """Put `node` right after `anchor` in its chain (anchor -> node -> anchor's first
         consumer), under the anchor; with no consumer, just after it."""

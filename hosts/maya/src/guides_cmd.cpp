@@ -9,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <maya/M3dView.h>
 #include <maya/MArgDatabase.h>
 #include <maya/MIntArray.h>
 #include <maya/MArgList.h>
@@ -877,13 +878,24 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
     });
 }
 
+namespace {
+
+// The viewports draw the change now (a guide selection's highlight, a group's color), not at the
+// next camera move: testers saw selection colors wait for one.
+MStatus redrawn(MStatus status) {
+    if (status && MGlobal::mayaState() == MGlobal::kInteractive) M3dView::scheduleRefreshAllViews();
+    return status;
+}
+
+}  // namespace
+
 MStatus GuidesCmd::redoIt() {
-    return groomlab::maya::guarded("GuidesCmd::redoIt", [&]() -> MStatus { return modifier_.doIt();
+    return groomlab::maya::guarded("GuidesCmd::redoIt", [&]() -> MStatus { return redrawn(modifier_.doIt());
     });
 }
 
 MStatus GuidesCmd::undoIt() {
-    return groomlab::maya::guarded("GuidesCmd::undoIt", [&]() -> MStatus { return modifier_.undoIt();
+    return groomlab::maya::guarded("GuidesCmd::undoIt", [&]() -> MStatus { return redrawn(modifier_.undoIt());
     });
 }
 

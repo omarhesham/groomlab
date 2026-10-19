@@ -1111,6 +1111,10 @@ class EdgeItem(QtWidgets.QGraphicsPathItem):
     def update_path(self):
         self.setPath(bezier(self.src_port.scene_center(), self.dst_item.inputs[self.input_name].scene_center()))
 
+    def link(self):
+        """(src, output, dst, input): the link this draws, as add_node and insert_on_wire take it."""
+        return self.src_item.name, self.output, self.dst_item.name, self.input_name
+
     def shape(self):
         stroker = QtGui.QPainterPathStroker()
         stroker.setWidth(12)  # easy to click
@@ -1144,12 +1148,17 @@ def bezier(a, b):
     return path
 
 
+# Tab search's entries for the groom's painted maps: MAP_ENTRY + the map's name, in this section.
+MAP_ENTRY = "map:"
+PAINTED_MAPS = "Painted maps"
+
+
 class NodeSearch(QtWidgets.QFrame):
     """Type to find a node type (name, category or description); Enter or click adds it."""
 
-    def __init__(self, editor, at):
+    def __init__(self, editor, at, on_link=None):
         super(NodeSearch, self).__init__(editor, QtCore.Qt.Popup)
-        self.editor, self.at = editor, at
+        self.editor, self.at, self.on_link = editor, at, on_link
         self.setFrameShape(QtWidgets.QFrame.StyledPanel)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -1181,6 +1190,17 @@ class NodeSearch(QtWidgets.QFrame):
                     "params": " ".join([p["name"] for p in params] + [pretty(p["name"]) for p in params]).lower(),
                     "about": " ".join([category, spec.get("description", "")]).lower(),
                     "details": " ".join(p.get("description", "") for p in params).lower()}))
+        # The groom's painted maps: each a Map node reading it, found by its name (or map, mask, paint).
+        for m in editor.painted_maps():
+            key = MAP_ENTRY + m["name"]
+            kind = {"guides": "a layer on the guides", "vertices": "on the scalp's vertices",
+                    "texture": "a texture"}.get(m.get("kind"), m.get("kind", ""))
+            self.labels[key] = ("Map: %s" % m["name"], "A Map node reading the painted map %s (%s): wire it to a "
+                                "setting to drive it" % (m["name"], kind))
+            self.entries.append((key, PAINTED_MAPS, {
+                "label": ("map %s %s" % (m["name"], pretty(m["name"]))).lower(),
+                "keywords": "painted map mask paint texture %s" % PAINTED_MAPS.lower(),
+                "params": "", "about": kind, "details": ""}))
         self.field.textChanged.connect(self.fill)
         self.field.returnPressed.connect(self.accept_first)
         self.list.itemActivated.connect(lambda item: self.choose(item.data(QtCore.Qt.UserRole)))
@@ -1230,8 +1250,13 @@ class NodeSearch(QtWidgets.QFrame):
 
     def choose(self, op_type):
         self.close()
-        # Where Tab was pressed, wired after the selected node as Add Node wires it.
-        self.editor.add_node(op_type, at=self.at, wire=True)
+        params = name = None
+        if op_type.startswith(MAP_ENTRY):  # a painted map: a Map node reading it, named after it
+            params = {"name": op_type[len(MAP_ENTRY):]}
+            op_type, name = "Map", self.editor.model.unique_name(params["name"])
+        # Where Tab was pressed: on a wire, inserted into it; else wired after the selected node
+        # as Add Node wires it.
+        self.editor.add_node(op_type, at=self.at, wire=True, on_link=self.on_link, params=params, name=name)
 
 
 class BackdropItem(QtWidgets.QGraphicsItem):
@@ -1361,6 +1386,7 @@ class GraphScene(QtWidgets.QGraphicsScene):
         self._drag_line = None
         self.drag_reason = None    # why the port under a dragged link can't take it (its tooltip)
         self._detach = None        # (node, input) whose existing link is being moved
+        self._drop_wire = None     # the wire under an unwired node being dragged: dropped, it goes in it
         self._grid = {}            # (zoom, dot color) -> QBrush: the dot tile at that zoom
 
     GRID_STEP = 24
@@ -1512,6 +1538,45 @@ class GraphScene(QtWidgets.QGraphicsScene):
             event.accept()
             return
         super(GraphScene, self).mouseMoveEvent(event)
+        self._hover_drop_wire(event.scenePos())
+
+    def edge_at(self, pos, exclude=None):
+        """The wire at a scene point (none of `exclude`'s, a NodeItem's own), or None."""
+        return next((i for i in self.items(pos) if isinstance(i, EdgeItem) and
+                     (exclude is None or i not in exclude.edges)), None)
+
+    def dragged_node(self):
+        """The one node being dragged with no wires of its own (one dropped on a wire goes in it)."""
+        grabbed = self.mouseGrabberItem()
+        selected = [i for i in self.selectedItems() if isinstance(i, NodeItem)]
+        if isinstance(grabbed, NodeItem) and selected == [grabbed] and not grabbed.edges:
+            return grabbed
+        return None
+
+    def edge_under_node(self, node):
+        """The wire any part of `node` lies over (not its own), the one nearest its middle; or None."""
+        rect = node.sceneBoundingRect()
+        wires = [i for i in self.items(rect, QtCore.Qt.IntersectsItemShape)
+                 if isinstance(i, EdgeItem) and i not in node.edges]
+        if not wires:
+            return None
+        middle = rect.center()
+
+        def distance(wire):  # to the nearest of points along it
+            path = wire.path()
+            return min(QtCore.QLineF(middle, path.pointAtPercent(k / 32.0)).length() for k in range(33))
+        return min(wires, key=distance)
+
+    def _hover_drop_wire(self, pos):
+        """While an unwired node is dragged: the wire it lies over lights up (dropped: inserted)."""
+        node = self.dragged_node()
+        wire = self.edge_under_node(node) if node is not None else None
+        if wire is not self._drop_wire:
+            for edge in (self._drop_wire, wire):
+                if edge is not None:
+                    edge.hovered = edge is wire
+                    edge.update()
+            self._drop_wire = wire
 
     def mouseReleaseEvent(self, event):
         if self._drag_port is not None:
@@ -1533,8 +1598,16 @@ class GraphScene(QtWidgets.QGraphicsScene):
             elif not start.is_output:
                 self.editor.unlink(start.node_item.name, start.name)
             return
+        node, wire = self.dragged_node(), self._drop_wire
+        self._drop_wire = None
+        if wire is not None:
+            wire.hovered = False
+            wire.update()
         super(GraphScene, self).mouseReleaseEvent(event)
         self.editor.commit_layout()
+        if node is not None and wire is not None:
+            editor, name, link = self.editor, node.name, wire.link()
+            later(lambda: editor.insert_on_wire(name, link))()  # it rebuilds the scene: after this event
 
     def keyPressEvent(self, event):
         ctrl = bool(event.modifiers() & QtCore.Qt.ControlModifier)
@@ -3987,6 +4060,9 @@ class GraphEditor(QtWidgets.QWidget):
     def _sync_from_groom(self):
         from maya import cmds
         self._sync_pending = False
+        # Our own layout write is skipped once, by the sync it set off: an undo later that puts the
+        # graph back to that same text (an edit made after a node move, undone) is a change to show.
+        layout, self._layout_text = getattr(self, "_layout_text", None), None
         try:
             self.objectName()  # raises once the widget is gone
             if not self.groom or not cmds.objExists(self.groom) or self.model is None:
@@ -3994,7 +4070,7 @@ class GraphEditor(QtWidgets.QWidget):
             text = cmds.getAttr(self.groom + ".graph") or "{}"
         except RuntimeError:
             return
-        if self.previewing() or text == self.model.to_json() or text == getattr(self, "_layout_text", None):
+        if self.previewing() or text == self.model.to_json() or text == layout:
             return  # our own edit, our own layout write (edits not applied yet stay), or a live slider drag
         self.model = load_model(self.groom, self.catalog)
         self.rebuild()  # keeps the selection where the names still exist
@@ -4202,7 +4278,9 @@ class GraphEditor(QtWidgets.QWidget):
             QtWidgets.QToolTip.showText(screen_pos, text, self.view)
             return None
         self.scene.cancel_drag()  # the popup takes the mouse: a link drag would never end
-        popup = NodeSearch(self, (scene_pos.x() - NODE_W / 2, scene_pos.y() - HEADER_H / 2))
+        wire = self.scene.edge_at(scene_pos)
+        popup = NodeSearch(self, (scene_pos.x() - NODE_W / 2, scene_pos.y() - HEADER_H / 2),
+                           on_link=wire.link() if wire is not None else None)
         popup.setAttribute(QtCore.Qt.WA_DeleteOnClose)
         popup.move(screen_pos)
         popup.show()
@@ -4389,14 +4467,22 @@ class GraphEditor(QtWidgets.QWidget):
     def commit_layout(self):
         if getattr(self, "_layout_dirty", False) and self.groom:
             self._layout_dirty = False
-            self._layout_text = self.silently(lambda: self.model.save_layout(self.groom))
+            self._save_layout()
+
+    def _save_layout(self):
+        """Write the layout (outside undo). The text written is remembered for the one sync its
+        attribute change sets off (none when the graph's text did not change: nothing to skip)."""
+        from maya import cmds
+        before = cmds.getAttr(self.groom + ".graph")
+        text = self.silently(lambda: self.model.save_layout(self.groom))
+        self._layout_text = text if text != before else None
 
     def layout_nodes(self):
         self.model.auto_layout()
         self.rebuild()
         self.view.frame_all()
         if self.groom:
-            self._layout_text = self.silently(lambda: self.model.save_layout(self.groom))
+            self._save_layout()
 
     # -- Edits (each applies when Live) ---------------------------------------
 
@@ -4624,9 +4710,10 @@ class GraphEditor(QtWidgets.QWidget):
         definition = nodes.next_version(self.model.param(name, "definition") or {})
         return self.save_script_node(name, definition)
 
-    def add_node(self, op_type, at=None, wire=None, params=None, name=None):
+    def add_node(self, op_type, at=None, wire=None, params=None, name=None, on_link=None):
         """Add a node at `at` (a scene point; the view's center by default); with one node selected
         and `wire` (by default: no `at`), wire the new one after it (placed after it unless `at`).
+        `on_link` (src, output, dst, input): inserted into that link instead (Tab over a wire).
         `params` and `name`: the new node's, as GraphModel.add_node takes them."""
         if not self.model:
             self.report("Select a groom first: its graph opens here, then add nodes to it")
@@ -4638,8 +4725,15 @@ class GraphEditor(QtWidgets.QWidget):
         except (gm.GraphError, ValueError) as e:
             self.report(str(e))
             return None
-        wired = None
-        if len(selected) == 1 and (at is None if wire is None else wire):
+        wired = refused = None
+        if on_link is not None:
+            src, output, dst, input_name = on_link
+            try:
+                self.model.insert_on_link(src, dst, input_name, name, output=output)
+                wired = src
+            except gm.GraphError as e:
+                refused = "Not inserted: %s" % e  # added unlinked
+        elif len(selected) == 1 and (at is None if wire is None else wire):
             src = selected[0]
             try:
                 inputs = [p["name"] for p in self.model.node_spec(name)["inputs"]]
@@ -4662,7 +4756,20 @@ class GraphEditor(QtWidgets.QWidget):
         self.changed()
         if wired and at is not None:  # Tab: say where it went, before what the apply said
             self.report("; ".join(t for t in ("added %s after %s" % (name, wired), self.status.text()) if t))
+        elif refused:
+            self.report("; ".join(t for t in (refused, self.status.text()) if t))
         return name
+
+    def painted_maps(self):
+        """The groom's painted maps ([{"name", "kind", ...}]; none without a groom): Tab offers a
+        Map node reading each."""
+        if not self.groom:
+            return []
+        try:
+            import groomlab
+            return groomlab.maps(self.groom)
+        except Exception:
+            return []
 
     def guide_maps(self):
         """The maps painted on the guides: Interpolate (and ToStrands) turn them into attributes."""
@@ -4796,6 +4903,18 @@ class GraphEditor(QtWidgets.QWidget):
         self.model.disconnect(dst, input_name)
         self.rebuild()
         self.changed()
+
+    def insert_on_wire(self, name, link):
+        """Put node `name` into the link (src, output, dst, input): a node dropped on a wire."""
+        src, output, dst, input_name = link
+        try:
+            self.model.insert_on_link(src, dst, input_name, name, output=output)
+        except gm.GraphError as e:
+            self.report("Not inserted: %s" % e)
+            return
+        self.rebuild()
+        self.changed()
+        self.report("inserted %s between %s and %s" % (name, src, dst))
 
     def delete_nodes(self, names):
         for name in names:

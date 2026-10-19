@@ -13,6 +13,23 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.19.3 (October 19, 2026)
+
+- **Drop a node on a wire to insert it.** Drag an unwired node so any part of it lies over a wire: the
+  wire lights up, and letting go puts the node into it. Tab over a wire does the same for a new
+  node.
+- **Painted maps in Tab search.** Tab in the Graph Editor and type a map's name (or map, mask,
+  paint): each painted map is listed, and picking one adds a Map node already reading it.
+- **Undo in the Graph Editor shows at once** after you have moved a node: the graph, its wires and
+  the param panel go back with the hair, instead of only after closing and opening the editor.
+- **Leaving the Paint tab ends painting.** Going back to the Tools tab (or to the GroomLab Select
+  tool from a shelf button or a script) stops the Paint brush, and the strands and scalp stop
+  showing the map.
+- **Selecting guides redraws the viewport at once**, so the selection color shows without moving
+  the camera.
+- **Guide Color is dimmed while Theme Guide Colors is on** (Attribute Editor, Display > Guides): the
+  theme's colors replace it then. Turn Theme Guide Colors off to draw the guides in your own color.
+
 ## 0.19.2 (October 19, 2026)
 
 - **Alt+right-drag zooms the Graph Editor**, as in Maya's viewports: drag right or down to zoom in,

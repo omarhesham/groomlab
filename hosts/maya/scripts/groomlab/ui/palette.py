@@ -1484,6 +1484,11 @@ class ToolPalette(QtWidgets.QWidget):
 
     def tab_changed(self, index):
         self.guides_section.setVisible(TABS[index] == "tools")
+        if TABS[index] != "paint" and self.tool == "paint":
+            # Leaving the Paint tab (back to the tools) is done painting: the Paint brush stops and
+            # the strands and scalp stop showing the map, as the Paint tile pressed again does.
+            self.stop_tool()
+            return
         self.show_tool_settings()
 
     # -- Groom and syncing ---------------------------------------------------
@@ -1740,6 +1745,8 @@ class ToolPalette(QtWidgets.QWidget):
                 if self.tool in self.strengths:
                     self.strengths[self.tool] = strength
         elif current == groomlab.SELECT_CONTEXT and self.tool != "select":
+            if self.tool == "paint":
+                self.paint_tab.end_painting()  # the Select tool from elsewhere (a shelf button, a script)
             self.tool = "select"
             self.buttons["select"].setChecked(True)
             self.show_tool_settings()
