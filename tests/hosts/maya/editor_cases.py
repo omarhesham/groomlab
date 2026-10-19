@@ -3034,6 +3034,7 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), "shape")
             self.assertEqual(window.strength.lo, -1.0)  # Ctrl does the opposite
             self.assertTrue(window.tube_channel_box.isVisibleTo(window))
+            self.assertTrue(window.tubes_section.expanded())  # its own section, opened by the Shape brush
             self.assertTrue(window.tube_panel.isVisibleTo(window))
             self.assertFalse(window.collide.isVisibleTo(window))  # it moves no guide point
             window.tube_channel_buttons["flatness"].click()
@@ -3042,7 +3043,10 @@ class DockableWindowsTest(unittest.TestCase):
             guide = groomlab.guide_ids(self.groom, "primary")[0]
             groomlab.clear_guide_selection(self.groom)
             panel.refresh(self.groom)
-            self.assertFalse(panel.smooth.isEnabled())  # nothing selected: nothing to smooth (the shape: Place's)
+            # Nothing selected: nothing to smooth (the shape: Place's), unless the groom has one guide,
+            # which the panel then edits.
+            only_one = sum(g.get("count", 0) for g in groomlab.list_guide_groups(self.groom)) == 1
+            self.assertEqual(panel.smooth.isEnabled(), only_one)
             groomlab.select_guides(self.groom, guides=[guide])
             panel.refresh(self.groom)
             self.assertTrue(panel.smooth.isEnabled())

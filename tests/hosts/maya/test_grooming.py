@@ -402,6 +402,12 @@ class GroomingTest(unittest.TestCase):
         self.assertEqual(targets["tube"]["shape"], "blade")
         groomlab.select_guides(self.groom, guides=[self.primaries[0]])
         self.assertEqual(groomlab.tube_targets(self.groom)["source"], "selection")
+        # A groom of one guide: that guide, selected or not (soloing it freezes nothing).
+        one = groomlab.create_groom(self.scalp, name="oneGuide")
+        groomlab.guides_from_curves(one, [cmds.curve(degree=1, point=[(0, 1, 0), (0, 1.6, 0), (0, 2.1, 0)])])
+        targets = groomlab.tube_targets(one)
+        self.assertEqual(targets["guides"], [str(g) for g in groomlab.guide_ids(one, "primary")])
+        self.assertEqual(len(targets["guides"]), 1)
         del before
 
     def test_flow_arrows_lay_strands(self):

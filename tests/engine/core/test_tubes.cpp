@@ -1269,9 +1269,12 @@ TEST(TubeSections, ShapedSectionsFollowTheScalp) {
 
 // Scatter's guideRadius round a guide with a shaped tube fills the tube's footprint (its outline
 // laid on the scalp, plus tubeMargin), not a disc round its root: a wide flat blade, upright and
-// lying low, gets roots all over its footprint at the scatter's density, and none far outside.
+// lying low, gets roots all over its footprint at the scatter's density, and none far outside. So
+// does a sized round tube (it once got the small disc: only shaped tubes counted).
 TEST(FillTubes, ScatterGuideRadiusFillsTheFootprint) {
+    for (const bool round : {false, true})
     for (const float degrees : {90.0f, 15.0f}) {
+        SCOPED_TRACE(std::string(round ? "round" : "blade") + " at " + std::to_string(degrees));
         Graph g;
         ExternalInputs ext;
         const std::shared_ptr<const ScalpMesh> scalp = test::makePlane(16, 2.0f);
@@ -1280,9 +1283,9 @@ TEST(FillTubes, ScatterGuideRadiusFillsTheFootprint) {
         std::vector<Vec3f> pts;
         for (int i = 0; i <= 16; ++i) pts.push_back(Vec3f(1.0f, 0.0f, 1.0f) + Vec3f(std::cos(a), std::sin(a), 0.0f) * (0.6f * i / 16.0f));
         TubeProfile blade;
-        blade.shape = TubeShape::Blade;
+        blade.shape = round ? TubeShape::Round : TubeShape::Blade;
         blade.width = {0.4f};
-        blade.aspect = {0.6f};
+        blade.aspect = {round ? 1.0f : 0.6f};
         auto set = std::make_shared<GuideSet>();
         Guide& gd = set->add(1, pts);
         gd.hasTube = true;

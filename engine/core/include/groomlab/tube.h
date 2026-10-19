@@ -141,6 +141,9 @@ struct TubeProfile {
     }
     // Anything but a plain round tube: another shape, an aspect other than 1 or a twist.
     bool shaped() const;
+    // Set by hand: shaped, or a round tube whose width is not the default one (a tube someone
+    // sized, which Scatter's guideRadius fills as it fills a shaped one).
+    bool edited() const;
     // Every width times k (a tube scaled with its guide).
     void scaleWidth(float k);
     bool operator==(const TubeProfile& o) const {

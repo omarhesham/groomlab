@@ -217,6 +217,15 @@ bool TubeProfile::shaped() const {
     return false;
 }
 
+bool TubeProfile::edited() const {
+    if (shaped()) return true;
+    const TubeProfile plain;
+    for (const float w : width) {
+        if (w != plain.width.front()) return true;
+    }
+    return false;
+}
+
 void TubeProfile::scaleWidth(float k) {
     for (float& w : width) w *= k;
 }

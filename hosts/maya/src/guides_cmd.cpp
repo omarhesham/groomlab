@@ -532,6 +532,11 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
                     }
                     if (!ids.empty()) source = "solo";
                 }
+                // A groom of one guide: that one (soloing it freezes nothing, so it shows as no solo).
+                if (ids.empty() && h->guides().size() == 1) {
+                    ids.push_back(h->guides().front().id);
+                    source = "solo";
+                }
             }
             nlohmann::json out = {{"source", source}, {"guides", nlohmann::json::array()}, {"shapes", nlohmann::json::array()}};
             std::vector<std::string> shapes;

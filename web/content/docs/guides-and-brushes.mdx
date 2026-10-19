@@ -167,7 +167,7 @@ The selected guides' tubes draw brighter.
 - **Shift+drag smooths** what the brush paints: the channel picked (width, flatness or twist) of the
   sections under the brush, each evened out toward its neighbours along the guide. The guides'
   shape stays as it is (other brushes' Shift+drag smooths the guides, as ever).
-- **Tubes** (in the brush's card, and in Place's and Draw's): each guide keeps its own tube, and the
+- **Tubes** (a section of its own in Groom Tools > Tools, opened by the Shape brush, Place and Draw, or from its header): each guide keeps its own tube, and the
   card edits **only its targets**: the selected guides (select them with **Select**), or with none
   selected the soloed ones (**Shift+click** a guide with a brush). It follows every change of the
   selection or solo. Pick the **Shape** (the built-ins, then the library's; it shows **Mixed** while
@@ -177,7 +177,7 @@ The selected guides' tubes draw brighter.
   the targets' tubes along their guides, the **Current channel** (the one the brush paints) or **All
   channels**. **Fill Tubes** and **Tube Blend** set the groom's Interpolate nodes (disabled when the
   graph has none). Each change is one undo step.
-- **The shape editor** (in the Tubes card): a square showing the chosen shape's outline, the guide
+- **The shape editor** (in the Tubes section): a square showing the chosen shape's outline, the guide
   at the cross, its height (off the scalp) up. A built-in shows read-only: **Edit as Custom** copies
   it into the library as a new shape (the targets take it). A library shape's points drag (the
   groom shows the change live while you drag; letting go saves it, one undo step, every guide using
@@ -225,7 +225,7 @@ the library is `-tubeShapes` (a query, JSON), `-editTubeShape <json>` (`{"op": "
 <json>` (live, no undo step), and `-tubeTargets` gives the panel's targets. The brush takes
 `-placeTube <json>` (Place and Draw) and `tube_channel` (`width`, `flatness`, `twist`;
 `-tubeChannel` on `groomLabBrushCtx` and `groomLabBrushStroke`). Fill Tubes and tube-space clumps
-run on the CPU; the GPU preview hands those nodes to it. The Shape brush's card, the shape editor
+run on the CPU; the GPU preview hands those nodes to it. The Tubes section, the shape editor
 and the wires are Maya's for now; the app and Blender paint width with it and keep (and fill) a
 groom's custom shapes, without an editor yet.
 

@@ -193,7 +193,7 @@ class StarterCard(QtWidgets.QFrame):
 
 
 class TubePanel(QtWidgets.QWidget):
-    """The tubes as a whole, in the Shape brush's card (and Place's and Draw's): the targets' shape,
+    """The tubes as a whole, Groom Tools' Tubes section (opened by the Shape brush, Place and Draw): the targets' shape,
     width, flatness and twist (each change one undo step), the groom's shape library with its
     editor, the shape new guides take, and the groom's Fill Tubes and Tube Blend (its Interpolate
     nodes' fillTubes and tubeBlend). Follows the groom through refresh().
@@ -217,9 +217,6 @@ class TubePanel(QtWidgets.QWidget):
         column = QtWidgets.QVBoxLayout(self)
         column.setContentsMargins(0, theme.px(4), 0, 0)
         column.setSpacing(theme.px(6))
-        heading = QtWidgets.QLabel("TUBES")
-        heading.setProperty("role", "subheading")
-        column.addWidget(heading)
         self.targets = QtWidgets.QLabel()
         self.targets.setWordWrap(True)
         self.targets.setProperty("role", "hint")
@@ -1147,8 +1144,7 @@ class ToolPalette(QtWidgets.QWidget):
         self.tube_channel.buttonClicked.connect(lambda _b: self.push(tubeChannel=self.tube_channel_name()))
         column.addLayout(row)
         card.addWidget(self.tube_channel_box)
-        self.tube_panel = TubePanel(self)
-        card.addWidget(self.tube_panel)
+        self.tube_panel = TubePanel(self)  # in its own Tubes section below
 
         # Erase: what it removes
         self.erase_box, column = self.options("Erases")
@@ -1232,6 +1228,11 @@ class ToolPalette(QtWidgets.QWidget):
                                      "lighter share of them (slower on heavy grooms, but nothing pops)")
         self.full_density.toggled.connect(lambda _: self.apply_sculpt_display(self.sculpt.currentIndex()))
         form.addRow(self.full_density)
+        # Tubes: shapes, sizes and the shape library, a section of its own (open with the Shape
+        # brush, Place or Draw; any time from its header).
+        self.tubes_section = widgets.Section("Tubes", self.tube_panel)
+        self.tubes_section.header.toggled.connect(lambda on: on and self.tube_panel.refresh(self.groom()))
+        work.addWidget(self.tubes_section)
         self.display_section = widgets.Section("While sculpting", display)
         work.addWidget(self.display_section)
 
@@ -1923,8 +1924,8 @@ class ToolPalette(QtWidgets.QWidget):
         self.target_box.setVisible("targets" in uses)
         self.stretch_box.setVisible("stretch" in uses)
         self.tube_channel_box.setVisible("tubeChannel" in uses)
-        self.tube_panel.setVisible("tube" in uses)
         if "tube" in uses:
+            self.tubes_section.set_expanded(True)
             self.tube_panel.refresh(self.groom())
         self.flow_box.setVisible("flow" in uses)
         self.select_box.setVisible("selection" in uses)

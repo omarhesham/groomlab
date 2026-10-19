@@ -29,8 +29,8 @@
 // from the cell, so a grid keeps its strands while the scalp deforms; a density map thins it.
 //
 // Around the guides (guideRadius): roots within guideRadius of a guide's root, or, for a guide
-// whose tube has a shape (tube.h: TubeProfile::shaped, whether or not an Interpolate fills it), on
-// its root footprint instead (the root section laid flat on the scalp, TubeSpine::setRootSurface,
+// whose tube was set (tube.h: TubeProfile::edited: a shape, or a sized round tube; whether or not
+// an Interpolate fills it), on its root footprint instead (the root section laid flat on the scalp, TubeSpine::setRootSurface,
 // as Interpolate's fillTubes finds the strands it fills) or within tubeMargin of its outline (in
 // half-widths, Interpolate's tubeBlend's measure): so a flat blade's or a ribbon's footprint is
 // filled, at the scatter's density, and not a disc round it.
@@ -485,7 +485,7 @@ public:
             for (const Guide& g : guides->guides()) {
                 if (g.points.empty()) continue;
                 const Vec3f root = binding.stablePosition(g.root, g.points[0]);
-                if (g.hasTube && g.tube.shaped() && g.points.size() >= 2) {
+                if (g.hasTube && g.tube.edited() && g.points.size() >= 2) {
                     shaped->add(g, root, surface.contains(g.root) ? surface.normal(g.root) : Vec3f{});
                 } else {
                     positions.push_back(root);
