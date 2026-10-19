@@ -130,6 +130,9 @@ def env_for(**extra):
     env["GROOMLAB_USER_PRESETS"] = extra.pop("user_presets", os.path.join(tempfile.gettempdir(), "groomlab_no_user_presets"))
     env.pop("GROOMLAB_NODE_PATH", None)
     env["GROOMLAB_USER_NODES"] = extra.pop("user_nodes", os.path.join(tempfile.gettempdir(), "groomlab_no_user_nodes"))
+    env.pop("GROOMLAB_CARD_PRESET_PATH", None)
+    env["GROOMLAB_USER_CARD_PRESETS"] = extra.pop("user_card_presets",
+                                                  os.path.join(tempfile.gettempdir(), "groomlab_helper_card_presets"))
     env.update(extra)
     return env
 
@@ -185,7 +188,7 @@ class ProtocolTest(HelperTestCase):
         r = self.h.call("hello", protocol=1)
         self.assertEqual(r["protocol"], 1)
         self.assertEqual(r["groomSpace"], {"upAxis": "Y", "units": "cm"})
-        self.assertEqual(r["features"], {"tools": 1, "state": 1})
+        self.assertEqual(r["features"], {"tools": 1, "state": 1, "cardMaps": 1})
         if CLI:
             out = subprocess.run([CLI, "--version"], capture_output=True, text=True).stdout
             self.assertIn(r["version"], out)
@@ -537,6 +540,39 @@ class GroomTest(HelperTestCase):
         self.h.call("load_groom", session=s, path=COMPAT_GROOM)
         self.h.call("set_time", session=s, frame=1)
         return s
+
+    def test_card_maps_bake_as_a_preset_packs_them(self):
+        s = self.head_session()
+        # A Cards node before the output.
+        graph = self.h.call("get_graph", session=s)["graph"]
+        into = next(c for c in graph["connections"] if c["to"] == graph["output"] and c["input"] == "strands")
+        graph["nodes"].append({"name": "cards", "type": "Cards", "params": {"maxCards": 30}})
+        graph["connections"].append({"from": into["from"], "to": "cards", "input": "strands"})
+        into["from"] = "cards"
+        self.h.call("set_graph", session=s, graph=graph)
+        listed = self.h.call("card_map_presets")
+        names = [p["name"] for p in listed["presets"]]
+        self.assertEqual(names[:4], ["Unreal Hair Cards", "Unreal (packed)", "Unity HDRP Hair", "Separate maps (all)"])
+        self.assertIn("normal.y", listed["sources"]["channels"])
+        r = self.h.call("bake_card_maps", session=s, directory=self.tmp, name="head", resolution=64)
+        self.assertEqual([os.path.basename(p) for p in r["paths"]],
+                         ["head_%s.tga" % m for m in ("Depth", "Coverage", "Tangent", "Attribute", "Color", "AO")])
+        self.assertEqual(r["size"], 64)
+        self.assertGreater(r["cards"], 0)
+        mine = {"name": "Helper Packed", "files": [{"map": "Pack", "channels": ["depth", "root", "id", "coverage"]}]}
+        r = self.h.call("bake_card_maps", session=s, directory=self.tmp, name="mine", resolution=32, preset=mine,
+                        format="png", bitDepth=16)
+        self.assertEqual([os.path.basename(p) for p in r["paths"]], ["mine_Pack.png"])
+        with open(r["paths"][0], "rb") as f:
+            self.assertEqual(f.read(26)[24], 16)  # 16 bits a channel
+        saved = self.h.call("save_card_map_preset", preset=mine)["path"]
+        self.assertTrue(os.path.isfile(saved))
+        r = self.h.call("bake_card_maps", session=s, directory=self.tmp, name="again", resolution=32,
+                        preset="Helper Packed", format="exr")
+        self.assertEqual([os.path.basename(p) for p in r["paths"]], ["again_Pack.exr"])
+        self.assertTrue(self.h.call("delete_card_map_preset", name="Helper Packed")["deleted"])
+        self.assertEqual(self.h.request("bake_card_maps", session=s, directory=self.tmp, preset="Nothing")["error"]["code"],
+                         "not_found")
 
     def test_params_graph_edits_and_presets(self):
         s = self.head_session()

@@ -22,6 +22,7 @@
 #include <nlohmann/json.hpp>
 
 #include "groomlab/card_files.h"
+#include "groomlab/card_maps.h"
 #include "groomlab/cards.h"
 #include "groomlab/display.h"
 #include "groomlab/frame_time.h"
@@ -80,6 +81,10 @@ struct ExportOptions {
     int resolution = 0;
     float occlusion = 1.0f;
     bool binary = true;
+    // Card maps (card_maps.h): the preset packing them and the export's settings (its
+    // resolution, format, bit depth, padding, supersampling, file names).
+    CardMapPreset mapPreset;
+    CardMapExport mapSettings;
 };
 
 // After each frame: the frames done of the count; false stops the export (what was written is
@@ -468,6 +473,10 @@ public:
     // document's time with their maps embedded (<name>_BaseColor: color and coverage, <name>_ORM:
     // occlusion), and the hair cap when the scalp has UVs. One frame (cards are static).
     ExportResult exportCards(const std::string& path, const ExportOptions& options, const ExportProgress& progress = {});
+    // Card maps as options.mapPreset packs them: `path` is <folder>/<name> (an extension is
+    // dropped), the files <folder>/<the settings' name template>.<format's extension>. The
+    // groom's own bake stays as it was. result.files the files written, strands the cards.
+    ExportResult exportCardMaps(const std::string& path, const ExportOptions& options, const ExportProgress& progress = {});
 
     // ---- Cards (groom_exports.cpp) -----------------------------------------------------------
     // The Cards nodes of the graph, by name (the panel's choices).
@@ -486,6 +495,8 @@ public:
     // full density, on the session's card document). Throws std::runtime_error without a Cards
     // node or strands.
     CardBake bakeCardsInMemory(int resolution = 0, float occlusion = 1.0f);
+    // The same strands and scalp handed to `bake` (a map export's bake, card_files.h).
+    CardBake bakeCardsInMemoryWith(const std::function<CardBake(StrandsPtr, MeshPtr)>& bake);
     // Writes the bake as files: <directory>/<name>_<map>.tga for Depth, Coverage, Tangent,
     // Attribute, Color and AO (the Maya host's layout and names), <name>_Atlas.json (the cells
     // rebuilt cards keep) and <name>_Preview.png (the viewport's RGBA map). The session takes

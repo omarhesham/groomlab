@@ -352,6 +352,88 @@ def bake_cards(groom, directory=None, resolution=None, name=None, occlusion=1.0,
     return paths
 
 
+# Card map exports: every map a bake gives, packed into image files as a preset says
+
+
+CARD_MAP_PRESET = "Unreal Hair Cards"  # the default: Bake Maps' own files
+
+
+def card_map_presets():
+    """Every card map export preset: the built-in ones ("Unreal Hair Cards", "Unreal (packed)",
+    "Unity HDRP Hair", "Separate maps (all)"), then the user's (JSON files in
+    Documents/GroomLab/card_presets, shared by every host, and in GROOMLAB_CARD_PRESET_PATH's
+    folders). Each is a dict {"name", "description", "format", "bitDepth", "normal" ("opengl" or
+    "directx": the normal map's green), "builtin", "path", "files": [{"map": the file's {map} name,
+    "channels": [R, G, B, A], "colorSpace": "auto" | "srgb" | "linear"}]}. A channel is a source's
+    channel ("depth", "tangent.x", "color.r"; see card_map_sources), a constant ("0", "1"),
+    inverted with "1-" ("1-ao"), or only there when the groom has it with "?" ("iridescence?")."""
+    return groomlab_core.card_map_presets()
+
+
+def card_map_sources():
+    """What card map presets pack from: {"sources": [{"name", "label", "channels",
+    "channelNames", "color", "description"}], "channels": every channel name a packing table
+    offers ("depth", "tangent.x"... "0", "1"), "formats": [{"name", "bitDepths"}]}.
+
+    The sources: depth, coverage (alpha), tangent (Unreal's direction in card space), flow (the
+    direction as a 2-channel flow map), normal (the strands as round fibers), color (albedo), ao,
+    root (0 root to 1 tip), seed (random per strand), id (random per clump), rootuv, specular,
+    translucency (higher where the hair is denser) and iridescence."""
+    return groomlab_core.card_map_sources()
+
+
+def save_card_map_preset(name, preset):
+    """Saves `preset` (a dict as card_map_presets gives, or one of their names to copy) as the
+    user's preset `name` (Documents/GroomLab/card_presets/<name>.json), replacing one of that name;
+    a built-in's name is refused. Returns the file."""
+    if isinstance(preset, str):
+        found = [p for p in card_map_presets() if p["name"] == preset]
+        if not found:
+            raise ValueError("no card map preset named %r" % preset)
+        preset = found[0]
+    preset = {k: v for k, v in dict(preset).items() if k not in ("builtin", "path")}
+    preset["name"] = name
+    return groomlab_core.save_card_map_preset(preset)
+
+
+def delete_card_map_preset(name):
+    """Deletes the user's card map preset `name`; whether there was one (built-in ones stay)."""
+    return groomlab_core.delete_card_map_preset(name)
+
+
+def bake_card_maps(groom, preset=CARD_MAP_PRESET, resolution=None, format=None, bit_depth=None, padding=None,
+                   supersample=1, directory=None, name=None, name_template="{name}_{map}", occlusion=1.0):
+    """Bakes the groom's cards and writes their maps as `preset` packs them: a preset's name (see
+    card_map_presets) or a dict {"name", "files": [{"map", "channels": [R, G, B, A]}], "normal",
+    "format", "bitDepth"}. An export: the groom's own bake (its cards view) is left as it was.
+
+    resolution: texels square, up to 8192 (default: the Cards nodes' atlasSize). format: "tga",
+    "png", "tiff" or "exr" (default: the preset's); bit_depth 8 or 16 (PNG, TIFF), 16 or 32 (EXR:
+    half or float; TIFF 32 float) (default: the preset's, else the format's). padding: texels the
+    values spread past the strands so mip maps don't bleed (default: 8 at 2K and below, scaled
+    above). supersample: 1, 2 or 4 samples a texel each way (anti-aliased; the bake no bigger than
+    8192). directory defaults to the scene's exports folder, name to the groom's asset_name;
+    files are <name_template>.<ext> with {name}, {map} and {res}. Returns the paths written."""
+    directory = (directory or asset_folder("exports")).replace("\\", "/")
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+    if isinstance(preset, dict):
+        text = json.dumps({k: v for k, v in preset.items() if k not in ("builtin", "path")})
+    else:
+        text = str(preset)
+    kwargs = {"directory": directory, "name": name or asset_name(groom), "preset": text, "occlusion": float(occlusion),
+              "supersample": int(supersample), "nameTemplate": name_template or "{name}_{map}"}
+    if resolution:
+        kwargs["resolution"] = int(resolution)
+    if format:
+        kwargs["format"] = str(format).lower()
+    if bit_depth:
+        kwargs["bitDepth"] = int(bit_depth)
+    if padding is not None and padding >= 0:
+        kwargs["padding"] = int(padding)
+    return list(cmds.groomLabBakeCards(groom, **kwargs) or [])
+
+
 def _file_texture(name, path, color_space):
     # Absolute: Maya 2022's file node turns a relative path into one on the spot. Save Scene As
     # repoints these with the groom's files (follow_scene_files).

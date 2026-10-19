@@ -1289,7 +1289,7 @@ class ToolPalette(QtWidgets.QWidget):
     @staticmethod
     def menu_chip(label, kind, tip):
         """A chip opening the Groom Tools' list of the GroomLab menu's `kind` items ("import",
-        "export", "render": menu.output_items, one table for both)."""
+        "export", "render", "studio": menu.output_items, one table for both)."""
         from groomlab.ui import menu
         chip = QtWidgets.QToolButton()
         chip.setText(label + "  ▾")
@@ -1312,7 +1312,7 @@ class ToolPalette(QtWidgets.QWidget):
         return chip
 
     def output_buttons(self):
-        """The Output strip: Simulate Range, Export, Render, Transfer... and Import, the steps after
+        """The Output strip: Simulate Range, Export, Render, Studio, Transfer... and Import, the steps after
         grooming one click away (the same actions as the GroomLab menu's)."""
         from groomlab.ui import menu
         box = QtWidgets.QWidget()
@@ -1326,6 +1326,8 @@ class ToolPalette(QtWidgets.QWidget):
                              "Simulate Node first); Esc stops"),
             self.menu_chip("Export", "export", "The strands, cards or a groom file for other apps and engines"),
             self.menu_chip("Render", "render", "Arnold: from a groom file, as curves, or a turntable"),
+            self.menu_chip("Studio", "studio", "Studio lighting for showcase renders in Arnold: a backdrop, area "
+                           "lights and a camera round the groom, by preset; Remove Studio puts things back"),
             self.action_chip("Transfer...", menu.transfer_dialog,
                              "Move the groom onto another mesh (Transfer Groom to Scalp...)"),
             self.menu_chip("Import", "import", "XGen, Yeti, Alembic curves or a groom file"),

@@ -1042,6 +1042,33 @@ def save_groom(scalp, path, up_axis="Y"):
     return r
 
 
+_card_presets = []
+
+
+def card_map_presets(refresh=False):
+    """The card map export presets every host lists (the helper's card_map_presets: the built-in
+    ones, then the user's Documents/GroomLab/card_presets), as dicts with name, description,
+    format, bitDepth, files. Asked once, then on refresh."""
+    global _card_presets
+    if refresh or not _card_presets:
+        try:
+            _card_presets = list(_call("card_map_presets")["presets"])
+        except HelperError:
+            _card_presets = []
+    return _card_presets
+
+
+def bake_card_maps(scalp, scene, preset, directory, name, resolution=0, fmt="", bit_depth=0, padding=-1, supersample=1,
+                   name_template="{name}_{map}"):
+    """The groom's cards (its Cards nodes) baked at the scene's frame and written as `preset` (a
+    name or a preset dict) packs them into `directory`; the helper's answer ({paths, cards, size})."""
+    rt = ensure(scalp, scene)
+    sync(scalp, scene=scene, evaluate_now=False)
+    return _call("bake_card_maps", session=rt.session, preset=preset, directory=directory, name=name,
+                 resolution=int(resolution), format=fmt, bitDepth=int(bit_depth), padding=int(padding),
+                 supersample=int(supersample), nameTemplate=name_template)
+
+
 def export(scalp, scene, fmt, path, first, last, step=1, density=1.0):
     """Alembic or USD of the groom over frames."""
     global _exporting

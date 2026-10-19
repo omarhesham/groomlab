@@ -621,6 +621,65 @@ class GraphEditorTest(unittest.TestCase):
             cmds.delete(locator)
             cmds.select(self.groom)
 
+    def test_export_card_maps_window(self):
+        # The Cards node's Export Maps... opens the window (never modal); a preset fills the packing
+        # and the format, an edit turns it Custom, Export writes the files, Save as Preset keeps the
+        # packing (its name typed beside the button), Delete removes it.
+        import tempfile
+        from groomlab.ui import card_maps_window
+        presets = tempfile.mkdtemp(prefix="groomlab_card_presets_")
+        os.environ["GROOMLAB_USER_CARD_PRESETS"] = presets
+        try:
+            cards = groomlab.create_cards(self.groom, max_cards=12)
+            self.editor.reload()
+            self._select_node(cards)
+            self._action("Export Maps...").click()
+            wait(50)
+            panel = card_maps_window.window()
+            self.assertIsNotNone(panel, "the window opened")
+            try:
+                self.assertEqual(panel.groom, self.groom)
+                self.assertEqual(panel.preset.currentText(), "Unreal Hair Cards")
+                self.assertEqual(panel.table.rowCount(), 6)
+                self.assertEqual(panel.format.currentData(), "tga")
+                panel.preset.setCurrentIndex(panel.preset.findText("Unity HDRP Hair"))
+                self.assertEqual(panel.table.rowCount(), 5)
+                self.assertEqual(panel.format.currentData(), "png")
+                self.assertEqual(panel.normal.currentData(), "opengl")
+                # Edited: Custom.
+                cell = panel.table.cellWidget(2, 4)  # Mask's A
+                cell.set_value("1-ao")
+                self.assertEqual(panel.preset.currentText(), "Custom")
+                self.assertEqual(panel.current_preset()["files"][2]["channels"], ["0", "ao", "root", "1-ao"])
+                # Export at 64 px into a folder of our own.
+                folder = tempfile.mkdtemp(prefix="groomlab_card_maps_ui_")
+                panel.resolution.setCurrentText("64")
+                panel.folder.setText(folder)
+                panel.name.setText("ui")
+                paths = panel.export()
+                self.assertEqual(sorted(os.path.basename(p) for p in paths),
+                                 sorted("ui_%s.png" % m for m in ("BaseColor", "Normal", "Mask", "Tangent", "Data")))
+                self.assertTrue(panel.preview.isVisibleTo(panel), "the maps as thumbnails")
+                self.assertIn("Wrote 5 maps", panel.status.text())
+                # Saved as a preset, then deleted.
+                panel.save_name.setText("UI Packed")
+                self.assertTrue(panel.save_preset())
+                self.assertEqual(panel.preset.currentText(), "UI Packed")
+                self.assertTrue(panel.delete_button.isEnabled())
+                self.assertTrue(panel.delete_preset())
+                self.assertNotIn("UI Packed", [p["name"] for p in groomlab.card_map_presets()])
+                self.assertEqual(panel.preset.currentText(), "Unreal Hair Cards")
+                self.assertFalse(panel.delete_button.isEnabled(), "built-in presets stay")
+                # A bad packing says why instead of exporting.
+                panel.table.cellWidget(0, 0).setText("")
+                panel.table.changed.emit()
+                self.assertIsNone(panel.export())
+                self.assertIn("Can't export", panel.status.text())
+            finally:
+                panel.close()
+        finally:
+            os.environ.pop("GROOMLAB_USER_CARD_PRESETS", None)
+
     def test_only_cards_nodes_whose_cards_changed_get_the_stale_badge(self):
         # Two Cards nodes, baked; the strands between them change: the inner node's maps are out
         # of date, the outer node's still fit. Each node's panel shows its own numbers.
@@ -2971,7 +3030,8 @@ class DockableWindowsTest(unittest.TestCase):
                       if not cmds.menuItem(i, query=True, divider=True)]
             self.assertEqual(labels, ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Add Sample Mesh",
                                       "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate",
-                                      "Review", "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys",
+                                      "Review", "Studio", "Render", "Export", "Utilities", "Theme",
+                                      "Install GroomLab Hotkeys",
                                       "Help"])
 
             def entries_of(label, tooltips=True, parent=menu.MENU):
@@ -3001,6 +3061,8 @@ class DockableWindowsTest(unittest.TestCase):
                 self.assertIn(cmds.menuItem(item, query=True, checkBox=True), (True, False))
             menu._sync_review_items()
             self.assertEqual(cmds.menuItem(menu.HUD_ITEM, query=True, checkBox=True), bool(groomlab.review.hud_visible()))
+            self.assertEqual(entries_of("Studio"), ["Portrait", "Beauty", "Rim Drama", "High Key", "Turntable",
+                                                    "Look Through Studio Camera", "Remove Studio"])
             self.assertEqual(entries_of("Render"), ["Render from Groom File...", "Render as Curves"])
             exports = entries_of("Export")
             self.assertIn("Unreal Cards...", exports)
@@ -3114,8 +3176,8 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertTrue(tools.output_section.expanded())
             self.assertTrue(tools.output_strip.isVisibleTo(tools))
             labels = [c.text() for c in tools.output_chips]
-            self.assertEqual([t.split("  ")[0] for t in labels], ["Simulate Range", "Export", "Render", "Transfer...",
-                                                                  "Import"])
+            self.assertEqual([t.split("  ")[0] for t in labels], ["Simulate Range", "Export", "Render", "Studio",
+                                                                  "Transfer...", "Import"])
 
             def actions(kind):
                 chip = tools.findChild(QtWidgets.QToolButton, "output_" + kind)
@@ -3126,6 +3188,8 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertNotIn("Scales Mesh (FBX)...", exports)  # the menu's long list only
             self.assertIn("Alembic Curves...", actions("import"))
             self.assertIn("Render Turntable...", actions("render"))
+            self.assertIn("Portrait", actions("studio"))
+            self.assertIn("Remove Studio", actions("studio"))
             # The menu shows the same table, without the strip's shortcuts.
             menu_exports = [i[0] for i in menu.shown_items("export", menu.MENU_ONLY) if i]
             self.assertIn("Scales Mesh (FBX)...", menu_exports)

@@ -1,6 +1,6 @@
 ---
 title: Rendering
-description: Rendering in Arnold, the viewport hair shading, the hair shader, the strand attributes each renderer and cache format receives, instances and scales, render LOD and overrides, and farm rendering from groom files.
+description: Rendering in Arnold, studio lighting presets, the viewport hair shading, the hair shader, the strand attributes each renderer and cache format receives, instances and scales, render LOD and overrides, and farm rendering from groom files.
 ---
 
 <Example name="hairstyle.png" alt="A wolf's head fur in the Maya viewport" caption="GroomLab's hair shading in the Maya viewport; Arnold renders the same strands" />
@@ -16,6 +16,62 @@ MtoA loads GroomLab's translator automatically. The translator evaluates the gra
 (regardless of `previewDensity`) and exports native Arnold `curves` (linear basis, one curve per
 strand, `radius` = half the strand width), with deformation motion blur when motion blur is on.
 The curves carry the strand attributes as Arnold user data ([Strand attributes](#strand-attributes)).
+
+## Studio lighting
+
+**GroomLab > Studio** (or **Studio** in the Groom Tools' **Output** section) puts a photo studio round
+the active groom in one click, for showcase renders in Arnold. Pick a preset, then render as usual:
+the viewport looks through the studio's camera.
+
+| Preset | Look |
+| --- | --- |
+| **Portrait** | A large softbox key from the upper left, a soft fill from the right, a cool rim from behind on the right and a kicker on the left to lift the hair off the backdrop, a soft glow on the mid grey wall behind the head. |
+| **Beauty** | Clamshell: the key above the camera, a fill from below, two soft rims. Even and flattering. |
+| **Rim Drama** | A near-black backdrop, a low fill and two strong rims from behind: the silhouette and every flyaway show. |
+| **High Key** | A bright backdrop and soft, even light from the front, with few shadows. |
+| **Turntable** | The portrait lighting with the groom turning round once over 120 frames (the playback and render range are set). |
+
+Everything goes under one group, `groomlab_studio`:
+
+- a seamless **cyclorama**: a floor under the groom curving up into a back wall, in a slightly rough
+  grey `aiStandardSurface` (`groomlab_studio_backdropMtl`);
+- Arnold **area lights** (`aiAreaLight`: key, fill, rims, kicker, a background light) and a dim
+  neutral **sky dome** (no HDR file needed; it fills the shadows but is not seen by the camera);
+- the camera **`groomlab_studio_cam`**: an 85 mm portrait lens, three-quarter on, the head centered
+  with headroom (long hair or a body below is cropped to the head and shoulders). It becomes the only
+  renderable camera;
+- a matte light grey **mannequin** material (`groomlab_studio_mannequinMtl`) on the groom's scalp,
+  its other scalps and its colliders, so the hair reads against a neutral head;
+- **render settings** for hair: camera (AA) samples 5, specular and transmission samples 2,
+  specular depth 2, transmission depth 10, and 1920 x 1080. Color management is left as it is.
+
+The studio is sized and placed from the groom's bounds and turned for the scene's up axis (Y or Z),
+so a head in centimeters, in meters or ten times too big gets the same picture. Picking another preset
+relights the same rig in place. Building it is one undo step.
+
+**Studio > Remove Studio** deletes the rig and its materials and puts back what it changed: the head
+meshes' own materials, the render settings, the cameras' renderable flags and the playback range.
+**Studio > Look Through Studio Camera** looks through the camera again after you leave it.
+
+```python
+groomlab.add_studio(groom, preset="rim_drama")   # groomlab.studio.preset_names() lists them
+groomlab.add_studio(groom, mannequin=False, render_settings=False, resolution=None)
+groomlab.remove_studio()
+```
+
+Presets are data: add one to `groomlab.studio.PRESETS` (backdrop grey, sky dome level, camera angle
+and lens, and per light its angle round and above the groom from the camera, distance and size in
+groom sizes, exposure, color and spread).
+
+Tips:
+
+- The lights are tuned for Maya's default color management (ACEScg with the ACES view). Adjust the
+  lights' **Exposure** to taste; they keep their brightness at any scale.
+- Rim Drama shows stray hairs and flyaways best; High Key shows the color and the density.
+- To keep the head's own materials, pass `mannequin=False` (or reassign them after; Remove Studio
+  puts back what it found).
+- The app's **Look** mode has lighting presets of its own (studio, daylight, overcast, sunset, rim)
+  ([Look](/docs/app#look)).
 
 ## Viewport shading
 

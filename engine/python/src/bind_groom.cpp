@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "groomlab/card_files.h"
+#include "groomlab/card_maps.h"
 #include "groomlab/card_presets.h"
 #include "groomlab/cards.h"
 #include "groomlab/flow.h"
@@ -667,6 +668,71 @@ void bindGroom(py::module_& m) {
     m.def("bake_card_textures",
           [](const StrandSet& s, const CardMesh& cards, const PyCardBakeSettings& settings) { return bakeCardTextures(s, cards, settings); },
           py::arg("strands"), py::arg("cards"), py::arg("settings") = PyCardBakeSettings{}, py::call_guard<py::gil_scoped_release>());
+
+    // Card map exports (card_maps.h): the presets (built in and the user's), the sources, and an
+    // export of laid-out cards' maps as a preset packs them.
+    auto loads = [](const std::string& text) { return py::module_::import("json").attr("loads")(text); };
+    auto presetOf = [](const py::object& preset) {
+        if (py::isinstance<py::str>(preset)) {
+            const std::string name = preset.cast<std::string>();
+            if (const auto found = findCardMapPreset(name)) return *found;
+            throw py::value_error("no card map preset named '" + name + "'");
+        }
+        try {
+            return cardMapPresetFromJson(py::module_::import("json").attr("dumps")(preset).cast<std::string>());
+        } catch (const std::runtime_error& e) {
+            throw py::value_error(e.what());
+        }
+    };
+    m.def("card_map_presets", [loads] { return loads(cardMapPresetsJson()); },
+          "Every card map preset: the built-in ones, then the user's (Documents/GroomLab/card_presets and "
+          "GROOMLAB_CARD_PRESET_PATH), each {name, description, format, bitDepth, normal, builtin, path, files: "
+          "[{map, channels: [R, G, B, A], colorSpace}]}.");
+    m.def("card_map_sources", [loads] { return loads(cardMapSourcesJson()); },
+          "The maps a card export packs from: {sources: [{name, label, channels, channelNames, color, description}], "
+          "channels: every channel name a packing table offers, formats: [{name, bitDepths}]}.");
+    m.def("save_card_map_preset", [presetOf](const py::object& preset) {
+              try {
+                  return saveCardMapPreset(presetOf(preset));
+              } catch (const std::runtime_error& e) {
+                  throw py::value_error(e.what());
+              }
+          },
+          py::arg("preset"), "Saves a preset ({name, files, ...}) to the user's folder; returns its file.");
+    m.def("delete_card_map_preset", &deleteCardMapPreset, py::arg("name"), "Deletes the user's preset of that name; whether it did.");
+    m.def("check_card_map_preset", [](const py::object& preset) {
+              try {
+                  return checkCardMapPreset(cardMapPresetFromJson(py::module_::import("json").attr("dumps")(preset).cast<std::string>()));
+              } catch (const std::runtime_error& e) {
+                  return std::string(e.what());
+              }
+          },
+          py::arg("preset"), "\"\" or what is wrong with a preset.");
+    m.def("card_map_preset_user_dir", &cardMapPresetUserDir, "The user's card preset folder.");
+    m.def("card_map_auto_padding", &cardMapAutoPadding, py::arg("resolution"), "The padding Auto gives at a resolution.");
+    m.def("card_map_file_name", &cardMapFileName, py::arg("template"), py::arg("name"), py::arg("map"), py::arg("resolution"),
+          "The file name (no extension) a naming template makes.");
+    m.def("write_card_maps",
+          [presetOf](const StrandSet& s, const CardMesh& cards, const PyCardBakeSettings& bake, const py::object& preset,
+                     const std::string& directory, const std::string& name, const std::string& format, int bitDepth, int padding,
+                     int supersample, const std::string& nameTemplate) {
+              const CardMapPreset p = presetOf(preset);
+              CardMapExport settings;
+              settings.resolution = std::clamp(bake.size, 16, 8192);
+              settings.format = format;
+              settings.bitDepth = bitDepth;
+              settings.padding = padding;
+              settings.supersample = supersample;
+              settings.nameTemplate = nameTemplate;
+              py::gil_scoped_release release;
+              CardMaps maps = bakeCardMaps(s, cards, cardMapBakeSettings(bake, settings, settings.resolution));
+              if (maps.size > settings.resolution) maps = downsampleCardMaps(maps, maps.size / settings.resolution);
+              return writeCardMaps(maps, p, settings, directory, name);
+          },
+          py::arg("strands"), py::arg("cards"), py::arg("settings"), py::arg("preset"), py::arg("directory"), py::arg("name"),
+          py::arg("format") = std::string(), py::arg("bit_depth") = 0, py::arg("padding") = -1, py::arg("supersample") = 1,
+          py::arg("name_template") = std::string("{name}_{map}"),
+          "Bakes laid-out cards' maps at settings.size and writes them as a preset (a name or a dict) packs them; returns the paths.");
 
     py::class_<ScalpBakeSettings>(m, "ScalpBakeSettings", "Hair cap bake: the groom seen from outside in the scalp's UVs.")
         .def(py::init<>())

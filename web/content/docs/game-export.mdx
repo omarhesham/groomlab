@@ -29,6 +29,111 @@ greys out its buttons and says what it is baking.
   LODs don't show bare skin between cards.
 - Cards are always built from the full groom; the viewport preview density does not affect them.
 
+## Export card maps
+
+**Export Maps...** on the Cards node (or **GroomLab > Export > Card Maps...**) writes the cards'
+texture maps the way your engine wants them, in one click. In the app it is the **Card maps**
+target of the Export panel; in Blender, **Card Maps...** in the GroomLab panel.
+
+1. Pick a **Preset**: **Unreal Hair Cards**, **Unreal (packed)**, **Unity HDRP Hair**,
+   **Separate maps (all)**, or one of your own.
+2. Set the **Resolution** (any size up to 8192; the atlas is square), the **Format** (TGA, PNG,
+   TIFF or EXR) and the **Bit depth** (8 or 16 for PNG and TIFF; 16-bit half or 32-bit float for
+   EXR; TIFF also 32-bit float).
+3. Leave **Padding** on Auto (8 texels at 2K and below, scaled up at higher resolutions): colors
+   spread past the strands so mip maps don't bleed black into the edges. **Supersampling** 2x or 4x
+   bakes the maps larger and scales them down for smoother edges (slower).
+4. Choose the folder and the name, and click **Export**. Thumbnails of the written maps appear
+   under the button.
+
+The Unreal Hair Cards preset as 8-bit TGA writes the same files as **Bake Maps**, byte for byte.
+Exporting never changes the groom's own bake (what its cards view shows).
+
+### The maps
+
+| Map | What it is | Channels |
+| --- | --- | --- |
+| `depth` | How far the strands lie off the card: 0.5 on the card, higher in front (Unreal's Depth; FiberShop's Height) | 1 |
+| `coverage` | Opacity (the alpha): how much of each texel the strands cover | 1 |
+| `tangent` | The strands' direction in card space as Unreal reads it: x across, y root to tip, z out of the card | 3 |
+| `flow` | The same direction as a two-channel flow map in the texture (x across, y root to tip up the texture) | 2 |
+| `normal` | A tangent-space normal of the strands as round fibers: facing out of the card at a strand's center and turning toward its sides at the edges. OpenGL or DirectX green, set per preset | 3 |
+| `color` | The strands' color (albedo) | 3 |
+| `ao` | Ambient occlusion: 1 where the hair is open, darker under other hair | 1 |
+| `root` | 0 at each strand's root, 1 at its tip (Unreal's CoordU) | 1 |
+| `seed` | A random value per strand (Unreal's Seed) | 1 |
+| `id` | A random value per clump (the strands' clump; per card without one) | 1 |
+| `rootuv` | Where each strand grows on the scalp: its UV there | 2 |
+| `specular` | Shine: brightest at the root and about 40% duller at the tip, varied per strand by ±15% and dimmed where occluded | 1 |
+| `translucency` | How much hair the light passes through: the strands over each texel, softened over a few texels. Higher where the hair is denser, so it works as a thickness map; invert it for a transmission mask | 1 |
+| `iridescence` | A FeatherColor's iridescence (0 without one) | 1 |
+
+Every data value is written 0 to 1 in every format (a direction as 0.5 + 0.5 × its component), so a
+material reads PNG, TGA, TIFF and EXR files the same way. Only color depends on the file's color
+space: **Auto** writes it sRGB in TGA, PNG and TIFF and linear in EXR.
+
+### Presets
+
+| Preset | Files (R, G, B, A) |
+| --- | --- |
+| **Unreal Hair Cards** (TGA) | `Depth`, `Coverage`, `Tangent` (xyz), `Attribute` (root U, root V, seed, root to tip), `Color` (RGB, plus the iridescence in alpha when the groom has any), `AO` |
+| **Unreal (packed)** (TGA) | `Color` (RGB + AO in alpha), `Data` (depth, root to tip, seed, coverage), `Tangent` (xyz) |
+| **Unity HDRP Hair** (PNG) | `BaseColor` (RGB + coverage), `Normal` (OpenGL), `Mask` (0, AO, root to tip, specular as smoothness), `Tangent` (xyz), `Data` (depth, ID, translucency) |
+| **Separate maps (all)** (PNG) | Every map in its own file: `Albedo`, `Alpha`, `Depth`, `Direction` (flow), `Tangent`, `Normal`, `Root`, `ID`, `Seed`, `AO`, `Specular`, `Translucency`, `RootUV`, and `Iridescence` when the groom has any |
+
+The Unreal presets use DirectX normals; Unity and Separate maps use OpenGL normals.
+
+### Packing your own
+
+Open **Advanced** to see the packing table: one row per output file, with its name (the `{map}` in
+the file name), four channels R, G, B and A, and a color space. Each channel takes a map's channel
+(`depth`, `tangent.x`, `color.r`...), a constant **0** or **1**, or nothing (a file with only R is
+grayscale; with A it is RGBA). Check **inv** to write 1 minus the value. **Add File** and
+**Remove File** change the rows. Any edit switches the preset to **Custom**.
+
+Type a name beside **Save as Preset** to keep it. Presets are JSON files in
+`Documents/GroomLab/card_presets`, shared by Maya, the app and Blender; send the file to share
+one. Folders listed in `GROOMLAB_CARD_PRESET_PATH` are read too (for a studio's shared presets).
+**Delete** removes a preset of yours. **File names** sets the naming template, with `{name}`,
+`{map}` and `{res}` (default `{name}_{map}`).
+
+```json
+{
+  "name": "My packed",
+  "format": "png",
+  "bitDepth": 8,
+  "normal": "directx",
+  "files": [
+    {"map": "Mask", "channels": ["depth", "root", "id", "coverage"]},
+    {"map": "Color", "channels": ["color.r", "color.g", "color.b", "1-ao"], "colorSpace": "srgb"}
+  ]
+}
+```
+
+A channel name ending in `?` (`iridescence?`) is left out when the groom doesn't have that data.
+
+```python
+groomlab.bake_card_maps(groom, preset="Unity HDRP Hair", resolution=4096, format="png", bit_depth=16,
+                        directory="C:/game/hair", name="hair")
+groomlab.card_map_presets()        # every preset, as dicts
+groomlab.card_map_sources()        # the maps and their channels
+groomlab.save_card_map_preset("My packed", preset_dict)
+```
+
+### In the engine
+
+- **Unreal:** import the maps with **sRGB** on only for color (the Color map, and the Color of
+  the packed preset, whose alpha stays linear). Set the data maps (Depth, Coverage, Tangent,
+  Attribute, AO, Data) to sRGB off with the **Masks** or **Linear Color** compression. With
+  Unreal Hair Cards, set the textures on the groom asset's Cards LOD; the Hair Attributes node
+  reads them. Unreal (packed) is for a hair card material of your own (Hair shading model, Masked).
+- **Unity HDRP:** import BaseColor as sRGB with alpha as transparency; set Normal to **Normal
+  map** (OpenGL, Unity's convention); set Mask, Tangent and Data with **sRGB (Color Texture)**
+  off. Mask follows the Lit mask map layout, so its G (AO) and A (smoothness) work with the Lit
+  and Hair shader graphs as they are.
+- **Bit depth:** 8-bit is enough for color, coverage and AO. Use 16-bit PNG or EXR for depth and
+  directions on hero assets to avoid banding.
+
 ## Export targets
 
 | Target | Menu | Output |
@@ -38,6 +143,7 @@ greys out its buttons and says what it is baking.
 | **Unity** cards | GroomLab > Export > Unity Cards... | FBX (Y up, meters), PNG maps and suggested HDRP and URP materials |
 | **Unity** strands | GroomLab > Export > Unity Strands (.abc)... | Alembic for Unity's strand hair package |
 | **glTF** cards | GroomLab > Export > glTF Cards... | `.glb` with embedded maps, one mesh per LOD |
+| Card maps | Cards node > Export Maps... (or GroomLab > Export > Card Maps...) | The maps as a preset packs them: TGA, PNG, TIFF or EXR, up to 8K ([Export card maps](#export-card-maps)) |
 
 When several LODs are exported into one folder, file names end in `_hero`, `_mid` or `_low`.
 

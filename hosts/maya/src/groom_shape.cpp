@@ -2300,6 +2300,17 @@ CardBake GroomShape::bakeCardsInMemory(int resolution, float occlusion, const st
     return groomlab::bakeCardsInMemory(std::move(strands), std::move(scalp), resolution, occlusion);
 }
 
+std::vector<std::string> GroomShape::exportCardMaps(const std::string& directory, const std::string& base, const CardMapPreset& preset,
+                                                     const CardMapExport& settings, float occlusion) {
+    std::string error;
+    MeshPtr scalp;
+    const float density = MPlug(thisMObject(), aCardDensity).asFloat();
+    StrandsPtr strands = evaluateGroomNode(thisMObject(), density, &error, &scalp, true, nullptr);
+    if (!strands) throw std::runtime_error(error.empty() ? "the groom has no strands" : error);
+    const CardBake bake = groomlab::bakeCardMapsInMemory(std::move(strands), std::move(scalp), settings, occlusion);
+    return writeCardMaps(*bake.maps, preset, settings, directory, fileSafeName(base));
+}
+
 std::vector<std::string> GroomShape::bakeCards(const std::string& directory, const std::string& requestedBase, int resolution,
                                                 float occlusion, bool store, const std::string& layout) {
     if (layout != "unreal" && layout != "unity") throw std::runtime_error("the layout is unreal or unity, not " + layout);

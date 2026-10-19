@@ -92,6 +92,7 @@ class VIEW3D_PT_groomlab(bpy.types.Panel):
         row = col.row(align=True)
         row.operator("groomlab.export_alembic", text="Alembic", icon="EXPORT")
         row.operator("groomlab.export_usd", text="USD", icon="EXPORT")
+        col.operator("groomlab.bake_card_maps", text="Card Maps...", icon="TEXTURE")
         layout.operator("groomlab.remove_groom", icon="TRASH")
 
 

@@ -748,6 +748,36 @@ def make_turntable():
              % rig["camera"].split("|")[-1])
 
 
+def studio_action(preset):
+    """GroomLab > Studio > a preset: the studio round the active groom (else the studio's own),
+    built or relit in place, and the viewport looking through its camera."""
+    from groomlab import studio
+    import groomlab
+    groom = groomlab.active_groom() or studio.state().get("groom")
+    if not groom or not cmds.objExists(groom):
+        cmds.warning("GroomLab: select a groom")
+        return
+    rig = studio.studio(groom, preset=preset)
+    if rig["camera"]:
+        studio.look_through()
+    _say("studio: %s; the viewport looks through %s (Render to see it in Arnold; Studio > Remove Studio puts "
+         "things back)" % (studio.get_preset(preset)["label"], studio.CAMERA))
+
+
+def look_through_studio():
+    from groomlab import studio
+    if not studio.look_through():
+        cmds.warning("GroomLab: no studio camera yet: pick a GroomLab > Studio preset first")
+
+
+def remove_studio_action():
+    from groomlab import studio
+    if studio.remove_studio():
+        _say("studio removed: the head's material and the render settings are back as they were")
+    else:
+        cmds.warning("GroomLab: the scene has no studio")
+
+
 _TURNTABLES = []  # (job, progress dialog, timer) of renders running
 
 
@@ -1347,6 +1377,12 @@ def add_jiggle_action(groom=None):
     return None
 
 
+def export_card_maps_window(groom=None):
+    """Export > Card Maps...: the Export Card Maps window on the active groom (never modal)."""
+    from groomlab.ui import card_maps_window
+    return card_maps_window.show(groom or _selected_groom())
+
+
 def export_unreal_cards_dialog(folder=None, groom=None):
     """Export > Unreal Cards...: the card mesh as FBX and its maps (TGA, Unreal's hair card
     layout) into a folder (groomlab.export_cards_unreal); asked when not given (a menu click)."""
@@ -1508,7 +1544,7 @@ MENU_ONLY, BOTH, TOOLS_ONLY = "menu", "both", "tools"
 
 
 def output_items(kind):
-    """The items of the Import, Export and Render menus, one table for the GroomLab menu and the
+    """The items of the Import, Export, Render and Studio menus, one table for the GroomLab menu and the
     Groom Tools' Output strip: (label, fn, annotation, where, item name) per item, None for a
     divider. `where`: MENU_ONLY, BOTH or TOOLS_ONLY (the strip's short lists)."""
     if kind == "import":
@@ -1561,6 +1597,9 @@ def output_items(kind):
              "The game cards as FBX (meters, Y up) with PNG maps for HDRP/URP and a manifest", BOTH, None),
             ("glTF Cards...", export_gltf_cards_dialog,
              "The game cards as glTF 2.0 (.glb): PBR material, coverage as alpha mask, AO, hair cap", BOTH, None),
+            ("Card Maps...", export_card_maps_window,
+             "The card maps as an engine wants them: a preset (Unreal, Unity HDRP, every map on its own, your own "
+             "packing), up to 8K, PNG, TGA, TIFF or EXR", BOTH, None),
             None,
             ("Scales Mesh (FBX)...", export_scales_fbx_dialog,
              "The scales bent onto the skin as one mesh for Unreal's static or skeletal mesh import, their data in "
@@ -1572,6 +1611,20 @@ def output_items(kind):
             ("Save Groom File As...", export_groom_dialog,
              "Write the groom to a new groom file (the standalone app, groomlab-cli, the Arnold procedural)",
              TOOLS_ONLY, None),
+        ]
+    if kind == "studio":
+        from groomlab import studio
+        items = [(studio.get_preset(name)["label"], lambda name=name: studio_action(name),
+                  "Studio lighting in Arnold: %s. A backdrop, area lights and a camera round the groom, the head in a "
+                  "matte grey (one undo step; another preset relights in place)" % studio.get_preset(name)["description"],
+                  BOTH, None) for name in studio.preset_names()]
+        return items + [
+            None,
+            ("Look Through Studio Camera", look_through_studio,
+             "The viewport looks through groomlab_studio_cam (Panels > Perspective to go back)", BOTH, None),
+            ("Remove Studio", remove_studio_action,
+             "Delete the studio; the head's material, the render settings and the playback range back as they were",
+             BOTH, None),
         ]
     raise ValueError("no %s items" % kind)
 
@@ -1709,6 +1762,10 @@ def install():
           "A camera orbiting the groom over 120 frames, with a key, fill and rim light (the viewport looks through it)")
     _item("Render Turntable...", render_turntable_dialog,
           "Render the groom going round in Arnold, in the background, for dailies")
+    cmds.setParent("..", menu=True)
+    # Showcase lighting: a photo studio round the groom (groomlab.studio), relit in place by preset.
+    cmds.menuItem(label="Studio", subMenu=True, annotation="A backdrop, Arnold area lights and a camera round the groom")
+    _menu_items("studio")
     cmds.setParent("..", menu=True)
     render_menu = cmds.menuItem(label="Render", subMenu=True)
     # RenderMan for Maya's item only while RfM is loaded (it may load after GroomLab): checked as the menu opens.

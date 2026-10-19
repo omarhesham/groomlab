@@ -3511,4 +3511,65 @@ TEST(AppPanels, ThemesGiveTheGraphStatusColors) {
     theme::setTheme(was);
 }
 
+TEST(AppPanels, CardMapsPanelPicksPresetsEditsThePackingAndExports) {
+    // The export panel's card maps (the Maya host's Export Card Maps window): a preset fills the
+    // packing and the format, an edit turns it Custom, Save as Preset keeps it (no dialog), and
+    // the export writes the preset's files.
+    const std::filesystem::path presets = std::filesystem::temp_directory_path() / "groomlab_app_card_presets";
+    std::filesystem::remove_all(presets);
+    qputenv("GROOMLAB_USER_CARD_PRESETS", QByteArray::fromStdString(presets.u8string()));
+    qunsetenv("GROOMLAB_CARD_PRESET_PATH");
+    ExportPanel panel;
+    panel.setTarget(ExportPanel::Target::CardMaps);
+    EXPECT_STREQ(ExportPanel::targetName(ExportPanel::Target::CardMaps), "maps");
+    EXPECT_EQ(panel.mapPreset(), QStringLiteral("Unreal Hair Cards"));
+    EXPECT_EQ(panel.mapFileCount(), 6);
+    EXPECT_EQ(panel.options().mapSettings.format, "tga");
+    EXPECT_EQ(panel.options().mapPreset.files[3].channels, (std::vector<std::string>{"rootuv.u", "rootuv.v", "seed", "root"}));
+    ASSERT_TRUE(panel.setMapPreset(QStringLiteral("Unity HDRP Hair")));
+    EXPECT_EQ(panel.mapFileCount(), 5);
+    EXPECT_EQ(panel.options().mapSettings.format, "png");
+    EXPECT_EQ(panel.options().mapPreset.normal, "opengl");
+    EXPECT_FALSE(panel.setMapPreset(QStringLiteral("Nothing")));
+    // Edited: Custom, with the edit in the packing.
+    panel.setMapChannel(2, 3, QStringLiteral("ao"), true);
+    EXPECT_EQ(panel.mapPreset(), QStringLiteral("Custom"));
+    EXPECT_EQ(panel.mapPacking().files[2].channels, (std::vector<std::string>{"0", "ao", "root", "1-ao"}));
+    panel.addMapFile();
+    EXPECT_EQ(panel.mapFileCount(), 6);
+    panel.removeMapFile(5);
+    EXPECT_EQ(panel.mapFileCount(), 5);
+    // Saved under a name of our own; a built-in's name is refused.
+    EXPECT_FALSE(panel.saveMapPreset(QStringLiteral("Unreal Hair Cards")));
+    ASSERT_TRUE(panel.saveMapPreset(QStringLiteral("My Unity")));
+    EXPECT_EQ(panel.mapPreset(), QStringLiteral("My Unity"));
+    const auto saved = findCardMapPreset("My Unity");
+    ASSERT_TRUE(saved);
+    EXPECT_EQ(saved->files[2].channels.back(), "1-ao");
+
+    // The export: 16-bit PNG at 64 px from the groom's cards, into <folder>/<name>.
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    std::string cards;
+    ASSERT_EQ(doc->addCardsNode(&cards), "");
+    panel.setMapSettings(64, QStringLiteral("png"), 16, 4, 1);
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "groomlab_app_card_maps";
+    std::filesystem::remove_all(out);
+    const ExportResult result = doc->exportCardMaps((out / "hair").u8string(), panel.options());
+    ASSERT_EQ(result.files.size(), 5u);
+    EXPECT_EQ(std::filesystem::u8path(result.files[0]).filename().u8string(), "hair_BaseColor.png");
+    const QImage base(QString::fromStdString(result.files[0]));
+    ASSERT_FALSE(base.isNull());
+    EXPECT_EQ(base.size(), QSize(64, 64));
+    EXPECT_TRUE(base.hasAlphaChannel());
+    EXPECT_EQ(base.depth(), 64);  // 16 bits a channel
+    // Deleted again; the built-in presets stay.
+    EXPECT_TRUE(panel.deleteMapPreset());
+    EXPECT_FALSE(findCardMapPreset("My Unity"));
+    EXPECT_EQ(panel.mapPreset(), QStringLiteral("Unreal Hair Cards"));
+    std::filesystem::remove_all(out);
+    std::filesystem::remove_all(presets);
+    qunsetenv("GROOMLAB_USER_CARD_PRESETS");
+}
+
 }  // namespace groomlab::app

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getgroomlab.com/schemas/glnode.schema.json",
+  "title": "GroomLab node file (.glnode)",
+  "description": "A compound node (\"graph\") or a script node (\"script\") saved as one file (format 1). See https://getgroomlab.com/docs/custom-nodes.",
+  "type": "object",
+  "required": ["glnode", "id", "label"],
+  "properties": {
+    "glnode": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9_-]+(\\.[a-z0-9_-]+)+$", "description": "Two or more dot-joined parts: \"studio.soft_frizz\"." },
+    "version": { "type": "integer", "minimum": 1 },
+    "label": { "type": "string" },
+    "category": { "type": "string" },
+    "description": { "type": "string" },
+    "author": { "type": "string" },
+    "license": { "type": "string" },
+    "icon": { "type": "string" },
+    "size": { "type": "number", "exclusiveMinimum": 0, "description": "The scalp size it was made on: lengths fit the scalp it is added to." },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "description": "Strands, Guides, Mesh, Field..." },
+          "optional": { "type": "boolean" }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "properties": { "name": { "type": "string" }, "type": { "type": "string" } }
+    },
+    "params": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "enum": ["number", "length", "int", "bool", "enum", "color", "ramp"], "description": "Script nodes." },
+          "target": { "type": "string", "description": "Compound nodes: the inner node's param it sets, \"node.param\"." },
+          "label": { "type": "string" },
+          "default": {},
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "softMin": { "type": "number" },
+          "softMax": { "type": "number" },
+          "unit": { "type": "string" },
+          "choices": { "type": "array", "items": { "type": "string" } },
+          "mappable": { "type": "boolean" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "writes": { "type": "array", "items": { "type": "string" }, "description": "Script nodes: P, width, color, channel.<name>." },
+    "script": { "type": "string", "description": "Script nodes: per strand { ... } and per point { ... } blocks." },
+    "graph": { "$ref": "graph.schema.json", "description": "Compound nodes: the subgraph, Input nodes for the inputs." }
+  },
+  "oneOf": [{ "required": ["script"] }, { "required": ["graph"] }]
+}

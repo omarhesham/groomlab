@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getgroomlab.com/schemas/graph.schema.json",
+  "title": "GroomLab graph",
+  "description": "A groom's node graph as .groom files, presets and the hosts store it (version 1). Params a node leaves out take its operator's defaults; groomlab-cli --list-operators and the MCP server's describe_node give each type's params. See https://getgroomlab.com/docs/groom-format.",
+  "type": "object",
+  "properties": {
+    "version": { "const": 1 },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string", "description": "Unique within the graph." },
+          "type": { "type": "string", "description": "An operator type (\"Scatter\", \"Clump\", \"Compound\", \"Script\"...)." },
+          "version": { "type": "integer", "description": "The operator behaviour the node keeps." },
+          "params": {
+            "type": "object",
+            "description": "Param values: numbers, booleans, strings, [x, y, z], ramps as [[position, value], ...], maps as objects."
+          },
+          "paramInputs": { "type": "array", "items": { "type": "string" }, "description": "Params exposed as input ports." },
+          "paramControls": { "type": "object", "description": "Params keyed to the host's controls, by param name." },
+          "bypass": { "type": "boolean" },
+          "ui": {
+            "type": "object",
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+            "description": "The node's position in the node editors (layout only)."
+          }
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "input"],
+        "properties": {
+          "from": { "type": "string", "description": "The source node's name." },
+          "to": { "type": "string", "description": "The node fed." },
+          "input": { "type": "string", "description": "Its input's name." },
+          "output": { "type": "string", "description": "The source's output by name; absent: its first." }
+        }
+      }
+    },
+    "output": { "type": "string", "description": "The node whose result is the groom." },
+    "backdrops": { "type": "array", "description": "The node editors' backdrops (layout only)." }
+  },
+  "required": ["nodes"]
+}

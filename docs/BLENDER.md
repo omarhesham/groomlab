@@ -167,6 +167,9 @@ All but the process ones take `"session": <id>`.
 | `insert_preset` | `name` or `path`, `after`, `nodeName` | the preset's look as a Compound after `after`; `node` |
 | `export` | `format` ("alembic", "usd"), `path`, `frames` {first, last, step}, `density`, `name` | the current inputs at each frame |
 | `export_open` / `export_frame` / `export_close` | `format`, `path`, `startFrame`, `step` / `export`, `frame` | the same frame by frame, the add-on feeding a deforming scalp between frames |
+| `card_map_presets` | | `presets` (cardMapPresetsJson: built in, then the user's Documents/GroomLab/card_presets), `sources` (the maps, channel names, formats), `userDir` |
+| `bake_card_maps` | `preset` (a name or a preset object), `directory`, `name`, `resolution`, `format`, `bitDepth`, `padding`, `supersample`, `nameTemplate`, `occlusion` | the Cards nodes' cards baked at the session's time and written as the preset packs them (card_maps.h): `paths`, `cards`, `size` |
+| `save_card_map_preset` / `delete_card_map_preset` | `preset` / `name` | `path` / `deleted`: the user's presets, shared with Maya and the app |
 
 **evaluate's arrays** (`result.arrays`): `positions` <f4 (P,3), `pointCounts` <i4 (S) (Blender's
 curve sizes), `offsets` <i4 (S+1) (<i8 past 2^31 points), `ids` <u8 (S) (stable per strand across

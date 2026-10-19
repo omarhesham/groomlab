@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getgroomlab.com/schemas/groom.schema.json",
+  "title": "GroomLab groom file (.groom)",
+  "description": "A groom's graph, guides and scalp in one JSON file (version 1). The top level only: https://getgroomlab.com/docs/groom-format describes every field.",
+  "type": "object",
+  "required": ["format", "version", "graph"],
+  "properties": {
+    "format": { "const": "groomlab.groom" },
+    "version": { "const": 1 },
+    "framesPerSecond": { "type": "number", "exclusiveMinimum": 0 },
+    "units": { "type": "string", "description": "The scene unit of the points: cm, m, in..." },
+    "upAxis": { "enum": ["Y", "Z"] },
+    "source": { "type": "string" },
+    "graph": { "$ref": "graph.schema.json" },
+    "hierarchy": { "type": ["object", "null"], "description": "The guide hierarchy: groups, guides, tubes." },
+    "scalp": {
+      "type": "object",
+      "required": ["points", "triangles"],
+      "properties": {
+        "points": { "type": "array", "items": { "type": "number" }, "description": "x, y, z, ... world space." },
+        "triangles": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+        "topology": { "type": "string" },
+        "polygons": { "type": "array", "items": { "type": "integer" } },
+        "subdivision": { "type": "integer" },
+        "restPoints": { "type": "array", "items": { "type": "number" } },
+        "uvs": { "type": "array", "items": { "type": "number" } },
+        "colorSets": { "type": "object" }
+      }
+    },
+    "scalps": { "type": "array" },
+    "guides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "root": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+          "points": { "type": "array", "items": { "type": "number" } }
+        }
+      }
+    },
+    "parts": { "type": "object" },
+    "correctives": { "type": "object" },
+    "flow": { "type": "object" },
+    "sculpts": { "type": "object" },
+    "controls": { "type": "object" },
+    "maps": { "type": "object" },
+    "scalpCache": { "type": ["object", "null"], "properties": { "file": { "type": "string" }, "object": { "type": "string" } } },
+    "guideCache": { "type": ["object", "null"], "properties": { "file": { "type": "string" }, "object": { "type": "string" } } },
+    "searchPaths": { "type": "array", "items": { "type": "string" } },
+    "followScalp": { "type": "boolean" },
+    "scaleSource": { "enum": ["area", "transform", "off"] },
+    "scaleReference": { "type": "number" },
+    "scaleTransformReference": { "type": "number" },
+    "cardBake": { "type": "object" },
+    "simCaches": { "type": "object" },
+    "prototypes": { "type": "object" },
+    "colliders": { "type": "object" },
+    "transferMarkers": { "type": "array" },
+    "referencePhotos": { "type": "array" }
+  }
+}

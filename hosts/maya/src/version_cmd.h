@@ -10,6 +10,8 @@ namespace groomlab::maya {
 // bakes the groom's cards into TGA maps; returns the paths. base defaults to the
 // groom's asset name; -noStore leaves the groom's cardMaps alone (exports). -layout unity
 // writes Unity's PNG maps instead (GroomShape::bakeCards; an export, never stored).
+// -preset <name or JSON> exports card maps as that preset packs them (card_maps.h; never
+// stored), with -format, -bitDepth, -padding, -supersample and -nameTemplate.
 class BakeCardsCmd : public MPxCommand {
 public:
     static const char* kName;

@@ -2,8 +2,31 @@
 add_executable(groomlab-cli main.cpp)
 target_link_libraries(groomlab-cli PRIVATE groomlab::core groomlab::warnings)
 if(TARGET groomlab_alembic)
-    target_link_libraries(groomlab-cli PRIVATE groomlab::alembic)
+    # The exports (eval, the MCP server's export) and the MCP server itself (mcp_server.h: an agent
+    # drives grooms through it), which evaluate grooms through GroomScene (engine/io).
+    target_sources(groomlab-cli PRIVATE
+        cli_export.cpp
+        cli_export.h
+        mcp_groom.cpp
+        mcp_groom.h
+        mcp_server.cpp
+        mcp_server.h
+        mcp_tools.cpp
+        mcp_tools.h
+        mesh_files.cpp
+        mesh_files.h
+        preview_render.cpp
+        preview_render.h)
+    target_link_libraries(groomlab-cli PRIVATE groomlab::alembic nlohmann_json::nlohmann_json)
     target_compile_definitions(groomlab-cli PRIVATE GROOMLAB_HAS_ALEMBIC=1)
+    # A build tree's server finds GroomLab's presets, nodes, sample meshes and docs in the sources;
+    # an installed one beside it (GroomLab/bin/../presets and so on).
+    groomlab_path_literal(_cli_presets "${PROJECT_SOURCE_DIR}/hosts/maya/presets")
+    groomlab_path_literal(_cli_nodes "${PROJECT_SOURCE_DIR}/hosts/maya/nodes")
+    groomlab_path_literal(_cli_meshes "${PROJECT_SOURCE_DIR}/hosts/maya/meshes")
+    groomlab_path_literal(_cli_docs "${PROJECT_SOURCE_DIR}/web/content/docs")
+    target_compile_definitions(groomlab-cli PRIVATE "GROOMLAB_SHIPPED_PRESETS=${_cli_presets}"
+        "GROOMLAB_SHIPPED_NODES=${_cli_nodes}" "GROOMLAB_SHIPPED_MESHES=${_cli_meshes}" "GROOMLAB_DOCS_DIR=${_cli_docs}")
 else()
     target_compile_definitions(groomlab-cli PRIVATE GROOMLAB_HAS_ALEMBIC=0)
 endif()
@@ -21,4 +44,13 @@ groomlab_install_legal("GroomLab" GroomLab)  # also without the Maya plugin (a L
 groomlab_install_runtime(groomlab-cli "GroomLab/bin" GroomLab)
 if(WIN32 AND GROOMLAB_TBB_RUNTIME)
     install(FILES $<TARGET_RUNTIME_DLLS:groomlab-cli> DESTINATION "GroomLab/bin" COMPONENT GroomLab)
+endif()
+# The docs' pages beside it, for the MCP server's get_docs (GroomLab/docs/pages); and without the
+# Maya plugin (a Linux build), the presets, nodes and sample meshes the Maya module would bring.
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/web/content/docs/" DESTINATION "GroomLab/docs/pages" COMPONENT GroomLab
+        FILES_MATCHING PATTERN "*.mdx")
+if(NOT GROOMLAB_BUILD_MAYA)
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/presets/" DESTINATION "GroomLab/presets" COMPONENT GroomLab)
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/" DESTINATION "GroomLab/nodes" COMPONENT GroomLab)
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/meshes/" DESTINATION "GroomLab/meshes" COMPONENT GroomLab)
 endif()

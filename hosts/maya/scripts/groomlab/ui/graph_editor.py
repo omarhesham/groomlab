@@ -2555,6 +2555,22 @@ class ParamPanel(QtWidgets.QScrollArea):
                                 lambda paths: "baked %d scalp maps and a hair cap" % len(paths),
                                 busy="Baking the scalp maps and the hair cap...")))
 
+            def export_maps(_=False):
+                from groomlab.ui import card_maps_window
+                try:
+                    card_maps_window.show(groom)
+                except Exception as e:  # noqa: BLE001 (a button never ends in a bare traceback)
+                    import traceback
+                    traceback.print_exc()
+                    self.editor.report("%s (details in the Script Editor)" % plain_message(e), trouble=True)
+            maps = QtWidgets.QPushButton("Export Maps...")
+            maps.setObjectName("nodeAction_ExportMaps")
+            maps.setToolTip("The card maps as an engine wants them, in one click: a preset (Unreal, Unity HDRP, every "
+                            "map on its own, your own packing), any resolution up to 8K, PNG, TGA, TIFF or EXR, "
+                            "8, 16 or 32 bits")
+            maps.clicked.connect(export_maps)
+            buttons.append(maps)
+
             def unreal():
                 folder = cmds.fileDialog2(fileMode=3, dialogStyle=2, caption="Folder for the Unreal cards",
                                           startingDirectory=groomlab.asset_folder("exports"))

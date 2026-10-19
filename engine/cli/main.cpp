@@ -26,6 +26,8 @@
 #include "groomlab/version.h"
 
 #if GROOMLAB_HAS_ALEMBIC
+#include "cli_export.h"
+#include "mcp_server.h"
 #include "groomlab/alembic_io.h"
 #include "groomlab/alembic_operators.h"
 #include "groomlab/groom_scene.h"
@@ -45,6 +47,7 @@ void printUsage() {
                  "                    [--max-height <h>] [--padding <texels>] [--background r,g,b]\n"
                  "       groomlab-cli abc-info <file.abc> [object]\n"
                  "       groomlab-cli hash <file.abc> [object]\n"
+                 "       groomlab-cli mcp [--root <dir>]   (an MCP server on stdin/stdout for AI agents)\n"
 #endif
         ;
 }
@@ -152,18 +155,6 @@ int groomInfo(const char* path) {
     }
 }
 
-struct EvalArgs {
-    std::string groom;
-    std::string out;
-    double start = 1.0;
-    double end = 1.0;
-    double step = 1.0;
-    float density = 1.0f;
-    bool timings = false;  // print the milliseconds each graph node took, per frame
-    bool stats = false;    // print the session's stats (GroomStats JSON) after the first frame
-    std::string scales = "mesh";  // how the scales are written (USD: mesh, instancer, both, none)
-};
-
 // The groom file's own prototype meshes (GroomFile::prototypes) by name.
 groomlab::PrototypeLookup storedPrototypes(const groomlab::GroomScene& scene) {
     return [&scene](const std::string& name) -> const groomlab::InstancePrototype* {
@@ -188,7 +179,8 @@ bool parseFrames(const std::string& s, double* start, double* end) {
 }
 
 int evalGroom(int argc, char** argv) {
-    EvalArgs a;
+    groomlab::cli::ExportOptions a;
+    std::string groom;
     for (int i = 2; i < argc; ++i) {
         const std::string arg = argv[i];
         auto value = [&]() -> std::string {
@@ -214,81 +206,26 @@ int evalGroom(int argc, char** argv) {
             }
         } else if (!arg.empty() && arg[0] == '-') {
             throw std::invalid_argument("unknown option " + arg);
-        } else if (a.groom.empty()) {
-            a.groom = arg;
+        } else if (groom.empty()) {
+            groom = arg;
         } else {
             throw std::invalid_argument("unexpected argument " + arg);
         }
     }
-    if (a.groom.empty() || a.out.empty()) throw std::invalid_argument("eval needs a groom file and -o <output>");
+    if (groom.empty() || a.out.empty()) throw std::invalid_argument("eval needs a groom file and -o <output>");
     if (a.step <= 0.0) throw std::invalid_argument("--step must be positive");
     if (a.end < a.start) throw std::invalid_argument("the end frame is before the start frame");
     if (a.density < 0.0f || a.density > 1.0f) throw std::invalid_argument("--density must be between 0 and 1");
-    const bool usd = endsWith(a.out, ".usda") || endsWith(a.out, ".usd");
+    const bool usd = groomlab::cli::isUsdPath(a.out);
     if (!usd && !endsWith(a.out, ".abc")) throw std::invalid_argument("the output must be .abc or .usda");
+    if (!usd && (a.scales == "instancer" || a.scales == "both")) throw std::invalid_argument("an instancer goes to USD");
 
     const auto t0 = std::chrono::steady_clock::now();
-    groomlab::GroomScene scene(a.groom);
-    const double fps = scene.framesPerSecond();
-    const auto frameCount = static_cast<std::size_t>(std::floor((a.end - a.start) / a.step + 1e-6)) + 1;
-
-    std::unique_ptr<groomlab::AlembicCurvesWriter> abc;
-    std::unique_ptr<groomlab::UsdCurvesWriter> usdWriter;
-    const std::string name = "groom";
-    if (!usd && (a.scales == "instancer" || a.scales == "both")) throw std::invalid_argument("an instancer goes to USD");
-    if (usd) {
-        groomlab::UsdCurvesWriter::Options options;
-        options.framesPerSecond = fps;
-        options.comment = scene.file().source;
-        // The file's own up axis and unit (a Z-up groom stays Z-up; meters stay meters).
-        options.upAxis = scene.file().upAxis == "Z" ? "Z" : "Y";
-        options.metersPerUnit = groomlab::usdMetersPerUnit(scene.file().units);
-        using S = groomlab::UsdCurvesWriter::Options::Scales;
-        options.scales = a.scales == "instancer" ? S::Instancer : a.scales == "both" ? S::Both : a.scales == "none" ? S::None : S::Mesh;
-        options.prototypes = storedPrototypes(scene);
-        usdWriter = std::make_unique<groomlab::UsdCurvesWriter>(a.out, name, options);
-    } else {
-        abc = std::make_unique<groomlab::AlembicCurvesWriter>(a.out, name, groomlab::frameToSeconds(a.start, fps),
-                                                             groomlab::frameToSeconds(a.step, fps));
-    }
-
-    std::size_t strandTotal = 0;
-    // A groom that nothing moves (GroomScene::readsTime) is evaluated once, for every frame.
-    const bool moves = scene.readsTime();
-    groomlab::StrandsPtr still;
-    groomlab::ScaleMeshBuilder scales;  // bends only the scales that moved since the last frame
-    for (std::size_t i = 0; i < frameCount; ++i) {
-        const double frame = a.start + static_cast<double>(i) * a.step;
-        const double seconds = groomlab::frameToSeconds(frame, fps);  // every host's rule (frame_time.h)
-        const groomlab::StrandsPtr strands = moves || i == 0 ? scene.evaluate(seconds, a.density) : still;
-        if (i == 0) still = strands;
-        const groomlab::StrandSet empty;
-        const groomlab::StrandSet& s = strands ? *strands : empty;
-        const groomlab::MeshPtr scalp = scene.rootScalpAt(seconds);
-        const bool scaled = a.scales != "none" && s.instances() && s.instances()->hasMeshes();
-        const auto scaleMesh = scaled ? scales.build(s, scalp, storedPrototypes(scene)) : nullptr;
-        if (usdWriter) {
-            usdWriter->writeFrame(frame, s, scalp.get(), scaleMesh.get());
-        } else {
-            abc->writeFrame(s, scalp.get(), scaleMesh.get());  // root UVs, as Maya's export writes them
-        }
-        strandTotal += s.strandCount();
-        std::cout << "frame " << frame << ": " << s.strandCount() << " strands\n";
-        if (i == 0) {  // what the nodes have to say (a Jiggle without scalp motion), once
-            for (const auto& [node, note] : scene.nodeNotes()) std::cout << "  note: " << node << ": " << note << "\n";
-            if (a.stats) std::cout << "stats: " << scene.session().stats().toJson() << "\n";
-        }
-        if (a.timings) {
-            auto times = scene.nodeTimes();
-            std::sort(times.begin(), times.end(), [](const auto& x, const auto& y) { return x.second > y.second; });
-            for (const auto& [node, ms] : times) std::cout << "  " << node << ": " << ms << " ms\n";
-        }
-    }
-    if (usdWriter) usdWriter->close();
-    if (abc) abc->close();
+    groomlab::GroomScene scene(groom);
+    const groomlab::cli::ExportReport report = groomlab::cli::exportStrands(scene, a, &std::cout);
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-    std::cout << "wrote " << frameCount << " frame(s), " << strandTotal / frameCount << " strands per frame on average, to "
-              << a.out << " in " << static_cast<long long>(ms) << " ms\n";
+    std::cout << "wrote " << report.frames << " frame(s), " << report.strandTotal / report.frames
+              << " strands per frame on average, to " << a.out << " in " << static_cast<long long>(ms) << " ms\n";
     return 0;
 }
 
@@ -371,6 +308,7 @@ int main(int argc, char** argv) {
     if (command == "abc-info" && argc >= 3) return abcInfo(argv[2], argc >= 4 ? argv[3] : nullptr);
     if (command == "hash" && argc >= 3) return abcHash(argv[2], argc >= 4 ? argv[3] : nullptr);
     if (command == "info" && argc >= 3) return groomInfo(argv[2]);
+    if (command == "mcp") return groomlab::cli::runMcpServer(argc, argv);
     if (command == "eval" || command == "bake-scales") {
         try {
             return command == "eval" ? evalGroom(argc, argv) : bakeScales(argc, argv);

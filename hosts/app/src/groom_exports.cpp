@@ -308,6 +308,12 @@ std::string GroomDocument::applySimulatePreset(const std::string& node, const st
 }
 
 CardBake GroomDocument::bakeCardsInMemory(int resolution, float occlusion) {
+    return bakeCardsInMemoryWith([&](StrandsPtr strands, MeshPtr scalp) {
+        return groomlab::bakeCardsInMemory(std::move(strands), std::move(scalp), resolution, occlusion);
+    });
+}
+
+CardBake GroomDocument::bakeCardsInMemoryWith(const std::function<CardBake(StrandsPtr, MeshPtr)>& bake) {
     if (cardsNodes().empty()) throw std::runtime_error("no cards: add a Cards node to the graph");
     try {
         // The Cards nodes building their cards at full density, on the session's own card
@@ -321,7 +327,7 @@ CardBake GroomDocument::bakeCardsInMemory(int resolution, float occlusion) {
         request.wantBounds = false;
         const ViewResult& view = scene_->view(request);
         if (!view.errors.empty()) throw std::runtime_error(view.errors.front());
-        return groomlab::bakeCardsInMemory(view.cardStrands, view.scalp ? view.scalp : scene_->rootScalpAt(time_), resolution, occlusion);
+        return bake(view.cardStrands, view.scalp ? view.scalp : scene_->rootScalpAt(time_));
     } catch (const std::runtime_error&) {
         throw;
     } catch (const std::exception& e) {
@@ -498,6 +504,30 @@ ExportResult GroomDocument::exportCards(const std::string& path, const ExportOpt
             addScalpCapToGltf(doc, *bake.strands, *bake.scalp, 0, options.resolution, cap);
         }
         result.files = writeGltf(path, doc, options.binary);
+        result.frames = 1;
+        result.strands = bake.cards->cards.size();
+    } catch (const std::exception& e) {
+        throw std::runtime_error(e.what());
+    }
+    continueExport(progress, 2, 2);
+    return result;
+}
+
+ExportResult GroomDocument::exportCardMaps(const std::string& path, const ExportOptions& options, const ExportProgress& progress) {
+    ExportResult result;
+    const CardBake bake = bakeCardsInMemoryWith([&](StrandsPtr strands, MeshPtr scalp) {
+        return groomlab::bakeCardMapsInMemory(std::move(strands), std::move(scalp), options.mapSettings, options.occlusion);
+    });
+    if (!continueExport(progress, 1, 2)) {
+        result.cancelled = true;
+        return result;
+    }
+    try {
+        // <folder>/<name>: the name without an extension a picked file may have.
+        const std::filesystem::path out = std::filesystem::u8path(path);
+        const std::string name = out.has_extension() ? out.stem().u8string() : out.filename().u8string();
+        result.files = writeCardMaps(*bake.maps, options.mapPreset, options.mapSettings, out.parent_path().generic_u8string(),
+                                     name.empty() ? exportName(path) : name);
         result.frames = 1;
         result.strands = bake.cards->cards.size();
     } catch (const std::exception& e) {

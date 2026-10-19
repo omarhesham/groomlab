@@ -32,7 +32,7 @@ the build. The build folders mirror the source (`hosts/maya/RelWithDebInfo/Groom
 | Arnold | `hosts/maya/arnold/`, `hosts/arnold/` | MtoA translator (renders the shape as curves) and the `groomlab_procedural` that renders groom files without Maya. |
 | RenderMan | `hosts/renderman/` | `groomlab_renderman`, a Procedural2 and old-style Procedural DSO that renders groom files in prman without Maya (RenderMan procedural, section 2); the look's primvars from `renderman_look.h`. `hosts/maya/scripts/groomlab/renderman.py`: RenderMan for Maya's RenderManProcedural node for it (experimental). |
 | Alembic | `engine/io/` | Curves/mesh readers and writers, `ImportCurves`, groom scenes with caches. |
-| CLI | `engine/cli/` | `info`, `eval`, `abc-info` on groom files, headless. |
+| CLI | `engine/cli/` | `info`, `eval`, `abc-info` on groom files, headless; `mcp`: the MCP server for AI agents (`mcp_server.cpp` the protocol, `mcp_tools.cpp` the tools, `preview_render.cpp` the CPU preview; tested by `cli.mcp_session`). |
 | App | `hosts/app/` (`GroomLab.exe`, `GROOMLAB_BUILD_APP`) | The standalone viewer without Maya: Qt 6 Widgets, the viewport on Qt's RHI (`renderer.cpp`), `GroomDocument` over a `GroomScene` (edits as whole graphs, undo, save, export). See "Standalone app" in section 2. |
 | Tests | `tests/` | GoogleTest core suites (`tests/engine/core`, goldens in `tests/data/golden`), the GPU kernels (`tests/engine/gpu`), Alembic (`tests/engine/io`), Python binding tests (`tests/engine/python`), mayapy suites and GUI-session suites (`tests/hosts/maya`), the app's tests (`tests/hosts/app`, built with the app). |
 
@@ -172,8 +172,8 @@ trusted) and points them at the build's plugin. Running `mayapy tests/hosts/maya
 loads whatever GroomLab module the user's prefs auto-load (usually the installed, older one)
 and tests the wrong build. Suites: `python.groomlab_core`, `maya.plugin`, `maya.graph_editor`,
 `maya.pipeline`, `maya.groom_io` (groom files into Maya and the round trips, the app's included
-when it is built), `maya.grooming` (most features), `maya.subdivision` (the subdivided scalp: match render, against Maya's smooth mesh, parts and flow across levels), `maya.hardening` (all `quick`), `maya.arnold`
-(`arnold`) and `maya.gui` (`gui`); `ctest -R maya\.grooming` runs one.
+when it is built), `maya.grooming` (most features), `maya.subdivision` (the subdivided scalp: match render, against Maya's smooth mesh, parts and flow across levels), `maya.hardening`, `maya.studio` (studio lighting's rig, with MtoA) (all `quick`), `maya.arnold`
+and `maya.studio_render` (`arnold`) and `maya.gui` (`gui`); `ctest -R maya\.grooming` runs one.
 
 **The GUI session** (`maya.gui`, configure with `-DGROOMLAB_GUI_TESTS=ON`) starts one real Maya
 window and runs the GUI suites in it one after another (`tests/hosts/maya/gui_runner.py`, harness and
@@ -3181,7 +3181,9 @@ a map's image: `set_map_texture`, `reload_map`, `missing_files`, `find_missing_f
 Graph, a preset with `"controls"`, checked by `presets.parse_text` before anything changes),
 cards (`create_cards`, `bake_cards`,
 `export_cards_unreal`, `export_cards_unity`, `export_cards_gltf`, `create_feather_cards`,
-`card_node_kind`), feathers (`add_feathers`,
+`card_node_kind`; card map exports, `engine/core/include/groomlab/card_maps.h`: `bake_card_maps`,
+`card_map_presets`, `card_map_sources`, `save_card_map_preset`, `delete_card_map_preset`, the
+Export Card Maps window `ui/card_maps_window.py`), feathers (`add_feathers`,
 `feather_designs`: Propagate designs from the `feathers_*` presets; `feather_groups`, `set_rachis_width`,
 `create_rachis_mesh`, `export_rachis`: the Meerkat workflow for Unreal; `export_unity_feathers`: the
 same for Unity), exports (`export_alembic`,
@@ -3192,7 +3194,8 @@ same for Unity), exports (`export_alembic`,
 `graph_maps`; the menu's actions in `ui/menu.py` take the same choices as arguments and ask only
 when one is None), sims (`groomlab.sim`: the Simulate node's `add_simulate`, `simulate`,
 `bake_simulation`, `invalidate_simulation`, `simulation_status`; nHair's `create_sim_curves`, `bake_sim`), correctives (`groomlab.shots`), scalp/card bakes
-(`groomlab.bake`), presets (`groomlab.presets`), review snapshots (`groomlab.review`) and unit
+(`groomlab.bake`), presets (`groomlab.presets`), review snapshots (`groomlab.review`), studio lighting
+(`groomlab.studio`: `add_studio`, `remove_studio`, the presets as data in `studio.PRESETS`) and unit
 handling (`groomlab.units`). The UI modules under `groomlab.ui` open with `palette.show()`,
 `graph_editor.show()` and `menu.install()` (the plugin calls the last on load).
 

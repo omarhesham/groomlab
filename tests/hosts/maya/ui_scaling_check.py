@@ -181,7 +181,7 @@ def main():
         top = [label for label, _, _ in tree]
         _expect(top == ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Add Sample Mesh",
                         "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate", "Review",
-                        "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys", "Help"], "top: %r" % top)
+                        "Studio", "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys", "Help"], "top: %r" % top)
         sub = {label: children for label, children, _ in tree}
         _expect([l for l, _, _ in sub["Help"]] == ["Docs", "Keyboard Shortcuts", "Check for Updates...",
                                                    "Discord", "Support GroomLab", "About GroomLab"], "Help")
@@ -193,6 +193,8 @@ def main():
         review = {l: kw for l, _, kw in sub["Review"]}
         _expect("checkBox" in review["Density Heatmap"] and "checkBox" in review["Strand Count HUD"], "checkable")
         _expect("Braid on Curves..." in [l for l, _, _ in sub["Add"]], "a dialog item ends in ...")
+        studio_items = [l for l, _, _ in sub["Studio"]]
+        _expect(studio_items[0] == "Portrait" and studio_items[-1] == "Remove Studio", "Studio: %r" % studio_items)
     check.run("GroomLab's menu: one place for each thing, Help holds the rest", menu_layout)
 
     def every_theme_styles_the_windows():
@@ -350,7 +352,7 @@ def main():
         tools = palette.ToolPalette()
         try:
             chips = [c.text().split("  ")[0] for c in tools.output_chips]
-            _expect(chips == ["Simulate Range", "Export", "Render", "Transfer...", "Import"], "Output strip: %r" % chips)
+            _expect(chips == ["Simulate Range", "Export", "Render", "Studio", "Transfer...", "Import"], "Output strip: %r" % chips)
             export = tools.findChild(QtWidgets.QToolButton, "output_export").menu()
             labels = [a.text() for a in export.actions() if not a.isSeparator()]
             _expect("Alembic..." in labels and "glTF Cards..." in labels and "Scales Mesh (FBX)..." not in labels,

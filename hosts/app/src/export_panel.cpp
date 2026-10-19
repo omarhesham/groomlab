@@ -14,6 +14,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPainter>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -40,7 +41,12 @@ const TargetInfo kTargets[] = {
                                      "(the Maya host writes FBX through Maya)."},
     {"unity", "Unity strands", "abc", "Alembic curves for Unity's hair package: root UVs per point, every root width positive, "
                                       "resampled to a fixed point count, by strand group."},
+    {"maps", "Card maps", "", "The cards' maps as an engine wants them, in one click: pick a preset (Unreal, Unity HDRP, every map "
+                              "on its own, your own packing under Advanced), the size and format. The output is <folder>/<name>."},
 };
+
+constexpr const char* kCustomPreset = "Custom";
+constexpr const char* kNoChannel = "—";  // a channel the file leaves out
 
 // A thin glass bar filling from the left.
 class ProgressBar : public QWidget {
@@ -298,6 +304,138 @@ ExportPanel::ExportPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     cardLayout->addWidget(occlusion_);
     layout->addWidget(cardOptions_);
 
+    // ---- Card maps: the preset, the output's settings, and the packing under Advanced.
+    mapOptions_ = new QWidget(this);
+    auto* mapLayout = new QVBoxLayout(mapOptions_);
+    mapLayout->setContentsMargins(0, 0, 0, 0);
+    mapLayout->setSpacing(8);
+    auto* presetRow = new QHBoxLayout();
+    presetRow->setSpacing(6);
+    mapPreset_ = new QComboBox(mapOptions_);
+    mapPreset_->setObjectName(QStringLiteral("mapPreset"));
+    mapPreset_->setToolTip(tr("What goes in each file: an engine's layout, every map on its own, or your own"));
+    presetRow->addWidget(mapPreset_, 1);
+    mapDelete_ = new RoundButton(mapOptions_);
+    mapDelete_->setText(tr("Delete"));
+    mapDelete_->setDiameter(26);
+    mapDelete_->setRadius(9.0);
+    mapDelete_->setPadding(10);
+    mapDelete_->setFontSize(12);
+    mapDelete_->setFill(theme::chip(), theme::chip());
+    mapDelete_->setTextColor(theme::text(), theme::text());
+    mapDelete_->setToolTip(tr("Delete this preset of yours (built-in ones stay)"));
+    presetRow->addWidget(mapDelete_);
+    mapLayout->addLayout(presetRow);
+    mapDescription_ = new QLabel(mapOptions_);
+    mapDescription_->setWordWrap(true);
+    mapDescription_->setFont(theme::uiFont(11, 500));
+    mapDescription_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textDim().name()));
+    mapLayout->addWidget(mapDescription_);
+    auto* mapGrid = new QGridLayout();
+    mapGrid->setHorizontalSpacing(8);
+    mapGrid->setVerticalSpacing(6);
+    mapResolution_ = new QComboBox(mapOptions_);
+    mapResolution_->addItem(tr("the node's"), 0);
+    for (const int size : {512, 1024, 2048, 4096, 8192}) mapResolution_->addItem(QStringLiteral("%1").arg(size), size);
+    mapResolution_->setCurrentIndex(3);  // 2048
+    mapResolution_->setToolTip(tr("Texels square (the atlas is square), up to 8192"));
+    mapFormat_ = new QComboBox(mapOptions_);
+    for (const char* f : {"tga", "png", "tiff", "exr"}) mapFormat_->addItem(QString::fromLatin1(f).toUpper(), QString::fromLatin1(f));
+    mapBitDepth_ = new QComboBox(mapOptions_);
+    mapBitDepth_->setToolTip(tr("Bits a channel: 8 or 16 (PNG, TIFF), 16 (half) or 32 (float) for EXR"));
+    mapPadding_ = new QSpinBox(mapOptions_);
+    mapPadding_->setRange(-1, 256);
+    mapPadding_->setSpecialValueText(tr("Auto"));
+    mapPadding_->setValue(-1);
+    mapPadding_->setSuffix(QStringLiteral(" px"));
+    mapPadding_->setFont(theme::monoFont(12));
+    mapPadding_->setToolTip(tr("Texels the colors spread past the strands so mip maps don't bleed in black; Auto: 8 at 2K and "
+                               "below, scaled above"));
+    mapSupersample_ = new QComboBox(mapOptions_);
+    mapSupersample_->addItem(tr("1x (off)"), 1);
+    mapSupersample_->addItem(QStringLiteral("2x"), 2);
+    mapSupersample_->addItem(QStringLiteral("4x"), 4);
+    mapSupersample_->setToolTip(tr("Anti-aliasing: baked 2 or 4 times bigger, then brought down (slower; never bigger than 8192)"));
+    mapGrid->addWidget(captionLabel(tr("Resolution"), mapOptions_), 0, 0);
+    mapGrid->addWidget(mapResolution_, 0, 1);
+    mapGrid->addWidget(captionLabel(tr("Format"), mapOptions_), 1, 0);
+    mapGrid->addWidget(mapFormat_, 1, 1);
+    mapGrid->addWidget(captionLabel(tr("Bit depth"), mapOptions_), 2, 0);
+    mapGrid->addWidget(mapBitDepth_, 2, 1);
+    mapGrid->addWidget(captionLabel(tr("Padding"), mapOptions_), 3, 0);
+    mapGrid->addWidget(mapPadding_, 3, 1);
+    mapGrid->addWidget(captionLabel(tr("Supersampling"), mapOptions_), 4, 0);
+    mapGrid->addWidget(mapSupersample_, 4, 1);
+    mapGrid->setColumnStretch(1, 1);
+    mapLayout->addLayout(mapGrid);
+    mapAdvanced_ = new QCheckBox(tr("Advanced: the packing"), mapOptions_);
+    mapAdvanced_->setToolTip(tr("Each file's R, G, B and A: a map's channel, 0 or 1, inverted or not"));
+    mapLayout->addWidget(mapAdvanced_);
+    packing_ = new QWidget(mapOptions_);
+    auto* packingLayout = new QVBoxLayout(packing_);
+    packingLayout->setContentsMargins(0, 0, 0, 0);
+    packingLayout->setSpacing(6);
+    auto* packingGrid = new QGridLayout();
+    packingGrid->setHorizontalSpacing(8);
+    mapNormal_ = new QComboBox(packing_);
+    mapNormal_->addItem(tr("OpenGL (Y up)"), QStringLiteral("opengl"));
+    mapNormal_->addItem(tr("DirectX (Y down)"), QStringLiteral("directx"));
+    mapNormal_->setToolTip(tr("The normal map's green: OpenGL for Unity, Blender, Maya; DirectX for Unreal, 3ds Max"));
+    mapTemplate_ = new QLineEdit(QStringLiteral("{name}_{map}"), packing_);
+    mapTemplate_->setFont(theme::monoFont(12));
+    mapTemplate_->setToolTip(tr("File names: {name}, {map} (the file's name below) and {res}; the extension is added"));
+    packingGrid->addWidget(captionLabel(tr("Normal map"), packing_), 0, 0);
+    packingGrid->addWidget(mapNormal_, 0, 1);
+    packingGrid->addWidget(captionLabel(tr("File names"), packing_), 1, 0);
+    packingGrid->addWidget(mapTemplate_, 1, 1);
+    packingGrid->setColumnStretch(1, 1);
+    packingLayout->addLayout(packingGrid);
+    packRowsLayout_ = new QVBoxLayout();
+    packRowsLayout_->setSpacing(6);
+    packingLayout->addLayout(packRowsLayout_);
+    auto* packButtons = new QHBoxLayout();
+    packButtons->setSpacing(6);
+    auto smallButton = [](const QString& text, QWidget* parent) {
+        auto* b = new RoundButton(parent);
+        b->setText(text);
+        b->setDiameter(26);
+        b->setRadius(9.0);
+        b->setPadding(10);
+        b->setFontSize(12);
+        b->setFill(theme::chip(), theme::chip());
+        b->setTextColor(theme::text(), theme::text());
+        return b;
+    };
+    RoundButton* addFile = smallButton(tr("Add file"), packing_);
+    packButtons->addWidget(addFile);
+    packButtons->addStretch(1);
+    packingLayout->addLayout(packButtons);
+    auto* saveRowMaps = new QHBoxLayout();
+    saveRowMaps->setSpacing(6);
+    mapSaveName_ = new QLineEdit(packing_);
+    mapSaveName_->setPlaceholderText(tr("Preset name"));
+    saveRowMaps->addWidget(mapSaveName_, 1);
+    RoundButton* savePreset = smallButton(tr("Save as preset"), packing_);
+    savePreset->setToolTip(tr("Save this packing as a preset of yours (Documents/GroomLab/card_presets: every host lists it)"));
+    saveRowMaps->addWidget(savePreset);
+    packingLayout->addLayout(saveRowMaps);
+    packing_->setVisible(false);
+    mapLayout->addWidget(packing_);
+    layout->addWidget(mapOptions_);
+    connect(mapPreset_, &QComboBox::currentIndexChanged, this, [this] {
+        if (!filling_) setMapPreset(mapPreset_->currentText());
+    });
+    connect(mapFormat_, &QComboBox::currentIndexChanged, this, [this] { refreshBitDepths(mapBitDepth_->currentData().toInt()); });
+    connect(mapAdvanced_, &QCheckBox::toggled, this, [this](bool on) {
+        packing_->setVisible(on);
+        adjustSize();
+    });
+    connect(mapNormal_, &QComboBox::currentIndexChanged, this, [this] { packingEdited(); });
+    connect(addFile, &QAbstractButton::clicked, this, [this] { addMapFile(); });
+    connect(savePreset, &QAbstractButton::clicked, this, [this] { saveMapPreset(mapSaveName_->text()); });
+    connect(mapDelete_, &QAbstractButton::clicked, this, [this] { deleteMapPreset(); });
+    refreshMapPresets(QString::fromLatin1(builtinCardMapPresets().front().name.c_str()));
+
     // ---- The output and the button.
     auto* pathRow = new QHBoxLayout();
     pathRow->setSpacing(6);
@@ -382,9 +520,13 @@ void ExportPanel::setTarget(Target target) {
             if (stem.endsWith(suffix)) stem.chop(suffix.size());
         }
         const QString dir = info.path();
-        path_->setText((dir.isEmpty() || dir == QStringLiteral(".") ? QString() : dir + QStringLiteral("/")) + stem + QStringLiteral("_") +
-                       QLatin1String(targetName(target)) + QStringLiteral(".") + defaultExtension());
+        // Card maps: <folder>/<name>, the files named after it (no suffix, no extension).
+        const QString suffix = target == Target::CardMaps ? QString()
+                                                           : QStringLiteral("_") + QLatin1String(targetName(target)) + QStringLiteral(".") +
+                                                                 defaultExtension();
+        path_->setText((dir.isEmpty() || dir == QStringLiteral(".") ? QString() : dir + QStringLiteral("/")) + stem + suffix);
     }
+    path_->setPlaceholderText(target == Target::CardMaps ? tr("Output folder/name") : tr("Output file"));
     refresh();
 }
 
@@ -414,7 +556,247 @@ ExportOptions ExportPanel::options() const {
     o.resolution = resolution_->currentData().toInt();
     o.occlusion = static_cast<float>(occlusion_->value());
     o.binary = binary_->isChecked();
+    o.mapPreset = mapPacking();
+    o.mapSettings.resolution = mapResolution_->currentData().toInt();
+    o.mapSettings.format = mapFormat_->currentData().toString().toStdString();
+    o.mapSettings.bitDepth = mapBitDepth_->currentData().toInt();
+    o.mapSettings.padding = mapPadding_->value();
+    o.mapSettings.supersample = mapSupersample_->currentData().toInt();
+    o.mapSettings.nameTemplate = mapTemplate_->text().trimmed().isEmpty() ? std::string("{name}_{map}") : mapTemplate_->text().trimmed().toStdString();
     return o;
+}
+
+// ---- Card maps
+
+QString ExportPanel::mapPreset() const { return mapPreset_->currentText(); }
+
+void ExportPanel::refreshMapPresets(const QString& select) {
+    mapPresets_ = cardMapPresets();
+    filling_ = true;
+    mapPreset_->clear();
+    for (const CardMapPreset& p : mapPresets_) {
+        mapPreset_->addItem(QString::fromStdString(p.name));
+        mapPreset_->setItemData(mapPreset_->count() - 1, QString::fromStdString(p.description), Qt::ToolTipRole);
+    }
+    filling_ = false;
+    if (!setMapPreset(select)) setMapPreset(QString::fromStdString(mapPresets_.front().name));
+}
+
+bool ExportPanel::setMapPreset(const QString& name) {
+    const auto it = std::find_if(mapPresets_.begin(), mapPresets_.end(), [&](const CardMapPreset& p) { return QString::fromStdString(p.name) == name; });
+    if (it == mapPresets_.end()) return false;
+    filling_ = true;
+    const int custom = mapPreset_->findText(QLatin1String(kCustomPreset));
+    if (custom >= 0) mapPreset_->removeItem(custom);
+    mapPreset_->setCurrentIndex(mapPreset_->findText(name));
+    mapDescription_->setText(QString::fromStdString(it->description));
+    mapDelete_->setEnabled(!it->builtin);
+    mapNormal_->setCurrentIndex(std::max(0, mapNormal_->findData(QString::fromStdString(it->normal))));
+    mapFormat_->setCurrentIndex(std::max(0, mapFormat_->findData(QString::fromStdString(it->format))));
+    refreshBitDepths(it->bitDepth);
+    fillPacking(it->files);
+    filling_ = false;
+    return true;
+}
+
+void ExportPanel::refreshBitDepths(int prefer) {
+    const bool was = mapBitDepth_->blockSignals(true);
+    mapBitDepth_->clear();
+    const std::string format = mapFormat_->currentData().toString().toStdString();
+    for (const int depth : cardMapBitDepths(format)) {
+        const QString label = depth == 32 ? tr("32-bit float") : depth == 16 && format == "exr" ? tr("16-bit half") : tr("%1-bit").arg(depth);
+        mapBitDepth_->addItem(label, depth);
+    }
+    const int index = mapBitDepth_->findData(prefer);
+    mapBitDepth_->setCurrentIndex(index >= 0 ? index : 0);
+    mapBitDepth_->blockSignals(was);
+}
+
+void ExportPanel::fillPacking(const std::vector<CardMapFile>& files) {
+    for (PackRow& row : packRows_) delete row.box;
+    packRows_.clear();
+    for (const CardMapFile& f : files) addPackRow(f);
+    adjustSize();
+}
+
+void ExportPanel::addPackRow(const CardMapFile& file) {
+    // A file: its name, color space and remove on top; R G B A in a 2 x 2 grid under it.
+    PackRow row;
+    row.box = new QWidget(packing_);
+    row.box->setObjectName(QStringLiteral("mapFile"));
+    auto* v = new QVBoxLayout(row.box);
+    v->setContentsMargins(0, 4, 0, 4);
+    v->setSpacing(4);
+    auto* top = new QHBoxLayout();
+    top->setSpacing(6);
+    row.name = new QLineEdit(QString::fromStdString(file.map), row.box);
+    row.name->setToolTip(tr("The file's {map} in the name template (hair_<this>.tga)"));
+    top->addWidget(row.name, 1);
+    row.space = new QComboBox(row.box);
+    row.space->addItem(tr("Auto"), QStringLiteral("auto"));
+    row.space->addItem(tr("sRGB"), QStringLiteral("srgb"));
+    row.space->addItem(tr("Linear"), QStringLiteral("linear"));
+    row.space->setCurrentIndex(std::max(0, row.space->findData(QString::fromStdString(file.colorSpace))));
+    row.space->setToolTip(tr("How color channels are written: Auto (sRGB, linear in EXR), sRGB or Linear; data is always linear"));
+    top->addWidget(row.space);
+    auto* remove = new QPushButton(QStringLiteral("×"), row.box);
+    remove->setFixedWidth(24);
+    remove->setToolTip(tr("Remove this file"));
+    top->addWidget(remove);
+    v->addLayout(top);
+    auto* grid = new QGridLayout();
+    grid->setHorizontalSpacing(4);
+    grid->setVerticalSpacing(2);
+    static const char* letters[] = {"R", "G", "B", "A"};
+    for (int c = 0; c < 4; ++c) {
+        auto* combo = new QComboBox(row.box);
+        if (c > 0) combo->addItem(QString::fromUtf8(kNoChannel));
+        for (const std::string& name : cardMapChannelNames()) combo->addItem(QString::fromStdString(name));
+        combo->addItem(QStringLiteral("iridescence?"));
+        combo->setToolTip(tr("The map channel this file channel holds (0 or 1: a constant; iridescence?: only when the groom has any)"));
+        auto* invert = new QCheckBox(tr("inv"), row.box);
+        invert->setToolTip(tr("Inverted: 1 - the value"));
+        QString value = c < static_cast<int>(file.channels.size()) ? QString::fromStdString(file.channels[static_cast<std::size_t>(c)]) : QString();
+        if (value.startsWith(QStringLiteral("1-"))) {
+            invert->setChecked(true);
+            value = value.mid(2);
+        }
+        int index = combo->findText(value.isEmpty() ? QString::fromUtf8(kNoChannel) : value);
+        if (index < 0 && !value.isEmpty()) {
+            combo->addItem(value);
+            index = combo->count() - 1;
+        }
+        combo->setCurrentIndex(std::max(index, 0));
+        grid->addWidget(captionLabel(QLatin1String(letters[c]), row.box), c / 2, (c % 2) * 3);
+        grid->addWidget(combo, c / 2, (c % 2) * 3 + 1);
+        grid->addWidget(invert, c / 2, (c % 2) * 3 + 2);
+        row.channels[c] = combo;
+        row.invert[c] = invert;
+        connect(combo, &QComboBox::currentIndexChanged, this, [this] { packingEdited(); });
+        connect(invert, &QCheckBox::toggled, this, [this] { packingEdited(); });
+    }
+    grid->setColumnStretch(1, 1);
+    grid->setColumnStretch(4, 1);
+    v->addLayout(grid);
+    connect(row.name, &QLineEdit::textEdited, this, [this] { packingEdited(); });
+    connect(row.space, &QComboBox::currentIndexChanged, this, [this] { packingEdited(); });
+    QWidget* box = row.box;
+    connect(remove, &QPushButton::clicked, this, [this, box] {
+        for (std::size_t i = 0; i < packRows_.size(); ++i) {
+            if (packRows_[i].box == box) removeMapFile(static_cast<int>(i));
+        }
+    });
+    packRowsLayout_->addWidget(row.box);
+    packRows_.push_back(row);
+}
+
+void ExportPanel::packingEdited() {
+    if (filling_) return;
+    // Edited by hand: the preset is Custom now (save it to keep it).
+    filling_ = true;
+    if (mapPreset_->findText(QLatin1String(kCustomPreset)) < 0) mapPreset_->addItem(QLatin1String(kCustomPreset));
+    mapPreset_->setCurrentIndex(mapPreset_->findText(QLatin1String(kCustomPreset)));
+    mapDescription_->setText(tr("Your own packing: save it as a preset to keep it"));
+    mapDelete_->setEnabled(false);
+    filling_ = false;
+}
+
+CardMapPreset ExportPanel::mapPacking() const {
+    CardMapPreset p;
+    p.name = mapPreset_->currentText().toStdString();
+    p.format = mapFormat_->currentData().toString().toStdString();
+    p.bitDepth = mapBitDepth_->currentData().toInt();
+    p.normal = mapNormal_->currentData().toString().toStdString();
+    for (const PackRow& row : packRows_) {
+        CardMapFile f;
+        f.map = row.name->text().trimmed().toStdString();
+        f.colorSpace = row.space->currentData().toString().toStdString();
+        for (int c = 0; c < 4; ++c) {
+            const QString text = row.channels[c]->currentText();
+            if (text == QString::fromUtf8(kNoChannel)) {
+                f.channels.emplace_back();
+                continue;
+            }
+            const bool invert = row.invert[c]->isChecked() && text != QStringLiteral("0") && text != QStringLiteral("1");
+            f.channels.push_back((invert ? "1-" : "") + text.toStdString());
+        }
+        while (!f.channels.empty() && f.channels.back().empty()) f.channels.pop_back();
+        for (std::string& c : f.channels) {
+            if (c.empty()) c = "0";  // a gap in the middle: 0
+        }
+        p.files.push_back(std::move(f));
+    }
+    return p;
+}
+
+void ExportPanel::setMapChannel(int file, int channel, const QString& value, bool invert) {
+    if (file < 0 || file >= mapFileCount() || channel < 0 || channel > 3) return;
+    QComboBox* combo = packRows_[static_cast<std::size_t>(file)].channels[channel];
+    const int index = combo->findText(value.isEmpty() ? QString::fromUtf8(kNoChannel) : value);
+    if (index >= 0) combo->setCurrentIndex(index);
+    packRows_[static_cast<std::size_t>(file)].invert[channel]->setChecked(invert);
+}
+
+void ExportPanel::addMapFile() {
+    CardMapFile f;
+    f.map = "Map" + std::to_string(packRows_.size() + 1);
+    f.channels = {"depth"};
+    addPackRow(f);
+    packingEdited();
+    adjustSize();
+}
+
+void ExportPanel::removeMapFile(int file) {
+    if (file < 0 || file >= mapFileCount()) return;
+    packRows_[static_cast<std::size_t>(file)].box->deleteLater();
+    packRows_.erase(packRows_.begin() + file);
+    packingEdited();
+    adjustSize();
+}
+
+bool ExportPanel::saveMapPreset(const QString& nameIn) {
+    const QString name = nameIn.trimmed();
+    if (name.isEmpty()) {
+        setStatus(tr("Type the preset's name beside Save as preset"), true);
+        return false;
+    }
+    CardMapPreset p = mapPacking();
+    p.name = name.toStdString();
+    try {
+        const std::string path = saveCardMapPreset(p);
+        refreshMapPresets(name);
+        setStatus(tr("Saved the preset %1 (%2)").arg(name, QString::fromStdString(path)));
+        return true;
+    } catch (const std::exception& e) {
+        setStatus(tr("Can't save: %1").arg(QString::fromUtf8(e.what())), true);
+        return false;
+    }
+}
+
+bool ExportPanel::deleteMapPreset() {
+    const QString name = mapPreset_->currentText();
+    const auto it = std::find_if(mapPresets_.begin(), mapPresets_.end(), [&](const CardMapPreset& p) { return QString::fromStdString(p.name) == name; });
+    if (it == mapPresets_.end() || it->builtin) return false;
+    const bool done = deleteCardMapPreset(name.toStdString());
+    refreshMapPresets(QString::fromStdString(builtinCardMapPresets().front().name));
+    setStatus(done ? tr("Deleted the preset %1").arg(name) : tr("Couldn't delete %1").arg(name), !done);
+    return done;
+}
+
+void ExportPanel::setMapSettings(int resolution, const QString& format, int bitDepth, int padding, int supersample) {
+    const int r = mapResolution_->findData(resolution);
+    if (r >= 0) {
+        mapResolution_->setCurrentIndex(r);
+    } else {
+        mapResolution_->addItem(QString::number(resolution), resolution);
+        mapResolution_->setCurrentIndex(mapResolution_->count() - 1);
+    }
+    const int f = mapFormat_->findData(format.toLower() == QStringLiteral("tif") ? QStringLiteral("tiff") : format.toLower());
+    if (f >= 0) mapFormat_->setCurrentIndex(f);
+    refreshBitDepths(bitDepth);
+    mapPadding_->setValue(padding);
+    const int s = mapSupersample_->findData(supersample);
+    if (s >= 0) mapSupersample_->setCurrentIndex(s);
 }
 
 QString ExportPanel::outputPath() const { return path_->text().trimmed(); }
@@ -434,8 +816,10 @@ void ExportPanel::setDocumentState(bool open, double frame, bool animated, doubl
     if (stem != groomStem_) {
         groomStem_ = stem;
         if (!stem.isEmpty()) {
-            path_->setText(QFileInfo(groomPath).path() + QStringLiteral("/") + stem + QStringLiteral("_") + QLatin1String(targetName(target_)) +
-                           QStringLiteral(".") + defaultExtension());
+            const QString suffix = target_ == Target::CardMaps ? QString()
+                                                                : QStringLiteral("_") + QLatin1String(targetName(target_)) + QStringLiteral(".") +
+                                                                      defaultExtension();
+            path_->setText(QFileInfo(groomPath).path() + QStringLiteral("/") + stem + suffix);
         }
     }
     updating_ = false;
@@ -470,9 +854,10 @@ void ExportPanel::setStatus(const QString& text, bool error) {
 void ExportPanel::refresh() {
     for (int i = 0; i < static_cast<int>(targets_.size()); ++i) targets_[static_cast<std::size_t>(i)]->setChecked(i == static_cast<int>(target_));
     description_->setText(tr(kTargets[static_cast<int>(target_)].description));
+    const bool maps = target_ == Target::CardMaps;
     const bool cards = target_ == Target::Cards;
-    const bool range = range_->isChecked() && range_->isEnabled() && !cards;
-    range_->setVisible(!cards);
+    const bool range = range_->isChecked() && range_->isEnabled() && !cards && !maps;
+    range_->setVisible(!cards && !maps);
     first_->setEnabled(range);
     last_->setEnabled(range);
     step_->setEnabled(range);
@@ -480,7 +865,8 @@ void ExportPanel::refresh() {
     unrealOptions_->setVisible(target_ == Target::Unreal);
     unityOptions_->setVisible(target_ == Target::Unity);
     cardOptions_->setVisible(cards);
-    density_->setVisible(!cards);
+    mapOptions_->setVisible(maps);
+    density_->setVisible(!cards && !maps);
     adjustSize();
 }
 

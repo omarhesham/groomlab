@@ -40,6 +40,7 @@ add_executable(groomlab_tests
     engine/core/test_keyed_params.cpp
     engine/core/test_value_inputs.cpp
     engine/core/test_cards.cpp
+    engine/core/test_card_maps.cpp
     engine/core/test_fields.cpp
     engine/core/test_game_exports.cpp
     engine/core/test_cinematic.cpp
@@ -100,6 +101,8 @@ add_executable(groomlab_tests
     ${PROJECT_SOURCE_DIR}/tools/dev/new_node/example_op.cpp
 )
 target_link_libraries(groomlab_tests PRIVATE groomlab::core groomlab::warnings GTest::gtest_main nlohmann_json::nlohmann_json)
+# stb_image's declarations (the core holds its code): the card map tests read their files back.
+target_include_directories(groomlab_tests SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party/stb")
 if(WIN32)
     target_link_libraries(groomlab_tests PRIVATE psapi)  # peak memory in the budget tests
 else()
@@ -201,6 +204,15 @@ if(_tool_python)
     add_test(NAME tools.new_node_dry_run
         COMMAND "${_tool_python}" "${PROJECT_SOURCE_DIR}/tools/dev/new_node.py" ExampleDryRun --category look --gpu --dry-run)
     set_tests_properties(tools.new_node_dry_run PROPERTIES LABELS "quick;core")
+endif()
+
+# groomlab-cli's MCP server (engine/cli/mcp_server.h) played a scripted agent session as a client
+# would: a subprocess on stdin/stdout, files in a folder of its own as the server's root.
+if(_tool_python AND TARGET groomlab-cli AND TARGET groomlab_alembic)
+    add_test(NAME cli.mcp_session
+        COMMAND "${_tool_python}" "${CMAKE_CURRENT_SOURCE_DIR}/engine/cli/test_mcp.py"
+                "$<TARGET_FILE:groomlab-cli>" "${CMAKE_CURRENT_BINARY_DIR}/mcp_session")
+    set_tests_properties(cli.mcp_session PROPERTIES LABELS "quick;core" TIMEOUT 300)
 endif()
 
 # The C API library's parallel backend (engine/core/src/parallel_pool.cpp, the pool of the
@@ -584,6 +596,29 @@ if(TARGET groomLabTranslator)
     set_tests_properties(maya.arnold PROPERTIES RUN_SERIAL TRUE LABELS "arnold;maya")
 endif()
 
+# Studio lighting (groomlab.studio, needs MtoA): every preset's rig, its scaling, framing, undo and
+# what remove_studio restores (quick); and a small kick render of the portrait preset (arnold, alone
+# as maya.arnold is).
+if(TARGET groomLabTranslator)
+    foreach(_studio IN ITEMS rig render)
+        set(_studio_name maya.studio)
+        set(_studio_args "")
+        if(_studio STREQUAL "render")
+            set(_studio_name maya.studio_render)
+            set(_studio_args "--render")
+        endif()
+        add_test(NAME ${_studio_name}
+            COMMAND "${MAYA_LOCATION}/bin/mayapy${CMAKE_EXECUTABLE_SUFFIX}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/hosts/maya/test_studio.py"
+                    "$<TARGET_FILE:GroomLab>"
+                    "${PROJECT_SOURCE_DIR}/hosts/maya/scripts"
+                    "$<TARGET_FILE_DIR:groomLabTranslator>"
+                    "${CMAKE_CURRENT_BINARY_DIR}/studio"
+                    ${_studio_args})
+    endforeach()
+    set_tests_properties(maya.studio_render PROPERTIES RUN_SERIAL TRUE LABELS "arnold;maya")
+endif()
+
 # The RenderMan procedural in prman (hosts/renderman), with RenderMan Pro Server only: counts against
 # groomlab-cli, coverage and primvars rendered, motion keys, the example scene, and the older API's
 # data string (RenderMan for Maya's RenderManProcedural node). Seconds, but prman's
@@ -617,13 +652,13 @@ endif()
 # The plugin's Python imports the build's groomlab_core module (as the
 # installed module's PYTHONPATH has it). COST starts the long suites first.
 set(GROOMLAB_MAYA_PYTHONPATH "$<$<TARGET_EXISTS:groomlab_core_py>:$<TARGET_FILE_DIR:groomlab_core_py>>")
-foreach(_maya_test maya.plugin maya.graph_editor maya.pipeline maya.groom_io maya.grooming maya.strand_mesh maya.subdivision maya.hardening maya.updates maya.arnold maya.xgen_import maya.yeti_import)
+foreach(_maya_test maya.plugin maya.graph_editor maya.pipeline maya.groom_io maya.grooming maya.strand_mesh maya.subdivision maya.hardening maya.updates maya.arnold maya.studio maya.studio_render maya.xgen_import maya.yeti_import)
     if(TEST ${_maya_test})
         set(_app_dir "${CMAKE_CURRENT_BINARY_DIR}/maya_app_dirs/${_maya_test}")
         file(MAKE_DIRECTORY "${_app_dir}")
         set_tests_properties(${_maya_test} PROPERTIES COST 1000 ENVIRONMENT
             "MAYA_APP_DIR=${_app_dir};PYTHONPATH=${GROOMLAB_MAYA_PYTHONPATH}")
-        if(NOT _maya_test STREQUAL "maya.arnold")
+        if(NOT _maya_test STREQUAL "maya.arnold" AND NOT _maya_test STREQUAL "maya.studio_render")
             set_tests_properties(${_maya_test} PROPERTIES LABELS "quick;maya")
         endif()
     endif()

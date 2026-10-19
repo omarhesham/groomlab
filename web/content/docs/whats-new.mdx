@@ -13,6 +13,29 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.19.0 (October 19, 2026)
+
+- **Use GroomLab from AI agents.** `groomlab-cli mcp` is an MCP server, so Claude Desktop, Claude
+  Code, Cursor, VS Code and other AI apps can build grooms through GroomLab's tools: new grooms on a
+  mesh or a sample, presets, nodes and params, guides and tubes, script nodes, a preview image the
+  agent looks at, `.groom` files and Alembic or USD export. It works in one folder you choose, makes
+  no network connections, and every change can be undone. See
+  [Use GroomLab from AI agents](/docs/ai-agents).
+- **Card map exports.** **Export Maps...** on the Cards node (the app: Export > **Card maps**;
+  Blender: **Card Maps...**) writes the cards' textures as your engine wants them, in one click:
+  pick a preset (Unreal Hair Cards, Unreal packed, Unity HDRP Hair, or every map on its own), a
+  resolution up to 8K, and PNG, TGA, TIFF or EXR at 8, 16 or 32 bits, with automatic edge padding
+  and optional supersampling. New maps: a normal map (OpenGL or DirectX), per-strand seed,
+  per-clump ID, root to tip, specular, translucency and a flow map, beside depth, coverage,
+  tangent, color and AO. **Advanced** packs any map into any R, G, B or A channel, inverted or
+  not; save the packing as a preset that Maya, the app and Blender share
+  ([Export card maps](/docs/game-export#export-card-maps)).
+- **Studio lighting.** **GroomLab > Studio** (or **Studio** in the Groom Tools' **Output** section)
+  puts a photo studio round the groom in one click: a seamless grey backdrop, Arnold softbox lights,
+  an 85 mm three-quarter camera and a matte grey mannequin head. Five presets (Portrait, Beauty,
+  Rim Drama, High Key, Turntable) relight it in place; it scales with the groom, and **Remove Studio**
+  puts back the head's materials and the render settings ([Studio lighting](/docs/rendering#studio-lighting)).
+
 ## 0.18.0 (October 18, 2026)
 
 - **Compound nodes.** Right-click a compound > **Save as Node...** to keep it in your node library

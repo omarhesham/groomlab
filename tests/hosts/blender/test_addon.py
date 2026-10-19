@@ -321,6 +321,19 @@ class AddonTest(unittest.TestCase):
         self.assertEqual(bpy.ops.groomlab.export_usd(filepath=usd), {"FINISHED"})
         with open(usd) as f:
             self.assertIn("metersPerUnit = 0.01", f.read(4000))
+        # Card maps: a Cards node, then the export as a preset packs the maps (no dialog: EXEC).
+        cards, error = graph.add_node(head, "Cards")
+        self.assertFalse(error)
+        bpy.context.scene.groomlab.groom = head  # the operator works on the panel's groom
+        presets = [p["name"] for p in groom.card_map_presets(refresh=True)]
+        self.assertIn("Unity HDRP Hair", presets)
+        folder = self.tmp("card_maps")
+        result = bpy.ops.groomlab.bake_card_maps("EXEC_DEFAULT", preset="Unity HDRP Hair", resolution=64, file_format="png",
+                                                 directory=folder, name="head")
+        self.assertEqual(result, {"FINISHED"})
+        self.assertEqual(sorted(os.listdir(folder)), sorted("head_%s.png" % m for m in
+                                                            ("BaseColor", "Normal", "Mask", "Tangent", "Data")))
+        graph.remove_node(head, cards)
         # A .groom opened with its own scalp: the same groom.
         path = self.assert_saved_groom_is_cli(head, "files")
         bpy.ops.groomlab.load_groom(filepath=path, use_file_scalp=True)

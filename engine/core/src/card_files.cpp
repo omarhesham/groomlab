@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "groomlab/card_files.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -108,7 +109,10 @@ std::string withCardMapsPrefix(const std::string& cardMaps, const std::string& p
     return out;
 }
 
-CardBake bakeCardsInMemory(StrandsPtr strands, MeshPtr scalp, int resolution, float occlusion) {
+namespace {
+
+// The cards of `strands` laid out for a bake (nothing baked yet).
+CardBake laidOutCards(StrandsPtr strands, MeshPtr scalp) {
     if (!strands || strands->cardLayers().empty()) throw std::runtime_error("no cards: add a Cards node to the graph");
     CardBake bake;
     bake.strands = std::move(strands);
@@ -117,6 +121,31 @@ CardBake bakeCardsInMemory(StrandsPtr strands, MeshPtr scalp, int resolution, fl
     bake.cards = std::make_shared<CardMesh>(combineCardLayers(bake.strands->cardLayers()));
     if (bake.cards->cards.empty()) throw std::runtime_error("no cards: the Cards node made none (too few strands per clump?)");
     layoutCards(*bake.cards, bake.cards->padding);
+    return bake;
+}
+
+}  // namespace
+
+int cardMapResolution(const CardMesh& cards, const CardMapExport& settings) {
+    const int resolution = settings.resolution > 0 ? settings.resolution : (cards.atlasSize > 0 ? cards.atlasSize : 2048);
+    return std::clamp(resolution, 16, 8192);
+}
+
+CardBake bakeCardMapsInMemory(StrandsPtr strands, MeshPtr scalp, const CardMapExport& settings, float occlusion) {
+    CardBake bake = laidOutCards(std::move(strands), std::move(scalp));
+    const int resolution = cardMapResolution(*bake.cards, settings);
+    CardBakeSettings base;
+    base.scalp = bake.scalp.get();
+    base.occlusion = occlusion;
+    const CardBakeSettings bakeSettings = cardMapBakeSettings(base, settings, resolution);
+    CardMaps maps = bakeCardMaps(*bake.strands, *bake.cards, bakeSettings);
+    if (maps.size > resolution) maps = downsampleCardMaps(maps, maps.size / resolution);
+    bake.maps = std::make_shared<const CardMaps>(std::move(maps));
+    return bake;
+}
+
+CardBake bakeCardsInMemory(StrandsPtr strands, MeshPtr scalp, int resolution, float occlusion) {
+    CardBake bake = laidOutCards(std::move(strands), std::move(scalp));
     CardBakeSettings settings;
     settings.size = resolution > 0 ? resolution : (bake.cards->atlasSize > 0 ? bake.cards->atlasSize : 2048);
     settings.scalp = bake.scalp.get();

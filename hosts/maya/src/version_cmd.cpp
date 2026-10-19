@@ -18,6 +18,7 @@
 #include "groom_draw_override.h"
 #include "guarded.h"
 #include "groom_shape.h"
+#include "groomlab/card_maps.h"
 #include "groomlab/expression.h"
 #include "groomlab/flow.h"
 #include "groomlab/graph_io.h"
@@ -326,6 +327,13 @@ MSyntax BakeCardsCmd::newSyntax() {
     s.addFlag("-den", "-density", MSyntax::kDouble);
     s.addFlag("-nst", "-noStore");  // an export: the groom's cardMaps keep naming its own bake
     s.addFlag("-lo", "-layout", MSyntax::kString);  // "unreal" (TGA, the default) or "unity" (PNG, an export)
+    // A card map export (card_maps.h; never stored): the preset by name or as JSON, and its settings.
+    s.addFlag("-pre", "-preset", MSyntax::kString);
+    s.addFlag("-fmt", "-format", MSyntax::kString);
+    s.addFlag("-bd", "-bitDepth", MSyntax::kLong);
+    s.addFlag("-pad", "-padding", MSyntax::kLong);
+    s.addFlag("-ss", "-supersample", MSyntax::kLong);
+    s.addFlag("-nt", "-nameTemplate", MSyntax::kString);
     s.setObjectType(MSyntax::kSelectionList, 1, 1);
     s.useSelectionAsDefault(true);
     return s;
@@ -369,6 +377,32 @@ MStatus BakeCardsCmd::doIt(const MArgList& args) {
         const bool store = !db.isFlagSet("-nst") && layout == "unreal";
         try {
             MStringArray result;
+            if (db.isFlagSet("-pre")) {  // a card map export, as its preset packs it
+                MString presetText;
+                db.getFlagArgument("-pre", 0, presetText);
+                const std::string text = presetText.asChar();
+                CardMapPreset preset;
+                if (!text.empty() && text.front() == '{') {
+                    preset = cardMapPresetFromJson(text);
+                } else if (const auto found = findCardMapPreset(text)) {
+                    preset = *found;
+                } else {
+                    throw std::runtime_error("no card map preset named '" + text + "'");
+                }
+                CardMapExport settings;
+                settings.resolution = resolution > 0 ? std::clamp(resolution, 16, 8192) : 0;
+                MString value;
+                if (db.isFlagSet("-fmt") && db.getFlagArgument("-fmt", 0, value) == MS::kSuccess) settings.format = value.asChar();
+                if (db.isFlagSet("-bd")) db.getFlagArgument("-bd", 0, settings.bitDepth);
+                if (db.isFlagSet("-pad")) db.getFlagArgument("-pad", 0, settings.padding);
+                if (db.isFlagSet("-ss")) db.getFlagArgument("-ss", 0, settings.supersample);
+                if (db.isFlagSet("-nt") && db.getFlagArgument("-nt", 0, value) == MS::kSuccess) settings.nameTemplate = value.asChar();
+                for (const std::string& p : shape->exportCardMaps(directory.asChar(), name.asChar(), preset, settings, static_cast<float>(occlusion))) {
+                    result.append(p.c_str());
+                }
+                setResult(result);
+                return MS::kSuccess;
+            }
             if (scalp) {  // the groom baked onto its scalp, in the scalp's UVs
                 for (const std::string& p : shape->bakeScalp(directory.asChar(), name.asChar(),
                                                              resolution > 0 ? std::clamp(resolution, 16, 16384) : 2048,

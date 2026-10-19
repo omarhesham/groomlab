@@ -21,6 +21,8 @@
 #include <vector>
 
 #include "groomlab/attributes.h"
+#include "groomlab/card_files.h"
+#include "groomlab/card_maps.h"
 #include "groomlab/shortcuts.h"
 #include "groomlab/color_patterns.h"
 #include "groomlab/export_view.h"
@@ -1112,7 +1114,7 @@ json Helper::run(const std::string& cmd, const json& args) {
         // What this helper offers beyond protocol 1's first commands, each with its own version
         // (raised when its commands change in a way an add-on must know): GroomLab's own tools
         // (new_groom, tool_*, stroke_*, select, guides_edit, maps, undo, display) and the state.
-        r["features"] = {{"tools", kToolsVersion}, {"state", 1}};
+        r["features"] = {{"tools", kToolsVersion}, {"state", 1}, {"cardMaps", 1}};
         return r;
     }
     if (cmd == "ping") return {{"pong", true}};
@@ -1661,6 +1663,67 @@ json Helper::run(const std::string& cmd, const json& args) {
         const json r = {{"path", job.path}, {"frames", job.frames}};
         s.exports.erase(e.get<int>());
         return r;
+    }
+    // ---- Card maps (card_maps.h): the presets every host lists, and an export of the groom's
+    // cards' maps as one packs them ----
+    if (cmd == "card_map_presets") {
+        json r;
+        r["presets"] = json::parse(cardMapPresetsJson());
+        r["sources"] = json::parse(cardMapSourcesJson());
+        r["userDir"] = cardMapPresetUserDir();
+        return r;
+    }
+    if (cmd == "save_card_map_preset") {
+        const json& preset = need(args, "preset");
+        try {
+            return {{"path", saveCardMapPreset(cardMapPresetFromJson(preset.dump()))}};
+        } catch (const std::runtime_error& e) {
+            fail("bad_request", e.what());
+        }
+    }
+    if (cmd == "delete_card_map_preset") return {{"deleted", deleteCardMapPreset(needString(args, "name"))}};
+    if (cmd == "bake_card_maps") {
+        Session& s = session(args);
+        CardMapPreset preset;
+        const json& given = args.contains("preset") ? args["preset"] : json(builtinCardMapPresets().front().name);
+        if (given.is_object()) {
+            try {
+                preset = cardMapPresetFromJson(given.dump());
+            } catch (const std::runtime_error& e) {
+                fail("bad_request", e.what());
+            }
+        } else if (const auto found = findCardMapPreset(given.is_string() ? given.get<std::string>() : std::string())) {
+            preset = *found;
+        } else {
+            fail("not_found", "no card map preset named " + given.dump());
+        }
+        CardMapExport settings;
+        settings.resolution = static_cast<int>(optNumber(args, "resolution", 0.0));
+        settings.format = optString(args, "format", "");
+        settings.bitDepth = static_cast<int>(optNumber(args, "bitDepth", 0.0));
+        settings.padding = static_cast<int>(optNumber(args, "padding", -1.0));
+        settings.supersample = static_cast<int>(optNumber(args, "supersample", 1.0));
+        settings.nameTemplate = optString(args, "nameTemplate", "{name}_{map}");
+        const std::string directory = needString(args, "directory");
+        const std::string name = optString(args, "name", "groom");
+        // The Cards nodes building their cards at full density, at the session's time.
+        ViewRequest request;
+        request.density = 1.0f;
+        request.time = s.seconds;
+        request.wantCards = true;
+        request.cardDensity = 1.0f;
+        request.wantBounds = false;
+        feedTime(s);
+        const ViewResult& view = s.groom->evaluate(request);
+        if (!view.errors.empty()) fail("evaluate", view.errors.front());
+        try {
+            const CardBake bake = bakeCardMapsInMemory(view.cardStrands, view.scalp ? view.scalp : s.groom->scalp(), settings,
+                                                       static_cast<float>(optNumber(args, "occlusion", 1.0)));
+            const std::vector<std::string> paths = writeCardMaps(*bake.maps, preset, settings, directory, name);
+            return {{"paths", paths}, {"cards", bake.cards->cards.size()}, {"size", bake.maps->size}};
+        } catch (const std::runtime_error& e) {
+            fail("export", e.what());
+        }
     }
     if (cmd == "export") {
         Session& s = session(args);

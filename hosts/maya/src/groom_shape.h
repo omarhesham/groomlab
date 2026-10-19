@@ -374,6 +374,12 @@ public:
     // one-off evaluation with nothing kept.
     CardBake bakeCardsInMemory(int resolution, float occlusion, const std::string& graphJson = {},
                                NodeEvaluator* evaluator = nullptr);
+    // A card map export (card_maps.h): the cards baked as bakeCardsInMemory does, at the
+    // settings' resolution, padding and supersampling, written as the preset says into
+    // `directory` named after `base` (file safe; an export: never stored). Returns the paths.
+    // Throws std::runtime_error.
+    std::vector<std::string> exportCardMaps(const std::string& directory, const std::string& base, const CardMapPreset& preset,
+                                            const CardMapExport& settings, float occlusion = 1.0f);
     // The scalp bake in memory (see bakeScalp); *scalp receives the scalp. Throws std::runtime_error.
     // `evaluator` as for bakeCardsInMemory (the groom's own graph).
     ScalpTextures bakeScalpInMemory(int resolution, float reach, float density, MeshPtr* scalp,

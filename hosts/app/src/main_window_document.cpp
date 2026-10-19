@@ -269,7 +269,7 @@ void MainWindow::refreshExportState() {
 bool MainWindow::setExportTarget(const QString& target) {
     ExportPanel::Target t;
     if (!ExportPanel::targetFromName(target.toLower().toStdString(), &t)) {
-        report(tr("No export target '%1' (alembic, usd, unreal, unity, cards)").arg(target));
+        report(tr("No export target '%1' (alembic, usd, unreal, unity, cards, maps)").arg(target));
         return false;
     }
     host_->exportPanel()->setTarget(t);
@@ -301,7 +301,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
     }
     ExportPanel::Target t;
     if (!ExportPanel::targetFromName(target.toLower().toStdString(), &t)) {
-        report(tr("No export target '%1' (alembic, usd, unreal, unity, cards)").arg(target));
+        report(tr("No export target '%1' (alembic, usd, unreal, unity, cards, maps)").arg(target));
         return false;
     }
     panel->setTarget(t);
@@ -328,6 +328,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
             case ExportPanel::Target::Unreal: result = document_->exportUnrealGroom(out, options, progress); break;
             case ExportPanel::Target::Unity: result = document_->exportUnityStrands(out, options, progress); break;
             case ExportPanel::Target::Cards: result = document_->exportCards(out, options, progress); break;
+            case ExportPanel::Target::CardMaps: result = document_->exportCardMaps(out, options, progress); break;
             default: break;
         }
     } catch (const std::exception& e) {
@@ -341,9 +342,10 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
     panel->setBusy(false);
     endJob();
     const double seconds = timer.nsecsElapsed() / 1e9;
-    const QString what = t == ExportPanel::Target::Cards ? tr("%n cards", "", static_cast<int>(result.strands))
-                                                          : tr("%n frames", "", static_cast<int>(result.frames)) +
-                                                                tr(", %1 strands").arg(result.strands);
+    const QString what = t == ExportPanel::Target::CardMaps ? tr("%n maps", "", static_cast<int>(result.files.size()))
+                         : t == ExportPanel::Target::Cards  ? tr("%n cards", "", static_cast<int>(result.strands))
+                                                            : tr("%n frames", "", static_cast<int>(result.frames)) +
+                                                                  tr(", %1 strands").arg(result.strands);
     const QString line = result.cancelled ? tr("Stopped after %1 (%2 s): %3").arg(what).arg(seconds, 0, 'f', 2).arg(path)
                                           : tr("Wrote %1 in %2 s: %3").arg(what).arg(seconds, 0, 'f', 2).arg(path);
     panel->setStatus(line);

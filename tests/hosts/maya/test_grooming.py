@@ -18,6 +18,8 @@ PLUGIN_PATH = os.path.abspath(sys.argv[1])
 SCRIPTS_DIR = os.path.abspath(sys.argv[2])
 sys.argv = sys.argv[:1]
 sys.path.insert(0, SCRIPTS_DIR)
+os.environ["GROOMLAB_USER_CARD_PRESETS"] = tempfile.mkdtemp(prefix="groomlab_card_presets_")
+os.environ.pop("GROOMLAB_CARD_PRESET_PATH", None)
 
 import maya.standalone  # noqa: E402
 
@@ -1582,6 +1584,56 @@ class GroomingTest(unittest.TestCase):
         first = cmds.getAttr(self.groom + ".cardMaps")
         groomlab.bake_cards(self.groom, folder, resolution=128, name="bare")
         self.assertNotEqual(cmds.getAttr(self.groom + ".cardMaps"), first)  # a rebake reloads in the viewport
+
+    def test_card_map_exports_pack_maps_as_presets_say(self):
+        groomlab.create_cards(self.groom, max_cards=20)
+        folder = tempfile.mkdtemp(prefix="groomlab_card_maps_")
+        names = [p["name"] for p in groomlab.card_map_presets()]
+        self.assertEqual(names[:4], ["Unreal Hair Cards", "Unreal (packed)", "Unity HDRP Hair", "Separate maps (all)"])
+        sources = groomlab.card_map_sources()
+        self.assertIn("normal.z", sources["channels"])
+        self.assertIn("translucency", [s["name"] for s in sources["sources"]])
+        stored = cmds.getAttr(self.groom + ".cardMaps")
+        # The default preset: Bake Maps' six files, byte for byte, and the groom's own bake untouched.
+        baked = groomlab.bake_cards(self.groom, folder, resolution=64, name="old", store=False)
+        paths = groomlab.bake_card_maps(self.groom, resolution=64, directory=folder, name="new")
+        self.assertEqual([os.path.basename(p) for p in paths], ["new_%s.tga" % m for m in groomlab.CARD_MAPS])
+        for old, new in zip([p for p in baked if p.endswith(".tga")], paths):
+            with open(old, "rb") as a, open(new, "rb") as b:
+                self.assertEqual(a.read(), b.read(), new)
+        self.assertEqual(cmds.getAttr(self.groom + ".cardMaps"), stored)
+        # Every map its own file, as 16-bit PNG, supersampled, named by a template.
+        separate = groomlab.bake_card_maps(self.groom, preset="Separate maps (all)", resolution=64, format="png",
+                                           bit_depth=16, supersample=2, padding=4, directory=folder, name="fur",
+                                           name_template="{name}_{res}_{map}")
+        self.assertIn("fur_64_Normal.png", [os.path.basename(p) for p in separate])
+        with open(separate[0], "rb") as f:
+            header = f.read(26)
+        self.assertEqual(header[1:4], b"PNG")
+        self.assertEqual(header[24], 16)  # bit depth
+        # A packing of our own, then saved as a preset and used by name; EXR half floats.
+        mine = {"name": "Test Packed", "normal": "directx",
+                "files": [{"map": "Mask", "channels": ["depth", "root", "id", "1-coverage"]},
+                          {"map": "Normal", "channels": ["normal.x", "normal.y", "normal.z"]}]}
+        packed = groomlab.bake_card_maps(self.groom, preset=mine, resolution=32, format="exr", directory=folder,
+                                         name="mine")
+        self.assertEqual([os.path.basename(p) for p in packed], ["mine_Mask.exr", "mine_Normal.exr"])
+        with open(packed[0], "rb") as f:
+            self.assertEqual(f.read(4), b"\x76\x2f\x31\x01")  # OpenEXR's magic number
+        path = groomlab.save_card_map_preset("Test Packed", mine)
+        self.assertTrue(os.path.isfile(path))
+        self.assertIn("Test Packed", [p["name"] for p in groomlab.card_map_presets()])
+        again = groomlab.bake_card_maps(self.groom, preset="Test Packed", resolution=32, format="tga", directory=folder,
+                                        name="again")
+        self.assertEqual(len(again), 2)
+        with self.assertRaises(ValueError):
+            groomlab.save_card_map_preset("Unreal Hair Cards", mine)  # a built-in's name
+        self.assertTrue(groomlab.delete_card_map_preset("Test Packed"))
+        self.assertNotIn("Test Packed", [p["name"] for p in groomlab.card_map_presets()])
+        with self.assertRaises(RuntimeError):  # no such preset; no 32-bit TGA
+            groomlab.bake_card_maps(self.groom, preset="Nothing", resolution=32, directory=folder)
+        with self.assertRaises(RuntimeError):
+            groomlab.bake_card_maps(self.groom, resolution=32, bit_depth=32, directory=folder)
 
     def _layered_cards(self):
         """... -> width -> outer (Cards) -> frizz (Noise) -> inner (Cards) -> look (Noise) -> output."""

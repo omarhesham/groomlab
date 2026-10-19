@@ -28,7 +28,7 @@ The functions live in modules by what they work on, each imported into the packa
 A module imports from the ones above it in this list at its top, and from one below it only inside
 the function that needs it, so they never import in a cycle.
 
-Beside them: graph (the graph model), presets, nodes (compound and script nodes: the .glnode library), sim, shots, sculpts, bake, expressions, units, review,
+Beside them: graph (the graph model), presets, nodes (compound and script nodes: the .glnode library), sim, shots, sculpts, bake, expressions, units, review, studio,
 reference, renderman (RenderMan for Maya's procedural node, experimental), utils, importers (other hair
 systems' grooms: XGen; importers/foreign.py the layer they share) and the UI (ui/). What the hosts share is computed in the core's Python module,
 groomlab_core (engine/python, beside the plugin in the module's python folder), never copied here
@@ -84,8 +84,9 @@ from groomlab.groom import (  # noqa: F401
 from groomlab.transfer import (transfer_groom, get_transfer_markers, set_transfer_markers,  # noqa: F401
                                snap_markers)
 from groomlab.cards import (  # noqa: F401
-    CARD_MAPS, CARD_NORMALS_NOTE, CARD_PRESETS, CARD_TINT_NOTE, FEATHER_CARD_NOTE, FEATHER_CARD_PRESETS, SCALP_MAPS,
-    bake_cards, bake_scalp, card_display, card_material, card_mesh, card_node_kind, card_stats, cards_preset,
+    CARD_MAPS, CARD_MAP_PRESET, CARD_NORMALS_NOTE, CARD_PRESETS, CARD_TINT_NOTE, FEATHER_CARD_NOTE, FEATHER_CARD_PRESETS,
+    SCALP_MAPS, bake_card_maps, bake_cards, bake_scalp, card_display, card_map_presets, card_map_sources,
+    delete_card_map_preset, save_card_map_preset, card_material, card_mesh, card_node_kind, card_stats, cards_preset,
     compare_cards, create_card_mesh, create_cards, feather_card_triangles, scalp_cap, _card_maps, _preset_params)
 from groomlab.exports import (  # noqa: F401
     SCALE_MAPS, bake_scale_maps, export_alembic, export_scales, export_usd, has_scales, scale_mesh, viewport_points)
@@ -102,6 +103,9 @@ from groomlab.files import (  # noqa: F401
 
 # Review tools (density heatmap, HUD, turntable) live in their own module.
 from groomlab.review import density_heatmap, groom_stats, render_turntable, show_hud, turntable  # noqa: F401
+# Studio lighting (a backdrop, Arnold area lights, a camera and a mannequin material): groomlab.studio.
+from groomlab import studio  # noqa: F401
+from groomlab.studio import remove_studio, studio as add_studio  # noqa: F401
 # Reference photos as cameras (Groom Tools > Photos): groomlab.reference.
 from groomlab import reference  # noqa: F401
 from groomlab.from_reference import guides_from_reference  # noqa: F401  (a prototype: guides from the reference photos)

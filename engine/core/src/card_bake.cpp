@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// The bakes: cards' textures from the strands they hold (bakeCardTextures), the groom's color
-// on the scalp (bakeScalpTextures), and the TGA files they are written as.
+// The bakes: cards' maps from the strands they hold (bakeCardMaps, and bakeCardTextures: them in
+// 8 bits), the groom's color on the scalp (bakeScalpTextures), and the TGA files they are written as.
 
 #include "groomlab/cards.h"
+#include "groomlab/card_maps.h"
 #include "groomlab/portable_math.h"
 
 #include <algorithm>
@@ -107,21 +108,48 @@ struct BakeBuffers {
     explicit BakeBuffers(std::size_t pixels)
         : open(pixels, 1.0f), weight(pixels, 0.0f), depth(pixels, 0.0f), coordU(pixels, 0.0f), seed(pixels, 0.0f),
           ao(pixels, 0.0f), rootU(pixels, 0.0f), rootV(pixels, 0.0f), tangent(pixels * 3, 0.0f), color(pixels * 3, 0.0f),
-          iridescence(pixels, 0.0f) {}
+          iridescence(pixels, 0.0f), id(pixels, 0.0f), layers(pixels, 0.0f), normal(pixels * 3, 0.0f) {}
     std::vector<float> open;  // product of (1 - coverage): light getting through
-    std::vector<float> weight, depth, coordU, seed, ao, rootU, rootV, tangent, color, iridescence;
+    std::vector<float> weight, depth, coordU, seed, ao, rootU, rootV, tangent, color, iridescence, id;
+    std::vector<float> layers;  // the strands' coverage summed (how many lie over the texel)
+    std::vector<float> normal;
 };
 
 // One strand's pixels before they are composited (a pixel it crosses twice counts once).
 struct StrandStamp {
     float coverage = 0.0f, depth = 0.0f, coordU = 0.0f, ao = 0.0f, iridescence = 0.0f;
     Vec3f tangent, color;  // color: linear, the strand's there (HairColor's tip blend)
+    Vec3f normal;          // the strand as a round fiber there (card space)
 };
+
+// A round fiber's normal in card space, `offset` (-1..1) of its radius across it toward `side`
+// (the texture's direction across the strand): square to the strand, out of the card at its
+// middle, turning to face `side` at its edge.
+Vec3f fiberNormal(const Vec3f& tangent, float offset, const Vec3f& side) {
+    const Vec3f out{0.0f, 0.0f, 1.0f};
+    Vec3f w = out, across = side;
+    const float length = tangent.length();
+    if (length > 1e-6f) {
+        const Vec3f t = tangent * (1.0f / length);
+        const Vec3f square = out - t * out.dot(t);
+        if (square.length() > 1e-4f) {
+            w = square.normalized();
+            across = t.cross(w).normalized();
+            if (across.dot(side) < 0.0f) across = across * -1.0f;
+        }
+    }
+    const float a = std::clamp(offset, -1.0f, 1.0f);
+    return across * a + w * std::sqrt(std::max(0.0f, 1.0f - a * a));
+}
 
 }  // namespace
 
 CardTextures bakeCardTextures(const StrandSet& strands, const CardMesh& cards, const CardBakeSettings& settings) {
-    CardTextures t;
+    return cardTexturesFromMaps(bakeCardMaps(strands, cards, settings));
+}
+
+CardMaps bakeCardMaps(const StrandSet& strands, const CardMesh& cards, const CardBakeSettings& settings) {
+    CardMaps t;
     t.size = std::max(settings.size, 8);
     const int size = t.size;
     const std::size_t pixels = static_cast<std::size_t>(size) * static_cast<std::size_t>(size);
@@ -195,6 +223,11 @@ CardTextures bakeCardTextures(const StrandSet& strands, const CardMesh& cards, c
         std::vector<std::size_t> touched;
         const StrandColors& colors = colorCache.of(s);
         const bool realWidths = hasRealWidths.at(&s);
+        // The ID map: a random value per clump (the strands' clumpId), else per card.
+        const std::vector<float>* clumpIds = s.strandChannel("clumpId");
+        const std::uint64_t cardKey = card.clump >= 0 ? (static_cast<std::uint64_t>(card.node) << 32) + static_cast<std::uint64_t>(card.clump)
+                                                      : (card.strands.empty() ? 0 : s.ids()[card.strands.front()]);
+        const float cardId = unitFloat(hashCombine(0x1D5EEDull, cardKey));
         float meanWidth = 0.0f;
         const CardShape shape(card);
         for (const float x : shape.width) meanWidth += x / static_cast<float>(shape.width.size());
@@ -308,11 +341,18 @@ CardTextures bakeCardTextures(const StrandSet& strands, const CardMesh& cards, c
                         st.tangent = a.tangent + (c.tangent - a.tangent) * tt;
                         st.color = a.color + (c.color - a.color) * tt;
                         st.iridescence = a.iridescence + (c.iridescence - a.iridescence) * tt;
+                        // Across the strand (the texture's direction square to it, and how far
+                        // over, of its radius): its normal as a round fiber.
+                        const float axis = std::sqrt(ex * ex + ey * ey);
+                        const float offset = axis > 1e-6f ? (ex * dy - ey * dx) / (axis * std::max(r, 0.5f)) : 0.0f;
+                        const Vec3f side = axis > 1e-6f ? Vec3f{-ey / axis, -ex / axis, 0.0f} : Vec3f{1.0f, 0.0f, 0.0f};
+                        st.normal = fiberNormal(st.tangent, offset, side);
                     }
                 }
             }
             // Composite: coverage over what's there; values weighted toward the front.
             const float seed = unitFloat(hash64(s.ids()[si]));
+            const float id = clumpIds ? unitFloat(hashCombine(0xC1D5ull, static_cast<std::uint64_t>(std::llround((*clumpIds)[si])))) : cardId;
             ScalpMesh::UV root{0.0f, 0.0f};
             if (settings.scalp && settings.scalp->contains(s.roots()[si])) root = settings.scalp->uvAt(s.roots()[si]);
             for (const std::size_t local : touched) {
@@ -329,9 +369,12 @@ CardTextures bakeCardTextures(const StrandSet& strands, const CardMesh& cards, c
                 b.rootU[p] += root[0] * wgt;
                 b.rootV[p] += root[1] * wgt;
                 b.iridescence[p] += st.iridescence * wgt;
+                b.id[p] += id * wgt;
+                b.layers[p] += st.coverage;
                 for (int k = 0; k < 3; ++k) {
                     b.tangent[p * 3 + static_cast<std::size_t>(k)] += (k == 0 ? st.tangent.x : k == 1 ? st.tangent.y : st.tangent.z) * wgt;
                     b.color[p * 3 + static_cast<std::size_t>(k)] += (k == 0 ? st.color.x : k == 1 ? st.color.y : st.color.z) * wgt;
+                    b.normal[p * 3 + static_cast<std::size_t>(k)] += (k == 0 ? st.normal.x : k == 1 ? st.normal.y : st.normal.z) * wgt;
                 }
             }
             touched.clear();
@@ -349,10 +392,11 @@ CardTextures bakeCardTextures(const StrandSet& strands, const CardMesh& cards, c
             const float wsum = b.weight[p];
             if (wsum <= 0.0f) continue;
             filled[p] = 1;
-            for (std::vector<float>* v : {&b.depth, &b.coordU, &b.seed, &b.ao, &b.rootU, &b.rootV, &b.iridescence}) (*v)[p] /= wsum;
+            for (std::vector<float>* v : {&b.depth, &b.coordU, &b.seed, &b.ao, &b.rootU, &b.rootV, &b.iridescence, &b.id}) (*v)[p] /= wsum;
             for (int k = 0; k < 3; ++k) {
                 b.tangent[p * 3 + static_cast<std::size_t>(k)] /= wsum;
                 b.color[p * 3 + static_cast<std::size_t>(k)] /= wsum;
+                b.normal[p * 3 + static_cast<std::size_t>(k)] /= wsum;
             }
         }
     }, kRowGrain);
@@ -364,27 +408,29 @@ CardTextures bakeCardTextures(const StrandSet& strands, const CardMesh& cards, c
                 const std::size_t p = static_cast<std::size_t>(y) * static_cast<std::size_t>(size) + static_cast<std::size_t>(x);
                 if (filled[p]) continue;
                 float count = 0.0f;
-                float acc[13] = {};
+                float acc[17] = {};
                 for (int dy = -1; dy <= 1; ++dy) {
                     for (int dx = -1; dx <= 1; ++dx) {
                         const int nx = x + dx, ny = y + dy;
                         if ((dx == 0 && dy == 0) || nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
                         const std::size_t q = static_cast<std::size_t>(ny) * static_cast<std::size_t>(size) + static_cast<std::size_t>(nx);
                         if (!filled[q]) continue;
-                        const float vals[13] = {b.depth[q], b.coordU[q], b.seed[q], b.ao[q], b.rootU[q], b.rootV[q],
+                        const float vals[17] = {b.depth[q], b.coordU[q], b.seed[q], b.ao[q], b.rootU[q], b.rootV[q],
                                                 b.tangent[q * 3], b.tangent[q * 3 + 1], b.tangent[q * 3 + 2],
-                                                b.color[q * 3], b.color[q * 3 + 1], b.color[q * 3 + 2], b.iridescence[q]};
-                        for (int k = 0; k < 13; ++k) acc[k] += vals[k];
+                                                b.color[q * 3], b.color[q * 3 + 1], b.color[q * 3 + 2], b.iridescence[q],
+                                                b.id[q], b.normal[q * 3], b.normal[q * 3 + 1], b.normal[q * 3 + 2]};
+                        for (int k = 0; k < 17; ++k) acc[k] += vals[k];
                         count += 1.0f;
                     }
                 }
                 if (count == 0.0f) continue;
                 for (float& a : acc) a /= count;
                 b.depth[p] = acc[0], b.coordU[p] = acc[1], b.seed[p] = acc[2], b.ao[p] = acc[3];
-                b.rootU[p] = acc[4], b.rootV[p] = acc[5], b.iridescence[p] = acc[12];
+                b.rootU[p] = acc[4], b.rootV[p] = acc[5], b.iridescence[p] = acc[12], b.id[p] = acc[13];
                 for (int k = 0; k < 3; ++k) {
                     b.tangent[p * 3 + static_cast<std::size_t>(k)] = acc[6 + k];
                     b.color[p * 3 + static_cast<std::size_t>(k)] = acc[9 + k];
+                    b.normal[p * 3 + static_cast<std::size_t>(k)] = acc[14 + k];
                 }
                 next[p] = 1;
             }
@@ -392,40 +438,43 @@ CardTextures bakeCardTextures(const StrandSet& strands, const CardMesh& cards, c
         filled.swap(next);
     }
 
-    auto to8 = [](float x) { return static_cast<std::uint8_t>(std::lround(std::clamp(x, 0.0f, 1.0f) * 255.0f)); };
-    t.coverage.resize(pixels);
-    t.depth.resize(pixels);
-    t.occlusion.resize(pixels);
-    t.tangent.resize(pixels * 3);
-    t.color.resize(pixels * 3);
-    t.attribute.resize(pixels * 4);
-    // The iridescence only when a strand has any (its own map: the Color map's alpha).
-    const bool iridescent = std::any_of(owners.begin(), owners.end(), [&](std::size_t c) {
+    // The iridescence only when a strand has any.
+    t.iridescent = std::any_of(owners.begin(), owners.end(), [&](std::size_t c) {
         return !colorCache.of(sourceOf(cards.cards[c])).iridescence.empty();
     });
-    if (iridescent) t.iridescence.resize(pixels);
+    // The final values, in place (each texel its own: any order), then the buffers handed over.
     parallelFor(0, rowPixels, [&](std::size_t y) {
         for (std::size_t p = y * rowPixels; p < (y + 1) * rowPixels; ++p) {
             const bool any = filled[p] != 0;
-            t.coverage[p] = to8(1.0f - b.open[p]);
-            t.depth[p] = to8(any ? 0.5f + b.depth[p] : 0.5f);
-            t.occlusion[p] = to8(any ? b.ao[p] : 1.0f);
+            b.open[p] = 1.0f - b.open[p];  // the coverage
+            b.depth[p] = any ? 0.5f + b.depth[p] : 0.5f;
+            b.ao[p] = any ? b.ao[p] : 1.0f;
             Vec3f tan = any ? Vec3f{b.tangent[p * 3], b.tangent[p * 3 + 1], b.tangent[p * 3 + 2]} : Vec3f{0, 1, 0};
             tan = tan.length() > 1e-6f ? tan.normalized() : Vec3f{0, 1, 0};
-            t.tangent[p * 3 + 0] = to8(0.5f + 0.5f * tan.x);
-            t.tangent[p * 3 + 1] = to8(0.5f + 0.5f * tan.y);
-            t.tangent[p * 3 + 2] = to8(0.5f + 0.5f * tan.z);
-            for (int k = 0; k < 3; ++k) {
-                const float c = any ? b.color[p * 3 + static_cast<std::size_t>(k)] : settings.color[static_cast<std::size_t>(k)];
-                t.color[p * 3 + static_cast<std::size_t>(k)] = to8(linearToSrgb(c));
+            b.tangent[p * 3 + 0] = tan.x, b.tangent[p * 3 + 1] = tan.y, b.tangent[p * 3 + 2] = tan.z;
+            Vec3f n = any ? Vec3f{b.normal[p * 3], b.normal[p * 3 + 1], b.normal[p * 3 + 2]} : Vec3f{0, 0, 1};
+            n = n.length() > 1e-6f ? n.normalized() : Vec3f{0, 0, 1};
+            b.normal[p * 3 + 0] = n.x, b.normal[p * 3 + 1] = n.y, b.normal[p * 3 + 2] = n.z;
+            if (!any) {
+                for (int k = 0; k < 3; ++k) b.color[p * 3 + static_cast<std::size_t>(k)] = settings.color[static_cast<std::size_t>(k)];
+                b.rootU[p] = 0.0f, b.rootV[p] = 0.0f, b.seed[p] = 0.0f, b.coordU[p] = 0.0f, b.id[p] = 0.0f, b.iridescence[p] = 0.0f;
             }
-            t.attribute[p * 4 + 0] = to8(any ? b.rootU[p] : 0.0f);
-            t.attribute[p * 4 + 1] = to8(any ? b.rootV[p] : 0.0f);
-            t.attribute[p * 4 + 2] = to8(any ? b.seed[p] : 0.0f);
-            t.attribute[p * 4 + 3] = to8(any ? b.coordU[p] : 0.0f);
-            if (iridescent) t.iridescence[p] = to8(any ? b.iridescence[p] : 0.0f);
+            if (!t.iridescent) b.iridescence[p] = 0.0f;
         }
     }, kRowGrain);
+    t.coverage = std::move(b.open);
+    t.depth = std::move(b.depth);
+    t.ao = std::move(b.ao);
+    t.rootU = std::move(b.rootU);
+    t.rootV = std::move(b.rootV);
+    t.seed = std::move(b.seed);
+    t.root = std::move(b.coordU);
+    t.id = std::move(b.id);
+    t.iridescence = std::move(b.iridescence);
+    t.layers = std::move(b.layers);
+    t.tangent = std::move(b.tangent);
+    t.normal = std::move(b.normal);
+    t.color = std::move(b.color);
     return t;
 }
 

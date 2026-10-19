@@ -377,10 +377,64 @@ class GROOMLAB_OT_export_usd(_Export):
     fmt = "usd"
 
 
+_card_items = []  # kept: Blender reads an enum's item strings after the callback returns
+
+
+def _card_preset_items(self, context):
+    global _card_items
+    _card_items = [(p["name"], p["name"], p.get("description", "")) for p in groom.card_map_presets()] or \
+        [("Unreal Hair Cards", "Unreal Hair Cards", "")]
+    return _card_items
+
+
+class GROOMLAB_OT_bake_card_maps(GroomOperator):
+    """Bake the groom's cards (its Cards nodes) and write their maps as a preset packs them: Unreal's
+    hair card layout, a packed Unreal set, Unity HDRP hair, every map on its own, or a preset of yours
+    (Documents/GroomLab/card_presets, shared with Maya and the app)"""
+    bl_idname = "groomlab.bake_card_maps"
+    bl_label = "Export Card Maps"
+    bl_options = {"REGISTER"}
+
+    preset: EnumProperty(name="Preset", items=_card_preset_items,
+                         description="What goes in each file: an engine's layout, every map on its own, or your own")
+    resolution: IntProperty(name="Resolution", default=2048, min=16, max=8192,
+                            description="Texels square (the atlas is square), up to 8192")
+    file_format: EnumProperty(name="Format", items=[("PRESET", "Preset's", "The format the preset suggests"),
+                                                    ("tga", "TGA", ""), ("png", "PNG", ""), ("tiff", "TIFF", ""),
+                                                    ("exr", "EXR", "")], default="PRESET")
+    bit_depth: EnumProperty(name="Bit Depth", items=[("0", "Default", "The preset's, else the format's"),
+                                                     ("8", "8-bit", ""), ("16", "16-bit", "PNG, TIFF; half floats in EXR"),
+                                                     ("32", "32-bit float", "EXR, TIFF")], default="0")
+    padding: IntProperty(name="Padding", default=-1, min=-1, max=256,
+                         description="Texels the colors spread past the strands so mip maps don't bleed (-1: auto)")
+    supersample: EnumProperty(name="Supersampling", items=[("1", "1x (off)", ""), ("2", "2x", ""), ("4", "4x", "")],
+                              default="1", description="Anti-aliasing: baked bigger, then brought down")
+    directory: StringProperty(name="Folder", subtype="DIR_PATH", default="//card_maps/")
+    name: StringProperty(name="Name", default="", description="The files' {name} (default: the scalp's name)")
+
+    def invoke(self, context, event):
+        groom.card_map_presets(refresh=True)
+        return context.window_manager.invoke_props_dialog(self, width=360)
+
+    def execute(self, context):
+        scalp = active_groom(context)
+        directory = bpy.path.abspath(self.directory or "//card_maps/")
+        try:
+            r = groom.bake_card_maps(scalp, context.scene, self.preset, directory, self.name or scalp.name,
+                                     resolution=self.resolution,
+                                     fmt="" if self.file_format == "PRESET" else self.file_format,
+                                     bit_depth=int(self.bit_depth), padding=self.padding,
+                                     supersample=int(self.supersample))
+        except HelperError as e:
+            return _fail(self, e)
+        self.report({"INFO"}, "Wrote %d card maps into %s" % (len(r.get("paths", [])), directory))
+        return {"FINISHED"}
+
+
 classes = (GROOMLAB_OT_add_groom, GROOMLAB_OT_remove_groom, GROOMLAB_OT_sculpt_guides, GROOMLAB_OT_update,
            GROOMLAB_OT_refresh_presets, GROOMLAB_OT_apply_preset, GROOMLAB_OT_insert_preset, GROOMLAB_OT_node_add,
            GROOMLAB_OT_node_remove, GROOMLAB_OT_node_move, GROOMLAB_OT_toggle_group, GROOMLAB_OT_save_groom,
-           GROOMLAB_OT_load_groom, GROOMLAB_OT_export_alembic, GROOMLAB_OT_export_usd)
+           GROOMLAB_OT_load_groom, GROOMLAB_OT_export_alembic, GROOMLAB_OT_export_usd, GROOMLAB_OT_bake_card_maps)
 
 
 GROOM_FILE_TEXT = "GroomLab Groom File (.groom)"  # File > Import and File > Export, named as Blender names formats

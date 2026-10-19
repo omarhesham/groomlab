@@ -1,0 +1,205 @@
+---
+title: Use GroomLab from AI agents
+description: groomlab-cli's MCP server - connect Claude Desktop, Claude Code, Cursor or VS Code to GroomLab, the tools an agent gets, an example session, groom recipes and safety notes.
+---
+
+GroomLab has no chat window of its own. Instead, `groomlab-cli` has an MCP server built in, so
+the AI app you already use can drive GroomLab directly. MCP (the
+[Model Context Protocol](https://modelcontextprotocol.io)) is an open standard for connecting AI
+apps to tools: the app starts a small program on your machine, asks it which tools it has, and
+lets its model call them. With GroomLab connected, you can ask for "a curly bob on Nika, a bit
+redder", and the agent builds the groom, looks at a preview, adjusts it and saves a `.groom` file
+that Maya, the app, Blender and the render procedurals open.
+
+The server runs on your machine and makes no network connections. It reads and writes files only
+inside one folder that you choose.
+
+## Where groomlab-cli is
+
+`groomlab-cli` comes in the Maya download, in the `GroomLab\bin` folder of the module. If you
+unzipped it to `Documents\GroomLab`, that is:
+
+```text
+C:\Users\<you>\Documents\GroomLab\GroomLab\bin\groomlab-cli.exe
+```
+
+On Linux it is `GroomLab/bin/groomlab-cli` in the `groomlab-<version>-linux-x86_64.tar.gz`
+archive. The standalone app's zip does not include it.
+
+The server is started as `groomlab-cli mcp --root <folder>`. The root is the folder the agent works
+in: meshes it grooms on, and every `.groom`, `.abc`, `.usda` and `.png` it writes. Without
+`--root`, the server uses the folder it was started in. Make a folder for it, for example
+`Documents\grooms`.
+
+## Connect your AI app
+
+Each app has its own config file. In the snippets below, replace the paths with your own. In JSON,
+backslashes are written twice.
+
+### Claude Desktop
+
+Open **Settings > Developer > Edit Config**, add GroomLab to `claude_desktop_config.json`, then
+restart Claude Desktop:
+
+```json title="claude_desktop_config.json"
+{
+  "mcpServers": {
+    "groomlab": {
+      "command": "C:\\Users\\you\\Documents\\GroomLab\\GroomLab\\bin\\groomlab-cli.exe",
+      "args": ["mcp", "--root", "C:\\Users\\you\\Documents\\grooms"]
+    }
+  }
+}
+```
+
+### Claude Code
+
+Run this once, in a terminal:
+
+```bash
+claude mcp add --scope user groomlab -- "C:\Users\you\Documents\GroomLab\GroomLab\bin\groomlab-cli.exe" mcp --root "C:\Users\you\Documents\grooms"
+```
+
+`/mcp` in Claude Code shows whether it is connected. Leave out `--root` to work in the folder
+Claude Code was started in.
+
+### Cursor
+
+Add the server to `~/.cursor/mcp.json` (every project) or `.cursor/mcp.json` (one project):
+
+```json title=".cursor/mcp.json"
+{
+  "mcpServers": {
+    "groomlab": {
+      "command": "C:\\Users\\you\\Documents\\GroomLab\\GroomLab\\bin\\groomlab-cli.exe",
+      "args": ["mcp", "--root", "C:\\Users\\you\\Documents\\grooms"]
+    }
+  }
+}
+```
+
+### VS Code
+
+Add it to `.vscode/mcp.json` in your workspace (or run **MCP: Add Server** from the command
+palette), then use it from Copilot's agent mode:
+
+```json title=".vscode/mcp.json"
+{
+  "servers": {
+    "groomlab": {
+      "type": "stdio",
+      "command": "C:\\Users\\you\\Documents\\GroomLab\\GroomLab\\bin\\groomlab-cli.exe",
+      "args": ["mcp", "--root", "${workspaceFolder}"]
+    }
+  }
+}
+```
+
+Any other app that supports MCP servers over stdio works the same way: the command is
+`groomlab-cli`, and the arguments are `mcp --root <folder>`.
+
+## The tools
+
+The agent sees these tools, each with a description and a JSON Schema for its arguments. Grooms
+are held in memory by name, so one session can work on several grooms. Each tool that changes a
+groom answers with a short summary: strand and point counts, guides, bounds, and any node's errors.
+
+| Tool | What it does |
+| --- | --- |
+| `list_nodes`, `describe_node` | The node catalog by category, and one node type's inputs and params (kind, default, range, unit, what it does). Includes your library's compound and script nodes. |
+| `list_presets`, `list_sample_meshes` | The shipped presets (complete looks) and sample meshes (Nika, a wolf). |
+| `get_docs` | Any page of these docs as text, by name or by a few words, so the agent can read how a feature works. |
+| `new_groom`, `open_groom`, `list_grooms` | A new groom on a sample or an `.obj`/`.abc` mesh (the default graph or a preset), or a `.groom` file opened. |
+| `apply_preset` | Replaces the graph with a preset's, or inserts its look as one compound node. |
+| `get_graph`, `add_node`, `remove_node`, `connect`, `disconnect`, `set_params` | Reading and editing the node graph. `add_node` with `after` inserts a node into the chain; `set_params` checks values against the param's kind, range and choices. |
+| `sample_scalp`, `add_guides`, `get_guides`, `set_tube` | Guide curves: points spread over the scalp, guides from point lists or grown from a root (length, droop), and their tubes (shape, width, aspect, twist) for tube locks. |
+| `add_script_node`, `save_node` | A [script node](/docs/custom-nodes#script-nodes) written from text. Errors come back with their line and column, and nothing changes until the script is valid. Saves script and compound nodes as `.glnode` files. |
+| `undo` | Steps back through a groom's changes (64 kept). |
+| `evaluate` | Counts, bounds, errors, notes and the slowest nodes' timings. |
+| `render_preview` | A PNG of the groom that the agent can look at: the scalp shaded and the strands drawn in the hair's color, from the front, side, back, three-quarter or top view, several in a grid. |
+| `save_groom`, `export` | A `.groom` file, or the strands as Alembic or USD curves over a frame range (as `groomlab-cli eval` writes them). |
+
+<Callout type="info" title="The preview is not a render">
+  `render_preview` is a simple CPU drawing (no GPU) for checking shape, length, direction and color:
+  flat shading, one-pixel strands, no shadows. Grooms with more than 50,000 strands are thinned for
+  it, and the response says so. Render in Arnold, Cycles or the app for the real look.
+</Callout>
+
+## An example session
+
+> **You:** Make tube-lock anime hair on Nika and show me.
+
+A typical agent does something like this:
+
+1. `list_presets`, then `new_groom` with `{"name": "anime", "mesh": "nika", "preset": "tube_locks"}`.
+   The summary has an error: Scatter's guide radius needs guides.
+2. `sample_scalp` with `{"min_up": 0.3}` for points on the top of the head.
+3. `add_guides` with roots from those points, for example
+   `{"root": [0, 13, 0], "length": 18, "droop": 0.8}`, and a ribbon tube for all of them:
+   `{"shape": "ribbon", "width": [1.6, 1.2, 0.2], "aspect": 0.35}`.
+4. `render_preview` with `{"views": ["front", "side", "back", "three_quarter"]}`. The agent looks at
+   the image and changes what it sees: `set_tube` for flatter locks, `set_params` on `clump`.
+5. `save_groom` with `{"path": "anime.groom"}`, which you then open in Maya or the app to keep
+   grooming with brushes.
+
+If a change goes wrong, the agent can call `undo`. If an argument is wrong, the tool's error says
+why (a param's range, the node names it has, a path outside the folder), and the agent tries again.
+
+## Groom recipes
+
+Typical graphs, as the shipped presets build them. Lengths are in scene units (centimeters on
+Nika, a head about 35 units tall). A preset applied to a scalp of another size is scaled to fit it.
+
+- **Natural hair** (`hair_basics`): Scalp > Scatter (`density` 80, `length` 15) > Interpolate
+  (with Guides) > Clump (`clumpBy` size, `size` 1.2, `strength` 0.8) > Noise (`amplitude` 0.05) >
+  HairColor (`melanin` 0.7: 0 blond, 1 black; `redness`) > Width (`width` 0.007, tapered `profile`)
+  > Resample (16 segments) > Output. Guides do most of the styling: without them, strands grow
+  straight out along the scalp's normals.
+- **Curly** (`curly`): as above, with Curl after Clump (`radius` 0.45, `frequency` 0.4,
+  `coherence` clump, so each clump curls as one ringlet), and Resample at 40 segments for smooth
+  curls.
+- **Tube locks, anime and cartoon** (`tube_locks`): Scatter with `guideRadius` 1 (hair only on the
+  guides' tubes, fed the guides), Interpolate with `fillTubes` on (strands fill each guide's tube to
+  its tip; `tubeBlend` softens the edge), Clump with `followTubes`. The tubes' shape, width, aspect
+  and twist (`set_tube`) set each lock's look.
+- **Fur** (`creature_fur`): Scalp > Scatter (`density` 25, `length` 3.5) > Length (uneven ends) >
+  Flow (fur lies along painted direction arrows; without arrows, along its own direction) > Clump
+  (small tufts) > Noise > HairColor (`tipColor` and `tipStrength` lighten the tips) > Width > Resample
+  (8 segments). Made at wolf size (100 units).
+- **More looks:** `braids`, `wet`, `frizz`, `flyaways`, `gravity`, `two_tone_tips`, `parted_style`
+  and the feather and scale presets. `list_presets` describes each one.
+
+Key params by node: Scatter `density` (strands per square unit) and `length`; Clump `size` or
+`count`, `strength` and `profile` (root to tip); Curl `radius` and `frequency`; Noise `amplitude`
+and `frequency`; Length `fraction`, `trimMin` and `trimMax`; HairColor `melanin`, `redness`, `dye`
+and the tip color; Width `width` and `profile`. `describe_node` gives every param with its range.
+
+## Safety
+
+- **One folder.** The server reads and writes only inside its root. Paths are resolved first, so
+  `..` and links cannot leave it. This also applies to the files a groom names (caches, texture
+  maps in params) and to `save_to`. GroomLab's own presets, nodes, sample meshes and docs are read
+  where they are installed.
+- **No network.** The server talks only to the app that started it, over stdin and stdout.
+- **Limits.** Mesh files up to 512 MB, 5,000 guides per call, scripts up to 64 KB, previews up
+  to 1024 pixels wide, exports up to 1,000 frames.
+- **Nothing is overwritten by surprise.** Changes stay in memory until `save_groom`, `save_node` or
+  `export` writes a file, and those writes go only to the paths the agent names, inside the root.
+- **Same calls, same results.** Grooms evaluate deterministically, so the same calls give the same
+  strands and the same preview pixels. Only timings differ between runs.
+
+## Schemas
+
+JSON Schemas for GroomLab's file formats, for agents and tools that write them directly:
+[groom.schema.json](/schemas/groom.schema.json) (`.groom`, its top level),
+[graph.schema.json](/schemas/graph.schema.json) (a graph, as grooms and presets hold it) and
+[glnode.schema.json](/schemas/glnode.schema.json) (compound and script nodes). See
+[Groom file format](/docs/groom-format) for every field.
+
+## Not yet
+
+- **A live bridge to Maya or the app.** The server works on grooms in its own memory. To continue
+  with brushes, open the saved `.groom` in Maya or the app.
+- **Painting maps.** A preset that reads painted maps (density, length) says which maps are missing.
+  These maps can only be painted in GroomLab itself.
+- **Flow arrows, parts and sculpts.** These come from the brushes in Maya, the app and Blender.

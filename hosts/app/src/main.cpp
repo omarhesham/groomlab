@@ -9,7 +9,8 @@
 //            [--brush name=value]... [--stroke "x,y x,y ..."]... [--tool camera|brush|select]
 //            [--time frame] [--follow-scalp on|off] [--show-cards] [--simulate frame] [--bake-simulation frame]
 //            [--export-alembic out.abc] [--export-usd out.usda] [--export-unreal out.abc]
-//            [--export-unity out.abc] [--export-cards out.glb|out.gltf]
+//            [--export-unity out.abc] [--export-cards out.glb|out.gltf] [--export-maps folder/name]
+//            [--map-preset name] [--map-format tga|png|tiff|exr] [--map-bit-depth N] [--map-supersample N]
 //            [--export-frames a-b[:step]] [--export-density d] [--points-per-strand N] [--export-scale s]
 //            [--cards-resolution N] [--bake-cards dir [--bake-name name]]
 //            [--screenshot out.png [--size WxH] [--frames N]] [--benchmark N] [--live-benchmark N [--live-mode orbit|hover|stroke|param]]
@@ -57,6 +58,7 @@
 #include <QVector3D>
 
 #include "groomlab/alembic_operators.h"
+#include "groomlab/card_maps.h"
 #include "groomlab/graph.h"
 #include "groomlab/version.h"
 #include "main_window.h"
@@ -168,6 +170,7 @@ int main(int argc, char** argv) {
     // Exports (target, path) in the order given, their shared options, and the card bake.
     std::vector<std::pair<QString, QString>> exports;
     groomlab::app::ExportOptions exportOptions;
+    exportOptions.mapPreset = groomlab::builtinCardMapPresets().front();  // --export-maps: Unreal's layout by default
     bool exportRange = false;
     QString bakeDir, bakeName;
     bool bake = false;
@@ -334,7 +337,7 @@ int main(int argc, char** argv) {
             bakeSimulationFrame = std::atof(argv[++i]);
         } else if (std::strncmp(arg, "--export-", 9) == 0 && hasValue &&
                    (std::strcmp(arg + 9, "alembic") == 0 || std::strcmp(arg + 9, "usd") == 0 || std::strcmp(arg + 9, "unreal") == 0 ||
-                    std::strcmp(arg + 9, "unity") == 0 || std::strcmp(arg + 9, "cards") == 0)) {
+                    std::strcmp(arg + 9, "unity") == 0 || std::strcmp(arg + 9, "cards") == 0 || std::strcmp(arg + 9, "maps") == 0)) {
             exports.emplace_back(QString::fromLatin1(arg + 9), QString::fromLocal8Bit(argv[++i]));
         } else if (std::strcmp(arg, "--export-frames") == 0 && hasValue) {
             // a-b[:step]: the frames every export covers (else the current frame alone).
@@ -357,7 +360,22 @@ int main(int argc, char** argv) {
             exportOptions.scale = static_cast<float>(std::atof(argv[++i]));
         } else if (std::strcmp(arg, "--cards-resolution") == 0 && hasValue) {
             exportOptions.resolution = std::atoi(argv[++i]);
+            exportOptions.mapSettings.resolution = exportOptions.resolution;
             bakeResolution = exportOptions.resolution;
+        } else if (std::strcmp(arg, "--map-preset") == 0 && hasValue) {
+            const std::string name = QString::fromLocal8Bit(argv[++i]).toStdString();
+            const auto preset = groomlab::findCardMapPreset(name);
+            if (!preset) {
+                std::fprintf(stderr, "GroomLab: no card map preset named '%s'\n", name.c_str());
+                return 2;
+            }
+            exportOptions.mapPreset = *preset;
+        } else if (std::strcmp(arg, "--map-format") == 0 && hasValue) {
+            exportOptions.mapSettings.format = argv[++i];
+        } else if (std::strcmp(arg, "--map-bit-depth") == 0 && hasValue) {
+            exportOptions.mapSettings.bitDepth = std::atoi(argv[++i]);
+        } else if (std::strcmp(arg, "--map-supersample") == 0 && hasValue) {
+            exportOptions.mapSettings.supersample = std::atoi(argv[++i]);
         } else if (std::strcmp(arg, "--bake-cards") == 0 && hasValue) {
             bakeDir = QString::fromLocal8Bit(argv[++i]);
             bake = true;
@@ -376,6 +394,7 @@ int main(int argc, char** argv) {
                         "                [--export-alembic out.abc] [--export-usd out.usda] [--export-unreal out.abc] [--export-unity out.abc]\n"
                         "                [--export-cards out.glb|out.gltf] [--export-frames a-b[:step]] [--export-density d]\n"
                         "                [--points-per-strand N] [--export-scale s] [--cards-resolution N]\n"
+                        "                [--export-maps folder/name [--map-preset name] [--map-format f] [--map-bit-depth N] [--map-supersample N]]\n"
                         "                [--bake-cards dir [--bake-name name]]\n"
                         "                [--screenshot out.png [--size WxH] [--frames N]] [--benchmark N]\n"
                         "                [--live-benchmark N [--live-mode orbit|hover|stroke|param|param-commit]]\n"

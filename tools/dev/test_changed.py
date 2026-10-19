@@ -58,7 +58,8 @@ RULES = [
     ("tests/engine/gpu/", {"gpu"}),
     ("engine/python/", {"python", "maya"}),  # the plugin's Python imports the module
     ("tests/engine/python/", {"python"}),
-    ("engine/cli/", {"python", "maya", "blender"}),
+    ("engine/cli/", {"core", "python", "maya", "blender"}),  # core: cli.mcp_session
+    ("tests/engine/cli/", {"core"}),
     ("tests/data/", {"quick"}),
     ("cmake/", {"quick"}),
     ("CMakeLists.txt", {"quick"}),
