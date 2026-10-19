@@ -1789,8 +1789,8 @@ def overlay_check(snapshots=None):
     groomlab.guides_from_curves(groom, curves)
     cmds.delete(curves)
     groomlab.generate_children(groom, "primary", name="children", count=3)
-    cmds.setAttr(groom + ".themeGuideColors", False)
-    cmds.setAttr(groom + ".guideColor", 0.0, 1.0, 0.0)
+    for group in ("primary", "children"):  # green guides: their groups' own color
+        groomlab.set_guide_group_color(groom, group, (0.0, 1.0, 0.0))
     cmds.setAttr(groom + ".guidePoints", 0)  # the dots draw X-ray whatever the lines do: lines alone
     # Opaque strands (width as coverage off): thin strands drawn by their coverage let the guides
     # behind them show through, depth-tested or not.
@@ -2914,7 +2914,6 @@ def overlay_snapshots(folder):
     cmds.setAttr(groom + ".displayTubes", True)
     shot("tubes")
     cmds.setAttr(groom + ".displayTubes", False)
-    cmds.setAttr(groom + ".themeGuideColors", False)
     cmds.setAttr(groom + ".displayLevel", 1)
     shot("guide_level")
     cmds.setAttr(groom + ".displayLevel", -1)
@@ -2925,7 +2924,6 @@ def overlay_snapshots(folder):
     groomlab.color_guides_by_group(groom, False)
     cmds.setAttr(groom + ".guidePoints", 2)
     cmds.setAttr(groom + ".guideSmoothing", 4)
-    cmds.setAttr(groom + ".themeGuideColors", True)
     groomlab.set_guide_attribute(groom, "len", 0.8, guides=primaries[:1])
     groomlab.freeze_guides(groom, primaries[1:2])
     cmds.setAttr(groom + ".guideColorMode", 1)

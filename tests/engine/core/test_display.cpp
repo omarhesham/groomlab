@@ -223,7 +223,7 @@ std::vector<Scenario> scenarios() {
     add("strokeHidden", [](Scenario& s) { s.stroke = true, s.settings.sculptDisplay = 2, s.settings.tubes = true; });
     add("roots", [](Scenario& s) { s.roots = true; });
     add("guideLevels", [](Scenario& s) {
-        s.settings.themedGuideColors = false, s.settings.displayLevel = 1, s.settings.tubes = true, s.settings.guidePoints = 1;
+        s.settings.displayLevel = 1, s.settings.tubes = true, s.settings.guidePoints = 1;
     });
     add("guideLayer", [](Scenario& s) {
         s.settings.guideColorMode = 1, s.settings.guideColorLayer = "len", s.settings.guideSmoothing = 1;

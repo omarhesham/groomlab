@@ -190,11 +190,9 @@ public:
     static MObject aCorrectiveWeight;  // keyable per-layer weights (multi; a layer's `slot` picks its element)
     static MObject aShotSculpt;
     static MObject aShotLayer;
-    // Guides: primaries in guideColor (children lighter, hue-shifted per
-    // level), guideWidth pixels wide.
-    static MObject aGuideColor;
+    // Guides: each level in the UI theme's color for it (a guide group's own color wins),
+    // guideWidth pixels wide.
     static MObject aGuideWidth;
-    static MObject aThemeGuideColors;  // guides colored by the UI theme's level palette (else guideColor)
     static MObject aGuidePoints;       // dots on guide points: off, roots and tips, all
     static MObject aGuideSmoothing;    // guides draw smooth: pieces per segment (1: straight)
     static MObject aHiddenGuideGroups; // guide groups hidden in the viewport (names): not drawn, brushed or selected

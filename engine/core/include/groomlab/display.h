@@ -126,9 +126,6 @@ constexpr std::array<float, 3> kDefaultStrandColor{0.62f, 0.45f, 0.28f};
 constexpr int kMaxDrawnGuideLevels = 8;
 
 std::array<float, 3> hueColor(float hue, float saturation, float value);
-// A guide level's color: the base for primaries; deeper levels shift the hue (+0.13 of a turn
-// per level) and lighten, so levels stay apart.
-std::array<float, 3> levelColor(const std::array<float, 3>& base, int level);
 // Blue, cyan, green, yellow, red over t in [0, 1].
 std::array<float, 3> rampColor(float t);
 // Density heatmap per strand (strands per area around each root on a log scale around the
@@ -348,8 +345,6 @@ struct DisplaySettings {
     // Guides.
     bool guides = true, tubes = false;
     float guideWidth = 4.0f;
-    std::array<float, 3> guideColor{0.0097f, 0.184f, 0.888f};
-    bool themedGuideColors = true;
     int guideColorMode = 0;  // 0 by level, 1 by the layer guideColorLayer, 2 by group
     std::string guideColorLayer;
     int displayLevel = -1;   // >= 0: that level isolated, the others dimmed

@@ -524,9 +524,6 @@ DisplaySettings GroomSubSceneOverride::readSettings() {
     s.guides = displayFlag(GroomShape::aDisplayGuides);
     s.tubes = displayFlag(GroomShape::aDisplayTubes);
     s.guideWidth = floatPlug(GroomShape::aGuideWidth);
-    MPlug guideColor(object_, GroomShape::aGuideColor);
-    s.guideColor = {guideColor.child(0).asFloat(), guideColor.child(1).asFloat(), guideColor.child(2).asFloat()};
-    s.themedGuideColors = displayFlag(GroomShape::aThemeGuideColors);
     s.guideColorMode = MPlug(object_, GroomShape::aGuideColorMode).asShort();
     s.guideColorLayer = MPlug(object_, GroomShape::aGuideColorLayer).asString().asChar();
     s.displayLevel = MPlug(object_, GroomShape::aDisplayLevel).asInt();

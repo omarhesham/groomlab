@@ -337,7 +337,7 @@ write them back as Maya reads them (the catalog, vertex maps as the scalp's colo
 **Display buffers.** `display` runs a `DisplayBuilder` (one per session) on the guides as they
 are now (`GroomSession::hierarchy()`: a live stroke's preview included), the last evaluation's
 parts and flow, the session's scalp, the selection and the map shown, with Maya's display settings
-(`settings`: `guides`, `tubes`, `flow`, `guideWidth`, `guideColor`, `themedGuideColors`,
+(`settings`: `guides`, `tubes`, `flow`, `guideWidth`,
 `guideColorMode` (level, layer, group), `guideColorLayer`, `displayLevel`, `guidePoints` (off,
 ends, all), `guideSmoothing` (4), `guideDisplaySegments`, `hiddenGuideGroups` (default: the
 session's), `guideGroupColors`, `theme` {levels, pointSize, selected, softSelected, frozen, parts,

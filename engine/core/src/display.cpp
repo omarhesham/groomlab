@@ -202,22 +202,6 @@ std::array<float, 3> hueColor(float h, float sat, float val) {
     }
 }
 
-std::array<float, 3> levelColor(const std::array<float, 3>& base, int level) {
-    if (level == 0) return base;
-    const float mx = std::max({base[0], base[1], base[2]}), mn = std::min({base[0], base[1], base[2]});
-    float h = 0.0f;
-    const float d = mx - mn;
-    if (d > 1e-6f) {
-        if (mx == base[0]) h = std::fmod((base[1] - base[2]) / d, 6.0f);
-        else if (mx == base[1]) h = (base[2] - base[0]) / d + 2.0f;
-        else h = (base[0] - base[1]) / d + 4.0f;
-        h /= 6.0f;
-    }
-    const float sat = mx > 0.0f ? d / mx : 0.0f;
-    const float lighten = std::min(0.18f * static_cast<float>(level), 0.5f);
-    return hueColor(h + 0.13f * static_cast<float>(level), sat * (1.0f - 0.6f * lighten), std::min(1.0f, mx + lighten));
-}
-
 std::array<float, 3> rampColor(float t) {
     t = std::clamp(t, 0.0f, 1.0f);
     return hueColor((1.0f - t) * (2.0f / 3.0f), 0.85f, 0.95f);
@@ -1725,14 +1709,13 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     const int dotSegments = std::clamp(s.guideDisplaySegments, 0, 64);
     const int pointMode = s.guidePoints;
     std::uint64_t key = hashCombine(hash64(in.hierarchyVersion), (s.guides ? 1u : 0u) + (s.tubes ? 2u : 0u) + (byLayer ? 4u : 0u) +
-                                                                     (byGroup ? 8u : 0u) + (s.themedGuideColors ? 16u : 0u) +
+                                                                     (byGroup ? 8u : 0u) +
                                                                      32u * static_cast<unsigned>(pointMode));
     key = hashCombine(key, theme.version);
     key = hashCombine(key, static_cast<std::uint64_t>(smoothing + 32 * dotSegments));
     key = hashChars(key, s.hiddenGuideGroups);
     key = hashChars(key, s.guideGroupColors);
     key = hashCombine(key, static_cast<std::uint64_t>(s.displayLevel + 1));
-    for (const float c : s.guideColor) key = hashFloat(key, c);
     key = hashChars(key, s.guideColorLayer);
     if (in.clumpCenters) {
         // Hashed once per set of centers (the same pointer: the same centers, held here so no
@@ -1748,8 +1731,8 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     }
     if (!rebuild(DisplayPart::Guides, key)) return;
     // By level (or by a layer, black to white, or by group), other levels dimmed when one is
-    // isolated, frozen ones in the theme's color. Primaries in guideColor; each level down
-    // lighter and a little further round the hue wheel.
+    // isolated, frozen ones in the theme's color. Each level in the theme's color for it; a
+    // group's own color (the host's, or a ToGuides node's) wins.
     const std::map<std::string, std::array<float, 3>> groupColors = parseGuideGroupColors(s.guideGroupColors);
     const std::set<std::string> hiddenNames = parseHiddenGuideGroups(s.hiddenGuideGroups);
     auto hiddenGuide = [&](const HierarchyGuide& g) {
@@ -1765,7 +1748,7 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     dots.colors.clear();
     std::array<std::array<float, 3>, kMaxDrawnGuideLevels> levelColors{};
     for (int level = 0; level < kMaxDrawnGuideLevels; ++level) {
-        levelColors[static_cast<std::size_t>(level)] = s.themedGuideColors ? theme.level(level) : levelColor(s.guideColor, level);
+        levelColors[static_cast<std::size_t>(level)] = theme.level(level);
     }
     // "all" points on many guides would be noise: every stride-th point, roots and tips always.
     constexpr std::size_t kPointBudget = 2500;

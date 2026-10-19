@@ -1391,8 +1391,6 @@ DisplaySettings displaySettingsOf(ToolState& t, const json& v) {
         else if (key == "tubes") s.tubes = settingBool(x, k);
         else if (key == "flow") s.flow = settingBool(x, k);
         else if (key == "guideWidth") s.guideWidth = settingNumber(x, k);
-        else if (key == "guideColor") s.guideColor = rgbOf(x, k);
-        else if (key == "themedGuideColors") s.themedGuideColors = settingBool(x, k);
         else if (key == "guideColorMode") {
             if (x.is_string()) {
                 const std::string m = x.get<std::string>();

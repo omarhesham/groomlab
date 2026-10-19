@@ -95,8 +95,6 @@ void bindDisplay(py::module_& m) {
         .def_readwrite("guides", &DisplaySettings::guides)
         .def_readwrite("tubes", &DisplaySettings::tubes)
         .def_readwrite("guide_width", &DisplaySettings::guideWidth)
-        .def_readwrite("guide_color", &DisplaySettings::guideColor)
-        .def_readwrite("themed_guide_colors", &DisplaySettings::themedGuideColors)
         .def_readwrite("guide_color_mode", &DisplaySettings::guideColorMode, "0 by level, 1 by layer, 2 by group.")
         .def_readwrite("guide_color_layer", &DisplaySettings::guideColorLayer)
         .def_readwrite("display_level", &DisplaySettings::displayLevel)

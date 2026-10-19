@@ -33,13 +33,6 @@ global proc AEgroomLabControlsReplace(string $attr) { python("import groomlab.ui
 global proc AEgroomLabColorNew(string $attr) { python("import groomlab.ui.ae as a; a.color_new('" + $attr + "')"); }
 global proc AEgroomLabColorReplace(string $attr) { python("import groomlab.ui.ae as a; a.color_replace('" + $attr + "')"); }
 
-// Theme Guide Colors on draws the guides in the theme's level colors: Guide Color, which they
-// replace, is dimmed so it does not look like a color the viewport should follow.
-global proc AEgroomLabThemeGuideColorsChanged(string $nodeName)
-{
-    editorTemplate -dimControl $nodeName "guideColor" `getAttr ($nodeName + ".themeGuideColors")`;
-}
-
 global proc AEgroomLabShapeTemplate(string $nodeName)
 {
     // The Controls section's sliders (keyable ctl_ attributes Control nodes add): folded while there are none.
@@ -90,8 +83,6 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
             editorTemplate -addControl "strandColorMax";
             editorTemplate -beginLayout "Guides" -collapse 1;
                 editorTemplate -addControl "displayOverlaysOnTop";
-                editorTemplate -addControl "themeGuideColors" "AEgroomLabThemeGuideColorsChanged";
-                editorTemplate -addControl "guideColor";
                 editorTemplate -addControl "guideWidth";
                 editorTemplate -addControl "guidePoints";
                 editorTemplate -addControl "guideSmoothing";

@@ -116,7 +116,7 @@ def settings_for(scalp, scene):
     d = scalp.groomlab_tools
     t = scene.groomlab_tools
     s = {"guides": bool(d.show_guides), "tubes": bool(d.show_tubes), "flow": bool(d.show_flow),
-         "guidePoints": d.guide_points, "guideColorMode": d.guide_color_mode, "themedGuideColors": True,
+         "guidePoints": d.guide_points, "guideColorMode": d.guide_color_mode,
          "theme": tools.theme()}
     if d.guide_color_mode == "layer" and d.guide_color_layer:
         s["guideColorLayer"] = d.guide_color_layer
