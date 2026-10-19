@@ -590,6 +590,7 @@ struct McpTools::Impl {
     ToolResult listSampleMeshes(const json&) {
         static const std::map<std::string, std::string> about{
             {"nika", "Nika, a human head (CC BY 4.0), about 25 units tall, Y-up, facing +Z: for hair."},
+            {"manny", "Manny, a human head (CC BY 4.0), about 34 units tall, Y-up, facing +Z: for hair."},
             {"wolf", "A wolf's body, Y-up: for fur."}};
         json meshes = json::array();
         for (const auto& [name, file] : sampleMeshes()) {
@@ -1436,7 +1437,7 @@ struct McpTools::Impl {
             "each makes. new_groom and apply_preset take them by name.",
             objectSchema({}), &Impl::listPresets);
         add("list_sample_meshes", "List sample meshes",
-            "Lists the meshes that ship with GroomLab to groom on (Nika, a human head; a wolf for fur). new_groom takes them by name.",
+            "Lists the meshes that ship with GroomLab to groom on (Nika and Manny, human heads; a wolf for fur). new_groom takes them by name.",
             objectSchema({}), &Impl::listSampleMeshes);
         add("get_docs", "Read the docs",
             "Reads a page of GroomLab's documentation as text (Markdown): how features work, what nodes and params do, recipes. "
@@ -1451,7 +1452,7 @@ struct McpTools::Impl {
             "HairColor, Width, Resample, Output), or a preset's. The mesh is a sample's name (list_sample_meshes) or an .obj or "
             ".abc file inside the server's folder. Answers with the scalp's bounds and a summary of the groom.",
             objectSchema({{"name", prop("string", "A name for the groom (letters, digits, _ - .), used by every other tool.")},
-                          {"mesh", prop("string", "A sample mesh's name (\"nika\", \"wolf\") or a mesh file's path (.obj, .abc).")},
+                          {"mesh", prop("string", "A sample mesh's name (\"nika\", \"manny\", \"wolf\") or a mesh file's path (.obj, .abc).")},
                           {"object", prop("string", "The mesh's name inside an Alembic file (default: its first mesh).")},
                           {"preset", prop("string", "A preset to start from (list_presets), instead of the default graph.")}},
                          {"name", "mesh"}),

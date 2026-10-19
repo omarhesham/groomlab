@@ -1677,6 +1677,8 @@ def install():
     cmds.menuItem(label="Add Sample Mesh", subMenu=True, annotation="A mesh to start from, at the origin and selected")
     _item("Nika (head)", lambda: add_sample_action("nika"),
           "Nika, a head and shoulders, at the origin and selected: then Create Groom from Selection")
+    _item("Manny (head)", lambda: add_sample_action("manny"),
+          "Manny, a head, at the origin and selected: then Create Groom from Selection")
     _item("Wolf", lambda: add_sample_action("wolf"),
           "A sitting wolf (body, eyes, nails, mouth), at the origin, its body selected: then Create Groom from Selection")
     cmds.setParent("..", menu=True)

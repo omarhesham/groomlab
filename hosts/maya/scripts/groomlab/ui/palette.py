@@ -886,9 +886,10 @@ class ToolPalette(QtWidgets.QWidget):
         column.addWidget(make)
         sample = QtWidgets.QPushButton("Add Sample Mesh")
         sample.setToolTip("No mesh yet? A sample to start from, added at the origin and selected: Nika (a head and "
-                          "shoulders) or a wolf")
+                          "shoulders), Manny (a head) or a wolf")
         samples = QtWidgets.QMenu(sample)
         samples.addAction("Nika (head)", lambda: self.add_sample("nika"))
+        samples.addAction("Manny (head)", lambda: self.add_sample("manny"))
         samples.addAction("Wolf", lambda: self.add_sample("wolf"))
         sample.setMenu(samples)
         column.addWidget(sample)

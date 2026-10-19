@@ -57,15 +57,16 @@ def create_groom(scalp=None, guides=None, name="groomLab1", fit=False):
 # the name it gets, and the part the groom grows on (None: the only one).
 SAMPLES = {
     "nika": ("nika_head.obj", 34.61, "nika_head", None),  # a head and shoulders
+    "manny": ("manny_head.obj", 34.21, "manny_head", None),  # a head
     "wolf": ("wolf.obj", 109.7, "wolf", "wolf_body"),     # a sitting wolf: body, eyes, nails, mouth
 }
 MESHES_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "meshes"))
 
 
 def add_sample(sample="nika"):
-    """Add a sample mesh (SAMPLES: "nika", a head and shoulders; "wolf", a sitting wolf) to the
-    scene at the origin, sized for the scene's units and turned for a z-up scene, and select the
-    part to groom: Create Groom from Selection grows hair on it. A sample of several parts comes
+    """Add a sample mesh (SAMPLES: "nika", a head and shoulders; "manny", a head; "wolf", a
+    sitting wolf) to the scene at the origin, sized for the scene's units and turned for a z-up
+    scene, and select the part to groom: Create Groom from Selection grows hair on it. A sample of several parts comes
     in under a group of its name. One undo step. Returns the selected part's transform."""
     if sample not in SAMPLES:
         raise ValueError("no sample %r (%s)" % (sample, ", ".join(sorted(SAMPLES))))

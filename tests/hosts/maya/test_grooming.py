@@ -923,9 +923,11 @@ class GroomingTest(unittest.TestCase):
         self.assertEqual(groomlab.paint_scalp_map(self.groom, "mask", paint=False), node)  # reused, not duplicated
 
     def test_the_sample_meshes_come_in_sized_and_selected(self):
-        # Nika and the wolf: their real size in any scene unit, turned for a z-up scene, the part to
-        # groom selected (the wolf's body, its other parts beside it in a group), a groom grows on it.
-        for sample, extent_cm, part in (("nika", 34.61, "nika_head"), ("wolf", 109.7, "wolf_body")):
+        # Nika, Manny and the wolf: their real size in any scene unit, turned for a z-up scene, the
+        # part to groom selected (the wolf's body, its other parts beside it in a group), a groom
+        # grows on it.
+        for sample, extent_cm, part in (("nika", 34.61, "nika_head"), ("manny", 34.21, "manny_head"),
+                                         ("wolf", 109.7, "wolf_body")):
             for unit, axis in (("cm", "y"), ("m", "y"), ("cm", "z")):
                 cmds.file(new=True, force=True)
                 cmds.currentUnit(linear=unit)
