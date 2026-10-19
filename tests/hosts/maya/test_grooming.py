@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -1100,9 +1101,35 @@ class GroomingTest(unittest.TestCase):
         groomlab.remove_map(self.groom, "fur")
         self.assertEqual(groomlab.list_maps(self.groom), [])
         self.assertEqual(cmds.getAttr(self.groom + ".strandColorMode"), 0)
-        self.assertTrue(groomlab.errors(self.groom))  # scatter still reads it: a clear error, not a crash
+        # An attribute map reads a strand channel (Attribute nodes write them too): kept, so it
+        # reports the missing channel, a clear error, not a crash.
+        self.assertTrue(groomlab.errors(self.groom))
         with self.assertRaises(RuntimeError):
             groomlab.remove_map(self.groom, "fur")
+
+    def test_removing_a_map_lets_what_reads_it_go(self):
+        groomlab.set_param(self.groom, "scatter", "density", 150.0)
+        map_node = groomlab.use_map(self.groom, "scatter", "density", "fur")
+        groomlab.use_map(self.groom, "length", "keep", "fur")
+        groomlab.add_map(self.groom, "cs", kind="vertices")
+        groomlab.set_param(self.groom, "noise", "amplitude", {"colorSet": "cs", "min": 0.0, "max": 1.0})
+        before = groomlab.get_graph(self.groom)
+        self.assertEqual(sorted(groomlab.remove_map(self.groom, "fur")), [("length", "keep"), ("scatter", "density")])
+        graph = groomlab.get_graph(self.groom)
+        self.assertNotIn(map_node, [n["name"] for n in graph["nodes"]])
+        scatter = next(n for n in graph["nodes"] if n["name"] == "scatter")
+        self.assertEqual(scatter["params"]["density"], 150.0)  # its slider value again
+        self.assertNotIn("density", scatter.get("paramInputs", []))
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertGreater(cmds.getAttr(self.groom + ".outStrandCount"), 0)
+        cmds.undo()  # one step: the map, its node and links
+        self.assertEqual(groomlab.get_graph(self.groom), before)
+        self.assertIn("fur", groomlab.list_maps(self.groom))
+        # A map param naming the map goes back to the node's default.
+        self.assertEqual(groomlab.remove_map(self.groom, "cs"), [("noise", "amplitude")])
+        noise = next(n for n in groomlab.get_graph(self.groom)["nodes"] if n["name"] == "noise")
+        self.assertNotIsInstance(noise["params"].get("amplitude"), dict)
+        self.assertEqual(groomlab.errors(self.groom), [])
 
     def test_sculpt_tools_scripted(self):
         points = guide_points(self.groom)
@@ -2608,8 +2635,8 @@ class GroomingTest(unittest.TestCase):
         self.assertEqual(nodes[mask]["params"]["name"], "crown")
         self.assertEqual(groomlab.errors(self.groom), [])
         self.assertEqual(sorted(groomlab.list_maps(self.groom)), ["crown", "where"])
-        groomlab.remove_map(self.groom, "where")
-        self.assertTrue(any("where" in e for e in groomlab.errors(self.groom)))
+        groomlab.remove_map(self.groom, "where")  # what read it lets go of it: no error
+        self.assertFalse(any("where" in e for e in groomlab.errors(self.groom)))
         # The map shown on the scalp: a display attribute; a fresh vertex map shows too.
         groomlab.show_map_on_scalp(self.groom, "crown")
         self.assertEqual(cmds.getAttr(self.groom + ".scalpMapDisplay"), "crown")
@@ -4107,6 +4134,34 @@ class AssetFilesTest(unittest.TestCase):
         cmds.undo()
         self.assertFalse(os.path.exists(renamed))
         self.assertTrue(os.path.exists(original))
+
+    def test_removing_a_texture_map_can_delete_its_file(self):
+        groom = self.groom_under(None)
+        made = self.density_map(groom, 1.0)
+        before = md5(made)
+        groomlab.remove_map(groom, "density")  # by default the file stays
+        self.assertTrue(os.path.exists(made))
+        cmds.undo()
+        groomlab.remove_map(groom, "density", delete_file=True)
+        self.assertFalse(os.path.exists(made))
+        cmds.undo()  # the map and its file back, the same bytes
+        self.assertEqual(groomlab.map_texture(groom, "density"), made)
+        self.assertEqual(md5(made), before)
+        cmds.redo()
+        self.assertFalse(os.path.exists(made))
+        cmds.undo()
+        # A file another groom reads stays.
+        copy = cmds.duplicate(cmds.listRelatives(groom, parent=True, fullPath=True)[0])[0]
+        copy = cmds.listRelatives(copy, shapes=True, fullPath=True, type=groomlab.GROOM_TYPE)[0]
+        groomlab.remove_map(copy, "density", delete_file=True)
+        self.assertTrue(os.path.exists(made))
+        # A PNG of the user's linked in place (outside the masks folder) stays.
+        mine = os.path.join(self.home, "mine.png").replace("\\", "/")
+        shutil.copyfile(made, mine)
+        groomlab.add_map(groom, "own", kind="vertices")
+        groomlab.set_map_texture(groom, "own", mine)
+        groomlab.remove_map(groom, "own", delete_file=True)
+        self.assertTrue(os.path.exists(mine))
 
     def test_paint_goes_to_the_painted_grooms_own_file(self):
         # The tool's -paintTexture still names groom A's file (set while A was active); the

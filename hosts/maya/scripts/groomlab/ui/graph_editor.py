@@ -30,6 +30,7 @@ description (the panel's top, the search) is its spec's.
 """
 
 import json
+import math
 import os
 
 from groomlab.ui import qt
@@ -1573,8 +1574,9 @@ class GraphScene(QtWidgets.QGraphicsScene):
 
 
 class GraphView(QtWidgets.QGraphicsView):
-    """Wheel zoom, middle-drag (or Alt+drag) pan anywhere, F frames the selection
-    (or everything), A frames everything."""
+    """Wheel zoom, Alt+right-drag zoom (as in Maya's viewports: right or down zooms in),
+    middle-drag (or Alt+drag) pan anywhere, F frames the selection (or everything), A frames
+    everything."""
 
     # The canvas: far past any graph, so panning and zooming aren't held to the nodes.
     CANVAS = 100000.0
@@ -1589,6 +1591,8 @@ class GraphView(QtWidgets.QGraphicsView):
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)  # a click gives it the keys (Delete, Ctrl+Z...)
         self._pan = None
+        self._zoom = None  # an Alt+right-drag: (its press point, the scene point there, the zoom then)
+        self._zoomed = False  # the right button's release ended a zoom: no add menu
         self.auto_frame = True  # keep the graph framed on resize until the user zooms or pans
         self.setTransform(QtGui.QTransform.fromScale(theme.scale(), theme.scale()))  # 1:1 at Maya's UI scale
         self.setAcceptDrops(True)  # .glnode files dropped in: imported into the library and added
@@ -1626,9 +1630,32 @@ class GraphView(QtWidgets.QGraphicsView):
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         zoom = self.transform().m11() * factor
-        if 0.05 * theme.scale() <= zoom <= 4.0 * theme.scale():
+        if self.ZOOM_MIN * theme.scale() <= zoom <= self.ZOOM_MAX * theme.scale():
             self.scale(factor, factor)
         self.auto_frame = False
+
+    ZOOM_MIN, ZOOM_MAX = 0.05, 4.0  # x Maya's interface scale
+    ZOOM_RATE = 0.005  # Alt+right-drag: the zoom doubles every ~140 px
+
+    def zoom_drag(self, pos):
+        """Alt+right-drag: zoom by how far right and down the drag went, the point pressed staying
+        under the cursor."""
+        start, anchor, zoom = self._zoom
+        moved = (pos.x() - start.x()) + (pos.y() - start.y())
+        least, most = self.ZOOM_MIN * theme.scale(), self.ZOOM_MAX * theme.scale()
+        zoom = min(max(zoom * math.exp(moved * self.ZOOM_RATE), least), most)
+        self.setTransform(QtGui.QTransform.fromScale(zoom, zoom))
+        off = self.mapFromScene(anchor) - start
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + off.x())
+        self.verticalScrollBar().setValue(self.verticalScrollBar().value() + off.y())
+        self.auto_frame = False
+
+    def contextMenuEvent(self, event):
+        if self._zoomed or self._zoom is not None or event.modifiers() & QtCore.Qt.AltModifier:
+            self._zoomed = False
+            event.accept()  # the end of an Alt+right-drag zoom, not a menu
+            return
+        super(GraphView, self).contextMenuEvent(event)
 
     def resizeEvent(self, event):
         super(GraphView, self).resizeEvent(event)
@@ -1710,6 +1737,14 @@ class GraphView(QtWidgets.QGraphicsView):
         return False  # Tab opens the add menu instead of moving focus
 
     def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.RightButton and event.modifiers() & QtCore.Qt.AltModifier:
+            pos = qt.event_pos(event)
+            self._zoom = (pos, self.mapToScene(pos), self.transform().m11())
+            self._zoomed = False
+            self.setCursor(QtCore.Qt.SizeVerCursor)
+            event.accept()
+            return
+        self._zoomed = False
         if event.button() == QtCore.Qt.MiddleButton or (
                 event.button() == QtCore.Qt.LeftButton and event.modifiers() & QtCore.Qt.AltModifier):
             self._pan = qt.event_pos(event)
@@ -1718,6 +1753,9 @@ class GraphView(QtWidgets.QGraphicsView):
         super(GraphView, self).mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._zoom is not None:
+            self.zoom_drag(qt.event_pos(event))
+            return
         if self._pan is not None:
             delta = qt.event_pos(event) - self._pan
             self.auto_frame = False
@@ -1728,6 +1766,12 @@ class GraphView(QtWidgets.QGraphicsView):
         super(GraphView, self).mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._zoom is not None and event.button() == QtCore.Qt.RightButton:
+            self._zoom = None
+            self._zoomed = True
+            self.unsetCursor()
+            event.accept()
+            return
         if self._pan is not None and event.button() in (QtCore.Qt.MiddleButton, QtCore.Qt.LeftButton):
             self._pan = None
             self.unsetCursor()

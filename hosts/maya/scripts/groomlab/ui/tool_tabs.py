@@ -132,6 +132,21 @@ class _GroomTab(QtWidgets.QWidget):
         pass
 
 
+# Deleting a texture map deletes its file too (the maps list's right-click menu turns it off).
+DELETE_MAP_FILES_VAR = "groomLabDeleteMapFiles"
+
+
+def delete_map_files():
+    """Whether Delete deletes a texture map's file too (on unless turned off)."""
+    from maya import cmds
+    return not cmds.optionVar(exists=DELETE_MAP_FILES_VAR) or bool(cmds.optionVar(query=DELETE_MAP_FILES_VAR))
+
+
+def set_delete_map_files(on):
+    from maya import cmds
+    cmds.optionVar(intValue=(DELETE_MAP_FILES_VAR, int(bool(on))))
+
+
 def _remove_callback(box):
     """Drop the MMessage callback whose id is in `box` (a one-item list), if any."""
     if box[0] is None:
@@ -794,7 +809,8 @@ class PaintTab(_GroomTab):
                            "into the masks folder as a PNG; color or gray as the image is)", lambda: self.import_map())],
             [("rename", "Rename the map; Map nodes and params reading it follow", self.rename_map),
              ("convert", "Convert to another kind: its name, and what reads it, stay the same", convert_menu),
-             ("delete", "Delete the map (a texture map's file stays on disk)", self.delete_map)])
+             ("delete", "Delete the map (a texture map's file too, unless Delete Its File is off in the "
+                        "list's right-click menu)", self.delete_map)])
         made[3].setObjectName("paintConvert")
         layout.addLayout(bar)
         self.list = QtWidgets.QListWidget()
@@ -912,6 +928,13 @@ class PaintTab(_GroomTab):
             menu_.setToolTipsVisible(True)
             menu_.addSeparator()
             menu_.addAction("Delete", self.delete_map)
+            if self.current_kind() == "texture":
+                files = menu_.addAction("Delete Its File Too")
+                files.setCheckable(True)
+                files.setChecked(delete_map_files())
+                files.setToolTip("Deleting a texture map deletes its image from the masks folder too (undo puts "
+                                 "it back). A PNG of yours linked in place, or one another map reads, stays.")
+                files.toggled.connect(set_delete_map_files)
         qt.exec_(menu_, global_pos)
 
     def image_actions(self):
@@ -1342,10 +1365,11 @@ class PaintTab(_GroomTab):
         name = self.current()
         users = groomlab.map_users(self.groom, name)
         if users and QtWidgets.QMessageBox.question(
-                self, "Delete Map", "%s is read by %s. Delete it anyway? Those params will report an error."
-                % (name, ", ".join("%s.%s" % u for u in users))) != QtWidgets.QMessageBox.Yes:
+                self, "Delete Map", "Delete %s? %s go%s back to %s own value%s (undo brings the map back)."
+                % (name, ", ".join("%s.%s" % u for u in users), "" if len(users) > 1 else "es",
+                   "their" if len(users) > 1 else "its", "s" if len(users) > 1 else "")) != QtWidgets.QMessageBox.Yes:
             return
-        self.run(groomlab.remove_map, self.groom, name)
+        self.run(groomlab.remove_map, self.groom, name, delete_file=delete_map_files())
         self.refresh()
 
     def convert_map(self, kind):

@@ -51,6 +51,7 @@ const char* kChannelsOf[] = {"-cho", "-channelsOf"};
 const char* kSetChannels[] = {"-sch", "-setChannels"};
 const char* kRelink[] = {"-rl", "-relink"};
 const char* kCopyFrom[] = {"-cf", "-copyFrom"};
+const char* kDeleteFile[] = {"-df", "-deleteFile"};
 
 
 bool hasLayer(const GuideHierarchy& h, const std::string& name) {
@@ -112,6 +113,7 @@ MSyntax ScalpMapsCmd::newSyntax() {
     s.addFlag(kSetChannels[0], kSetChannels[1], MSyntax::kString, MSyntax::kLong);
     s.addFlag(kRelink[0], kRelink[1], MSyntax::kString);
     s.addFlag(kCopyFrom[0], kCopyFrom[1], MSyntax::kString);
+    s.addFlag(kDeleteFile[0], kDeleteFile[1]);
     s.setObjectType(MSyntax::kSelectionList, 0, 1);
     s.useSelectionAsDefault(true);
     s.enableQuery(false);
@@ -292,8 +294,18 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
                     h->removeAttribute(name);
                     guidesChanged = true;
                 } else {
-                    maps.maps.erase(name);  // a texture map's file stays on disk
+                    // A texture map's file stays on disk, unless -deleteFile and nothing else
+                    // reads it (another map of this groom, another groom): its bytes kept for undo.
+                    const std::string file = kind == "texture" ? resolve(maps.maps[name].texture) : "";
+                    maps.maps.erase(name);
                     mapsChanged = true;
+                    const bool shared = !file.empty() && (fileUsedByOtherGroom(groomNode, file) ||
+                        std::any_of(maps.maps.begin(), maps.maps.end(), [&](const auto& m) {
+                            return m.second.kind == "texture" && samePath(resolve(m.second.texture), file);
+                        }));
+                    if (db.isFlagSet(kDeleteFile[0]) && !file.empty() && !shared && fileStamp(file) != 0) {
+                        deleted_ = {file, fileBytes(file), {}};
+                    }
                 }
             } else if (db.isFlagSet(kRename[0])) {
                 MString from, to;
@@ -525,7 +537,9 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
             modifier_.newPlugValueInt(tick, tick.asInt() + 1);
         }
         undoable_ = true;
-        return modifier_.doIt();
+        MStatus done = modifier_.doIt();
+        removeDeleted();
+        return done;
     });
 }
 
@@ -555,6 +569,13 @@ void copyFile(const std::string& from, const std::string& to) {
 
 }  // namespace
 
+void ScalpMapsCmd::removeDeleted() {
+    if (deleted_.path.empty()) return;
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::u8path(deleted_.path), ec);
+    if (ec) MGlobal::displayWarning(MString(kName) + ": could not delete " + deleted_.path.c_str());
+}
+
 MStatus ScalpMapsCmd::redoIt() {
     return groomlab::maya::guarded("ScalpMapsCmd::redoIt", [&]() -> MStatus {
         noteFileWritten();  // texture files may change: what kept their bytes reads them again
@@ -565,13 +586,16 @@ MStatus ScalpMapsCmd::redoIt() {
         } else {
             moveFile(moved_.first, moved_.second);
         }
-        return modifier_.doIt();
+        MStatus done = modifier_.doIt();
+        removeDeleted();
+        return done;
     });
 }
 
 MStatus ScalpMapsCmd::undoIt() {
     return groomlab::maya::guarded("ScalpMapsCmd::undoIt", [&]() -> MStatus {
         noteFileWritten();  // texture files may change: what kept their bytes reads them again
+        if (!deleted_.path.empty()) putFileBytes(deleted_.path, deleted_.before, kName);  // before the map names it again
         for (auto edit = rewritten_.rbegin(); edit != rewritten_.rend(); ++edit) putFileBytes(edit->path, edit->before, kName);
         MStatus status = modifier_.undoIt();
         if (!created_.path.empty()) {

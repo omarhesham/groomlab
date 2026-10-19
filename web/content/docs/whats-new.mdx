@@ -13,6 +13,18 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.19.2 (October 19, 2026)
+
+- **Alt+right-drag zooms the Graph Editor**, as in Maya's viewports: drag right or down to zoom in,
+  left or up to zoom out, around the point you pressed.
+- **Deleting a texture map deletes its image too** (the Paint section's maps list). Only a file
+  GroomLab made in the scene's masks folder, and only when no other map or groom reads it; undo
+  puts it back. Turn it off with **Delete Its File Too** in the list's right-click menu.
+- **Deleting a map unlinks it.** The params it fed go back to their own slider values (its Map
+  nodes are removed), and a param set to the map goes back to the node's default, so the groom
+  keeps working instead of reporting an error. The delete dialog names the params; undo brings
+  everything back.
+
 ## 0.19.1 (October 19, 2026)
 
 - **Manny, a new sample head.** **GroomLab > Add Sample Mesh > Manny (head)** (or the button under

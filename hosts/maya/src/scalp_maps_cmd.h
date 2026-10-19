@@ -24,7 +24,9 @@ namespace groomlab::maya {
 //             [-resolution/-res n] [-texture/-tx path]
 //                                     a new map filled with v (0); -color makes a color map
 //                                     (vertices or texture), filled with the color or (v v v 1)
-//   -remove/-rm <name>
+//   -remove/-rm <name> [-deleteFile/-df]
+//                                     -deleteFile: a texture map's file is deleted too, unless
+//                                     another map or groom reads it (put back on undo)
 //   -rename/-rn <old> <new> [-texture/-tx path]
 //                                     a texture map's file moves to path (undone with the rename);
 //                                     copied instead when another groom reads that file
@@ -75,6 +77,8 @@ private:
     };
     std::vector<FileEdit> rewritten_;
     FileEdit created_;  // a new file -relink wrote (its bytes in `after`): removed on undo, written on redo
+    FileEdit deleted_;  // the file -remove -deleteFile deleted (its bytes in `before`): put back on undo
+    void removeDeleted();  // deletes deleted_'s file (doIt, redoIt)
 };
 
 }  // namespace groomlab::maya

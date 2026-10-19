@@ -2054,6 +2054,29 @@ class GraphEditorTest(unittest.TestCase):
         view.frame()  # Frame: the selected node fills the view
         node = view.mapFromScene(self.editor.items["scatter"].sceneBoundingRect()).boundingRect()
         self.assertTrue(view.viewport().rect().contains(node))
+        # Alt+right-drag zooms as in Maya's viewports (right or down: in), the pressed point staying
+        # put, and opens no add menu.
+        from PySide2 import QtGui, QtWidgets
+        alt, right = QtCore.Qt.AltModifier, QtCore.Qt.RightButton
+        start = QtCore.QPointF(view.viewport().rect().center())
+        anchor = view.mapToScene(start.toPoint())
+        zoom = view.transform().m11()
+
+        def drag(kind, pos, button, buttons):
+            event = QtGui.QMouseEvent(kind, pos, button, buttons, alt)
+            {QtCore.QEvent.MouseButtonPress: view.mousePressEvent, QtCore.QEvent.MouseMove: view.mouseMoveEvent,
+             QtCore.QEvent.MouseButtonRelease: view.mouseReleaseEvent}[kind](event)
+        drag(QtCore.QEvent.MouseButtonPress, start, right, right)
+        drag(QtCore.QEvent.MouseMove, start + QtCore.QPointF(60, 20), QtCore.Qt.NoButton, right)
+        self.assertGreater(view.transform().m11(), zoom * 1.3)
+        self.assertLess((view.mapFromScene(anchor) - start.toPoint()).manhattanLength(), 3)
+        drag(QtCore.QEvent.MouseMove, start - QtCore.QPointF(60, 20), QtCore.Qt.NoButton, right)
+        self.assertLess(view.transform().m11(), zoom * 0.8)
+        drag(QtCore.QEvent.MouseButtonRelease, start, right, QtCore.Qt.NoButton)
+        menu = QtGui.QContextMenuEvent(QtGui.QContextMenuEvent.Mouse, start.toPoint(), view.mapToGlobal(start.toPoint()))
+        view.contextMenuEvent(menu)
+        self.assertTrue(menu.isAccepted())
+        self.assertFalse(QtWidgets.QApplication.activePopupWidget())
         view.frame_all()
         image = self.editor.grab()
         self.assertGreater(image.width(), 100)

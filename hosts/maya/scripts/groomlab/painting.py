@@ -188,14 +188,61 @@ def fill_map(groom, name, value=None, selected_only=False, color=None, channels=
     return cmds.groomLabScalpMaps(groom, fill=name, value=float(value))
 
 
-def remove_map(groom, name):
-    """Remove a map (a texture map's file stays on disk); Map nodes reading it report an error."""
+def _in_folder(path, folder):
+    """Whether `path` is inside `folder` (both absolute; case-insensitive on Windows)."""
+    path, folder = (os.path.normcase(os.path.normpath(p)) for p in (path, folder))
+    return path.startswith(folder.rstrip(os.sep) + os.sep)
+
+
+def _unlink_map(groom, name):
+    """What reads map `name` lets go of it: its Map nodes are removed and the params they fed
+    read their own values again (their input ports removed), and map params naming it go back
+    to the node's default. Returns the (node, param) pairs that changed (map_users')."""
+    from groomlab import graph as gm
+    model = gm.GraphModel.from_groom(groom)
+    readers = [n for n in model.order if model.node_type(n) == "Map" and model.param(n, "name") == name]
+    changed = []
+    for c in [c for c in model.connections if c["from"] in readers]:
+        changed.append((c["to"], c["input"]))
+        if c["input"] in model.nodes[c["to"]].get("paramInputs", []):
+            model.unexpose_param(c["to"], c["input"])  # the slider again, at the value it kept
+        else:
+            model.disconnect(c["to"], c["input"])
+    for node in readers:
+        model.remove_node(node)
+    for node in model.order:
+        params = model.nodes[node]["params"]
+        for param, value in list(params.items()):
+            if isinstance(value, dict) and (value.get("guide") == name or value.get("colorSet") == name):
+                del params[param]  # the operator's default
+                changed.append((node, param))
+    if readers or changed:
+        model.save(groom)
+    return changed
+
+
+def remove_map(groom, name, delete_file=False):
+    """Remove a map. What reads it lets go of it: its Map nodes are removed, the params they fed
+    read their own (slider) values again, and map params naming it go back to the node's
+    default. A texture map's file stays on disk, unless `delete_file` and GroomLab made it (it
+    is in the scene's masks folder; a PNG of yours linked in place stays) and no other map or
+    groom reads it. One undo step (undo puts the file back too). Returns the (node, param)
+    pairs that read the map."""
+    flags = {}
+    if delete_file:
+        file = map_texture(groom, name)
+        if file and _in_folder(file, asset_folder("masks", create=False)):
+            flags["deleteFile"] = True
+    if not map_kind(groom, name):
+        raise RuntimeError("no map named %r" % name)
     with undo_chunk("remove map"):
-        cmds.groomLabScalpMaps(groom, remove=name)
+        changed = _unlink_map(groom, name)
+        cmds.groomLabScalpMaps(groom, remove=name, **flags)
         if cmds.getAttr(groom + ".strandColorSource") == name and cmds.getAttr(groom + ".strandColorMode") == 2:
             cmds.setAttr(groom + ".strandColorMode", 0)
         if cmds.getAttr(groom + ".scalpMapDisplay") == name:
             cmds.setAttr(groom + ".scalpMapDisplay", "", type="string")
+    return changed
 
 
 def _retarget_map(graph, old, new):
