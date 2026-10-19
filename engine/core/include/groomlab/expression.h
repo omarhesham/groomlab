@@ -257,9 +257,13 @@ public:
         // Number..Select: on numbers. VUnary, VBinary (args: bit 0 left, bit 1 right is a vector),
         // VSelect, VCall (every argument a vector, a number function per component): on vectors.
         // Component (code: 0-2) takes one of a vector; Splat makes a number a vector.
+        // Script nodes' programs only (script.h): Load and Store read and write `args` slots from
+        // slot `channel` (a local, an output, a param); Jump goes to op `channel`, JumpIfZero
+        // does when the number it takes is 0; ScriptCall runs a script function (code: its own).
         enum Kind : std::uint8_t {
             Number, Variable, Channel, Unary, Binary, Call, Select,
-            VUnary, VBinary, VSelect, VCall, Component, Splat
+            VUnary, VBinary, VSelect, VCall, Component, Splat,
+            Load, Store, Jump, JumpIfZero, ScriptCall
         } kind;
         std::uint8_t code = 0;     // variable, operator or function
         std::uint8_t args = 0;     // calls: the stack slots the arguments take (a vector three)

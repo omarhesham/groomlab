@@ -531,6 +531,7 @@ bool findLookChainTo(const GraphDocument& doc, NodeId end, LookChain* chain, std
     }
     if (stages.empty()) {
         *why = std::string("the graph ends with ") + graph.node(c.base).typeName() + ", which the GPU does not run";
+        if (graph.node(c.base).typeName() == op::kScript) *why += " (a script node runs on the CPU)";
         return false;
     }
     if (merged != kNoStage) {

@@ -195,9 +195,23 @@ const json* paramSpec(const std::string& type, const std::string& param) {
 
 // A node's param spec: its operator's, or for a compound's exposed param the inner node's (the
 // inner node's operator's; an inner compound's exposed param stays as it is).
+// A script node's param as its definition's header gives it (node_library.h), or null.
+const json* scriptParamEntry(const json& node, const std::string& param) {
+    if (node.value("type", std::string()) != "Script") return nullptr;
+    const auto params = node.find("params");
+    if (params == node.end() || !params->is_object()) return nullptr;
+    const auto definition = params->find("definition");
+    if (definition == params->end() || !definition->is_object() || !definition->contains("params")) return nullptr;
+    for (const json& p : (*definition)["params"]) {
+        if (p.is_object() && p.value("name", std::string()) == param) return &p;
+    }
+    return nullptr;
+}
+
 const json* nodeParamSpec(const json& node, const std::string& param, int depth = 0) {
     const std::string type = node.value("type", std::string());
     if (const json* spec = paramSpec(type, param)) return spec;
+    if (const json* entry = scriptParamEntry(node, param)) return entry;
     if (type != "Compound" || depth > 16) return nullptr;
     const auto params = node.find("params");
     if (params == node.end() || !params->is_object()) return nullptr;
@@ -265,6 +279,11 @@ bool conditionHolds(const json& node, const json& condition) {
 std::string unitOf(const json& node, const std::string& param, int depth = 0) {
     if (depth > 16) return {};
     const std::string type = node.value("type", std::string());
+    if (const json* entry = paramSpec(type, param) ? nullptr : scriptParamEntry(node, param)) {  // a script node's param
+        const std::string kind = entry->value("type", std::string("number"));
+        if (kind == "length") return "length";
+        return kind == "number" ? entry->value("unit", std::string()) : std::string();
+    }
     if (!paramSpec(type, param) && type == "Compound") {  // an exposed param: the inner node's
         const json params = node.value("params", json::object());
         const json definition = params.is_object() ? params.value("definition", json::object()) : json::object();

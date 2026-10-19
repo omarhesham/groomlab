@@ -100,6 +100,14 @@ def _graph_nodes(graph):
 def _param_spec(catalog, node, param):
     """A node's param spec: its operator's, or for a compound's exposed param the inner node's."""
     spec = catalog.param_spec(node.get("type"), param)
+    if spec is None and node.get("type") == "Script":  # a script node's: its definition's header
+        import groomlab_core
+        definition = node.get("params", {}).get("definition") or {}
+        try:
+            specs = json.loads(groomlab_core.node_spec_json(json.dumps({"type": "Script", "params": {"definition": definition}})))
+            spec = next((p for p in specs["params"] if p["name"] == param), None)
+        except Exception:  # a definition that cannot be read: no spec
+            spec = None
     if spec is None and node.get("type") == "Compound":
         definition = node.get("params", {}).get("definition") or {}
         inner_name, _, inner_param = (definition.get("expose") or {}).get(param, "").partition(".")

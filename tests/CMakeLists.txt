@@ -61,6 +61,8 @@ add_executable(groomlab_tests
     engine/core/test_maps.cpp
     engine/core/test_motion.cpp
     engine/core/test_node_common.cpp
+    engine/core/test_node_library.cpp
+    engine/core/test_script_node.cpp
     engine/core/test_operators.cpp
     engine/core/test_param_use.cpp
     engine/core/test_parity_nodes.cpp
@@ -409,7 +411,7 @@ if(TARGET groomlab-helper AND TARGET groomlab-cli)
             COMMAND "${_blender_exe}" --factory-startup --command extension validate "${GROOMLAB_BLENDER_EXTENSION_ZIP}")
         set_tests_properties(blender.extension PROPERTIES LABELS "quick;blender")
         set(_addon_env
-            "GROOMLAB_CLI=$<TARGET_FILE:groomlab-cli>;GROOMLAB_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/data;GROOMLAB_USER_PRESETS=${CMAKE_CURRENT_BINARY_DIR}/blender_no_user_presets")
+            "GROOMLAB_CLI=$<TARGET_FILE:groomlab-cli>;GROOMLAB_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/data;GROOMLAB_USER_PRESETS=${CMAKE_CURRENT_BINARY_DIR}/blender_no_user_presets;GROOMLAB_USER_NODES=${CMAKE_CURRENT_BINARY_DIR}/blender_no_user_nodes")
         foreach(_t addon addon_free addon_render addon_graph addon_tools)
             add_test(NAME blender.${_t}
                 COMMAND "${_blender_python}" -B "${CMAKE_CURRENT_SOURCE_DIR}/hosts/blender/run_blender_test.py" "${_blender_exe}"

@@ -33,6 +33,7 @@
 #include "groomlab/groom_session.h"
 #include "groomlab/guide_hierarchy.h"
 #include "groomlab/hair_color.h"
+#include "groomlab/node_library.h"
 #include "groomlab/paths.h"
 #include "groomlab/presets.h"
 #include "groomlab/scales.h"
@@ -850,6 +851,21 @@ std::string shippedPresetDir() {
 
 std::vector<std::string> presetDirs() { return presetSearchDirs(presetUserDir(), shippedPresetDir()); }
 
+// The compound nodes shipped with the helper (node_library.h): bin/nodes beside it (or one up),
+// else the source tree's (a build tree's helper).
+std::string shippedNodesDir() {
+    std::error_code ec;
+    if (!g_executableDir.empty()) {
+        for (const fs::path& p : {fs::u8path(g_executableDir) / "nodes", fs::u8path(g_executableDir) / ".." / "nodes"}) {
+            if (fs::is_directory(p, ec)) return p.lexically_normal().generic_u8string();
+        }
+    }
+#ifdef GROOMLAB_SHIPPED_NODES
+    if (fs::is_directory(fs::u8path(GROOMLAB_SHIPPED_NODES), ec)) return GROOMLAB_SHIPPED_NODES;
+#endif
+    return {};
+}
+
 // A preset's file: by "path", else by "name" in the preset folders.
 std::string presetFile(const json& args, std::string* stem) {
     std::string path = optString(args, "path", "");
@@ -1021,7 +1037,10 @@ json setState(Session& s, const json& args) {
 
 // ---- The helper ---------------------------------------------------------------------------------
 
-void setExecutableDir(const std::string& dir) { g_executableDir = dir; }
+void setExecutableDir(const std::string& dir) {
+    g_executableDir = dir;
+    setShippedNodeDir(shippedNodesDir());  // what "node:<id>" adds resolve through
+}
 
 Helper::Helper() = default;
 Helper::~Helper() = default;
@@ -1521,6 +1540,8 @@ json Helper::run(const std::string& cmd, const json& args) {
             edit.setOutputNode(needString(args, "name"));
         } else if (op == "upgrade_node") {
             r["upgraded"] = edit.upgradeNode(needString(args, "name"));
+        } else if (op == "update_library_node") {  // a node from the library takes its newer copy
+            r["updated"] = edit.updateLibraryNode(needString(args, "name"), scalpSize(s));
         } else if (op == "set_positions" || op == "set_bypass" || op == "set_evaluation") {
             // The editors' fields of a node (graph_io.h): its "ui" position, as Maya's Graph Editor and
             // the app keep it, "bypass" (Disable) and "evaluation" (when it runs). Set here rather
@@ -1599,6 +1620,12 @@ json Helper::run(const std::string& cmd, const json& args) {
         return {{"presets", presets}, {"categories", presetCategories()}, {"dirs", presetDirs()}};
     }
     if (cmd == "apply_preset") return applyPreset(session(args), args);
+    // ---- Compound nodes (node_library.h): the library Maya and the app share; edit_graph's
+    // add_node takes a "node:<id>" type ----
+    if (cmd == "library_nodes") {
+        if (shippedNodeDir().empty()) setShippedNodeDir(shippedNodesDir());
+        return json::parse(libraryNodesJson());
+    }
     if (cmd == "insert_preset") {
         Session& s = session(args);
         std::string stem;

@@ -1,0 +1,58 @@
+{
+  "glnode": 1,
+  "id": "groomlab.taper_by_channel",
+  "version": 1,
+  "label": "Taper by Channel",
+  "category": "Scripts",
+  "description": "Thins each strand toward its tip by a profile, as much as a channel or a map says: set Amount to an attribute (a channel) or a painted map.",
+  "author": "GroomLab",
+  "license": "Apache-2.0",
+  "size": 20,
+  "inputs": [
+    {
+      "name": "strands",
+      "type": "Strands"
+    }
+  ],
+  "output": {
+    "name": "out",
+    "type": "Strands"
+  },
+  "params": [
+    {
+      "name": "amount",
+      "type": "number",
+      "label": "Amount",
+      "default": 1,
+      "min": 0,
+      "max": 1,
+      "unit": "fraction",
+      "mappable": true,
+      "description": "How much of the profile each strand takes, 0 to 1: map it to a channel (an attribute map) or a painted map"
+    },
+    {
+      "name": "profile",
+      "type": "ramp",
+      "label": "Profile",
+      "default": [
+        [
+          0,
+          1
+        ],
+        [
+          0.6,
+          0.85
+        ],
+        [
+          1,
+          0.1
+        ]
+      ],
+      "description": "The width along each strand, root to tip, at a full amount"
+    }
+  ],
+  "writes": [
+    "width"
+  ],
+  "script": "# Taper by Channel: scales each point's width by a profile along the strand.\n# $amount mixes between no change (0) and the full profile (1); map it to a channel (an attribute\n# map: a Group's group, Clump's clumpId...) or a painted map to taper some strands and not others.\n# It writes widths alone, so the points stay as they came (an edit here keeps every point after).\nper point {\n    width *= mix(1, $profile(t), $amount);\n}\n"
+}

@@ -10,7 +10,23 @@
 #include <QClipboard>
 #include <QContextMenuEvent>
 #include <QCoreApplication>
+#include <QComboBox>
 #include <QCursor>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QFileDialog>
+#include <QHBoxLayout>
+#include <QMimeData>
+#include <QPushButton>
+#include <QSpinBox>
+#include <QPlainTextEdit>
+#include <QFontDatabase>
+#include <QFontMetricsF>
+#include <QRegularExpression>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextEdit>
+#include <QTimer>
 #include <QGuiApplication>
 #include <QHelpEvent>
 #include <QKeyEvent>
@@ -34,6 +50,7 @@
 
 #include "groomlab/graph.h"
 #include "groomlab/node_catalog.h"
+#include "groomlab/node_library.h"
 
 namespace groomlab::app {
 
@@ -122,6 +139,7 @@ NodeGraphView::NodeGraphView(QWidget* parent) : QWidget(parent) {
     prompt_->hide();
     connect(promptEdit_, &QLineEdit::returnPressed, this, &NodeGraphView::acceptPrompt);
     promptEdit_->installEventFilter(this);
+    setAcceptDrops(true);  // .glnode files dropped in: imported into the node library and added
 }
 
 // ---- The name prompt ----------------------------------------------------------------------------
@@ -209,6 +227,13 @@ void NodeGraphView::rebuild() {
             }
         }
         if (info.type == "Output") node.category = "output";
+        if (info.type == "Compound" || info.type == "Script") {
+            const nlohmann::json library = document_->libraryInfo(info.name);
+            if (library.is_object()) {
+                node.libraryLabel = library.value("label", std::string());
+                node.updateAvailable = library.value("updateAvailable", false);
+            }
+        }
         const std::size_t rows = std::max<std::size_t>(std::max(node.inputs.size(), node.outputs.size()), 1);
         node.size = QSizeF(kNodeWidth, kHeader + kBodyPadding * 2 + rows * kRow);
         float x = 0.0f, y = 0.0f;
@@ -629,7 +654,18 @@ void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected)
         // Room under the ports for the type, dim.
         painter.setPen(theme::textMuted());
         painter.setFont(theme::uiFont(10, 600));
-        painter.drawText(QRectF(rect.x(), rect.bottom() - 16, rect.width(), 14), Qt::AlignCenter, QString::fromStdString(nodeLabel(node.type)));
+        painter.drawText(QRectF(rect.x(), rect.bottom() - 16, rect.width(), 14), Qt::AlignCenter,
+                         QString::fromStdString(node.libraryLabel.empty() ? nodeLabel(node.type) : node.libraryLabel));
+    }
+    if (node.updateAvailable) {
+        // The node library has a newer copy of it: a mark on its left corner (right-click: Update Node).
+        const QPointF corner(rect.left(), rect.top());
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(theme::blueLight());
+        painter.drawEllipse(corner, 8.0, 8.0);
+        painter.setFont(theme::uiFont(10, 900));
+        painter.setPen(theme::readableOn(theme::blueLight()));
+        painter.drawText(QRectF(corner.x() - 8.0, corner.y() - 8.0, 16.0, 16.0), Qt::AlignCenter, QString(QChar(0x2191)));
     }
     painter.setOpacity(1.0);
     // Failed (its evaluation threw): a red ring and a red "!" on the corner, as Maya's error badge.
@@ -1433,7 +1469,12 @@ void NodeGraphView::mouseDoubleClickEvent(QMouseEvent* event) {
     }
     const QPointF scene = toScene(event->position());
     const int node = nodeAt(scene);
-    if (node >= 0 && nodes_[node].type == "Compound") {
+    if (node >= 0 && nodes_[node].type == "Script") {
+        // A script node opens its editor.
+        drag_ = Drag::None;
+        selectNode(nodes_[node].name);
+        openScriptEditor(nodes_[node].name);
+    } else if (node >= 0 && nodes_[node].type == "Compound") {
         // A Compound opens: its nodes back in the graph to see and edit (Ctrl+Z groups them again).
         drag_ = Drag::None;
         selectNode(nodes_[node].name);
@@ -1508,6 +1549,32 @@ void NodeGraphView::contextMenuEvent(QContextMenuEvent* event) {
         }
         shown(menu.addAction(tr("Group into Compound"), this, [this] { groupSelected(); }), QKeySequence(Qt::CTRL | Qt::Key_G))
             ->setToolTip(tr("Collapse the selected nodes into one Compound node"));
+        if (nodes_[node].type == "Script") {
+            const std::string name = nodes_[node].name;
+            menu.addAction(tr("Edit Node..."), this, [this, name] { openScriptEditor(name); })
+                ->setToolTip(tr("Edit this script node's script (live) over the graph"));
+            menu.addAction(tr("Save to Library"), this, [this, name] {
+                    openScriptEditor(name);
+                    saveScriptEditor(false);
+                })->setToolTip(tr("Write this script node to your node library, one version up when the library has it"));
+            if (nodes_[node].updateAvailable) {
+                menu.addAction(tr("Update Node"), this, [this, name] { updateLibraryNode(name); })
+                    ->setToolTip(tr("Take the library's newer copy of this node (its values kept where it still has them)"));
+            }
+        }
+        if (nodes_[node].type == "Compound") {
+            const std::string name = nodes_[node].name;
+            menu.addAction(tr("Save as Node..."), this, [this, name] { openSaveNode(name); })
+                ->setToolTip(tr("Save this compound to your node library: it shows in Add Node in every groom, in Maya and Blender too"));
+            if (!nodes_[node].libraryLabel.empty()) {
+                menu.addAction(tr("Save to Library"), this, [this, name] { saveToLibrary(name); })
+                    ->setToolTip(tr("Write this node as it is now (its values as the new defaults) over its library file, one version up"));
+            }
+            if (nodes_[node].updateAvailable) {
+                menu.addAction(tr("Update Node"), this, [this, name] { updateLibraryNode(name); })
+                    ->setToolTip(tr("Take the library's newer copy of this node (its values kept where it still has them)"));
+            }
+        }
         menu.addAction(tr("Add Backdrop Around Selection"), this, [this] { addBackdrop(); });
         menu.addSeparator();
         shown(menu.addAction(selection_.size() > 1 ? tr("Delete %1 Nodes").arg(selection_.size()) : tr("Delete"), this,
@@ -1534,6 +1601,13 @@ void NodeGraphView::contextMenuEvent(QContextMenuEvent* event) {
             action->setShortcutContext(Qt::WidgetShortcut);
         };
         shown(menu.addAction(tr("Add Node..."), this, [this] { openSearch(); }), QKeySequence(Qt::Key_Tab));
+        menu.addAction(tr("New Script Node"), this, [this, at = QPointF(event->pos())] { newScriptNode(at); })
+            ->setToolTip(tr("A node of your own, written as a short script (per strand, per point), edited live over the graph"));
+        // A click only reaches the file dialog; scripts and tests call importNodeFiles.
+        menu.addAction(tr("Import Node..."), this, [this, at = QPointF(event->pos())] {
+                const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Import Node"), {}, tr("GroomLab nodes (*.glnode)"));
+                if (!paths.isEmpty()) importNodeFiles(paths, at);
+            })->setToolTip(tr("Copy a .glnode file (a compound node someone shared) into your node library and add it"));
         shown(menu.addAction(tr("Paste"), this, [this] { paste(); }), QKeySequence(Qt::CTRL | Qt::Key_V));
         menu.addAction(tr("Add Backdrop"), this, [this, at = QPointF(event->pos())] { addBackdrop(at); });
         shown(menu.addAction(tr("Tidy Layout"), this, [this] { tidyLayout(); }), QKeySequence(Qt::CTRL | Qt::Key_L));
@@ -1636,10 +1710,426 @@ void NodeGraphView::openSearchAt(const QPointF& where) {
     search_->move(std::clamp(static_cast<int>(where.x()), 0, std::max(0, width() - search_->width())),
                   std::clamp(static_cast<int>(where.y()), 0, std::max(0, height() - search_->height())));
     searchEdit_->clear();
+    if (document_) document_->refreshLibrary();  // nodes saved or dropped in since
     filterSearch({});
     search_->show();
     search_->raise();
     searchEdit_->setFocus();
+}
+
+// ---- Compound nodes ------------------------------------------------------------------------------
+
+void NodeGraphView::openSaveNode(const std::string& node) {
+    if (!document_ || nodeIndex(node) < 0) return;
+    delete saveNode_;
+    saveFields_.clear();
+    saveNodeName_ = node;
+    const nlohmann::json library = document_->libraryInfo(node);
+    saveIdTyped_ = library.is_object();
+    nlohmann::json definition;
+    if (const nlohmann::json params = document_->param(node, "definition"); params.is_object()) definition = params;
+    auto text = [&](const char* key) { return QString::fromStdString(definition.is_object() ? definition.value(key, std::string()) : std::string()); };
+    saveNode_ = new GlassPanel(this, 14.0);
+    saveNode_->setObjectName(QStringLiteral("saveNodeForm"));
+    saveNode_->setColor(theme::glassSolid());
+    auto* layout = new QVBoxLayout(saveNode_);
+    layout->setContentsMargins(14, 12, 14, 12);
+    layout->setSpacing(6);
+    auto* title = new QLabel(tr("Save %1 as a node").arg(QString::fromStdString(node)), saveNode_);
+    title->setFont(theme::uiFont(14, 800));
+    title->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
+    layout->addWidget(title);
+    auto* about = new QLabel(tr("To your node library (%1): Add Node lists it in every groom, in Maya and Blender too.")
+                                 .arg(QString::fromStdString(nodeUserDir())), saveNode_);
+    about->setWordWrap(true);
+    about->setFont(theme::uiFont(11, 500));
+    about->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
+    layout->addWidget(about);
+    auto line = [&](const QString& name, const QString& placeholder, const QString& value) {
+        auto* edit = new QLineEdit(value, saveNode_);
+        edit->setPlaceholderText(placeholder);
+        edit->setFont(theme::uiFont(13, 500));
+        layout->addWidget(edit);
+        saveFields_[name] = edit;
+        return edit;
+    };
+    QString label = text("label");
+    if (label.isEmpty()) {
+        for (std::size_t i = 0; i < node.size(); ++i) {
+            const QChar c = QChar(node[i]);
+            if (i > 0 && c.isUpper()) label += QLatin1Char(' ');
+            label += i == 0 ? c.toUpper() : c;
+        }
+    }
+    QLineEdit* labelEdit = line(QStringLiteral("label"), tr("Label (the name menus show)"), label);
+    auto* category = new QComboBox(saveNode_);
+    category->setEditable(true);
+    category->addItem(tr("My Nodes"));
+    for (const NodeCategory& c : nodeCategories()) category->addItem(QString::fromStdString(c.title));
+    category->setCurrentText(text("category").isEmpty() ? tr("My Nodes") : text("category"));
+    category->setToolTip(tr("Where Add Node lists it: a built-in category, or type your own"));
+    layout->addWidget(category);
+    saveFields_[QStringLiteral("category")] = category;
+    line(QStringLiteral("description"), tr("What it does, in a line"), text("description"));
+    QLineEdit* authorEdit = line(QStringLiteral("author"), tr("Author (optional)"), text("author"));
+    QLineEdit* idEdit = line(QStringLiteral("id"), tr("Id: yourname.node_name, never changed once shared"),
+                             library.is_object() ? QString::fromStdString(library.value("id", std::string())) : QString());
+    auto* version = new QSpinBox(saveNode_);
+    version->setRange(1, 1000000);
+    version->setPrefix(tr("Version "));
+    layout->addWidget(version);
+    saveFields_[QStringLiteral("version")] = version;
+    line(QStringLiteral("license"), tr("License (optional: CC0-1.0, CC-BY-4.0, your own words)"), text("license"));
+    saveError_ = new QLabel(saveNode_);
+    saveError_->setWordWrap(true);
+    saveError_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::graphError().name()));
+    layout->addWidget(saveError_);
+    auto* buttons = new QHBoxLayout();
+    buttons->addStretch(1);
+    auto* cancel = new QPushButton(tr("Cancel"), saveNode_);
+    auto* save = new QPushButton(tr("Save"), saveNode_);
+    buttons->addWidget(cancel);
+    buttons->addWidget(save);
+    layout->addLayout(buttons);
+    // The id follows the label and author until typed; the version is the library's next.
+    const int own = library.is_object() ? library.value("version", 0) : 0;
+    auto suggest = [this, labelEdit, authorEdit, idEdit, version, own] {
+        if (!saveIdTyped_) {
+            idEdit->setText(QString::fromStdString(suggestNodeId(labelEdit->text().toStdString(), authorEdit->text().toStdString())));
+        }
+        const std::optional<LibraryNode> existing = findLibraryNode(idEdit->text().trimmed().toStdString());
+        version->setValue(std::max(existing ? existing->version : 0, own) + 1);
+    };
+    connect(labelEdit, &QLineEdit::textEdited, this, suggest);
+    connect(authorEdit, &QLineEdit::textEdited, this, suggest);
+    connect(idEdit, &QLineEdit::textEdited, this, [this] { saveIdTyped_ = true; });
+    connect(idEdit, &QLineEdit::editingFinished, this, suggest);
+    suggest();
+    connect(save, &QPushButton::clicked, this, [this] { acceptSaveNode(); });
+    connect(cancel, &QPushButton::clicked, this, [this] {
+        saveNode_->hide();
+        setFocus();
+    });
+    saveNode_->resize(360, saveNode_->sizeHint().height());
+    saveNode_->move(std::max(0, (width() - saveNode_->width()) / 2), std::max(0, (height() - saveNode_->height()) / 3));
+    saveNode_->show();
+    saveNode_->raise();
+    labelEdit->setFocus();
+}
+
+bool NodeGraphView::saveNodeOpen() const { return saveNode_ && !saveNode_->isHidden(); }
+
+void NodeGraphView::setSaveNodeField(const QString& field, const QString& value) {
+    const auto it = saveFields_.find(field);
+    if (it == saveFields_.end()) return;
+    if (auto* edit = qobject_cast<QLineEdit*>(it->second)) {
+        edit->setText(value);
+        emit edit->textEdited(value);
+    } else if (auto* box = qobject_cast<QComboBox*>(it->second)) {
+        box->setCurrentText(value);
+    } else if (auto* spin = qobject_cast<QSpinBox*>(it->second)) {
+        spin->setValue(value.toInt());
+    }
+}
+
+QString NodeGraphView::saveNodeField(const QString& field) const {
+    const auto it = saveFields_.find(field);
+    if (it == saveFields_.end()) return {};
+    if (auto* edit = qobject_cast<QLineEdit*>(it->second)) return edit->text();
+    if (auto* box = qobject_cast<QComboBox*>(it->second)) return box->currentText();
+    if (auto* spin = qobject_cast<QSpinBox*>(it->second)) return QString::number(spin->value());
+    return {};
+}
+
+QString NodeGraphView::acceptSaveNode() {
+    if (!saveNodeOpen() || !document_) return tr("no Save as Node form is open");
+    nlohmann::json header = {{"version", saveNodeField(QStringLiteral("version")).toInt()}};
+    for (const char* key : {"label", "category", "description", "author", "id", "license"}) {
+        header[key] = saveNodeField(QString::fromLatin1(key)).trimmed().toStdString();
+    }
+    if (header["category"] == tr("My Nodes").toStdString()) header["category"] = "";
+    std::string error = nodeIdError(header["id"].get<std::string>());
+    std::string path;
+    if (error.empty()) error = document_->saveAsNode(saveNodeName_, header, &path);
+    if (!error.empty()) {
+        saveError_->setText(QString::fromStdString(error));
+        return QString::fromStdString(error);
+    }
+    saveNode_->hide();
+    refresh();
+    emit edited();
+    emit message(tr("Saved %1 to %2").arg(QString::fromStdString(header["label"].get<std::string>()), QString::fromStdString(path)));
+    setFocus();
+    return {};
+}
+
+void NodeGraphView::saveToLibrary(const std::string& node) {
+    if (!document_) return;
+    const nlohmann::json library = document_->libraryInfo(node);
+    if (!library.is_object()) return;
+    const int version = std::max(library.value("version", 0), library.value("latest", 0)) + 1;
+    std::string path;
+    const std::string error = document_->saveAsNode(node, {{"version", version}}, &path);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        return;
+    }
+    refresh();
+    emit edited();
+    emit message(tr("Saved version %1 to %2").arg(version).arg(QString::fromStdString(path)));
+}
+
+void NodeGraphView::updateLibraryNode(const std::string& node) {
+    if (!document_) return;
+    const std::string error = document_->updateLibraryNode(node);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        return;
+    }
+    refresh();
+    emit edited();
+}
+
+std::vector<std::string> NodeGraphView::importNodeFiles(const QStringList& paths, const QPointF& at) {
+    std::vector<std::string> made;
+    if (!document_) return made;
+    QPointF where = toScene(std::isnan(at.x()) ? QPointF(width() / 2.0, height() / 2.0) : at);
+    for (const QString& path : paths) {
+        std::string id;
+        std::string error = document_->importNode(path.toStdString(), &id);
+        std::string name;
+        if (error.empty()) error = document_->addNode(libraryNodeType(id), static_cast<float>(where.x()), static_cast<float>(where.y()), &name);
+        if (!error.empty()) {
+            emit message(QString::fromStdString(error));
+            continue;
+        }
+        made.push_back(name);
+        where += QPointF(30.0, 30.0);
+    }
+    if (!made.empty()) {
+        refresh();
+        selectNode(made.back());
+        emit edited();
+    }
+    return made;
+}
+
+namespace {
+
+QStringList nodeFilesOf(const QMimeData* mime) {
+    QStringList files;
+    if (!mime || !mime->hasUrls()) return files;
+    for (const QUrl& url : mime->urls()) {
+        if (url.isLocalFile() && url.toLocalFile().endsWith(QStringLiteral(".glnode"), Qt::CaseInsensitive)) files << url.toLocalFile();
+    }
+    return files;
+}
+
+}  // namespace
+
+void NodeGraphView::dragEnterEvent(QDragEnterEvent* event) {
+    if (!nodeFilesOf(event->mimeData()).isEmpty()) event->acceptProposedAction();
+    else QWidget::dragEnterEvent(event);
+}
+
+void NodeGraphView::dropEvent(QDropEvent* event) {
+    const QStringList files = nodeFilesOf(event->mimeData());
+    if (files.isEmpty()) {
+        QWidget::dropEvent(event);
+        return;
+    }
+    event->acceptProposedAction();
+    importNodeFiles(files, event->position());
+}
+
+// ---- Script nodes --------------------------------------------------------------------------------
+
+std::string NodeGraphView::newScriptNode(const QPointF& at) {
+    if (!document_) return {};
+    const QPointF where = toScene(std::isnan(at.x()) ? QPointF(width() / 2.0, height() / 2.0) : at);
+    std::string name;
+    const std::string error = document_->addScriptNode(static_cast<float>(where.x()), static_cast<float>(where.y()), &name);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        return {};
+    }
+    refresh();
+    selectNode(name);
+    emit edited();
+    openScriptEditor(name);
+    return name;
+}
+
+void NodeGraphView::openScriptEditor(const std::string& node) {
+    if (!document_ || nodeIndex(node) < 0) return;
+    const nlohmann::json definition = document_->param(node, "definition");
+    if (!definition.is_object()) return;
+    delete scriptEditor_;
+    scriptFields_.clear();
+    scriptNode_ = node;
+    scriptEditor_ = new GlassPanel(this, 14.0);
+    scriptEditor_->setObjectName(QStringLiteral("scriptNodeEditor"));
+    scriptEditor_->setColor(theme::glassSolid());
+    auto* layout = new QVBoxLayout(scriptEditor_);
+    layout->setContentsMargins(14, 12, 14, 12);
+    layout->setSpacing(6);
+    auto* title = new QLabel(tr("Script node %1").arg(QString::fromStdString(node)), scriptEditor_);
+    title->setFont(theme::uiFont(14, 800));
+    title->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
+    layout->addWidget(title);
+    auto* about = new QLabel(tr("Live: each change is checked after a pause and the node takes it when it checks. "
+                                "Its params show in the param panel; Save to Library shares it with Maya and Blender."),
+                             scriptEditor_);
+    about->setWordWrap(true);
+    about->setFont(theme::uiFont(11, 500));
+    about->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
+    layout->addWidget(about);
+    auto* label = new QLineEdit(QString::fromStdString(definition.value("label", std::string())), scriptEditor_);
+    label->setPlaceholderText(tr("Label (the name menus show)"));
+    layout->addWidget(label);
+    scriptFields_[QStringLiteral("label")] = label;
+    QStringList writes;
+    for (const nlohmann::json& w : definition.value("writes", nlohmann::json::array())) {
+        if (w.is_string()) writes << QString::fromStdString(w.get<std::string>());
+    }
+    auto* written = new QLineEdit(writes.join(QStringLiteral(", ")), scriptEditor_);
+    written->setPlaceholderText(tr("What it writes: P, width, color, channel.name"));
+    written->setToolTip(tr("The outputs the script may assign"));
+    layout->addWidget(written);
+    scriptFields_[QStringLiteral("writes")] = written;
+    auto* code = new QPlainTextEdit(QString::fromStdString(definition.value("script", std::string())), scriptEditor_);
+    code->setObjectName(QStringLiteral("scriptNodeCode"));
+    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    mono.setPointSize(11);
+    code->setFont(mono);
+    code->setLineWrapMode(QPlainTextEdit::NoWrap);
+    code->setTabStopDistance(QFontMetricsF(mono).horizontalAdvance(QLatin1Char(' ')) * 4);
+    code->setMinimumHeight(260);
+    layout->addWidget(code, 1);
+    scriptFields_[QStringLiteral("script")] = code;
+    scriptErrors_ = new QLabel(scriptEditor_);
+    scriptErrors_->setObjectName(QStringLiteral("scriptNodeErrors"));
+    scriptErrors_->setWordWrap(true);
+    scriptErrors_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::graphError().name()));
+    layout->addWidget(scriptErrors_);
+    scriptStatus_ = new QLabel(scriptEditor_);
+    scriptStatus_->setWordWrap(true);
+    scriptStatus_->setFont(theme::uiFont(11, 500));
+    scriptStatus_->setStyleSheet(QStringLiteral("color: %1;").arg(theme::textMuted().name()));
+    layout->addWidget(scriptStatus_);
+    auto* buttons = new QHBoxLayout();
+    auto* saveNew = new QPushButton(tr("Save as New"), scriptEditor_);
+    saveNew->setToolTip(tr("Write it as a new node of your node library (an id the library does not have)"));
+    auto* save = new QPushButton(tr("Save to Library"), scriptEditor_);
+    save->setToolTip(tr("Write it to your node library, one version up when the library has it"));
+    auto* close = new QPushButton(tr("Close"), scriptEditor_);
+    buttons->addWidget(close);
+    buttons->addStretch(1);
+    buttons->addWidget(saveNew);
+    buttons->addWidget(save);
+    layout->addLayout(buttons);
+    scriptPause_ = new QTimer(scriptEditor_);
+    scriptPause_->setSingleShot(true);
+    scriptPause_->setInterval(300);
+    connect(scriptPause_, &QTimer::timeout, this, [this] { applyScriptEditor(); });
+    connect(label, &QLineEdit::textEdited, scriptPause_, qOverload<>(&QTimer::start));
+    connect(written, &QLineEdit::textEdited, scriptPause_, qOverload<>(&QTimer::start));
+    connect(code, &QPlainTextEdit::textChanged, scriptPause_, qOverload<>(&QTimer::start));
+    connect(save, &QPushButton::clicked, this, [this] { saveScriptEditor(false); });
+    connect(saveNew, &QPushButton::clicked, this, [this] { saveScriptEditor(true); });
+    connect(close, &QPushButton::clicked, this, [this] { closeScriptEditor(); });
+    scriptEditor_->resize(std::min(width() - 20, 560), std::min(height() - 20, std::max(scriptEditor_->sizeHint().height(), 480)));
+    scriptEditor_->move(std::max(0, width() - scriptEditor_->width() - 10), 10);
+    scriptEditor_->show();
+    scriptEditor_->raise();
+    code->setFocus();
+}
+
+bool NodeGraphView::scriptEditorOpen() const { return scriptEditor_ && !scriptEditor_->isHidden(); }
+
+void NodeGraphView::setScriptEditorField(const QString& field, const QString& value) {
+    const auto it = scriptFields_.find(field);
+    if (it == scriptFields_.end()) return;
+    if (auto* edit = qobject_cast<QLineEdit*>(it->second)) {
+        edit->setText(value);
+        emit edit->textEdited(value);
+    } else if (auto* code = qobject_cast<QPlainTextEdit*>(it->second)) {
+        code->setPlainText(value);
+    }
+}
+
+QString NodeGraphView::scriptEditorField(const QString& field) const {
+    const auto it = scriptFields_.find(field);
+    if (it == scriptFields_.end()) return {};
+    if (auto* edit = qobject_cast<QLineEdit*>(it->second)) return edit->text();
+    if (auto* code = qobject_cast<QPlainTextEdit*>(it->second)) return code->toPlainText();
+    return {};
+}
+
+QString NodeGraphView::scriptEditorErrors() const { return scriptErrors_ && scriptEditorOpen() ? scriptErrors_->text() : QString(); }
+
+QString NodeGraphView::applyScriptEditor() {
+    if (!scriptEditorOpen() || !document_ || nodeIndex(scriptNode_) < 0) return tr("no script node editor is open");
+    if (scriptPause_) scriptPause_->stop();
+    nlohmann::json definition = document_->param(scriptNode_, "definition");
+    if (!definition.is_object()) return tr("%1 is not a script node").arg(QString::fromStdString(scriptNode_));
+    definition["label"] = scriptEditorField(QStringLiteral("label")).trimmed().toStdString();
+    nlohmann::json writes = nlohmann::json::array();
+    for (const QString& w : scriptEditorField(QStringLiteral("writes")).split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        if (!w.trimmed().isEmpty()) writes.push_back(w.trimmed().toStdString());
+    }
+    definition["writes"] = writes;
+    definition["script"] = scriptEditorField(QStringLiteral("script")).toStdString();
+    // Its errors (each "line L, column C: ..."), the line of the first tinted; none: the node takes it.
+    std::string error;
+    if (definition != document_->param(scriptNode_, "definition")) error = document_->setScriptDefinition(scriptNode_, definition);
+    auto* code = qobject_cast<QPlainTextEdit*>(scriptFields_[QStringLiteral("script")]);
+    QList<QTextEdit::ExtraSelection> tinted;
+    const QRegularExpressionMatch at = QRegularExpression(QStringLiteral("^line (\\d+), column")).match(QString::fromStdString(error));
+    if (code && at.hasMatch()) {
+        const QTextBlock block = code->document()->findBlockByNumber(at.captured(1).toInt() - 1);
+        if (block.isValid()) {
+            QTextEdit::ExtraSelection selection;
+            selection.format.setBackground(QColor(theme::graphError().red(), theme::graphError().green(), theme::graphError().blue(), 60));
+            selection.format.setProperty(QTextFormat::FullWidthSelection, true);
+            selection.cursor = QTextCursor(block);
+            tinted << selection;
+        }
+    }
+    if (code) code->setExtraSelections(tinted);
+    scriptErrors_->setText(QString::fromStdString(error));
+    if (!error.empty()) {
+        scriptStatus_->setText(tr("Not applied: the node keeps its last script that checked."));
+        return QString::fromStdString(error);
+    }
+    refresh();
+    emit edited();
+    scriptStatus_->setText(tr("Applied: the node runs this script."));
+    return {};
+}
+
+QString NodeGraphView::saveScriptEditor(bool asNew) {
+    if (!scriptEditorOpen() || !document_) return tr("no script node editor is open");
+    QString error = applyScriptEditor();
+    if (!error.isEmpty()) return error;
+    std::string path;
+    error = QString::fromStdString(document_->saveScriptNode(scriptNode_, asNew, &path));
+    if (!error.isEmpty()) {
+        scriptErrors_->setText(error);
+        return error;
+    }
+    refresh();
+    emit edited();
+    const nlohmann::json definition = document_->param(scriptNode_, "definition");
+    scriptStatus_->setText(tr("Saved version %1 to %2").arg(definition.value("version", 1)).arg(QString::fromStdString(path)));
+    emit message(scriptStatus_->text());
+    return {};
+}
+
+void NodeGraphView::closeScriptEditor() {
+    if (scriptPause_ && scriptPause_->isActive()) applyScriptEditor();  // a pending change kept
+    if (scriptEditor_) scriptEditor_->hide();
+    setFocus();
 }
 
 void NodeGraphView::closeSearch() {

@@ -129,6 +129,9 @@ class GraphEditorTest(unittest.TestCase):
         offered = [item.label for c in ge._add_categories() for item in c.items(None)]
         self.assertIn("Clump", offered)
         self.assertNotIn("Compound", offered)
+        self.assertIn("Soft Frizz", offered)  # the node library's compound nodes (Compound Nodes)
+        self.assertIn("Wave", offered)  # and its script nodes (Script Nodes)
+        self.assertNotIn("Script", offered)
         # The categories, labels and keys are the core's (node_catalog.h, shortcuts.h), not the add-on's.
         specs = graph.operator_specs()
         titles = [t for _, t in sorted({(s["categoryOrder"], s["categoryTitle"]) for s in specs.values()})]
@@ -195,6 +198,36 @@ class GraphEditorTest(unittest.TestCase):
         tree.links.new(node_of(tree, "noise").outputs[0], node_of(tree, "color").inputs["strands"])  # closed again
         settle(head)
         self.assertEqual(rt.errors, [])
+        self.assert_tree_is_graph()
+
+        # A compound node from the library (the Add menu's Compound Nodes): a Compound holding its
+        # copy, evaluated by the core.
+        with gt.building():
+            frizz = tree.nodes.new(gt.NODE_PREFIX + "Compound")
+            frizz.gl_library = "node:groomlab.soft_frizz"
+            frizz.location = (noise.location.x, noise.location.y - 400)
+        gt.sync_from_tree(tree)
+        settle(head)
+        added = next(n for n in helper_graph(head)["nodes"] if n["name"] == "softFrizz")
+        self.assertEqual(added["params"]["definition"]["id"], "groomlab.soft_frizz")
+        self.assertEqual(rt.errors, [])
+        tree.nodes.remove(node_of(tree, "softFrizz"))
+        settle(head)
+        self.assert_tree_is_graph()
+        # A script node from the library (the Add menu's Script Nodes): a Script node holding its
+        # file, its params the header's, evaluated by the core.
+        with gt.building():
+            wave = tree.nodes.new(gt.NODE_PREFIX + "Script")
+            wave.gl_library = "node:groomlab.wave"
+            wave.location = (noise.location.x, noise.location.y - 400)
+        gt.sync_from_tree(tree)
+        settle(head)
+        added = next(n for n in helper_graph(head)["nodes"] if n["name"] == "wave")
+        self.assertEqual((added["type"], added["params"]["definition"]["id"]), ("Script", "groomlab.wave"))
+        self.assertIn("amplitude", [p["name"] for p in gt.node_param_specs(node_of(tree, "wave"))])
+        self.assertEqual(rt.errors, [])
+        tree.nodes.remove(node_of(tree, "wave"))
+        settle(head)
         self.assert_tree_is_graph()
 
         # A duplicate (Shift+D): a node of its own with the copied node's params.

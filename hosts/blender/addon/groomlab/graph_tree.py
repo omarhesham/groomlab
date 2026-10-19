@@ -41,7 +41,7 @@ TYPE_COLORS = {"Strands": (232, 168, 92), "Guides": (92, 196, 232), "Mesh": (140
 # goes where, its label and its order come from the specs. A test checks this list against them.
 CATEGORY_TITLES = ["Sources", "Grow", "Shape", "Deform", "Collide", "Look", "Motion", "Feathers", "Color", "Convert",
                    "Fields & Curves", "Utility", "Games"]
-HIDDEN_TYPES = {"Compound", "Input"}  # made by grouping (Maya) or a preset, not from the Add menu
+HIDDEN_TYPES = {"Compound", "Input", "Script"}  # made by grouping (Maya), a preset or the node library, not from the Add menu
 # When a node runs (its "evaluation"; always when absent): the labels of the other two.
 EVALUATION_LABELS = {"viewportOnly": "Viewport only", "renderOnly": "Render only"}
 CATEGORY_COLORS = {"Sources": (72, 190, 170), "Grow": (79, 209, 197), "Color": (255, 122, 182),
@@ -98,7 +98,7 @@ def spec_category(spec):
 
 
 def category_of(op_type, specs=None):
-    if op_type == "Compound":
+    if op_type in ("Compound", "Script"):
         return "Compound"
     specs = specs if specs is not None else _specs()
     return spec_category(specs.get(op_type)) if op_type in specs else "Utility"
@@ -348,7 +348,8 @@ def _base_props():
         "gl_inputs": StringProperty(),     # [param] exposed as inputs (paramInputs)
         "gl_drivers": StringProperty(),    # {param: driver node} for exposed params linked
         "gl_values": StringProperty(),     # the node's params as the graph has them (JSON)
-        "gl_spec_json": StringProperty(),  # node_spec of a Compound or Input (their own ports and params)
+        "gl_spec_json": StringProperty(),  # node_spec of a Compound, Script or Input (their own ports and params)
+        "gl_library": StringProperty(),    # "node:<id>": added from the node library (the Add menu)
         "gl_params": CollectionProperty(type=props.GroomLabParam),  # a Compound's params
     }
 
@@ -1031,7 +1032,7 @@ def build_tree(scalp, tree, data, rt=None):
     names = [n["name"] for n in gnodes]
     own_spec = {}
     for n in gnodes:  # Compounds and Inputs have ports and params of their own; exposed params add ports
-        if n.get("type") in ("Compound", "Input") or n.get("paramInputs"):
+        if n.get("type") in ("Compound", "Script", "Input") or n.get("paramInputs"):
             own_spec[n["name"]] = _call("node_spec", session=rt.session, node=n["name"])["spec"]
 
     def spec_of(name):
@@ -1070,7 +1071,7 @@ def build_tree(scalp, tree, data, rt=None):
                 node.location = at
             node["gl_at"] = ui_of(node)  # where the graph has it: a move after this is the user's
             spec = spec_of(name) or {}
-            node.gl_spec_json = json.dumps(own_spec[name]) if name in own_spec and op_type in ("Compound", "Input") else ""
+            node.gl_spec_json = json.dumps(own_spec[name]) if name in own_spec and op_type in ("Compound", "Script", "Input") else ""
             ins = [(p["name"], p["type"], bool(p.get("param"))) for p in spec.get("inputs", [])]
             outs = [(p["name"], p["type"]) for p in (spec.get("outputs") or [spec.get("output")]) if p]
             if outs:
@@ -1186,7 +1187,8 @@ def sync_from_tree(tree):
     for node in nodes:
         if node.gl_name:
             continue
-        args = {"op": "add_node", "type": node.gl_type, "x": ui_of(node)[0], "y": ui_of(node)[1]}
+        # (A Compound from the Add menu's Compound Nodes: the library node it stands for.)
+        args = {"op": "add_node", "type": node.gl_library or node.gl_type, "x": ui_of(node)[0], "y": ui_of(node)[1]}
         source = data_node(data, node.gl_copy_of) if node.gl_copy_of else None
         if source is not None and source.get("type") == node.gl_type:
             args["params"] = source.get("params") or {}

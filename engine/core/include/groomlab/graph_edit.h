@@ -114,6 +114,20 @@ public:
     // strands coincide; two Instances or Flyaways: they pick the same strands), as warnings.
     std::vector<std::string> seedWarnings() const;
 
+    // ---- Library nodes (node_library.h): a type "node:<id>" given to addNode adds a Compound
+    // holding the library's copy of that node (fitted to `groomSize` from the size its file
+    // records), named after its label ("softFrizz"); GraphError for an id the library lacks.
+    // nodeSpecJson of such a Compound gives its "label" and "description", and "library": {"id",
+    // "version", "category", "author", "license", "icon", "latest" (the library's version, 0
+    // none), "updateAvailable", "embedded" (false: the groom holds no copy)}; its exposed params
+    // take the header's "label", description and ranges.
+    // Replaces a library node's copy with the library's (one edit: hosts make it one undo step):
+    // the exposed params it still has keep their values, links into inputs and params it no
+    // longer has go. `id`: the library node to take instead of the one it holds (a compound just
+    // saved as that node takes its copy). False when the copy was the library's already.
+    // GraphError for a node that is not a library node (nor given an id) or an id the library lacks.
+    bool updateLibraryNode(const std::string& name, std::optional<double> groomSize = std::nullopt, const std::string& id = {});
+
     // ---- Compounds (graph_compound.cpp): every host's Group (Ctrl+G) and Ungroup (Ctrl+Shift+G)
     // Replaces the nodes `names` (unknown names dropped) with one Compound node holding them,
     // named `compound` ("": uniqueName("compound")) and placed at their mean position. Each

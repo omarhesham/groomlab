@@ -22,6 +22,9 @@ USER_PRESETS = tempfile.mkdtemp(prefix="groomlab_presets_")
 os.environ["GROOMLAB_USER_PRESETS"] = USER_PRESETS
 USER_EXPRESSIONS = tempfile.mkdtemp(prefix="groomlab_expressions_")
 os.environ["GROOMLAB_USER_EXPRESSIONS"] = USER_EXPRESSIONS
+USER_NODES = tempfile.mkdtemp(prefix="groomlab_nodes_")
+os.environ["GROOMLAB_USER_NODES"] = USER_NODES
+os.environ.pop("GROOMLAB_NODE_PATH", None)
 
 import maya.standalone  # noqa: E402
 
@@ -661,7 +664,7 @@ class GraphApiTest(unittest.TestCase):
 
     def test_value_nodes_drive_any_param(self):
         # Every param of every node can be an input, but the few that set a node's own ports.
-        ports = {"Compound.definition", "Expression.output", "Input.name", "Input.type", "Value.kind"}
+        ports = {"Compound.definition", "Script.definition", "Expression.output", "Input.name", "Input.type", "Value.kind"}
         for op_type in self.catalog.types():
             for spec in self.catalog.spec(op_type)["params"]:
                 self.assertEqual(gm.linkable(spec), "%s.%s" % (op_type, spec["name"]) not in ports,
@@ -1446,6 +1449,126 @@ class PresetsTest(unittest.TestCase):
         self.assertEqual(groomlab.errors(groom), [])
 
 
+class NodesTest(unittest.TestCase):
+    """Compound nodes (groomlab.nodes): Save as Node, the library, Import, Update."""
+
+    @classmethod
+    def setUpClass(cls):
+        cmds.loadPlugin(PLUGIN_PATH, quiet=True)
+        cls.catalog = gm.OperatorCatalog.from_maya()
+
+    def setUp(self):
+        cmds.file(new=True, force=True)
+        cmds.undoInfo(state=True, infinity=True)
+        for name in os.listdir(USER_NODES):
+            os.remove(os.path.join(USER_NODES, name))
+        self.scalp = cmds.polySphere(radius=1, subdivisionsX=40, subdivisionsY=20)[0]
+        self.groom = groomlab.create_groom(self.scalp)
+        groomlab.set_graph(self.groom, CLASSIC_GRAPH)
+        model = gm.GraphModel.from_groom(self.groom, self.catalog)
+        model.add_node("Noise", name="noise", params={"amplitude": 0.04})
+        model.insert_between("length", "width", "noise")
+        self.compound = model.collapse(["noise"])
+        model.expose(self.compound, "amount", "noise.amplitude")
+        model.save(self.groom)
+
+    def test_shipped_nodes_are_listed_and_added(self):
+        from groomlab import nodes
+        listed = dict((n["id"], n) for n in groomlab.library_nodes())
+        for node_id in ("groomlab.soft_frizz", "groomlab.grey_streaks", "groomlab.windswept_ends"):
+            self.assertIn(node_id, listed)
+            self.assertEqual(listed[node_id]["type"], "node:" + node_id)
+        self.assertEqual(listed["groomlab.soft_frizz"]["categoryTitle"], "Look")
+        self.assertEqual(groomlab.node_dirs()[-2:], [USER_NODES, nodes.SHIPPED_DIR])
+        name = nodes.add_node(self.groom, "groomlab.soft_frizz", after="width")
+        self.assertEqual(name, "softFrizz")
+        self.assertEqual(groomlab.errors(self.groom), [])
+        info = nodes.node_info(self.groom, name)
+        self.assertEqual((info["id"], info["version"], info["updateAvailable"]), ("groomlab.soft_frizz", 1, False))
+
+    def test_script_nodes(self):
+        # A script node: added from the template, edited (a broken script refused, saying where),
+        # saved to the library (version up), the shipped ones listed and added; each evaluates.
+        from groomlab import nodes
+        before = cmds.exactWorldBoundingBox(self.groom)
+        name = groomlab.add_script_node(self.groom, nodes.script_template("Lift", "Tester"), after="width")
+        self.assertEqual(name, "lift")
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertNotEqual(cmds.exactWorldBoundingBox(self.groom), before)  # it pushes the tips out
+        definition = nodes.script_definition(self.groom, name)
+        self.assertEqual(definition["id"], "tester.lift")
+        broken = dict(definition, script="per point {\n    P += N *;\n}")
+        errors = groomlab.script_errors(broken)
+        self.assertEqual([(e["part"], e["line"], e["column"]) for e in errors], [("script", 2, 13)])
+        with self.assertRaises(ValueError):
+            groomlab.set_script(self.groom, name, broken)
+        # Widths only.
+        thin = dict(definition, writes=["width"], script="per point { width = 0.001 + 0.004 * (1 - t); }")
+        groomlab.set_script(self.groom, name, thin)
+        self.assertEqual(groomlab.errors(self.groom), [])
+        cmds.undo()  # one step
+        self.assertIn("P +=", nodes.script_definition(self.groom, name)["script"])
+        path = groomlab.save_script_node(self.groom, name)
+        self.assertTrue(path.replace("\\", "/").endswith("tester.lift.glnode"))
+        listed = dict((n["id"], n) for n in groomlab.library_nodes())
+        self.assertEqual((listed["tester.lift"]["kind"], listed["tester.lift"]["version"]), ("script", 1))
+        groomlab.save_script_node(self.groom, name)
+        self.assertEqual(dict((n["id"], n["version"]) for n in groomlab.library_nodes())["tester.lift"], 2)
+        with self.assertRaises(ValueError):
+            groomlab.save_script_node(self.groom, name, as_new=True)  # the library has its id
+        # The shipped script nodes: listed, added, evaluated.
+        for node_id in ("groomlab.wave", "groomlab.kink", "groomlab.taper_by_channel", "groomlab.random_length"):
+            self.assertEqual(listed[node_id]["kind"], "script")
+            added = nodes.add_node(self.groom, node_id, after="width")
+            self.assertEqual(groomlab.errors(self.groom), [], node_id)
+            self.assertEqual(nodes.node_info(self.groom, added)["kind"], "script")
+
+    def test_save_import_and_update(self):
+        before = cmds.exactWorldBoundingBox(self.groom)
+        path = groomlab.save_node(self.groom, self.compound, label="My Frizz", category="Look", author="Tester",
+                                  description="Noise, saved.")
+        self.assertEqual(os.path.dirname(path).replace("\\", "/"), USER_NODES.replace("\\", "/"))
+        self.assertTrue(path.endswith("tester.my_frizz.glnode"))
+        listed = dict((n["id"], n) for n in groomlab.library_nodes())
+        self.assertEqual(listed["tester.my_frizz"]["version"], 1)
+        # The compound became that library node (same look), and a new one adds from the library.
+        from groomlab import nodes
+        self.assertEqual(nodes.node_info(self.groom, self.compound)["id"], "tester.my_frizz")
+        self.assertEqual(cmds.exactWorldBoundingBox(self.groom), before)
+        added = nodes.add_node(self.groom, "tester.my_frizz")
+        self.assertEqual(added, "myFrizz")
+
+        # Saved again louder: version 2 in the library; the other node shows an update, takes it.
+        groomlab.set_param(self.groom, self.compound, "amount", 0.3)
+        groomlab.save_node(self.groom, self.compound)
+        self.assertEqual(dict((n["id"], n["version"]) for n in groomlab.library_nodes())["tester.my_frizz"], 2)
+        info = nodes.node_info(self.groom, added)
+        self.assertEqual((info["version"], info["latest"], info["updateAvailable"]), (1, 2, True))
+        self.assertTrue(groomlab.update_node(self.groom, added))
+        self.assertFalse(nodes.node_info(self.groom, added)["updateAvailable"])
+        cmds.undo()  # one step
+        self.assertTrue(nodes.node_info(self.groom, added)["updateAvailable"])
+
+        # Import: a file from elsewhere, checked.
+        elsewhere = tempfile.mkdtemp(prefix="groomlab_share_")
+        try:
+            shared = os.path.join(elsewhere, "shared.glnode")
+            with open(path) as f:
+                data = json.load(f)
+            data["id"], data["label"] = "friend.wave", "Wave"
+            with open(shared, "w") as f:
+                json.dump(data, f)
+            self.assertTrue(groomlab.import_node(shared).endswith("friend.wave.glnode"))
+            self.assertIn("friend.wave", [n["id"] for n in groomlab.library_nodes()])
+            data["glnode"] = 99
+            with open(shared, "w") as f:
+                json.dump(data, f)
+            with self.assertRaises(ValueError):
+                groomlab.import_node(shared)
+        finally:
+            shutil.rmtree(elsewhere, ignore_errors=True)
+
+
 class ExpressionTest(unittest.TestCase):
     """Expression nodes: the reference the editor completes from, their own variables, the library."""
 
@@ -1599,5 +1722,6 @@ if __name__ == "__main__":
     result = unittest.main(exit=False).result
     shutil.rmtree(USER_PRESETS, ignore_errors=True)
     shutil.rmtree(USER_EXPRESSIONS, ignore_errors=True)
+    shutil.rmtree(USER_NODES, ignore_errors=True)
     maya.standalone.uninitialize()
     sys.exit(0 if result.wasSuccessful() else 1)

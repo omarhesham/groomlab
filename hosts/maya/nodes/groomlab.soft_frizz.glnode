@@ -1,0 +1,38 @@
+{
+  "glnode": 1,
+  "id": "groomlab.soft_frizz",
+  "version": 1,
+  "label": "Soft Frizz",
+  "category": "look",
+  "description": "A few strands kinked toward the tips and a gentle wave through the rest: lived-in hair. After Clump.",
+  "author": "GroomLab",
+  "license": "Apache-2.0",
+  "size": 20,
+  "inputs": [{"name": "strands", "type": "Strands"}],
+  "output": {"name": "out", "type": "Curves"},
+  "params": [
+    {"name": "amount", "target": "frizz.amplitude", "label": "Frizz", "default": 0.12, "min": 0, "softMax": 0.5,
+     "unit": "length", "mappable": true, "description": "How far the frizzy strands kink, in scene units"},
+    {"name": "share", "target": "frizz.fraction", "label": "Frizzy share", "default": 0.35, "min": 0, "max": 1,
+     "unit": "fraction", "mappable": true, "description": "Share of the strands that frizz, 0 to 1"},
+    {"name": "wave", "target": "wave.radius", "label": "Wave", "default": 0.06, "min": 0, "softMax": 0.3,
+     "unit": "length", "mappable": true, "description": "How wide the soft wave through every strand is"}
+  ],
+  "graph": {
+    "version": 1,
+    "nodes": [
+      {"name": "in", "type": "Input", "params": {"name": "strands", "type": "Strands"}, "ui": {"x": 0, "y": 0}},
+      {"name": "frizz", "type": "Noise", "ui": {"x": 240, "y": 0},
+       "params": {"mode": "kinky", "amplitude": 0.12, "frequency": 6.0, "fraction": 0.35, "space": "strand",
+                  "profile": [[0, 0], [0.4, 0.1], [1, 1]], "seed": 3}},
+      {"name": "wave", "type": "Curl", "ui": {"x": 480, "y": 0},
+       "params": {"shape": "wave", "radius": 0.06, "frequency": 0.6, "randomness": 0.5,
+                  "profile": [[0, 0], [0.3, 1], [1, 1]], "seed": 5}}
+    ],
+    "connections": [
+      {"from": "in", "to": "frizz", "input": "strands"},
+      {"from": "frizz", "to": "wave", "input": "strands"}
+    ],
+    "output": "wave"
+  }
+}

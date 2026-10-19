@@ -101,7 +101,7 @@ TEST(ValueInputs, EveryParamTakesAPort) {
     for (const std::string& n : none) std::cout << " " << n;
     std::cout << "\n";
     for (const std::string& n : none) {
-        EXPECT_TRUE(n == "Compound.definition" || n == "Input.name" || n == "Input.type" || n == "Value.kind" ||
+        EXPECT_TRUE(n == "Compound.definition" || n == "Script.definition" || n == "Input.name" || n == "Input.type" || n == "Value.kind" ||
                     n == "Expression.output" || n == "Map.map")
             << n << " cannot be an input";
     }

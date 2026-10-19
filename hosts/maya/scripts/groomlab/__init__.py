@@ -28,7 +28,7 @@ The functions live in modules by what they work on, each imported into the packa
 A module imports from the ones above it in this list at its top, and from one below it only inside
 the function that needs it, so they never import in a cycle.
 
-Beside them: graph (the graph model), presets, sim, shots, sculpts, bake, expressions, units, review,
+Beside them: graph (the graph model), presets, nodes (compound and script nodes: the .glnode library), sim, shots, sculpts, bake, expressions, units, review,
 reference, renderman (RenderMan for Maya's procedural node, experimental), utils, importers (other hair
 systems' grooms: XGen; importers/foreign.py the layer they share) and the UI (ui/). What the hosts share is computed in the core's Python module,
 groomlab_core (engine/python, beside the plugin in the module's python folder), never copied here
@@ -42,6 +42,8 @@ from groomlab.params import (  # noqa: F401
     list_controls, param_control, param_key_state, param_plugs, param_value, paste_graph_text, remove_param_animation,
     select_param_attribute, set_graph, set_param, set_param_key, set_param_value, sync_controls, _control_plugs_of,
     _controls_in, _graph_nodes)
+from groomlab.nodes import (import_node, library_nodes, node_dirs, save_node, update_node, add_script_node, set_script,  # noqa: F401
+                            save_script_node, script_errors)
 from groomlab.paths import (  # noqa: F401
     ASSET_FOLDER, ASSET_KINDS, absolute_paths, asset_folder, asset_name, follow_scene_files, library_dirs,
     library_user_dir, portable_path, project_root, remember_scene_folder, resolve_path, scene_folder, _relative_to,

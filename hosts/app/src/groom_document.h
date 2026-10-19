@@ -285,6 +285,32 @@ public:
     // The node takes its operator's newest behaviour (GraphEdit::upgradeNode), one undo step. "" or
     // the error (one for a node at the newest already).
     std::string upgradeNode(const std::string& node);
+    // ---- Compound nodes (node_library.h): the .glnode library Maya and Blender share
+    // The library read afresh into the specs as Add Node entries ("node:<id>": addNode adds one).
+    void refreshLibrary();
+    // What a node from the library is (GraphEdit::nodeSpecJson's "library", with its "label" and
+    // "description"); null for another node.
+    nlohmann::json libraryInfo(const std::string& node) const;
+    // The library's copy taken (or library node `id`'s: a compound just saved as it), one undo
+    // step. "" or the error.
+    std::string updateLibraryNode(const std::string& node, const std::string& id = {});
+    // Save as Node: Compound `node` written to the user's node folder (nodeFileFromCompound's
+    // header), then the node holds the saved copy (one undo step). *path: the file. "" or the error.
+    std::string saveAsNode(const std::string& node, const nlohmann::json& header, std::string* path = nullptr);
+    // A .glnode file copied into the user's node folder (checked); *id: its id. "" or the error.
+    std::string importNode(const std::string& path, std::string* id = nullptr);
+    // ---- Script nodes (script.h, node_library.h)
+    // New Script Node: a Script node holding scriptNodeTemplate's file (an id the library does not
+    // have) at a position; its name to *made. One undo step. "" or the error.
+    std::string addScriptNode(float x, float y, std::string* made);
+    // A Script node takes an edited definition, checked first ("" or what is wrong, each error
+    // "line 3, column 9: ..." on a line of its own; nothing changes then): the params its header no
+    // longer has go (with their links), a param at its old default takes the new one. One undo step.
+    std::string setScriptDefinition(const std::string& node, const nlohmann::json& definition);
+    // Save to Library: a Script node's file written to the user's node folder, one version up when
+    // the library has it (asNew: as a new node; an error when the library has its id), the node then
+    // holding the saved copy. *path: the file. "" or the error.
+    std::string saveScriptNode(const std::string& node, bool asNew, std::string* path = nullptr);
     // The time each node took in its last run, by name (ms): the graph's badges.
     std::vector<std::pair<std::string, double>> nodeTimes() const { return scene_->nodeTimes(); }
     // Each node's note from the last evaluation (EvalContext::note: it does nothing as set), an

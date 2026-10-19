@@ -156,6 +156,10 @@ def check_manifest(folder):
     shipped_presets = [f[len("presets/"):] for f in files if f.startswith("presets/")]
     if not source_presets or shipped_presets != source_presets:
         problems.append("presets/ differs from hosts/maya/presets")
+    source_nodes = files_of(os.path.join(ROOT, "hosts", "maya", "nodes"))
+    shipped_nodes = [f[len("nodes/"):] for f in files if f.startswith("nodes/")]
+    if not source_nodes or shipped_nodes != source_nodes:
+        problems.append("nodes/ differs from hosts/maya/nodes")
     problems += check_imports(folder)
     return problems
 

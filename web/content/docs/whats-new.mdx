@@ -13,6 +13,23 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.18.0 (October 18, 2026)
+
+- **Compound nodes.** Right-click a compound > **Save as Node...** to keep it in your node library
+  as a node of your own: it shows in **Add Node** and **Tab** search under its category, in every
+  groom, in Maya, the app and Blender. Share it as one `.glnode` file (**Import Node...**, or drop
+  it on the Graph Editor). Grooms carry a copy of the nodes they use, so they open and render
+  anywhere; a newer version in your library shows an update mark on the node. Three examples ship:
+  Soft Frizz, Grey Streaks and Wind-swept Ends ([Custom nodes](/docs/custom-nodes)).
+- **Script nodes.** **Add Node > New Script Node** makes a node of your own from a short script in
+  the expression language: it runs per strand and per point, moves points, sets widths and colors
+  and writes channels, with parameters of its own (sliders, mappable, ramps). Its editor opens in
+  the Graph Editor's side panel and is live: the groom follows as you type, and errors say their
+  line and column. Save it to your library and share it as one `.glnode` file, like a compound
+  node. Four examples ship: Wave, Kink, Taper by Channel and Random Length. In the app, double-click
+  a script node to edit it; Blender lists and evaluates them ([Script
+  nodes](/docs/custom-nodes#script-nodes)).
+
 ## 0.17.1 (October 18, 2026)
 
 - **Tubes has its own section** in Groom Tools > Tools: shapes, sizes and the shape library in one

@@ -492,7 +492,9 @@ void ParamPanel::build() {
         return;
     }
     // The type by its label ("Linked Groom" for a Reference node), as every host shows it.
-    title_->setText(QString::fromStdString(node_ + "  (" + nodeLabel(spec->value("type", std::string())) + ")"));
+    // A node from the node library by its own label ("Soft Frizz").
+    const std::string kind = spec->contains("library") ? spec->value("label", std::string()) : nodeLabel(spec->value("type", std::string()));
+    title_->setText(QString::fromStdString(node_ + "  (" + kind + ")"));
     const auto [saved, newest] = document_->nodeVersion(node_);
     if (saved < newest) {
         // Saved with an older behaviour of its operator: Upgrade gives it the newest.
@@ -540,7 +542,7 @@ void ParamPanel::build() {
         row.name = p.value("name", std::string());
         row.kind = p.value("kind", std::string());
         // A Compound's definition is its inner graph, not a value to edit: its exposed params are the rows.
-        if (type == "Compound" && row.name == "definition") continue;
+        if ((type == "Compound" || type == "Script") && row.name == "definition") continue;
         row.section = sectionFor(p, headed);
         row.showWhen = p.value("showWhen", json());
         const json value = document_->paramOrDefault(node_, row.name);

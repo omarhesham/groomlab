@@ -1,0 +1,314 @@
+---
+title: Custom nodes
+description: Nodes of your own, without compiling anything. Compound nodes are saved compounds; script nodes are short scripts that run per strand and per point. Both show in Add Node in every groom and host, and each is shared as one .glnode file.
+---
+
+GroomLab has two kinds of custom node. You keep both in your node library, and they show in **Add
+Node** and in **Tab** search like built-in nodes, in Maya, the standalone app and Blender.
+
+- A **compound node** is a compound you saved: nodes you already have, grouped, with the
+  parameters you chose to show. No code.
+- A **script node** is a short script in GroomLab's [expression language](/docs/expressions) that
+  moves points, sets widths and colors and writes channels, per strand and per point, with
+  parameters of its own.
+
+## Compound nodes
+
+A **compound node** is a compound you saved to your node library. It shows in **Add Node** and in
+**Tab** search like a built-in node, under the category you gave it, with the parameters you chose
+to show. You make one from nodes you already have: no code, nothing to compile.
+
+<Callout title="In the app and in Blender">
+  **App:** right-click a Compound in the Graph Editor > **Save as Node...** (it keeps the params the
+  compound shows; choosing inner params to show is in Maya for now); the search lists your nodes;
+  right-click the canvas > **Import Node...**, or drop a `.glnode` file on the graph.
+
+  **Blender:** your nodes are in **Shift+A** > **Compound Nodes** and evaluate as in Maya. Saving a
+  compound as a node is done in Maya or the app for now.
+</Callout>
+
+### Make one
+
+1. Build the look with ordinary nodes, select them and press **Ctrl+G** to group them into a
+   Compound ([Node graph](/docs/node-graph#reuse)).
+2. Right-click the compound > **Show Inner Param** and tick the parameters you want to keep
+   adjusting: they show on the compound's panel and become the node's parameters. (A preset
+   inserted as a compound comes with its key parameters shown already.)
+3. Right-click the compound > **Save as Node...**. A form opens in the side panel:
+   - **Label**: the name the menus show ("Soft Frizz").
+   - **Category**: a built-in category (Look, Shape, Color...) or your own; left as **My Nodes**,
+     the node lists under My Nodes.
+   - **Description**: one line on what it does; the menus show it as a tooltip.
+   - **Author** and **License** (optional; the license is free text: CC0-1.0, CC-BY-4.0, your own
+     words).
+   - **Id**: filled in from your name and the label (`yourname.soft_frizz`). It identifies the node
+     everywhere, so keep it once you share the node.
+   - **Version**: starts at 1; saving the same id again counts up.
+   - **Params it shows**: the compound's exposed parameters, all checked. Uncheck one to keep its
+     current value inside the node.
+4. **Save**. The node is now in your library, and the compound you saved from becomes that node.
+
+Each parameter keeps the range, unit and description of the parameter it shows, and its current
+value becomes the default.
+
+### Use one
+
+Pick it from **Add Node** or **Tab** search like any node. It is added as a Compound that holds a
+copy of the node: the card shows the node's label, and its panel shows its parameters and
+description. Right-click > **Ungroup Compound** opens it up into its nodes, as with any compound.
+
+GroomLab ships three examples, in their categories:
+
+| Node | Category | What it does |
+| --- | --- | --- |
+| **Soft Frizz** | Look | A few strands kinked toward the tips and a soft wave through the rest |
+| **Grey Streaks** | Color | Streaks of grey and white hair over the strands' own color |
+| **Wind-swept Ends** | Deform | The ends swept one way, as by a steady wind, with a little flutter |
+
+They are sized for a head and scale to your scalp, as presets do.
+
+## Script nodes
+
+A **script node** runs a short script on the strands it is given: once per strand, and for every
+point of every strand, root to tip. The script is written in the [expression
+language](/docs/expressions) with a few additions for nodes: it can **assign** the point, its
+width, its color and channels, keep **locals** from one point to the next, and **loop**. Its
+parameters are real parameters: sliders in the panel, mappable ones painted or driven by an
+expression or a field, as on built-in nodes.
+
+A script node changes the strands and points it is given. It does not add or remove strands or
+points, and it does not read other strands.
+
+<Callout title="In the app and in Blender">
+  **App:** right-click the canvas > **New Script Node**; double-click a script node (or right-click >
+  **Edit Node...**) to edit its label, what it writes and its script, live, with its errors by line
+  and column; **Save to Library** and **Save as New**. Its parameters show in the param panel;
+  adding or changing parameters is done in Maya for now.
+
+  **Blender:** script nodes are in **Shift+A** > **Script Nodes** and evaluate as in Maya, with
+  their parameters in the sidebar. Editing a script is done in Maya or the app for now.
+</Callout>
+
+### Write one: a wave, step by step
+
+The **Wave** node GroomLab ships bends each strand sideways in a wave. Here is how to write it.
+
+1. **Add Node > New Script Node** (or right-click the canvas). With a node selected, the new one
+   goes after it. Its editor opens in the side panel: the header at the top, its parameters as a
+   table, the script below, and what is wrong (if anything) under the script.
+2. Set the **Label** to `Wave`. In the **Params** table, rename the template's `amount` to
+   `amplitude` (type **length**, default `0.4`, **Mappable** ticked), then **Add Param**:
+   `frequency`, type **number**, default `3`. **Writes** has **P** ticked: the script may move
+   points.
+3. Replace the script with a first try that pushes each strand sideways, more toward the tip:
+
+   ```
+   per point {
+       P += [1, 0, 0] * $amplitude * t;
+   }
+   ```
+
+   `per point` runs for every point; `P` is the point; `t` goes from 0 at the root to 1 at the tip;
+   `$amplitude` is your parameter. The editor checks the script a moment after you stop typing:
+   when it checks, the node takes it and the groom updates. An error is listed with its line and
+   column (`line 2, column 14: unexpected ';'`), its line tinted, and the node keeps the last script
+   that checked.
+4. Make it a wave: a sine along the strand, `$frequency` waves from root to tip.
+
+   ```
+   per point {
+       P += [1, 0, 0] * $amplitude * sin(t * $frequency * 6.2832) * t;
+   }
+   ```
+
+5. Swing across each strand rather than along x: work out the side once per strand, in a `per
+   strand` block, and read it in the point block. Give each strand its own place on the wave with
+   `rand`, so neighbours don't move in lockstep:
+
+   ```
+   per strand {
+       $dir = normalize(tip - root);
+       $ref = abs($dir.y) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+       $side = normalize(cross($dir, $ref));
+       $start = rand * 6.2832;
+   }
+   per point {
+       P += $side * $amplitude * sin(t * $frequency * 6.2832 + $start) * t;
+   }
+   ```
+
+6. **Save to Library**. The node is now in **Add Node** in every groom, in Maya, the app and
+   Blender. **Done** shows the node's parameters panel: `amplitude` and `frequency` as sliders,
+   `amplitude` paintable.
+
+The shipped Wave adds a **Phase** (key it to make the wave travel along the hair) and an **Angle**
+that turns the side around the strand.
+
+### The language
+
+Everything an [expression](/docs/expressions) has works in a script: operators, vectors,
+`if`/`else`, the functions (noise, fbm, voronoi, curves, `map("name")`...) and the strand's
+variables (`t`, `rand`, `length`, `u`, `v`, `N`, any channel by name...). A script adds:
+
+- **Blocks.** `per strand { ... }` runs once per strand, before its points; `per point { ... }`
+  runs for every point, root to tip. Either may be left out; the strand block comes first.
+- **Assignments to outputs.** `P = ...;`, `width *= ...;`, `color = [r, g, b];`,
+  `channel.mask = ...;`, and one component: `P.y += 1;`. Only what the header's **Writes** lists
+  may be assigned; anything else is an error that says so.
+- **Locals** (`$name = ...;`) start at 0 on every strand and keep their value from one point to the
+  next, so a point block can carry a running value from root to tip. A local set in the strand
+  block reads in the point block. A local is a number or a vector for good.
+- **Loops.** `for $i in 0 .. 8 { ... }` runs with `$i` from 0 to 7. The bounds are whole numbers
+  written out, or a whole-number parameter that has a max (a loop runs to the max at most). Loops
+  nest.
+- **If** runs only the branch taken: `if (t > 0.5) { width *= 0.5; } else { ... }`.
+
+### Outputs and inputs
+
+| Output | In a per point block | In a per strand block |
+| --- | --- | --- |
+| `P` | The point (a vector) | Not writable: the root point |
+| `width` | The point's width | Every point's width (what the point block then reads) |
+| `color` | The point's hair color `[r, g, b]` (HairColor's) | Every point's color, and the strand's |
+| `channel.name` | A point channel | A strand channel |
+
+Each output reads as it is now: the incoming value until the script assigns it. A channel that
+the strands already carry per strand is written per strand, and one they carry per point, per
+point.
+
+| Input | What it is |
+| --- | --- |
+| `pointP` | The point as it came in |
+| `prev.P` | The point before, as this run left it (at the root, the root's own): follow-the-leader effects |
+| `tangent` | The strand's direction at the point, as it came in (unit length) |
+| `root`, `tip` | The strand's first and last points |
+| `pointCount`, `pointIndex` | How many points the strand has; which one this is (0 at the root) |
+| `t`, `pt` | 0 at the root to 1 at the tip, by length and by point |
+| `$name` | A parameter of the node; a ramp reads as `$name(x)`; an enum as its choice's index, 0 for the first |
+| `N`, `u`, `v`, `rand`, `id`, `length`, `index`... | The expression language's variables (`N` is the scalp's normal at the root) |
+| any other name | A channel of the strands by name (`clumpId`, Fill Tubes' `tubeU` and `tubeV`); one the strands don't carry reads 0, and the node's note says so |
+
+| Function | What it gives |
+| --- | --- |
+| `strandPoint(s)` | The strand as it came in, at share `s` of its length (0 root, 1 tip) |
+| `guidePoint(s)` | The strand's guide at share `s`: the guide (of the node's optional guides input) rooted nearest the strand; without guides, the strand's own point |
+| `scalpNormal(p)` | The scalp's normal at the point of the scalp nearest `p` |
+| `closestOnScalp(p)` | The point of the scalp nearest `p` |
+
+### Parameters
+
+Each row of the **Params** table is a parameter: its **Name** (read as `$name`; not a name the
+script reads already, such as `length` or `width`), **Type** and **Default**, a **Min** and **Max**
+(number, length and int), **Mappable** (number and length: a painted map, an expression or a field
+drives it per strand or per point, as on built-in nodes), a **Label** and, for an enum, its
+**Choices** (`straight, wavy, curly`).
+
+| Type | Reads as | Default written as |
+| --- | --- | --- |
+| number | a number (`unit` in the file: fraction, angle...) | `0.5` |
+| length | a number in scene units, fitted to the scalp as presets are | `0.5` |
+| int | a whole number; with a max it can bound a loop | `3` |
+| bool | 1 or 0 | `true` |
+| enum | the chosen item's index | one of the choices |
+| color | a vector `[r, g, b]` | `1, 0.5, 0.2` |
+| ramp | `$name(x)`, x from 0 to 1 | `[[0, 1], [1, 0.2]]` |
+
+### Limits
+
+- **It always finishes.** Loops are bounded, there is no recursion, and every run of a block (one
+  strand's, one point's) has a budget of 10,000 steps. A script past it stops with an error on the
+  node, never a hang.
+- **Safe to share.** A script reads its strands, its parameters, the groom's maps and the scalp:
+  no files, no network, no clock (`frame` and `time` read the groom's time, as in expressions).
+- **The same everywhere.** A script gives the same result on every machine and any number of
+  threads; strands run side by side, each on its own.
+- **Not yet:** adding or removing strands or points, reading other strands (neighbours), and the
+  GPU preview: while you drag a parameter or brush guides upstream of a script node, the preview
+  evaluates on the CPU.
+
+A script compiles once per edit. A script that writes only widths, colors or channels keeps every
+point as it came, so an edit to it leaves the points of everything after it as they were (as a
+Width edit does). An edit upstream that changes some strands makes only those again.
+
+A script node that cannot run, because its script has an error or because a groom holds a node
+from a newer GroomLab, hands its strands on as they came in, and its note says why.
+
+### Examples
+
+GroomLab ships four script nodes, under **Scripts** in Add Node. Edit one (**Edit Node...**) to
+see how it works; each script starts with a comment saying what it does.
+
+| Node | Writes | What it does |
+| --- | --- | --- |
+| **Wave** | P | Bends each strand sideways in a wave, from nothing at the root to the full swing at the tip |
+| **Kink** | P | Sharp bends at random places along each strand; each strand keeps its length |
+| **Taper by Channel** | width | Thins each strand toward its tip by a profile, as much as a channel or a map says (map **Amount** to an attribute) |
+| **Random Length** | P | Shortens each strand by a random share of its length, keeping its shape: its points slide down toward the root |
+
+### Edit, save and share
+
+**Edit Node...** (right-click a script node, or its panel) opens its editor again. **Save to
+Library** writes its file (one version up when your library has it already); **Save as New**
+writes it as a new node under the id in the header, which must be one your library doesn't have.
+A script node is shared, updated and carried by grooms exactly as a compound node is (below).
+
+## Grooms carry their nodes
+
+A groom stores a copy of every custom node it uses. It opens and renders the same on another
+machine, in the app, in Blender, in Arnold and RenderMan and with the command line tool, whether
+or not that machine has the node in its library. Changing the library never changes a groom by
+itself.
+
+## Update a node
+
+When your library has a newer version of a node a groom uses, the node shows a small arrow on its
+corner, and its panel shows **Update to vN**. Click it (or right-click > **Update Node**) to take
+the new version: one undo step. Parameter values you set are kept where the new version still has
+those parameters.
+
+To change a compound node you made, adjust it (or ungroup, edit and group it again) and pick
+**Save to Library** (right-click, or its panel): the file is written again one version up, and
+other grooms can then update to it. A script node: edit it and **Save to Library**.
+
+## Share one
+
+A custom node is one file, `<id>.glnode`, in your node library. Send the file. The other person
+picks **Import Node...** at the bottom of **Add Node** (or drags the file onto the Graph Editor):
+the file is checked, copied into their library and added to the graph. A file that cannot be used
+says why, for example a node made with a newer GroomLab.
+
+## Where the files live
+
+Nodes are looked up in this order; a node in an earlier folder hides one with the same id in a
+later one:
+
+1. Every folder on the `GROOMLAB_NODE_PATH` environment variable (separated by `;` on Windows,
+   `:` elsewhere): a studio's shared nodes.
+2. Your node folder, `Documents/GroomLab/nodes` (or `GROOMLAB_USER_NODES`). Maya, the app and
+   Blender all read it, so a node you save in one shows in the others. **Add Node > Open Nodes
+   Folder** opens it.
+3. The nodes shipped with GroomLab.
+
+## From Python
+
+```python
+import groomlab
+from groomlab import nodes
+
+groomlab.library_nodes()                      # what Add Node lists (each with its "kind")
+nodes.add_node(groom, "groomlab.soft_frizz", after="noise")
+groomlab.save_node(groom, "compound1", label="My Frizz", category="Look", author="Me")
+groomlab.import_node("C:/downloads/wave.glnode")
+groomlab.update_node(groom, "softFrizz")      # the library's newer version
+groomlab.node_dirs()                          # the folders, in order
+
+# Script nodes
+name = groomlab.add_script_node(groom, nodes.script_template("Lift", "Me"), after="width")
+definition = nodes.script_definition(groom, name)
+definition["script"] = "per point { P += N * $amount * t * t; }"
+groomlab.script_errors(definition)            # [] or [{"part", "message", "line", "column"}]
+groomlab.set_script(groom, name, definition)  # ValueError saying what is wrong
+groomlab.save_script_node(groom, name)        # to your library, one version up
+```
+
+The file format is described for developers in the repository (`docs/CUSTOM_NODES.md`).

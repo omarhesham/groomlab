@@ -6,7 +6,9 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 
 #include "groomlab/alembic_io.h"
@@ -14,6 +16,7 @@
 #include "groomlab/flow.h"
 #include "groomlab/graph_edit.h"
 #include "groomlab/graph_io.h"
+#include "groomlab/node_library.h"
 #include "groomlab/parts.h"
 #include "groomlab/paths.h"
 #include "groomlab/presets.h"
@@ -23,6 +26,7 @@
 #include "groomlab/sculpt.h"
 #include "groomlab/texture.h"
 #include "groomlab/transfer.h"
+#include "graph_presets.h"
 
 namespace groomlab::app {
 
@@ -105,6 +109,7 @@ GroomDocument::GroomDocument(GroomFile file, std::string path) : path_(std::move
     }
     // Every operator's spec once: what the panels show for each node type.
     for (const json& spec : json::parse(operatorSpecsJson())) specs_[spec.at("type").get<std::string>()] = spec;
+    refreshLibrary();
     // The graph as the core writes it: every node with every param (defaults filled in), so the
     // panels edit values that are there and the file saved holds the whole look.
     loadGraph(scene_->file().data.graphJson);
@@ -636,10 +641,12 @@ std::string GroomDocument::paintParam(const std::string& node, const std::string
 std::string GroomDocument::addNode(const std::string& type, float x, float y, std::string* made, const std::string& name) {
     if (!spec(type)) return "no operator '" + type + "'";
     // Named, seeded and placed as every host's editor does it (graph_edit.h): the type's name
-    // with its first letter lowered, numbered past the ones there (Maya's: noise, noise1, ...).
+    // with its first letter lowered, numbered past the ones there (Maya's: noise, noise1, ...); a
+    // library node's after its label.
     std::string chosen = name;
     try {
-        if (chosen.empty()) chosen = GraphEdit(graph_.dump()).uniqueName(type);
+        const std::string base = libraryNodeId(type).empty() ? type : libraryNodeName(spec(type)->value("label", type));
+        if (chosen.empty()) chosen = GraphEdit(graph_.dump()).uniqueName(base);
     } catch (const std::exception& e) {
         return e.what();
     }
@@ -829,6 +836,193 @@ std::string GroomDocument::upgradeNode(const std::string& node) {
         edit.upgradeNode(node);
         g = json::parse(edit.toJson());
     });
+}
+
+void GroomDocument::refreshLibrary() {
+    static const bool shipped = [] {
+        setShippedNodeDir(shippedNodeFolder());
+        return true;
+    }();
+    (void)shipped;
+    for (auto it = specs_.begin(); it != specs_.end();) {
+        if (it.key().rfind("node:", 0) == 0) it = specs_.erase(it);
+        else ++it;
+    }
+    try {
+        const json library = json::parse(libraryNodesJson());
+        for (json entry : library["nodes"]) {
+            entry["params"] = json::array();
+            entry["hidden"] = false;
+            entry["outputs"] = json::array({entry.value("output", json{{"name", "out"}, {"type", "Strands"}})});
+            const std::string type = entry.value("type", std::string());
+            specs_[type] = std::move(entry);
+        }
+    } catch (const std::exception&) {  // a library that cannot be read never stops the menus
+    }
+}
+
+json GroomDocument::libraryInfo(const std::string& node) const {
+    const json* n = nodeJson(node);
+    const std::string type = n ? n->value("type", std::string()) : std::string();
+    if (type != "Compound" && type != "Script") return nullptr;
+    const json params = n->value("params", json::object());
+    const json definition = params.is_object() ? params.value("definition", json()) : json();
+    if (!definition.is_object() || !definition.contains("glnode")) return nullptr;
+    try {
+        const json spec = json::parse(nodeSpecJson(json{{"type", type}, {"params", {{"definition", definition}}}}.dump()));
+        json info = spec.value("library", json::object());
+        info["label"] = spec.value("label", std::string());
+        info["description"] = spec.value("description", std::string());
+        return info;
+    } catch (const std::exception&) {
+        return nullptr;
+    }
+}
+
+std::string GroomDocument::updateLibraryNode(const std::string& node, const std::string& id) {
+    if (!nodeJson(node)) return "no node '" + node + "'";
+    const MeshPtr& scalp = file().data.scalp;
+    std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
+    if (size) *size /= session().groomScale();
+    bool changed = false;
+    const std::string error = editGraph("update " + node, [&](json& g) {
+        GraphEdit edit(g.dump());
+        changed = edit.updateLibraryNode(node, size, id);
+        g = json::parse(edit.toJson());
+    });
+    if (error.empty() && !changed) return node + " has the library's copy already";
+    return error;
+}
+
+std::string GroomDocument::saveAsNode(const std::string& node, const json& header, std::string* path) {
+    if (!nodeJson(node)) return "no node '" + node + "'";
+    const MeshPtr& scalp = file().data.scalp;
+    std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
+    if (size) *size /= session().groomScale();
+    std::string id;
+    try {
+        const std::string text = nodeFileFromCompound(graph_.dump(), node, header.dump(), size);
+        const std::string saved = saveNodeFile(text);
+        if (path) *path = saved;
+        id = json::parse(text).value("id", std::string());
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    refreshLibrary();
+    const std::string error = updateLibraryNode(node, id);
+    return error.find("has the library's copy already") != std::string::npos ? std::string() : error;
+}
+
+std::string GroomDocument::importNode(const std::string& path, std::string* id) {
+    try {
+        const std::string saved = importNodeFile(path);
+        if (id) *id = readNodeFile(saved).id;
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    refreshLibrary();
+    return {};
+}
+
+std::string GroomDocument::addScriptNode(float x, float y, std::string* made) {
+    json definition = json::parse(scriptNodeTemplate("My Script"));
+    const std::string base = definition.value("id", std::string("my.my_script"));
+    for (int i = 2; findLibraryNode(definition["id"].get<std::string>()); ++i) definition["id"] = base + std::to_string(i);
+    std::string chosen;
+    try {
+        chosen = GraphEdit(graph_.dump()).uniqueName(libraryNodeName(definition.value("label", std::string("My Script"))));
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    if (made) *made = chosen;
+    const MeshPtr& scalp = file().data.scalp;
+    std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
+    if (size) *size /= session().groomScale();
+    return editGraph("add " + chosen, [&](json& g) {
+        GraphEdit edit(g.dump());
+        edit.addNode(op::kScript, chosen, json{{"definition", definition}}.dump(), x, y, size);
+        g = json::parse(edit.toJson());
+    });
+}
+
+std::string GroomDocument::setScriptDefinition(const std::string& node, const json& definition) {
+    const json* n = nodeJson(node);
+    if (!n || n->value("type", std::string()) != "Script") return node + " is not a script node";
+    // Checked first: its errors, a line each.
+    std::string errors;
+    const json checked = json::parse(scriptNodeErrorsJson(definition.dump()));
+    for (const json& e : checked["errors"]) {
+        if (!errors.empty()) errors += "\n";
+        if (e.value("line", 0) > 0) errors += "line " + std::to_string(e["line"].get<int>()) + ", column " + std::to_string(e["column"].get<int>()) + ": ";
+        errors += e.value("message", std::string());
+    }
+    if (!errors.empty()) return errors;
+    auto defaults = [](const json& node) {
+        std::map<std::string, json> out;
+        for (const json& p : json::parse(nodeSpecJson(node.dump())).value("params", json::array())) out[p.value("name", std::string())] = p.value("default", json());
+        return out;
+    };
+    auto names = [](const json& d) {
+        std::set<std::string> out;
+        for (const json& p : d.value("params", json::array())) {
+            if (p.is_object() && p.value("name", json()).is_string()) out.insert(p["name"].get<std::string>());
+        }
+        return out;
+    };
+    return editGraph("edit " + node, [&](json& g) {
+        for (json& item : g["nodes"]) {
+            if (item.value("name", std::string()) != node) continue;
+            const std::map<std::string, json> before = defaults(item);
+            json& params = item["params"];
+            const std::set<std::string> oldNames = names(params.value("definition", json::object())), newNames = names(definition);
+            params["definition"] = definition;
+            for (const std::string& gone : oldNames) {
+                if (newNames.count(gone)) continue;
+                params.erase(gone);
+                if (item.contains("paramInputs") && item["paramInputs"].is_array()) {
+                    json kept = json::array();
+                    for (const json& p : item["paramInputs"]) {
+                        if (p != gone) kept.push_back(p);
+                    }
+                    item["paramInputs"] = kept;
+                }
+                json links = json::array();
+                for (const json& c : g.value("connections", json::array())) {
+                    if (c.value("to", std::string()) != node || c.value("input", std::string()) != gone) links.push_back(c);
+                }
+                g["connections"] = links;
+            }
+            // A param still at its old default takes the new one.
+            for (const auto& [name, value] : defaults(item)) {
+                if (!newNames.count(name)) continue;
+                const auto old = before.find(name);
+                if (!params.contains(name) || (old != before.end() && params[name] == old->second)) params[name] = value;
+            }
+        }
+    });
+}
+
+std::string GroomDocument::saveScriptNode(const std::string& node, bool asNew, std::string* path) {
+    const json* n = nodeJson(node);
+    if (!n || n->value("type", std::string()) != "Script") return node + " is not a script node";
+    json definition = n->value("params", json::object()).value("definition", json::object());
+    const std::string id = definition.value("id", std::string());
+    const std::optional<LibraryNode> existing = findLibraryNode(id);
+    if (asNew) {
+        if (existing) return "the library has a node " + id + " already: give the new node another id";
+        definition["version"] = 1;
+    } else if (existing) {
+        definition["version"] = std::max(definition.value("version", 1), existing->version + 1);
+    }
+    try {
+        const std::string saved = saveNodeFile(definition.dump(2));
+        if (path) *path = saved;
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    refreshLibrary();
+    if (definition == n->value("params", json::object()).value("definition", json::object())) return {};
+    return setScriptDefinition(node, definition);
 }
 
 std::string GroomDocument::tidyLayout() {
@@ -1166,7 +1360,9 @@ const json* GroomDocument::nodeSpec(const std::string& node) const {
     if (!n) return nullptr;
     const std::string type = n->value("type", std::string());
     const bool exposes = n->contains("paramInputs") && (*n)["paramInputs"].is_array() && !(*n)["paramInputs"].empty();
-    if (type != "Compound" && type != "Input" && type != "Value" && type != "Expression" && !exposes) return spec(type);
+    if (type != "Compound" && type != "Script" && type != "Input" && type != "Value" && type != "Expression" && !exposes) {
+        return spec(type);
+    }
     // A Compound's params are the ones its definition exposes (an Input's output its type, a
     // Value's and an Expression's output by their params; exposed params add ports): the core
     // resolves them from the node's own JSON (graph_edit.h's nodeSpecJson), cached by that JSON,

@@ -34,6 +34,25 @@ def presets(refresh=False):
     return _presets
 
 
+_library = {"at": 0.0, "nodes": []}
+
+
+def library_nodes(refresh=False):
+    """The node library's compound nodes (the helper's library_nodes: GROOMLAB_NODE_PATH, the user's
+    Documents/GroomLab/nodes that Maya and the app share, the shipped ones) as Add menu entries:
+    dicts with type ("node:<id>"), id, version, label, categoryTitle, description. Read again at
+    most every two seconds (the Add menu asks as it draws)."""
+    import time
+    now = time.time()
+    if refresh or now - _library["at"] > 2.0:
+        try:
+            _library["nodes"] = _call("library_nodes")["nodes"]
+        except Exception:  # a library that cannot be read never stops the menu
+            _library["nodes"] = []
+        _library["at"] = now
+    return _library["nodes"]
+
+
 def cached_presets():
     return _presets
 

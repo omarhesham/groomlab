@@ -77,6 +77,20 @@ class OperatorCatalog(object):
     def types(self):
         return sorted(self._specs)
 
+    def set_library(self, entries):
+        """The node library's compound nodes (groomlab_core.library_nodes()["nodes"]) as Add Node
+        entries of type "node:<id>", in place of the ones set before. Returns a stamp of what they
+        are (a menu filled from other entries fills again)."""
+        for op_type in [t for t in self._specs if t.startswith("node:")]:
+            del self._specs[op_type]
+        for entry in entries:
+            spec = dict(entry)
+            spec.setdefault("params", [])
+            spec["hidden"] = False
+            spec["outputs"] = [entry.get("output") or {"name": "out", "type": "Strands"}]
+            self._specs[entry["type"]] = spec
+        return tuple((e["type"], e.get("version"), e.get("label"), e.get("categoryTitle")) for e in entries)
+
     def spec(self, op_type):
         try:
             return self._specs[op_type]
@@ -426,6 +440,31 @@ class GraphModel(object):
         self._take(edit)
         return done
 
+    def library_info(self, name):
+        """What a node added from the node library is (graph_edit.h: "id", "version", "latest",
+        "updateAvailable", "embedded", "category", "author", "license", "icon"), read now (the
+        library may have changed); None for another node."""
+        node = self._node(name)
+        definition = (node.get("params") or {}).get("definition")
+        if node["type"] not in ("Compound", "Script") or not isinstance(definition, dict) or "glnode" not in definition:
+            return None
+        with _core_errors():
+            spec = json.loads(groomlab_core.node_spec_json(json.dumps({"type": node["type"], "params": {"definition": definition}})))
+        info = spec.get("library") or {}
+        info["label"] = spec.get("label") or info.get("id")
+        info["description"] = spec.get("description", "")
+        return info
+
+    def update_library_node(self, name, node_id=None):
+        """A library node's copy replaced with the library's (graph_edit.h updateLibraryNode), or
+        with library node `node_id`'s (a compound just saved as it): the exposed params it still has
+        keep their values. False when it had it already."""
+        edit = self._edit()
+        with _core_errors():
+            done = edit.update_library_node(name, self.groom_size, node_id or "")
+        self._take(edit)
+        return done
+
     def _sync_view_node(self, groom):
         from maya import cmds
         viewed = cmds.getAttr(groom + ".viewNode") or ""
@@ -481,8 +520,10 @@ class GraphModel(object):
         seed would make the same strands, two Flyaways pick the same strays. Without
         `pos` it goes in a free column right of the graph (the core's addNode). The defaults
         `params` leaves out that measure something fit `groom_size` (the groom's scalp, as
-        presets fit it; the defaults are authored at 20)."""
-        self.catalog.spec(op_type)
+        presets fit it; the defaults are authored at 20). A type "node:<id>" adds a Compound
+        holding the node library's copy of that node (graph_edit.h)."""
+        if not op_type.startswith("node:"):
+            self.catalog.spec(op_type)
         if name and name in self.nodes:
             raise GraphError("a node named %r exists" % name)
         edit = self._edit()
@@ -542,7 +583,7 @@ class GraphModel(object):
         node = self._node(name)
         params = node.get("params") or {}
         exposed = tuple(node.get("paramInputs") or ())
-        if node["type"] == "Compound":
+        if node["type"] in ("Compound", "Script"):  # ports and params from its definition
             key = (node["type"], json.dumps(params.get("definition") or {}, sort_keys=True), exposed)
             bare = {"type": node["type"], "params": {"definition": params.get("definition") or {}}}
         elif node["type"] == "Input":
@@ -829,6 +870,19 @@ class GraphModel(object):
         if inner is None or self.catalog.param_spec(inner["type"], param) is None:
             raise GraphError("the compound has no param %r" % target)
         definition.setdefault("expose", {})[name] = target
+
+    def unexpose(self, compound, target):
+        """Stop showing inner param `target` ("node.param") on the compound (its value inside stays
+        what the compound set last)."""
+        node = self._node(compound)
+        definition = (node.get("params") or {}).get("definition") or {}
+        expose = definition.get("expose") or {}
+        for name in [n for n, t in expose.items() if t == target]:
+            inner_name, _, param = target.partition(".")
+            for inner in definition.get("graph", {}).get("nodes", []):
+                if inner["name"] == inner_name and name in node["params"]:
+                    inner.setdefault("params", {})[param] = node["params"].pop(name)
+            del expose[name]
 
     def expand(self, compound):
         """Replace a Compound node with the nodes it holds (exposed values applied, every field

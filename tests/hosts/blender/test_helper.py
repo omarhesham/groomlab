@@ -128,6 +128,8 @@ def env_for(**extra):
     env = dict(os.environ)
     env.pop("GROOMLAB_PRESET_PATH", None)
     env["GROOMLAB_USER_PRESETS"] = extra.pop("user_presets", os.path.join(tempfile.gettempdir(), "groomlab_no_user_presets"))
+    env.pop("GROOMLAB_NODE_PATH", None)
+    env["GROOMLAB_USER_NODES"] = extra.pop("user_nodes", os.path.join(tempfile.gettempdir(), "groomlab_no_user_nodes"))
     env.update(extra)
     return env
 
@@ -573,6 +575,34 @@ class GroomTest(HelperTestCase):
         self.assert_matches_cli(s, 0.1, "inserted")
         presets = {p["name"] for p in self.h.call("list_presets")["presets"]}
         self.assertTrue({"hair_basics", "frizz", "curly"} <= presets)
+
+        # The node library (Maya's and the app's): the shipped compound nodes listed, one added as
+        # the Compound holding its copy, evaluated by the core as the CLI evaluates the saved groom.
+        library = {n["id"]: n for n in self.h.call("library_nodes")["nodes"]}
+        self.assertTrue({"groomlab.soft_frizz", "groomlab.grey_streaks", "groomlab.windswept_ends"} <= set(library))
+        self.assertEqual(library["groomlab.soft_frizz"]["type"], "node:groomlab.soft_frizz")
+        frizz = self.h.call("edit_graph", session=s, op="add_node", type="node:groomlab.soft_frizz")["name"]
+        self.assertEqual(frizz, "softFrizz")
+        self.h.call("edit_graph", session=s, op="connect", **{"from": inserted["node"], "to": frizz, "input": "strands"})
+        graph = self.h.call("get_graph", session=s)["graph"]
+        node = next(n for n in graph["nodes"] if n["name"] == frizz)
+        self.assertEqual(node["type"], "Compound")
+        self.assertEqual(node["params"]["definition"]["id"], "groomlab.soft_frizz")
+        self.assertFalse(self.h.call("edit_graph", session=s, op="update_library_node", name=frizz)["updated"])
+        self.assert_matches_cli(s, 0.1, "library node")
+        # A shipped script node: listed as one, added as the Script node holding its file, its
+        # params the header's, evaluated by the core as the CLI evaluates the saved groom.
+        self.assertEqual(library["groomlab.wave"]["kind"], "script")
+        wave = self.h.call("edit_graph", session=s, op="add_node", type="node:groomlab.wave")["name"]
+        self.assertEqual(wave, "wave")
+        self.h.call("edit_graph", session=s, op="connect", **{"from": frizz, "to": wave, "input": "strands"})
+        graph = self.h.call("get_graph", session=s)["graph"]
+        node = next(n for n in graph["nodes"] if n["name"] == wave)
+        self.assertEqual(node["type"], "Script")
+        self.assertIn("per point", node["params"]["definition"]["script"])
+        spec = self.h.call("node_spec", session=s, node=wave)["spec"]
+        self.assertIn("amplitude", [p["name"] for p in spec["params"]])
+        self.assert_matches_cli(s, 0.1, "script node")
 
         # A preset fits the scalp: the same on a head ten times smaller, lengths scaled.
         big = self.h.call("get_param", session=s, node="scatter", param="length")["value"]

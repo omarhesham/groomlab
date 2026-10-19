@@ -27,8 +27,10 @@
 #include "groomlab/export_view.h"
 #include "groomlab/frame_time.h"
 #include "groomlab/groom_file.h"
+#include "groomlab/graph_edit.h"
 #include "groomlab/groom_session.h"
 #include "groomlab/groomlab.hpp"
+#include "groomlab/node_library.h"
 #include "groomlab/paths.h"
 #include "groomlab/presets.h"
 #include "groomlab/scalp_mesh.h"
@@ -236,6 +238,59 @@ TEST(CApi, EveryShippedPresetEvaluatesAsTheCoreSessionBitForBit) {
     EXPECT_GT(compared, 30u);
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+TEST(CApi, AGroomWithLibraryNodesRendersWithoutTheLibrary) {
+    // Every shipped compound node added to the reference groom before its output by the core
+    // (the library at hand), the groom saved, the library gone: the API (its own copy of the core,
+    // which never saw the library) gives what the core gives, bit for bit.
+    const fs::path empty = fs::temp_directory_path() / "groomlab_capi_no_nodes";
+    fs::create_directories(empty);
+#ifdef _WIN32
+    _putenv_s("GROOMLAB_USER_NODES", empty.u8string().c_str());
+    _putenv_s("GROOMLAB_NODE_PATH", "");
+#else
+    setenv("GROOMLAB_USER_NODES", empty.u8string().c_str(), 1);
+    unsetenv("GROOMLAB_NODE_PATH");
+#endif
+    groomlab::setShippedNodeDir((kPresets.parent_path() / "nodes").u8string());
+    groomlab::GroomFile file = groomlab::readGroomFile((kData / "strokes" / "strokes.groom").u8string());
+    ASSERT_TRUE(file.data.scalp);
+    groomlab::GraphEdit edit(groomlab::defaultGraphJsonFor(groomlab::presetScalpSize(*file.data.scalp)));
+    const std::string out = edit.outputNode();
+    std::string last;
+    const json graph = json::parse(edit.toJson());
+    for (const json& c : graph["connections"]) {
+        if (c["to"] == out && c["input"] == "strands") last = c["from"];
+    }
+    ASSERT_FALSE(last.empty());
+    std::size_t added = 0;
+    for (const groomlab::LibraryNode& node : groomlab::libraryNodes()) {
+        const std::string name = edit.addNode(groomlab::libraryNodeType(node.id), {}, {}, std::nullopt, std::nullopt,
+                                              groomlab::presetScalpSize(*file.data.scalp));
+        edit.connect(last, name, "strands");
+        last = name;
+        ++added;
+    }
+    EXPECT_EQ(added, 7u);  // the compound nodes and the script nodes
+    edit.connect(last, out, "strands");
+    groomlab::setShippedNodeDir("");
+    file.data.graphJson = edit.toJson();
+    const std::string path = (empty / "with_nodes.groom").u8string();
+    groomlab::writeGroomFile(path, file);
+
+    const groomlab::GroomFile read = groomlab::readGroomFile(path);
+    groomlab::GroomSession core(read.data);
+    core.setPathResolver(groomlab::searchPathResolver({read.directory}));
+    core.setFramesPerSecond(read.framesPerSecond);
+    api::Session session = api::Session::fromFile(path);
+    api::EvalOptions options;
+    options.density = 0.1f;
+    const groomlab::ViewResult& want = core.evaluate(request(0.0, options.density));
+    ASSERT_TRUE(want.strands);
+    expectSame(session.evaluate(options), *want.strands);
+    std::error_code ec;
+    fs::remove_all(empty, ec);
 }
 
 TEST(CApi, AChannelPerStrandAndPerPointIsThereInBoth) {

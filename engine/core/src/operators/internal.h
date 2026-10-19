@@ -155,6 +155,12 @@ std::string compoundGraphJson(const std::string& definition);
 std::vector<PortSpec> compoundInputs(const std::string& definition);
 std::map<std::string, std::string> compoundExposed(const std::string& definition);
 
+// A node of type "node:<id>" in a graph's JSON as the Compound it stands for (node_library.cpp):
+// its params (JSON text) with the library's copy as "definition" when it has none, else a copy
+// that only names the id (the node then hands its strands on, saying why).
+// `type` (when given): the type the node is, "Script" for a script node's copy, else "Compound".
+std::string libraryNodeStubParams(const std::string& id, const std::string& paramsJson, std::string* type = nullptr);
+
 // What a node's map params (PG-2) add to its cache key (graph.cpp): each
 // texture's file stamp, each color set's hash (colorSetSalt), and the scalp
 // they are sampled on. Compounds add their inner nodes' the same way.

@@ -137,17 +137,29 @@ GraphDocument parse(json root) {
     GraphDocument doc;
     for (const json& n : root.value("nodes", json::array())) {
         const std::string name = n.at("name").get<std::string>();
-        const std::string type = n.at("type").get<std::string>();
+        std::string type = n.at("type").get<std::string>();
         if (doc.nodesByName.count(name)) throw GraphError("duplicate node name '" + name + "'");
+        json params = n.value("params", json::object());  // items() must not outlive this
+        if (type.rfind("node:", 0) == 0) {  // a library node by its type: the Compound or Script it stands for
+            params = json::parse(libraryNodeStubParams(type.substr(5), params.is_object() ? params.dump() : std::string(), &type));
+        }
 
         const NodeId id = doc.graph.addNode(type);
         Operator& op = doc.graph.node(id);
-        const auto specs = allParamSpecs(op);
-        const json params = n.value("params", json::object());  // items() must not outlive this
+        // A Script's params are its definition's: set it first.
+        const bool script = type == op::kScript;
+        if (script && params.is_object() && params.contains("definition")) {
+            const json& d = params["definition"];
+            op.params().set("definition", d.is_string() ? d.get<std::string>() : d.dump());
+        }
+        const auto specs = script ? nodeParamSpecs(op) : allParamSpecs(op);
         for (const auto& [key, value] : params.items()) {
-            if (type == op::kCompound && key == "definition" && value.is_object()) {
-                op.params().set(key, value.dump());  // stored as JSON text, written back as an object
-                continue;
+            if ((type == op::kCompound || script) && key == "definition") {
+                if (script) continue;
+                if (value.is_object()) {
+                    op.params().set(key, value.dump());  // stored as JSON text, written back as an object
+                    continue;
+                }
             }
             const ParamValue* declared = nullptr;
             for (const ParamSpec& s : specs) {
@@ -269,9 +281,14 @@ std::unique_ptr<Operator> operatorFromJson(const std::string& type, const std::s
     std::unique_ptr<Operator> op = OperatorRegistry::instance().create(type);
     const json values = json::parse(params.empty() ? std::string("{}") : params, nullptr, false);
     if (!values.is_object()) return op;
-    const auto specs = allParamSpecs(*op);
+    // A Script's params are its definition's: set it first.
+    if (type == op::kScript && values.contains("definition")) {
+        const json& d = values["definition"];
+        op->params().set("definition", d.is_string() ? d.get<std::string>() : d.dump());
+    }
+    const auto specs = type == op::kScript ? nodeParamSpecs(*op) : allParamSpecs(*op);
     for (const auto& [key, value] : values.items()) {
-        if (type == op::kCompound && key == "definition") {
+        if ((type == op::kCompound || type == op::kScript) && key == "definition") {
             op->params().set(key, value.is_string() ? value.get<std::string>() : value.dump());
             continue;
         }
@@ -303,7 +320,7 @@ std::string saveGraphJson(const GraphDocument& doc) {
         const ParamSet stored = doc.graph.storedParams(id);  // keyed params at their own values
         for (const auto& [key, value] : stored.values()) {
             const std::string* text = std::get_if<std::string>(&value);
-            if (op.typeName() == op::kCompound && key == "definition" && text) {
+            if ((op.typeName() == op::kCompound || op.typeName() == op::kScript) && key == "definition" && text) {
                 params[key] = json::parse(*text, nullptr, false);
                 if (params[key].is_discarded()) params[key] = *text;
             } else {
@@ -379,8 +396,43 @@ int paramDecimals(const ParamSpec& p, const char* kind) {
 
 }  // namespace
 
-std::string operatorSpecsJson() {
+std::string paramSpecJson(const ParamSpec& p) {
     const char* kinds[] = {"bool", "int", "float", "string", "vec3", "ramp", "map"};  // ParamValue order
+    json param = {{"name", p.name},
+                  {"kind", kinds[p.defaultValue.index()]},
+                  {"default", paramToJson(p.defaultValue)},
+                  {"description", p.description},
+                  {"mappable", p.description.find("(mappable") != std::string::npos},
+                  {"unit", p.unit},
+                  {"choices", p.choices},
+                  {"animatable", p.animatable},
+                  {"group", p.group},
+                  {"advanced", p.advanced},
+                  {"worldDirection", p.worldDirection},
+                  {"vectorExpression", p.vectorExpression},
+                  {"colorField", p.colorField},
+                  {"channel", channelUseName(p.channel)}};
+    if (p.defaultValue.index() == 1 || p.defaultValue.index() == 2 || p.defaultValue.index() == 4) {
+        param["decimals"] = paramDecimals(p, kinds[p.defaultValue.index()]);
+    }
+    // Limits and slider ranges only where set; the slider's falls back to the limits.
+    if (p.min) param["min"] = *p.min;
+    if (p.max) param["max"] = *p.max;
+    if (p.softMin || p.min) param["softMin"] = p.softMin ? *p.softMin : *p.min;
+    if (p.softMax || p.max) param["softMax"] = p.softMax ? *p.softMax : *p.max;
+    if (!p.showWhen.empty()) param["showWhen"] = {{"param", p.showWhen.param}, {"in", p.showWhen.in}};
+    if (p.channelOptional) param["channelOptional"] = true;
+    if (!p.unitWhen.param.empty()) param["unitWhen"] = {{"param", p.unitWhen.param}, {"in", p.unitWhen.in}};
+    // The input port it takes when exposed (none: it cannot be an input).
+    PortSpec port;
+    if (paramPortSpec(p, &port)) {
+        param["port"] = {{"type", portTypeName(port.type)}};
+        if (port.type == PortType::Value) param["port"]["valueKind"] = valueKindName(port.valueKind);
+    }
+    return param.dump();
+}
+
+std::string operatorSpecsJson() {
     const OperatorRegistry& registry = OperatorRegistry::instance();
     json ops = json::array();
     for (const std::string& type : registry.typeNames()) {
@@ -391,40 +443,7 @@ std::string operatorSpecsJson() {
         json outputs = json::array();
         for (const PortSpec& p : op->outputs()) outputs.push_back(portJson(p, false));
         json params = json::array();
-        for (const ParamSpec& p : allParamSpecs(*op)) {
-            json param = {{"name", p.name},
-                          {"kind", kinds[p.defaultValue.index()]},
-                          {"default", paramToJson(p.defaultValue)},
-                          {"description", p.description},
-                          {"mappable", p.description.find("(mappable") != std::string::npos},
-                          {"unit", p.unit},
-                          {"choices", p.choices},
-                          {"animatable", p.animatable},
-                          {"group", p.group},
-                          {"advanced", p.advanced},
-                          {"worldDirection", p.worldDirection},
-                          {"vectorExpression", p.vectorExpression},
-                          {"colorField", p.colorField},
-                          {"channel", channelUseName(p.channel)}};
-            if (p.defaultValue.index() == 1 || p.defaultValue.index() == 2 || p.defaultValue.index() == 4) {
-                param["decimals"] = paramDecimals(p, kinds[p.defaultValue.index()]);
-            }
-            // Limits and slider ranges only where set; the slider's falls back to the limits.
-            if (p.min) param["min"] = *p.min;
-            if (p.max) param["max"] = *p.max;
-            if (p.softMin || p.min) param["softMin"] = p.softMin ? *p.softMin : *p.min;
-            if (p.softMax || p.max) param["softMax"] = p.softMax ? *p.softMax : *p.max;
-            if (!p.showWhen.empty()) param["showWhen"] = {{"param", p.showWhen.param}, {"in", p.showWhen.in}};
-            if (p.channelOptional) param["channelOptional"] = true;
-            if (!p.unitWhen.param.empty()) param["unitWhen"] = {{"param", p.unitWhen.param}, {"in", p.unitWhen.in}};
-            // The input port it takes when exposed (none: it cannot be an input).
-            PortSpec port;
-            if (paramPortSpec(p, &port)) {
-                param["port"] = {{"type", portTypeName(port.type)}};
-                if (port.type == PortType::Value) param["port"]["valueKind"] = valueKindName(port.valueKind);
-            }
-            params.push_back(std::move(param));
-        }
+        for (const ParamSpec& p : allParamSpecs(*op)) params.push_back(json::parse(paramSpecJson(p)));
         // The channels it writes under fixed names, as its defaults set it (not a param's).
         json fixedChannels = json::array();
         for (const ChannelWrite& w : op->channelWrites()) {

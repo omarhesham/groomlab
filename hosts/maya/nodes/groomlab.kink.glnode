@@ -1,0 +1,64 @@
+{
+  "glnode": 1,
+  "id": "groomlab.kink",
+  "version": 1,
+  "label": "Kink",
+  "category": "Scripts",
+  "description": "Sharp bends at random places along the strands, as on coarse or damaged hair. Each strand keeps its length.",
+  "author": "GroomLab",
+  "license": "Apache-2.0",
+  "size": 20,
+  "inputs": [
+    {
+      "name": "strands",
+      "type": "Strands"
+    }
+  ],
+  "output": {
+    "name": "out",
+    "type": "Strands"
+  },
+  "params": [
+    {
+      "name": "count",
+      "type": "int",
+      "label": "Kinks",
+      "default": 3,
+      "min": 0,
+      "max": 12,
+      "description": "The most kinks a strand gets"
+    },
+    {
+      "name": "angle",
+      "type": "number",
+      "label": "Angle",
+      "default": 35,
+      "min": 0,
+      "softMax": 90,
+      "unit": "angle",
+      "description": "How sharply a kink bends, in degrees (each kink a random half to one and a half of it)"
+    },
+    {
+      "name": "share",
+      "type": "number",
+      "label": "Share",
+      "default": 0.5,
+      "min": 0,
+      "max": 1,
+      "unit": "fraction",
+      "mappable": true,
+      "description": "Share of the kinks that happen, 0 to 1"
+    },
+    {
+      "name": "seed",
+      "type": "int",
+      "label": "Seed",
+      "default": 0,
+      "description": "Picks other kinks"
+    }
+  ],
+  "writes": [
+    "P"
+  ],
+  "script": "# Kink: sharp bends at random places along each strand.\n# Each strand gets up to $count kinks, each at a random place along it (kept off the root and the\n# tip). Past a kink the rest of the strand turns around an axis across it, segment by segment, so\n# the strand keeps its length: each point is the point before (prev.P) plus its segment, turned.\nper strand {\n    $dir = normalize(tip - root);\n    $last = root;\n}\nper point {\n    $segment = pointP - $last;\n    $last = pointP;\n    if (pointIndex > 0) {\n        for $k in 0 .. count {\n            $at = 0.1 + 0.8 * hash(id, $k, $seed, 1);\n            if (t > $at && hash(id, $k, $seed, 2) < $share) {\n                $random = [hash(id, $k, $seed, 3), hash(id, $k, $seed, 4), hash(id, $k, $seed, 5)] - 0.5;\n                $axis = normalize(cross($dir, $random));\n                $segment = rotate($segment, $axis, radians($angle) * (0.5 + hash(id, $k, $seed, 6)));\n            }\n        }\n        P = prev.P + $segment;\n    }\n}\n"
+}

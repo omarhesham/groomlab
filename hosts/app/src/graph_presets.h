@@ -19,6 +19,9 @@ class GroomDocument;
 // The presets shipped with the app: the "presets" folder beside the executable (the build
 // copies hosts/maya/presets there), else the source tree's folder (a development build).
 std::string shippedPresetDir();
+// The compound nodes shipped with the app (node_library.h): the "nodes" folder beside the
+// executable, else the source tree's (hosts/maya/nodes).
+std::string shippedNodeFolder();
 // Where presets are looked up (presetSearchDirs: GROOMLAB_PRESET_PATH, the user's folder, the
 // shipped ones).
 std::vector<std::string> presetDirectories();

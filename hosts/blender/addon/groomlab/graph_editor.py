@@ -701,8 +701,26 @@ def _add_categories():
                         yield nodeitems_utils.NodeItem(cls.bl_idname, label=graph_tree.label_of(t))
         return items
 
+    def library_items(kind):
+        # The node library's nodes of a kind: compound nodes (saved compounds: Maya's and the app's
+        # Save as Node) and script nodes (Maya's and the app's script editor), each a Compound or a
+        # Script holding the library's copy once added (sync_from_tree sends its type).
+        def items(context):
+            cls = graph_tree.node_class("Script" if kind == "script" else "Compound") if graph_tree._node_classes else None
+            if cls is None:
+                return
+            for entry in graph.library_nodes():
+                if entry.get("kind", "compound") != kind:
+                    continue
+                yield nodeitems_utils.NodeItem(cls.bl_idname, label=entry.get("label") or entry["id"],
+                                               settings={"gl_library": repr(entry["type"])})
+        return items
+
     names = list(graph_tree.CATEGORY_TITLES)
-    return [GroomLabCategory("GROOMLAB_" + re.sub(r"\W", "_", c).upper(), c, items=items_of(c)) for c in names]
+    categories = [GroomLabCategory("GROOMLAB_" + re.sub(r"\W", "_", c).upper(), c, items=items_of(c)) for c in names]
+    categories.append(GroomLabCategory("GROOMLAB_COMPOUND_NODES", "Compound Nodes", items=library_items("compound")))
+    categories.append(GroomLabCategory("GROOMLAB_SCRIPT_NODES", "Script Nodes", items=library_items("script")))
+    return categories
 
 
 # ---- The sidebar: the selected node's params (Maya's param panel) -------------------------------
@@ -775,8 +793,8 @@ def draw_params(layout, context, node, scene):
     shown = []
     for spec in specs:
         name = spec["name"]
-        if op_type == "Compound" and name == "definition":
-            continue
+        if op_type in ("Compound", "Script") and name == "definition":
+            continue  # (a script node is edited in Maya or the app: Edit Node...)
         if (op_type, name) in graph_tree.PLUMBING and params.get(name, spec.get("default")) == spec.get("default"):
             continue
         shown.append(spec)

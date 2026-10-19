@@ -1,0 +1,45 @@
+{
+  "glnode": 1,
+  "id": "groomlab.grey_streaks",
+  "version": 1,
+  "label": "Grey Streaks",
+  "category": "color",
+  "description": "Streaks of grey and white hair through the color the strands have, laid out by a noise over the head. After Hair Color.",
+  "author": "GroomLab",
+  "license": "Apache-2.0",
+  "size": 20,
+  "inputs": [{"name": "strands", "type": "Strands"}],
+  "output": {"name": "out", "type": "Strands"},
+  "params": [
+    {"name": "amount", "target": "blend.mix", "label": "Amount", "default": 1.0, "min": 0, "max": 1,
+     "unit": "fraction", "description": "How grey the streaks are: 0 the strands' own color, 1 fully grey"},
+    {"name": "coverage", "target": "sharpen.inMin", "label": "Coverage", "default": 0.6, "min": 0, "max": 0.74,
+     "description": "Lower for more and wider streaks"},
+    {"name": "streaks", "target": "pattern.frequency", "label": "Streaks across", "default": 0.25, "min": 0, "softMax": 1,
+     "unit": "perLength", "description": "How many streaks fit across a scene unit: higher for more, thinner ones"},
+    {"name": "whiteness", "target": "grey.melanin", "label": "Grey pigment", "default": 0.04, "min": 0, "max": 1,
+     "description": "The pigment left in the grey hairs: 0 white, higher for darker grey"}
+  ],
+  "graph": {
+    "version": 1,
+    "nodes": [
+      {"name": "in", "type": "Input", "params": {"name": "strands", "type": "Strands"}, "ui": {"x": 0, "y": 0}},
+      {"name": "grey", "type": "HairColor", "ui": {"x": 240, "y": 120},
+       "params": {"mode": "melanin", "melanin": 0.04, "redness": 0.05, "greys": 0.6, "melaninRandom": 0.05}},
+      {"name": "pattern", "type": "FieldNoise", "ui": {"x": 240, "y": 260},
+       "params": {"frequency": 0.25, "octaves": 1, "seed": 7}},
+      {"name": "sharpen", "type": "FieldRemap", "ui": {"x": 480, "y": 260},
+       "params": {"inMin": 0.6, "inMax": 0.75}},
+      {"name": "blend", "type": "Blend", "ui": {"x": 720, "y": 0}, "paramInputs": ["mix"],
+       "params": {"mix": 1.0, "include": "shapeAndLook", "mixChannel": ""}}
+    ],
+    "connections": [
+      {"from": "in", "to": "grey", "input": "strands"},
+      {"from": "in", "to": "blend", "input": "a"},
+      {"from": "grey", "to": "blend", "input": "b"},
+      {"from": "pattern", "to": "sharpen", "input": "in"},
+      {"from": "sharpen", "to": "blend", "input": "mix"}
+    ],
+    "output": "blend"
+  }
+}

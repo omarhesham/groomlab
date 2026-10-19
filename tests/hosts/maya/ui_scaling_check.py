@@ -58,6 +58,9 @@ def main():
     os.environ["GROOMLAB_NO_UPDATES"] = "1"
     prefs = tempfile.mkdtemp(prefix="groomlab-ui-scaling-")
     os.environ["GROOMLAB_UPDATES_DIR"] = prefs
+    # The node library: the shipped nodes only (the user's own folder left out).
+    os.environ["GROOMLAB_USER_NODES"] = os.path.join(prefs, "nodes")
+    os.environ.pop("GROOMLAB_NODE_PATH", None)
     for folder in args.dll_dir + [args.core]:
         if hasattr(os, "add_dll_directory") and os.path.isdir(folder):
             os.add_dll_directory(os.path.abspath(folder))
@@ -247,7 +250,8 @@ def main():
             search = graph_editor.NodeSearch(editor, (0.0, 0.0))
             for text, first in (("density", "Scatter"), ("symmetry", "Mirror"), ("hair", "HairColor"),
                                 ("clump", "Clump"), ("hair color", "HairColor"), ("linked", "Reference"),
-                                ("collision", "Collide"), ("frizz", "Noise"), ("deform", "Bend")):
+                                ("collision", "Collide"), ("jitter", "Noise"), ("deform", "Bend"),
+                                ("frizz", "node:groomlab.soft_frizz")):  # a shipped compound node, by its label
                 search.fill(text)
                 got = search.list.item(0).data(QtCore.Qt.UserRole) if search.list.count() else None
                 _expect(got == first, "search %r: %s first, not %s" % (text, first, got))

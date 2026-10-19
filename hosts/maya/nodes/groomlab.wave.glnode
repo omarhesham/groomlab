@@ -1,0 +1,66 @@
+{
+  "glnode": 1,
+  "id": "groomlab.wave",
+  "version": 1,
+  "label": "Wave",
+  "category": "Scripts",
+  "description": "Bends each strand sideways in a wave along its length, from nothing at the root to the full swing at the tip.",
+  "author": "GroomLab",
+  "license": "Apache-2.0",
+  "size": 20,
+  "inputs": [
+    {
+      "name": "strands",
+      "type": "Strands"
+    }
+  ],
+  "output": {
+    "name": "out",
+    "type": "Strands"
+  },
+  "params": [
+    {
+      "name": "amplitude",
+      "type": "length",
+      "label": "Amplitude",
+      "default": 0.4,
+      "min": 0,
+      "softMax": 2,
+      "mappable": true,
+      "description": "How far the wave swings at the tip, in scene units"
+    },
+    {
+      "name": "frequency",
+      "type": "number",
+      "label": "Waves",
+      "default": 3,
+      "min": 0,
+      "softMax": 10,
+      "description": "Waves along each strand"
+    },
+    {
+      "name": "phase",
+      "type": "number",
+      "label": "Phase",
+      "default": 0,
+      "softMin": 0,
+      "softMax": 1,
+      "unit": "turns",
+      "description": "Where the waves start, in turns: key it to make the wave travel along the hair"
+    },
+    {
+      "name": "angle",
+      "type": "number",
+      "label": "Angle",
+      "default": 0,
+      "softMin": -180,
+      "softMax": 180,
+      "unit": "angle",
+      "description": "Turns the side the wave swings to around each strand, in degrees"
+    }
+  ],
+  "writes": [
+    "P"
+  ],
+  "script": "# Wave: bends each strand sideways in a wave along its length.\n# The swing grows from 0 at the root to $amplitude at the tip (times t), each strand starting\n# at its own place on the wave (rand) so neighbours don't move in lockstep. Key $phase to make\n# the wave travel along the hair.\nper strand {\n    # The side to swing to: across the strand, turned by $angle around it.\n    $dir = normalize(tip - root);\n    $ref = abs($dir.y) < 0.9 ? [0, 1, 0] : [1, 0, 0];\n    $side = rotate(normalize(cross($dir, $ref)), $dir, radians($angle));\n    $start = (rand + $phase) * 6.2832;\n}\nper point {\n    P += $side * $amplitude * sin(t * $frequency * 6.2832 + $start) * t;\n}\n"
+}

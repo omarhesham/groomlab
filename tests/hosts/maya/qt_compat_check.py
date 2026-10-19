@@ -231,6 +231,13 @@ def main():
         edit = expression_editor.CodeEdit("width = 0.1 * u\n", lines=4)
         shown(edit, (400, 200))
         shown(expression_editor.VariablesEditor({"a": 1.0}), (400, 300))
+        from groomlab.ui import script_editor  # the script node editor's code field and params table
+        code = script_editor.ScriptEdit("per point {\n    P += N * t;\n}\n")
+        shown(code, (400, 200))
+        code.mark_errors([{"part": "script", "line": 2, "column": 5, "message": "x"}])
+        table = script_editor.ParamsTable([{"name": "amount", "type": "length", "default": 0.5, "mappable": True}])
+        shown(table, (500, 160))
+        assert table.params()[0]["mappable"] and table.params()[0]["default"] == 0.5
 
     def ramp_events():
         ramp = widgets.RampEditor([[0.0, 0.0], [1.0, 1.0]])

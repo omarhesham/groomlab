@@ -49,6 +49,7 @@ add_library(groomlab_core_objects OBJECT
     src/tube.cpp
     src/instances.cpp
     src/node_catalog.cpp
+    src/node_library.cpp
     src/noise.cpp
     src/node_common.cpp
     src/parts.cpp
@@ -74,6 +75,7 @@ add_library(groomlab_core_objects OBJECT
     src/scalp_paint.cpp
     src/scale_maps.cpp
     src/scales.cpp
+    src/script.cpp
     src/simulation.cpp
     src/view_projection.cpp
     src/schema.cpp
@@ -94,6 +96,7 @@ add_library(groomlab_core_objects OBJECT
     src/texture.cpp
     src/usd_writer.cpp
     src/operators/compound.cpp
+    src/operators/script_op.cpp
     src/operators/deform_ops.cpp
     src/operators/interpolate.cpp
     src/operators/braid_op.cpp

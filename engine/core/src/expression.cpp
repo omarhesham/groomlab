@@ -2,6 +2,8 @@
 #include "groomlab/expression.h"
 #include "groomlab/portable_math.h"
 #include "groomlab/preview_core.h"
+#include "groomlab/script.h"
+#include "script_program.h"
 
 #include <algorithm>
 #include <array>
@@ -736,106 +738,114 @@ GROOMLAB_EXPRESSION_INLINE float binary(std::uint8_t code, float a, float b) {
     return 0.0f;
 }
 
+// One op of an expression on the stack (`top` its height): every kind but the script nodes' own
+// (Load, Store, Jump, JumpIfZero, ScriptCall: execScript runs those). The stack is local: nothing
+// the program writes may alias what it reads (env).
+GROOMLAB_EXPRESSION_INLINE void applyOp(const Op& op, float* stack, std::size_t& top, const EnvData& env, const Tables& tables) {
+    switch (op.kind) {
+        case Op::Number: stack[top++] = op.value; break;
+        case Op::Variable: stack[top++] = env.vars[op.code]; break;
+        case Op::Channel: {
+            const std::vector<float>* ch = env.channels ? (*env.channels)[op.channel] : nullptr;
+            if (ch) {
+                stack[top++] = env.strand < ch->size() ? (*ch)[env.strand] : 0.0f;
+                break;
+            }
+            const std::vector<float>* pc = env.pointChannels ? (*env.pointChannels)[op.channel] : nullptr;
+            stack[top++] = pc && env.point < pc->size() ? (*pc)[env.point] : 0.0f;
+            break;
+        }
+        case Op::Unary: stack[top - 1] = -stack[top - 1]; break;
+        case Op::Binary: {
+            const float b = stack[--top];
+            float& a = stack[top - 1];
+            a = binary(op.code, a, b);
+            break;
+        }
+        case Op::Select: {
+            const float no = stack[--top];
+            const float yes = stack[--top];
+            float& c = stack[top - 1];
+            c = c != 0.0f ? yes : no;
+            break;
+        }
+        case Op::Call: {
+            top -= op.args;
+            float* a = stack + top;
+            if (op.code <= kNoise) {
+                stack[top++] = finite(classicFn(op.code, a, env));
+            } else if (isScalarFn(op.code)) {
+                stack[top++] = finite(scalarFn(op.code, a, op.args, env));
+            } else {
+                const std::size_t made = vectorFn(op, a, env, tables);
+                for (std::size_t k = 0; k < made; ++k) a[k] = finite(a[k]);
+                top += made;
+            }
+            break;
+        }
+        case Op::VCall: {
+            top -= op.args;
+            componentwise(op.code, op.args, stack + top, env);
+            top += 3;
+            break;
+        }
+        case Op::VUnary:
+            for (std::size_t k = 1; k <= 3; ++k) stack[top - k] = -stack[top - k];
+            break;
+        case Op::VBinary: {
+            const std::size_t rs = (op.args & 2) ? 3 : 1, ls = (op.args & 1) ? 3 : 1;
+            top -= rs;
+            const float* b = stack + top;
+            top -= ls;
+            float* a = stack + top;
+            float r[3];
+            for (std::size_t k = 0; k < 3; ++k) r[k] = binary(op.code, a[ls == 3 ? k : 0], b[rs == 3 ? k : 0]);
+            a[0] = r[0];
+            a[1] = r[1];
+            a[2] = r[2];
+            top += 3;
+            break;
+        }
+        case Op::VSelect: {
+            top -= 7;
+            float* c = stack + top;
+            const float* pick = c[0] != 0.0f ? c + 1 : c + 4;
+            const float r[3] = {pick[0], pick[1], pick[2]};
+            c[0] = r[0];
+            c[1] = r[1];
+            c[2] = r[2];
+            top += 3;
+            break;
+        }
+        case Op::Component: {
+            const float v = stack[top - 3 + op.code];
+            top -= 3;
+            stack[top++] = v;
+            break;
+        }
+        case Op::Splat: {
+            const float v = stack[top - 1];
+            stack[top] = v;
+            stack[top + 1] = v;
+            top += 2;
+            break;
+        }
+        case Op::Load:
+        case Op::Store:
+        case Op::Jump:
+        case Op::JumpIfZero:
+        case Op::ScriptCall: break;  // a script's (execScript)
+    }
+}
+
 // Runs [begin, end) (its stack depth checked when parsed); returns the slots left on the stack,
-// and in `last` its top (a number: last[0]) or its top three (a vector: last[0..2]). The stack is
-// local: nothing the program writes may alias what it reads (env).
+// and in `last` its top (a number: last[0]) or its top three (a vector: last[0..2]).
 template <bool Vector>
 GROOMLAB_EXPRESSION_INLINE std::size_t execOps(const Op* begin, const Op* end, const EnvData& env, const Tables& tables,
                                                float* last) {
     float stack[kMaxStack];  // not cleared: every slot is written before it is read
     std::size_t top = 0;
-    for (const Op* it = begin; it != end; ++it) {
-        const Op& op = *it;
-        switch (op.kind) {
-            case Op::Number: stack[top++] = op.value; break;
-            case Op::Variable: stack[top++] = env.vars[op.code]; break;
-            case Op::Channel: {
-                const std::vector<float>* ch = env.channels ? (*env.channels)[op.channel] : nullptr;
-                if (ch) {
-                    stack[top++] = env.strand < ch->size() ? (*ch)[env.strand] : 0.0f;
-                    break;
-                }
-                const std::vector<float>* pc = env.pointChannels ? (*env.pointChannels)[op.channel] : nullptr;
-                stack[top++] = pc && env.point < pc->size() ? (*pc)[env.point] : 0.0f;
-                break;
-            }
-            case Op::Unary: stack[top - 1] = -stack[top - 1]; break;
-            case Op::Binary: {
-                const float b = stack[--top];
-                float& a = stack[top - 1];
-                a = binary(op.code, a, b);
-                break;
-            }
-            case Op::Select: {
-                const float no = stack[--top];
-                const float yes = stack[--top];
-                float& c = stack[top - 1];
-                c = c != 0.0f ? yes : no;
-                break;
-            }
-            case Op::Call: {
-                top -= op.args;
-                float* a = stack + top;
-                if (op.code <= kNoise) {
-                    stack[top++] = finite(classicFn(op.code, a, env));
-                } else if (isScalarFn(op.code)) {
-                    stack[top++] = finite(scalarFn(op.code, a, op.args, env));
-                } else {
-                    const std::size_t made = vectorFn(op, a, env, tables);
-                    for (std::size_t k = 0; k < made; ++k) a[k] = finite(a[k]);
-                    top += made;
-                }
-                break;
-            }
-            case Op::VCall: {
-                top -= op.args;
-                componentwise(op.code, op.args, stack + top, env);
-                top += 3;
-                break;
-            }
-            case Op::VUnary:
-                for (std::size_t k = 1; k <= 3; ++k) stack[top - k] = -stack[top - k];
-                break;
-            case Op::VBinary: {
-                const std::size_t rs = (op.args & 2) ? 3 : 1, ls = (op.args & 1) ? 3 : 1;
-                top -= rs;
-                const float* b = stack + top;
-                top -= ls;
-                float* a = stack + top;
-                float r[3];
-                for (std::size_t k = 0; k < 3; ++k) r[k] = binary(op.code, a[ls == 3 ? k : 0], b[rs == 3 ? k : 0]);
-                a[0] = r[0];
-                a[1] = r[1];
-                a[2] = r[2];
-                top += 3;
-                break;
-            }
-            case Op::VSelect: {
-                top -= 7;
-                float* c = stack + top;
-                const float* pick = c[0] != 0.0f ? c + 1 : c + 4;
-                const float r[3] = {pick[0], pick[1], pick[2]};
-                c[0] = r[0];
-                c[1] = r[1];
-                c[2] = r[2];
-                top += 3;
-                break;
-            }
-            case Op::Component: {
-                const float v = stack[top - 3 + op.code];
-                top -= 3;
-                stack[top++] = v;
-                break;
-            }
-            case Op::Splat: {
-                const float v = stack[top - 1];
-                stack[top] = v;
-                stack[top + 1] = v;
-                top += 2;
-                break;
-            }
-        }
-    }
+    for (const Op* it = begin; it != end; ++it) applyOp(*it, stack, top, env, tables);
     if constexpr (Vector) {
         if (top >= 3) {
             last[0] = stack[top - 3];
@@ -864,9 +874,32 @@ std::size_t depthAfter(const Op& op, std::size_t depth) {
         case Op::VSelect: return depth - 4;
         case Op::Component: return depth - 2;
         case Op::Splat: return depth + 2;
+        case Op::Load: return depth + op.args;
+        case Op::Store: return depth - op.args;
+        case Op::Jump: return depth;
+        case Op::JumpIfZero: return depth - 1;
+        case Op::ScriptCall: return depth - op.args + op.results;
     }
     return depth;
 }
+
+// A script node's compile (script.h): the program being made and the names its blocks know.
+struct ScriptMode {
+    const std::vector<script::ParamInfo>* params = nullptr;
+    std::set<std::string> writes;  // the header's "writes"
+    script::Program* program = nullptr;
+    bool pointBlock = false;  // compiling the per point block
+    struct Var {
+        std::uint16_t slot = 0;
+        Ty type = kNumber;
+        bool readOnly = false;  // a for loop's counter
+    };
+    std::map<std::string, Var> locals;
+};
+
+// The names a script reads as built-in inputs, besides the expression language's variables
+// (which its locals may take, as an expression's do).
+const char* const kScriptInputs[] = {"P", "width", "color", "tangent", "prev", "root", "tip", "pointCount", "channel"};
 
 // Recursive descent into reverse Polish, typed: each part is a number or a vector.
 class Parser {
@@ -874,7 +907,7 @@ public:
     Parser(const std::string& text, std::vector<Op>& out, std::vector<std::string>& channels,
            const std::vector<std::pair<std::string, float>>& constants, std::vector<Ramp>& ramps,
            std::vector<ExpressionCurve>& curves, std::vector<std::string>& mapNames, std::vector<ExpressionMapPtr>& maps,
-           const ExpressionEnvironment* environment)
+           const ExpressionEnvironment* environment, ScriptMode* script = nullptr)
         : s_(text),
           out_(&out),
           channels_(channels),
@@ -883,7 +916,8 @@ public:
           curves_(curves),
           mapNames_(mapNames),
           maps_(maps),
-          environment_(environment) {}
+          environment_(environment),
+          script_(script) {}
 
     // A block: statements (`$name = expression;`, `$name += ...;`, if/else of them) making locals
     // usable below them, then the expression whose value is the result (a closing `;` is
@@ -914,6 +948,7 @@ public:
                 ++column;
             }
         }
+        if (script_) throw ScriptError(what, static_cast<int>(line), static_cast<int>(column));
         const bool block = s_.find('\n') != std::string::npos;
         throw ExpressionError(block ? what + " (line " + std::to_string(line) + ", column " + std::to_string(column) + ")"
                                     : "expression '" + s_ + "': " + what + " at position " + std::to_string(pos_ + 1));
@@ -1375,6 +1410,7 @@ private:
         if (std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
             std::string name;
             if (!readName(name)) fail("expected a name after '$'");
+            if (script_) longScriptName(name);
             if (accept("(")) return call(name, nullptr);
             return named(name);
         }
@@ -1418,6 +1454,10 @@ private:
     // A name: a local computed above, then the node's own variables, then the built-in ones,
     // then a channel.
     Ty named(const std::string& name) {
+        if (script_) {
+            Ty type = kNumber;
+            if (scriptNamed(name, &type)) return type;
+        }
         if (const auto local = locals_.find(name); local != locals_.end()) {
             insertLocal(name, local->second);
             return local->second.type;
@@ -1482,6 +1522,10 @@ private:
             emit(makeOp(Op::Number, 0, 3.14159265f));
             return kNumber;
         }
+        return channelOp(name);
+    }
+    // A strand channel (or point channel) by name.
+    Ty channelOp(const std::string& name) {
         auto it = std::find(channels_.begin(), channels_.end(), name);
         if (it == channels_.end()) {
             channels_.push_back(name);
@@ -1564,7 +1608,7 @@ private:
     bool fold(std::size_t begin, std::size_t end, float* value, std::size_t slots = 1) const {
         for (std::size_t i = begin; i < end; ++i) {
             const Op& op = (*out_)[i];
-            if (op.kind == Op::Variable || op.kind == Op::Channel) return false;
+            if (op.kind == Op::Variable || op.kind == Op::Channel || op.kind == Op::Load || op.kind == Op::ScriptCall) return false;
             if ((op.kind == Op::Call || op.kind == Op::VCall) &&
                 (op.code == kRandFn || op.code == kRandRange || fnInfo(op.code).kind == FnKind::Map || fnInfo(op.code).kind == FnKind::Curve)) {
                 return false;
@@ -1696,6 +1740,10 @@ private:
     }
 
     Ty call(const std::string& written, const Applied* applied) {
+        if (script_) {
+            Ty type = kNumber;
+            if (scriptCall(written, applied, &type)) return type;
+        }
         const std::string name = canonicalFunction(written);
         if (const char* why = aliasOf(kUnsupportedFunctions, name)) fail(why);
         Fn fn = kFnCount;
@@ -1825,6 +1873,434 @@ private:
         fail("unknown function '" + written + "'");
     }
 
+public:
+    // ---- Script nodes (script.h): blocks, outputs, locals in slots, if and for as jumps --------
+
+    // The whole script: a per strand block and/or a per point block, the strand block first.
+    void parseScript() {
+        script::Program& program = *script_->program;
+        skipSpace();
+        while (pos_ < s_.size()) {
+            std::string word;
+            if (!readName(word) || word != "per") {
+                fail("a script is made of blocks: per strand { ... } and per point { ... }");
+            }
+            std::string which;
+            if (!readName(which) || (which != "strand" && which != "point")) fail("expected 'strand' or 'point' after 'per'");
+            if (which == "strand") {
+                if (program.hasStrandBlock) fail("a script has one per strand block");
+                if (program.hasPointBlock) fail("the per strand block comes before the per point block");
+                program.hasStrandBlock = true;
+                out_ = &program.strandOps;
+            } else {
+                if (program.hasPointBlock) fail("a script has one per point block");
+                program.hasPointBlock = true;
+                out_ = &program.pointOps;
+            }
+            script_->pointBlock = which == "point";
+            if (!accept("{")) fail("expected '{' after per " + which);
+            scriptStatements();
+            if (!accept("}")) fail("expected '}' to close the per " + which + " block");
+            skipSpace();
+        }
+        if (!program.hasStrandBlock && !program.hasPointBlock) {
+            fail("the script is empty: write a per point { ... } block (or per strand { ... })");
+        }
+    }
+
+private:
+    static bool identChar(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
+
+    // channel.name and prev.P read whole (readName stops at their dot, or took one letter after
+    // it as a vector's component).
+    void longScriptName(std::string& name) {
+        const std::string base = name.substr(0, name.find('.'));
+        if (base != "channel" && base != "prev") return;
+        if (name.size() > base.size()) {
+            while (pos_ < s_.size() && identChar(s_[pos_])) name += s_[pos_++];
+        } else if (pos_ < s_.size() && s_[pos_] == '.') {
+            ++pos_;
+            const std::size_t start = pos_;
+            while (pos_ < s_.size() && identChar(s_[pos_])) ++pos_;
+            if (start == pos_) fail("expected a name after '" + base + ".'");
+            name += "." + s_.substr(start, pos_ - start);
+        }
+    }
+
+    bool scriptInput(const std::string& name) const {
+        for (const char* n : kScriptInputs) {
+            if (name == n) return true;
+        }
+        return false;
+    }
+    const script::ParamInfo* scriptParam(const std::string& name, std::size_t* index = nullptr) const {
+        for (std::size_t i = 0; i < script_->params->size(); ++i) {
+            if ((*script_->params)[i].name == name) {
+                if (index) *index = i;
+                return &(*script_->params)[i];
+            }
+        }
+        return nullptr;
+    }
+    script::ChannelOut* channelOut(const std::string& name) {
+        for (script::ChannelOut& c : script_->program->channelOuts) {
+            if (c.name == name) return &c;
+        }
+        return nullptr;
+    }
+    std::uint16_t allocate(int width) {
+        script::Program& program = *script_->program;
+        if (program.slotCount + static_cast<std::size_t>(width) > 65535) fail("too many locals");
+        const auto slot = static_cast<std::uint16_t>(program.slotCount);
+        program.slotCount += static_cast<std::size_t>(width);
+        return slot;
+    }
+    void emitLoad(std::uint16_t slot, int width) {
+        Op op = makeOp(Op::Load);
+        op.channel = slot;
+        op.args = static_cast<std::uint8_t>(width);
+        emit(op);
+    }
+    void emitStore(std::uint16_t slot, int width) {
+        Op op = makeOp(Op::Store);
+        op.channel = slot;
+        op.args = static_cast<std::uint8_t>(width);
+        emit(op);
+    }
+    std::size_t emitJump(Op::Kind kind) {
+        if (out_->size() >= 65535) fail("the script is too long");
+        emit(makeOp(kind));
+        return out_->size() - 1;
+    }
+    // A jump made earlier lands here (the next op written).
+    void land(std::size_t jump) {
+        if (out_->size() > 65535) fail("the script is too long");
+        (*out_)[jump].channel = static_cast<std::uint16_t>(out_->size());
+    }
+    // A slot read as written: whole, or one component (`component` 0-2).
+    Ty loaded(std::uint16_t slot, Ty type, int component, const std::string& name) {
+        emitLoad(slot, type == kVector ? 3 : 1);
+        if (component < 0) return type;
+        if (type != kVector) fail(name + " is a number: it has no components");
+        emit(makeOp(Op::Component, static_cast<std::uint8_t>(component)));
+        return kNumber;
+    }
+
+    // A name a script knows besides an expression's: its locals, inputs, outputs and params.
+    // False for one it leaves to named() (the strand's variables, channels by name).
+    bool scriptNamed(const std::string& name, Ty* type) {
+        script::Program& program = *script_->program;
+        if (name.rfind("channel.", 0) == 0) {
+            const std::string channel = name.substr(8);
+            if (const script::ChannelOut* out = channelOut(channel)) {
+                emitLoad(out->slot, 1);
+            } else {  // a channel it only reads: by name, as an expression reads one
+                channelOp(channel);
+            }
+            *type = kNumber;
+            return true;
+        }
+        if (name == "channel") fail("channel.name reads a channel: expected '.' and its name");
+        if (name.rfind("prev", 0) == 0 && (name.size() == 4 || name[4] == '.')) {
+            if (name != "prev.P") fail("prev has .P alone (the point before, as this run left it)");
+            if (!script_->pointBlock) fail("prev.P is per point: read it in a per point block");
+            emitLoad(script::kSlotPrevP, 3);
+            *type = kVector;
+            return true;
+        }
+        const std::size_t dot = name.find('.');
+        const std::string base = dot == std::string::npos ? name : name.substr(0, dot);
+        const int component = dot == std::string::npos ? -1 : static_cast<int>((std::strchr("xyzrgb", name[dot + 1]) - "xyzrgb") % 3);
+        if (const auto local = script_->locals.find(base); local != script_->locals.end()) {
+            *type = loaded(local->second.slot, local->second.type, component, "$" + base);
+            return true;
+        }
+        struct Input {
+            const char* name;
+            std::uint16_t slot;
+            Ty type;
+        };
+        static const Input kInputs[] = {{"P", script::kSlotP, kVector},           {"width", script::kSlotWidth, kNumber},
+                                        {"color", script::kSlotColor, kVector},   {"tangent", script::kSlotTangent, kVector},
+                                        {"root", script::kSlotRoot, kVector},     {"tip", script::kSlotTip, kVector},
+                                        {"pointCount", script::kSlotPointCount, kNumber}};
+        for (const Input& in : kInputs) {
+            if (base == in.name) {
+                *type = loaded(in.slot, in.type, component, base);
+                return true;
+            }
+        }
+        std::size_t index = 0;
+        if (const script::ParamInfo* param = scriptParam(base, &index)) {
+            if (param->ramp) fail("$" + base + " is a ramp: read it as $" + base + "(x), x from 0 to 1");
+            *type = loaded(program.paramSlots[index], param->width == 3 ? kVector : kNumber, component, "$" + base);
+            return true;
+        }
+        return false;
+    }
+
+    // A script function or a ramp param's call; false for one it leaves to call().
+    bool scriptCall(const std::string& name, const Applied* applied, Ty* type) {
+        script::Program& program = *script_->program;
+        int fn = -1;
+        Ty argType = kNumber, result = kVector;
+        std::size_t ramp = 0;
+        if (name == "strandPoint") {
+            fn = script::kStrandPoint;
+        } else if (name == "guidePoint") {
+            fn = script::kGuidePoint;
+            program.readsGuides = true;
+        } else if (name == "scalpNormal" || name == "closestOnScalp") {
+            fn = name == "scalpNormal" ? script::kScalpNormal : script::kClosestOnScalp;
+            argType = kVector;
+            program.readsScalp = true;
+        } else if (const script::ParamInfo* param = scriptParam(name, &ramp); param && param->ramp) {
+            fn = script::kRampParam;
+            ramp = program.paramSlots[ramp];
+            result = kNumber;
+        }
+        if (fn < 0) return false;
+        // One argument (or the value an -> applies it to).
+        Ty given = kNumber;
+        if (applied) {
+            given = applied->type;
+            if (!accept(")")) fail(name + " takes one argument");
+        } else {
+            if (accept(")")) fail(name + " takes one argument");
+            given = expression();
+            if (!accept(")")) fail(name + " takes one argument: expected ')'");
+        }
+        if (argType == kNumber && given == kVector) fail(name + "'s argument is a number, not a vector");
+        if (argType == kVector && given == kNumber) emit(makeOp(Op::Splat));
+        Op op = makeOp(Op::ScriptCall, static_cast<std::uint8_t>(fn));
+        op.args = static_cast<std::uint8_t>(argType == kVector ? 3 : 1);
+        op.results = static_cast<std::uint8_t>(result == kVector ? 3 : 1);
+        op.channel = static_cast<std::uint16_t>(ramp);
+        emit(op);
+        *type = result;
+        return true;
+    }
+
+    // Statements until the block's '}'.
+    void scriptStatements() {
+        for (;;) {
+            if (peek('}')) return;
+            if (pos_ >= s_.size()) fail("expected '}': a block is not closed");
+            scriptStatement();
+        }
+    }
+    void scriptBlock(const char* what) {
+        if (!accept("{")) fail(std::string("expected '{': ") + what + "'s statements are in braces");
+        scriptStatements();
+        if (!accept("}")) fail("expected '}'");
+    }
+
+    // One statement: an assignment (to a local or an output), an if or a for.
+    void scriptStatement() {
+        const Deeper deeper(*this);
+        skipSpace();
+        std::string name;
+        if (!readName(name)) fail("expected a statement: an assignment ($name = ...;), an if or a for");
+        longScriptName(name);
+        if (name == "if" && peek('(')) {
+            scriptIf();
+            return;
+        }
+        if (name == "for") {
+            scriptFor();
+            return;
+        }
+        if (name == "else") fail("an else without its if");
+        if (name == "per") fail("blocks don't nest: close this one before per");
+        Bin op = kAdd;
+        bool compound = false;
+        if (!assignment()) {
+            if (!compoundAssignment(&op)) fail("expected '=' after " + name + ": a statement assigns a value (" + name + " = ...;)");
+            compound = true;
+        }
+        scriptAssign(name, compound, op);
+        if (!accept(";")) fail("expected ';' after the value of " + name);
+    }
+
+    // The slot an assignment writes: an output (checked against "writes"), a local (new ones
+    // made once the value's type is known: *made false).
+    struct Target {
+        std::uint16_t slot = 0;
+        Ty type = kNumber;
+        bool made = true;
+    };
+    Target scriptTarget(const std::string& base, bool compound) {
+        script::Program& program = *script_->program;
+        auto writable = [&](const std::string& what) {
+            if (!script_->writes.count(what)) {
+                fail(what + " is not in the node's \"writes\": add \"" + what + "\" to the header to change it");
+            }
+        };
+        if (base.rfind("channel.", 0) == 0) {
+            writable(base);
+            script::ChannelOut* out = channelOut(base.substr(8));
+            if (out->assigned && out->perPoint != script_->pointBlock) {
+                fail(base + " is written per " + std::string(out->perPoint ? "point" : "strand") +
+                     " already: a channel is a strand's or a point's, written in one block");
+            }
+            out->assigned = true;
+            out->perPoint = script_->pointBlock;
+            return {out->slot, kNumber};
+        }
+        if (base == "P") {
+            writable("P");
+            if (!script_->pointBlock) fail("P is per point: change it in a per point block");
+            program.pointP = true;
+            return {script::kSlotP, kVector};
+        }
+        if (base == "width") {
+            writable("width");
+            (script_->pointBlock ? program.pointWidth : program.strandWidth) = true;
+            return {script::kSlotWidth, kNumber};
+        }
+        if (base == "color") {
+            writable("color");
+            (script_->pointBlock ? program.pointColor : program.strandColor) = true;
+            return {script::kSlotColor, kVector};
+        }
+        if (const auto local = script_->locals.find(base); local != script_->locals.end()) {
+            if (local->second.readOnly) fail("$" + base + " is the for loop's counter: it can't be assigned");
+            return {local->second.slot, local->second.type};
+        }
+        if (scriptInput(base)) {
+            fail(base + " is an input of the script (read only): assign P, width, color, channel.name or a local of another name");
+        }
+        if (scriptParam(base)) fail("$" + base + " is a param of the node (read only): copy it into a local to change it");
+        if (compound) fail("$" + base + " is read before it is set");
+        Target t;
+        t.made = false;
+        return t;
+    }
+    void scriptAssign(const std::string& name, bool compound, Bin op) {
+        // One component (P.y = ...), unless it names a channel.
+        std::string base = name;
+        int component = -1;
+        if (name.rfind("channel.", 0) != 0) {
+            const std::size_t dot = name.find('.');
+            if (dot != std::string::npos) {
+                base = name.substr(0, dot);
+                component = static_cast<int>((std::strchr("xyzrgb", name[dot + 1]) - "xyzrgb") % 3);
+            }
+        }
+        Target target = scriptTarget(base, compound);
+        if (!target.made && component >= 0) fail("$" + base + " is set whole first ($" + base + " = [x, y, z];), then a component");
+        if (component >= 0 && target.type != kVector) fail(base + " is a number: it has no components");
+        Ty value;
+        if (compound) {
+            const Ty left = loaded(target.slot, target.type, component, base);
+            value = arithmetic(op, left, expression());
+        } else {
+            value = expression();
+        }
+        if (!target.made) {  // a new local, of its value's type for good
+            target.type = value;
+            target.slot = allocate(value == kVector ? 3 : 1);
+            script_->locals[base] = {target.slot, value, false};
+        }
+        const Ty wanted = component >= 0 ? kNumber : target.type;
+        if (wanted == kNumber && value == kVector) {
+            fail((component >= 0 ? name : (target.made && script_->locals.count(base) ? "$" + base : base)) +
+                 " is a number, not a vector (use .x, length(...) or dot(...))");
+        }
+        if (wanted == kVector && value == kNumber) emit(makeOp(Op::Splat));  // on every component
+        emitStore(static_cast<std::uint16_t>(target.slot + (component >= 0 ? component : 0)), wanted == kVector ? 3 : 1);
+    }
+
+    // if (c) { ... } else if (c) { ... } else { ... }: jumps over the branches not taken.
+    void scriptIf() {
+        if (!accept("(")) fail("expected '(' after if");
+        if (expression() == kVector) fail("an if's condition is a number, not a vector");
+        if (!accept(")")) fail("expected ')' after the if's condition");
+        const std::size_t skip = emitJump(Op::JumpIfZero);
+        scriptBlock("an if");
+        const std::size_t save = pos_;
+        std::string word;
+        if (readName(word) && word == "else") {
+            const std::size_t over = emitJump(Op::Jump);
+            land(skip);
+            const std::size_t afterElse = pos_;
+            std::string next;
+            if (readName(next) && next == "if" && peek('(')) {
+                scriptIf();
+            } else {
+                pos_ = afterElse;
+                scriptBlock("an else");
+            }
+            land(over);
+        } else {
+            pos_ = save;
+            land(skip);
+        }
+    }
+
+    // A for loop's bound: a whole number written out, or a whole-number param with a max (read
+    // up to it).
+    void loopBound() {
+        skipSpace();
+        if (pos_ < s_.size() && std::isdigit(static_cast<unsigned char>(s_[pos_]))) {
+            long long value = 0;
+            while (pos_ < s_.size() && std::isdigit(static_cast<unsigned char>(s_[pos_]))) {
+                value = value * 10 + (s_[pos_++] - '0');
+                if (value > kScriptMaxLoop) fail("a loop's bound is " + std::to_string(kScriptMaxLoop) + " at most");
+            }
+            if (pos_ < s_.size() && (identChar(s_[pos_]) || (s_[pos_] == '.' && pos_ + 1 < s_.size() && s_[pos_ + 1] != '.'))) {
+                fail("a loop's bounds are whole numbers (or whole-number params with a max)");
+            }
+            emit(makeOp(Op::Number, 0, static_cast<float>(value)));
+            return;
+        }
+        std::string name;
+        if (!readName(name)) fail("a loop's bounds are whole numbers written out, for $i in 0 .. 8 (or a whole-number param)");
+        std::size_t index = 0;
+        const script::ParamInfo* param = scriptParam(name, &index);
+        if (!param || !param->loopBound) {
+            fail("a loop's bound is a whole number written out or a whole-number param with a max, not " + name +
+                 " (a script always finishes)");
+        }
+        emitLoad(script_->program->paramSlots[index], 1);
+        emit(makeOp(Op::Number, 0, param->loopMax));
+        Op op = makeOp(Op::Call, kMin);
+        op.args = 2;
+        emit(op);
+    }
+
+    // for $i in a .. b { ... }: $i from a up to b - 1, read only, gone after the loop.
+    void scriptFor() {
+        std::string counter;
+        if (!readName(counter) || counter.find('.') != std::string::npos) {
+            fail("expected the loop's counter after for: for $i in 0 .. 8 { ... }");
+        }
+        if (script_->locals.count(counter) || scriptInput(counter) || scriptParam(counter)) {
+            fail("$" + counter + " is taken: name the loop's counter otherwise");
+        }
+        std::string in;
+        if (!readName(in) || in != "in") fail("expected 'in' after for $" + counter + " (for $i in 0 .. 8 { ... })");
+        const std::uint16_t slot = allocate(1);
+        loopBound();
+        emitStore(slot, 1);
+        if (!accept("..")) fail("expected '..' between the loop's bounds: for $i in 0 .. 8");
+        const std::size_t check = out_->size();
+        emitLoad(slot, 1);
+        loopBound();
+        emit(makeOp(Op::Binary, kLt));
+        const std::size_t exit = emitJump(Op::JumpIfZero);
+        script_->locals[counter] = {slot, kNumber, true};
+        scriptBlock("a for loop");
+        emitLoad(slot, 1);
+        emit(makeOp(Op::Number, 0, 1.0f));
+        emit(makeOp(Op::Binary, kAdd));
+        emitStore(slot, 1);
+        const std::size_t back = emitJump(Op::Jump);
+        (*out_)[back].channel = static_cast<std::uint16_t>(check);
+        land(exit);
+        script_->locals.erase(counter);
+    }
+
     const std::string& s_;
     std::size_t pos_ = 0;
     int depth_ = 0;
@@ -1838,6 +2314,7 @@ private:
     const ExpressionEnvironment* environment_;
     std::map<std::string, Local> locals_;
     std::set<std::string>* assigned_ = nullptr;  // the names an if's branch sets
+    ScriptMode* script_ = nullptr;  // compiling a script node's program (else an expression)
     bool pending_ = false;  // primary() gives an apply's value (of type pendingType_) next
     Ty pendingType_ = kNumber;
 };
@@ -2356,6 +2833,230 @@ Vec3f Expression::evaluateVectorAt(const StrandRoot& root, const ScalpMesh* scal
     Env env;
     rootEnv(env, root, scalp);
     return runVector(env);
+}
+
+// ---- Script nodes' programs (script_program.h) -----------------------------------------------
+
+namespace script {
+
+Vec3f pointAlong(const Vec3f* points, const float* arc, std::size_t n, float t) {
+    if (n == 0 || !points) return Vec3f{};
+    if (n == 1 || !(t > arc[0])) return points[0];  // also NaN
+    if (t >= arc[n - 1]) return points[n - 1];
+    const std::size_t i = static_cast<std::size_t>(std::upper_bound(arc, arc + n, t) - arc) - 1;
+    const float span = arc[i + 1] - arc[i];
+    const float f = span > 0.0f ? (t - arc[i]) / span : 0.0f;
+    return points[i] + (points[i + 1] - points[i]) * f;
+}
+
+namespace {
+
+// A script function (ScriptCall): reads its argument from `a`, writes its result there; the slots
+// it wrote.
+std::size_t scriptFn(const Op& op, float* a, const Frame& f) {
+    auto put = [&](const Vec3f& v) {
+        a[0] = v.x;
+        a[1] = v.y;
+        a[2] = v.z;
+        return std::size_t{3};
+    };
+    switch (op.code) {
+        case kStrandPoint: return put(pointAlong(f.points, f.arc, f.pointCount, a[0]));
+        case kGuidePoint:
+            if (f.guideCount) return put(pointAlong(f.guidePoints, f.guideArc, f.guideCount, a[0]));
+            return put(pointAlong(f.points, f.arc, f.pointCount, a[0]));
+        case kScalpNormal:
+        case kClosestOnScalp: {
+            const Vec3f p{a[0], a[1], a[2]};
+            const SurfacePoint hit = f.scalp ? f.scalp->closestPoint(p) : SurfacePoint{};
+            const bool found = f.scalp && f.scalp->contains(hit.root);
+            if (op.code == kClosestOnScalp) return put(found ? hit.position : p);
+            return put(found ? f.scalp->normal(hit.root) : Vec3f{0.0f, 1.0f, 0.0f});
+        }
+        case kRampParam: {
+            const Ramp* ramp = f.ramps ? f.ramps[op.channel] : nullptr;
+            a[0] = ramp ? (*ramp)(a[0]) : 0.0f;
+            return 1;
+        }
+        default: a[0] = 0.0f; return 1;
+    }
+}
+
+}  // namespace
+
+Program compile(const std::string& text, const std::vector<ParamInfo>& params, const std::vector<std::string>& writes) {
+    Program program;
+    const ExpressionEnvironment* environment = ExpressionEnvironmentScope::current();
+    if (environment) {
+        program.seconds = environment->seconds;
+        program.frame = environment->frame;
+    }
+    // The params' slots (a ramp: its place among the ramp params), then the channels written.
+    std::uint16_t ramps = 0;
+    for (const ParamInfo& p : params) {
+        if (p.ramp) {
+            program.paramSlots.push_back(ramps++);
+            continue;
+        }
+        program.paramSlots.push_back(static_cast<std::uint16_t>(program.slotCount));
+        program.slotCount += static_cast<std::size_t>(p.width == 3 ? 3 : 1);
+    }
+    for (const std::string& w : writes) {
+        if (w.rfind("channel.", 0) != 0) continue;
+        ChannelOut out;
+        out.name = w.substr(8);
+        out.slot = static_cast<std::uint16_t>(program.slotCount++);
+        program.channelOuts.push_back(out);
+    }
+    ScriptMode mode;
+    mode.params = &params;
+    mode.program = &program;
+    mode.writes.insert(writes.begin(), writes.end());
+    std::vector<Op> unused;
+    const std::vector<std::pair<std::string, float>> constants;
+    Parser parser(text, unused, program.channels, constants, program.ramps, program.curves, program.mapNames, program.maps,
+                  environment, &mode);
+    parser.parseScript();
+    for (const std::vector<Op>* ops : {&program.strandOps, &program.pointOps}) {
+        std::size_t depth = 0;
+        for (const Op& op : *ops) {
+            depth = depthAfter(op, depth);
+            if (depth > kMaxStack) throw ScriptError("the script is nested too deeply", 1, 1);
+            if (op.kind != Op::Variable) continue;
+            program.readsTime = program.readsTime || op.code == kFrame || op.code == kTime;
+            program.readsLongest = program.readsLongest || op.code == kLongest;
+        }
+        if (ops->size() > 65535) throw ScriptError("the script is too long", 1, 1);
+    }
+    return program;
+}
+
+bool run(const std::vector<Op>& ops, const Program& program, Frame& frame, std::size_t budget) {
+    EnvData env;
+    std::copy(frame.vars, frame.vars + kVarCount, env.vars.begin());
+    env.strands = frame.strands;
+    env.strand = frame.strand;
+    env.point = frame.point;
+    env.channels = frame.channels;
+    env.pointChannels = frame.pointChannels;
+    env.root = frame.root;
+    const Tables tables{program.ramps.data(), program.curves.data(), program.maps.data()};
+    float stack[kMaxStack];  // not cleared: every slot is written before it is read
+    std::size_t top = 0, pc = 0, steps = 0;
+    const Op* code = ops.data();
+    const std::size_t n = ops.size();
+    float* slots = frame.slots;
+    while (pc < n) {
+        if (++steps > budget) return false;
+        const Op& op = code[pc++];
+        switch (op.kind) {
+            case Op::Load:
+                for (std::size_t k = 0; k < op.args; ++k) stack[top++] = slots[op.channel + k];
+                break;
+            case Op::Store:
+                top -= op.args;
+                for (std::size_t k = 0; k < op.args; ++k) {
+                    slots[op.channel + k] = finite(stack[top + k]);
+                    frame.dirty[op.channel + k] = 1;
+                }
+                break;
+            case Op::Jump: pc = op.channel; break;
+            case Op::JumpIfZero:
+                if (stack[--top] == 0.0f) pc = op.channel;
+                break;
+            case Op::ScriptCall: {
+                top -= op.args;
+                float* a = stack + top;
+                const std::size_t made = scriptFn(op, a, frame);
+                for (std::size_t k = 0; k < made; ++k) a[k] = finite(a[k]);
+                top += made;
+                break;
+            }
+            default: applyOp(op, stack, top, env, tables);
+        }
+    }
+    return true;
+}
+
+void strandVariables(float* out, const Program& program, const StrandSet& strands, std::size_t s, const ScalpMesh* scalp,
+                     float longest) {
+    std::array<float, kVarCount> vars{};
+    const std::size_t n = strands.strandPointCount(s);
+    const Vec3f* pts = strands.strandPoints(s);
+    const Vec3f first = n ? pts[0] : Vec3f{};
+    const bool hasRoot = s < strands.roots().size();
+    rootVariables(vars, hasRoot ? strands.roots()[s] : StrandRoot{}, scalp, first, true);
+    vars[kRand] = unitFloat(hashCombine(strands.ids()[s], 0xE7A1));
+    vars[kIndex] = strands.strandCount() > 1 ? float(s) / float(strands.strandCount() - 1) : 0.0f;
+    vars[kId] = static_cast<float>(strands.ids()[s] & 0xFFFFFFu);
+    vars[kFaceId] = hasRoot ? static_cast<float>(strands.roots()[s].face) : -1.0f;
+    vars[kFrame] = static_cast<float>(program.frame);
+    vars[kTime] = static_cast<float>(program.seconds);
+    if (n > 0) {
+        const float length = arcOf(pts, n);
+        const Vec3f span = pts[n - 1] - pts[0];
+        const float reach = span.length();
+        const Vec3f normal{vars[kNX], vars[kNY], vars[kNZ]};
+        vars[kLength] = length;
+        vars[kReach] = reach;
+        vars[kStraightness] = length > 1e-8f ? reach / length : 1.0f;
+        vars[kLift] = reach > 1e-8f && normal.length() > 0.0f ? span.dot(normal.normalized()) / reach : 0.0f;
+        vars[kTipX] = pts[n - 1].x;
+        vars[kTipY] = pts[n - 1].y;
+        vars[kTipZ] = pts[n - 1].z;
+        vars[kPX] = first.x;
+        vars[kPY] = first.y;
+        vars[kPZ] = first.z;
+    }
+    vars[kLongest] = longest;
+    std::copy(vars.begin(), vars.end(), out);
+}
+
+void pointVariables(float* vars, float t, std::size_t index, std::size_t n, const Vec3f& p) {
+    vars[kT] = t;
+    vars[kPT] = n > 1 ? float(index) / float(n - 1) : 0.0f;
+    vars[kPX] = p.x;
+    vars[kPY] = p.y;
+    vars[kPZ] = p.z;
+    vars[kPointIndex] = static_cast<float>(index);
+}
+
+void bindChannels(const Program& program, const StrandSet& strands, std::vector<const std::vector<float>*>* channels,
+                  std::vector<const std::vector<float>*>* pointChannels) {
+    channels->clear();
+    pointChannels->clear();
+    for (const std::string& name : program.channels) {
+        const std::vector<float>* strand = strands.strandChannel(name);
+        channels->push_back(strand);
+        pointChannels->push_back(strand ? nullptr : strands.pointChannel(name));
+    }
+}
+
+}  // namespace script
+
+const std::vector<std::string>& scriptBuiltinNames() {
+    static const std::vector<std::string> names = [] {
+        std::vector<std::string> out(std::begin(kScriptInputs), std::end(kScriptInputs));
+        for (const char* v : kVarNames) out.push_back(v);
+        for (const VectorVar& v : kVectorVars) {
+            if (std::find(out.begin(), out.end(), v.name) == out.end()) out.push_back(v.name);
+        }
+        for (const Alias& a : kVariableAliases) out.push_back(a.from);
+        out.push_back("F");
+        out.push_back("pi");
+        return out;
+    }();
+    return names;
+}
+
+const std::vector<ExpressionFunction>& scriptFunctions() {
+    static const std::vector<ExpressionFunction> functions = {
+        {"strandPoint", "s", "The strand as it came in, at arc share s (0 root to 1 tip)", 1, 1, true, false},
+        {"guidePoint", "s", "The strand's guide (the guides input's, rooted nearest) at arc share s", 1, 1, true, false},
+        {"scalpNormal", "p", "The scalp's normal at the point nearest p", 1, 1, true, false},
+        {"closestOnScalp", "p", "The scalp's point nearest p", 1, 1, true, false},
+    };
+    return functions;
 }
 
 }  // namespace groomlab

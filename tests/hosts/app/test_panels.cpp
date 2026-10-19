@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <set>
 #include <string>
@@ -3097,6 +3098,133 @@ TEST(AppPanels, GraphGroupsIntoCompoundsAndOpensThem) {
     view.setSelection({nodeOfType(*doc, "Scalp"), nodeOfType(*doc, "Guides")});
     key(&view, QEvent::KeyPress, Qt::Key_G, Qt::ControlModifier);
     EXPECT_EQ(doc->nodes().size(), nodes);
+}
+
+TEST(AppPanels, GraphSavesACompoundAsANodeTheSearchListsAndImports) {
+    // Save as Node: a glass form over the graph (no dialog) writes the compound to the user's node
+    // folder (the environment's here), the compound holds the saved copy; the search lists it and
+    // the shipped nodes; a shared file imported is added; a newer copy offers Update.
+    const std::filesystem::path user = std::filesystem::temp_directory_path() / "groomlab_app_user_nodes";
+    std::filesystem::remove_all(user);
+#ifdef _WIN32
+    _putenv_s("GROOMLAB_USER_NODES", user.u8string().c_str());
+#else
+    setenv("GROOMLAB_USER_NODES", user.u8string().c_str(), 1);
+#endif
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    NodeGraphView view;
+    view.resize(1400, 900);
+    view.setDocument(doc.get());
+    view.setSelection({nodeOfType(*doc, "Length"), nodeOfType(*doc, "Noise")});
+    key(&view, QEvent::KeyPress, Qt::Key_G, Qt::ControlModifier);
+    const std::string compound = view.selectedNode();
+    view.openSaveNode(compound);
+    ASSERT_TRUE(view.saveNodeOpen());
+    view.setSaveNodeField("label", "App Look");
+    view.setSaveNodeField("author", "Tester");
+    view.setSaveNodeField("category", "Look");
+    EXPECT_EQ(view.saveNodeField("id"), "tester.app_look");
+    EXPECT_EQ(view.saveNodeField("version"), "1");
+    EXPECT_EQ(view.acceptSaveNode(), "");
+    EXPECT_FALSE(view.saveNodeOpen());
+    EXPECT_TRUE(std::filesystem::exists(user / "tester.app_look.glnode"));
+    EXPECT_EQ(doc->libraryInfo(compound).value("id", std::string()), "tester.app_look");
+    EXPECT_EQ(doc->undoText(), "Undo update " + compound);
+
+    // The search lists it (and a shipped one); picking it adds a library node.
+    view.openSearchAt(QPointF(300, 300));
+    view.setSearchText("app look");
+    ASSERT_FALSE(view.searchTypes().empty());
+    EXPECT_EQ(view.searchTypes()[0], "node:tester.app_look");
+    view.setSearchText("soft frizz");
+    ASSERT_FALSE(view.searchTypes().empty());
+    EXPECT_EQ(view.searchTypes()[0], "node:groomlab.soft_frizz");
+    view.closeSearch();
+    std::string added;
+    EXPECT_EQ(doc->addNode("node:tester.app_look", 0.0f, 400.0f, &added), "");
+    EXPECT_EQ(added, "appLook");
+    EXPECT_EQ(doc->libraryInfo(added).value("version", 0), 1);
+
+    // Saved again: version 2 in the library, the other node offers Update and takes it.
+    view.saveToLibrary(compound);
+    const nlohmann::json info = doc->libraryInfo(added);
+    EXPECT_EQ(info.value("latest", 0), 2);
+    EXPECT_TRUE(info.value("updateAvailable", false));
+    EXPECT_EQ(doc->updateLibraryNode(added), "");
+    EXPECT_FALSE(doc->libraryInfo(added).value("updateAvailable", true));
+
+    // Import: a shared file copied in and added.
+    const std::filesystem::path shared = std::filesystem::temp_directory_path() / "groomlab_app_shared.glnode";
+    {
+        std::ifstream in(user / "tester.app_look.glnode");
+        json file = json::parse(in);
+        file["id"] = "friend.wave";
+        file["label"] = "Wave";
+        std::ofstream(shared) << file.dump();
+    }
+    const std::vector<std::string> imported = view.importNodeFiles({QString::fromStdString(shared.u8string())});
+    ASSERT_EQ(imported.size(), 1u);
+    EXPECT_EQ(imported[0], "wave");
+    EXPECT_TRUE(std::filesystem::exists(user / "friend.wave.glnode"));
+    std::filesystem::remove(shared);
+#ifdef _WIN32
+    _putenv_s("GROOMLAB_USER_NODES", "");
+#else
+    unsetenv("GROOMLAB_USER_NODES");
+#endif
+    std::filesystem::remove_all(user);
+}
+
+TEST(AppPanels, GraphMakesEditsAndSavesAScriptNode) {
+    // New Script Node opens its editor over the graph (no dialog); a script with an error says
+    // where and the node keeps its last good one; fixed, the node takes it and its params show;
+    // Save to Library writes the file, Save as New refuses an id the library has.
+    const std::filesystem::path user = std::filesystem::temp_directory_path() / "groomlab_app_script_nodes";
+    std::filesystem::remove_all(user);
+#ifdef _WIN32
+    _putenv_s("GROOMLAB_USER_NODES", user.u8string().c_str());
+#else
+    setenv("GROOMLAB_USER_NODES", user.u8string().c_str(), 1);
+#endif
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    NodeGraphView view;
+    view.resize(1400, 900);
+    view.setDocument(doc.get());
+    const std::string name = view.newScriptNode();
+    ASSERT_EQ(name, "myScript");
+    EXPECT_EQ(nodeOfType(*doc, "Script"), name);
+    ASSERT_TRUE(view.scriptEditorOpen());
+    const std::string good = doc->param(name, "definition").value("script", std::string());
+    view.setScriptEditorField("script", "per point {\n    P += N * ;\n}");
+    const QString errors = view.applyScriptEditor();
+    EXPECT_TRUE(errors.contains("line 2, column 14")) << errors.toStdString();
+    EXPECT_EQ(view.scriptEditorErrors(), errors);
+    EXPECT_EQ(doc->param(name, "definition").value("script", std::string()), good);
+    view.setScriptEditorField("writes", "P, width");
+    view.setScriptEditorField("script", "per point {\n    P += N * $amount * t;\n    width = 0.002;\n}");
+    EXPECT_EQ(view.applyScriptEditor(), "");
+    EXPECT_EQ(view.scriptEditorErrors(), "");
+    EXPECT_EQ(doc->param(name, "definition")["writes"], json::array({"P", "width"}));
+    bool amount = false;
+    for (const json& p : doc->nodeSpec(name)->value("params", json::array())) amount = amount || p.value("name", std::string()) == "amount";
+    EXPECT_TRUE(amount);  // the header's param, in the param panel as any node's
+    for (const auto& [node, error] : doc->nodeErrors()) ADD_FAILURE() << node << ": " << error;
+    view.setScriptEditorField("label", "App Push");
+    EXPECT_EQ(view.saveScriptEditor(false), "");
+    const std::string id = doc->param(name, "definition").value("id", std::string());
+    EXPECT_TRUE(std::filesystem::exists(user / (id + ".glnode")));
+    EXPECT_EQ(doc->libraryInfo(name).value("id", std::string()), id);
+    EXPECT_TRUE(view.saveScriptEditor(true).contains("already"));
+    view.closeScriptEditor();
+    EXPECT_FALSE(view.scriptEditorOpen());
+#ifdef _WIN32
+    _putenv_s("GROOMLAB_USER_NODES", "");
+#else
+    unsetenv("GROOMLAB_USER_NODES");
+#endif
+    std::filesystem::remove_all(user);
 }
 
 TEST(AppPanels, GraphBackdropsAreMadeNamedColoredMovedResizedAndDeleted) {

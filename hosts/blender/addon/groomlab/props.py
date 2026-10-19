@@ -171,7 +171,7 @@ def _types(self, context):
     specs = graph._specs
     if specs:
         _type_items[:] = sorted(((t, t, s.get("description", "")) for t, s in specs.items()
-                                 if t not in ("Output", "Scalp", "Compound", "Input")), key=lambda x: x[0])
+                                 if t not in ("Output", "Scalp", "Compound", "Script", "Input")), key=lambda x: x[0])
     return _type_items
 
 

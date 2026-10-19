@@ -74,6 +74,7 @@
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QTimer;
 
 namespace groomlab::app {
 
@@ -188,6 +189,34 @@ public:
     bool promptOpen() const;
     void acceptPrompt();  // as Enter does (tests)
     void setPromptText(const QString& text);
+    // ---- Compound nodes (node_library.h). Save as Node: a glass form over the view (no dialog)
+    // for Compound `node`: label, category, description, author, id, version, license.
+    void openSaveNode(const std::string& node);
+    bool saveNodeOpen() const;
+    void setSaveNodeField(const QString& field, const QString& value);  // as typed into it
+    QString saveNodeField(const QString& field) const;
+    QString acceptSaveNode();  // as Save does: "" or the error (shown on the form)
+    // A library node written over its file as it is now, one version up; the library's newer copy.
+    void saveToLibrary(const std::string& node);
+    void updateLibraryNode(const std::string& node);
+    // .glnode files copied into the user's node folder, each added (at `at`, view coordinates; NaN:
+    // the view's middle): Import Node... and a file dropped on the view. The nodes added.
+    std::vector<std::string> importNodeFiles(const QStringList& paths,
+                                             const QPointF& at = QPointF(std::numeric_limits<qreal>::quiet_NaN(), 0.0));
+    // ---- Script nodes (script.h). New Script Node: one from the template (at `at`, view
+    // coordinates; NaN: the view's middle), its editor open; the node made.
+    std::string newScriptNode(const QPointF& at = QPointF(std::numeric_limits<qreal>::quiet_NaN(), 0.0));
+    // Edit Node...: a glass panel over the view (no dialog) with the node's label, what it writes
+    // and its script (monospace); live: a change is checked after a pause (300 ms), its errors
+    // listed by line and column (the line tinted), and the node takes it when it checks.
+    void openScriptEditor(const std::string& node);
+    bool scriptEditorOpen() const;
+    void setScriptEditorField(const QString& field, const QString& value);  // "label", "writes", "script": as typed
+    QString scriptEditorField(const QString& field) const;
+    QString scriptEditorErrors() const;  // as listed ("" none)
+    QString applyScriptEditor();         // as the pause does: "" or the errors
+    QString saveScriptEditor(bool asNew);  // Save to Library / Save as New: "" or the error
+    void closeScriptEditor();
 
 signals:
     void selectionChanged(const std::string& node);
@@ -211,6 +240,8 @@ protected:
     void showEvent(QShowEvent* event) override;
     bool event(QEvent* event) override;  // a node's tooltip: its error or note
     bool eventFilter(QObject* watched, QEvent* event) override;  // the search's keys
+    void dragEnterEvent(QDragEnterEvent* event) override;  // .glnode files: imported and added
+    void dropEvent(QDropEvent* event) override;
 
 private:
     struct Port {
@@ -224,6 +255,8 @@ private:
         QPointF pos;   // scene units (the card's top-left)
         QSizeF size;
         std::vector<Port> inputs, outputs;
+        std::string libraryLabel;      // a node from the node library: its label
+        bool updateAvailable = false;  // the library has a newer copy of it
     };
     struct Wire {
         int from = -1, to = -1;  // node indices
@@ -270,6 +303,17 @@ private:
 
     GroomDocument* document_ = nullptr;
     Viewport* viewport_ = nullptr;
+    GlassPanel* saveNode_ = nullptr;          // the Save as Node form (made as it opens)
+    std::map<QString, QWidget*> saveFields_;  // its fields by name
+    QLabel* saveError_ = nullptr;
+    std::string saveNodeName_;                // the compound it saves
+    bool saveIdTyped_ = false;                // the id typed (no longer follows label and author)
+    GlassPanel* scriptEditor_ = nullptr;      // the script node editor (made as it opens)
+    std::map<QString, QWidget*> scriptFields_;
+    QLabel* scriptErrors_ = nullptr;
+    QLabel* scriptStatus_ = nullptr;
+    QTimer* scriptPause_ = nullptr;
+    std::string scriptNode_;                  // the Script node it edits
     std::vector<Node> nodes_;
     std::vector<Wire> wires_;
     std::vector<Backdrop> backdrops_;

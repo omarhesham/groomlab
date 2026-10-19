@@ -102,6 +102,7 @@ GROOMLAB_OPERATOR(Merge)                 // Strands + Strands -> Strands
 GROOMLAB_OPERATOR(Switch)                // Strands | Strands -> Strands
 GROOMLAB_OPERATOR(Output)                // Strands -> Strands (graph result)
 GROOMLAB_OPERATOR(Compound)              // a subgraph as one node (PG-6)
+GROOMLAB_OPERATOR(Script)                // Strands -> Strands (a script node: script.h, from a .glnode file)
 // [games]
 GROOMLAB_OPERATOR(Cards)                 // Strands -> Strands (+ game cards from these strands)
 // [end]

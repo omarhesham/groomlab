@@ -1700,6 +1700,184 @@ class GraphEditorTest(unittest.TestCase):
         self.assertEqual(groomlab.errors(self.groom), [])
         editor.hide()
 
+    def test_save_as_node_lists_it_in_add_node_and_search(self):
+        # Save as Node: the panel's form (no dialog) writes the compound to the user's node folder; Add
+        # Node and Tab search list it under its category; adding it gives a node from the library;
+        # Import Node copies a shared file in and adds it.
+        import shutil
+        import tempfile
+        from PySide2 import QtWidgets
+        folder = tempfile.mkdtemp(prefix="groomlab_gui_nodes_")
+        old = os.environ.get("GROOMLAB_USER_NODES")
+        os.environ["GROOMLAB_USER_NODES"] = folder
+        try:
+            editor = self.editor
+            editor.resize(1200, 600)
+            editor.show()
+            wait(30)
+            compound = editor.collapse(["length", "width"])
+            self.assertTrue(editor.show_inner_param(compound, "length.keep"))  # right-click > Show Inner Param
+            editor.scene.clearSelection()
+            editor.items[compound].setSelected(True)
+            wait(30)
+            button = editor.params.findChild(QtWidgets.QPushButton, "nodeAction_SaveasNode")
+            self.assertIsNotNone(button)
+            button.click()
+            wait(60)
+            form = editor.params.findChild(QtWidgets.QWidget, "saveNodeForm")
+            self.assertIsNotNone(form)
+            form.fields["label"].setText("Gui Look")
+            form.fields["label"].textEdited.emit("Gui Look")
+            form.fields["author"].setText("Tester")
+            form.fields["author"].textEdited.emit("Tester")
+            form.fields["category"].setCurrentText("Look")
+            self.assertEqual(form.fields["id"].text(), "tester.gui_look")
+            self.assertEqual(form.fields["version"].value(), 1)
+            self.assertTrue(form.fields["params"]["keep"].isChecked())
+            settle_undo()
+            form.fields["save"].click()
+            wait(60)
+            path = os.path.join(folder, "tester.gui_look.glnode")
+            self.assertTrue(os.path.isfile(path), editor.status.text())
+            self.assertEqual(editor.model.library_info(compound)["id"], "tester.gui_look")
+            self.assertEqual(groomlab.errors(self.groom), [])
+            with open(path) as f:
+                self.assertEqual([p["name"] for p in json.load(f)["params"]], ["keep"])
+
+            # Add Node lists it under Look; Tab search finds it; adding it makes a library node.
+            editor.fill_add_menu(editor.add_menu)
+            look = next(m for m in editor.add_menu.submenus if m.title() == "Look")
+            action = next((a for a in look.actions() if a.data() == "node:tester.gui_look"), None)
+            self.assertIsNotNone(action)
+            self.assertEqual(action.text(), "Gui Look")
+            search = self.ge.NodeSearch(editor, (0.0, 0.0))
+            search.field.setText("gui look")
+            self.assertEqual(search.list.item(0).data(0x0100), "node:tester.gui_look")  # Qt.UserRole
+            search.close()
+            editor.scene.clearSelection()
+            action.trigger()
+            wait(60)
+            added = [n for n in editor.model.order if (editor.model.library_info(n) or {}).get("id") == "tester.gui_look"]
+            self.assertEqual(len(added), 2)
+            self.assertIn("guiLook", added)
+
+            # Import Node: a shared file copied into the library and added.
+            shared_dir = tempfile.mkdtemp(prefix="groomlab_gui_share_")
+            shared = os.path.join(shared_dir, "wave.glnode")
+            with open(path) as f:
+                data = json.load(f)
+            data["id"], data["label"] = "friend.wave", "Wave"
+            with open(shared, "w") as f:
+                json.dump(data, f)
+            made = editor.import_nodes([shared], at=(0.0, 300.0))
+            shutil.rmtree(shared_dir, ignore_errors=True)
+            self.assertEqual(made, ["wave"])
+            self.assertTrue(os.path.isfile(os.path.join(folder, "friend.wave.glnode")))
+            editor.hide()
+        finally:
+            if old is None:
+                os.environ.pop("GROOMLAB_USER_NODES", None)
+            else:
+                os.environ["GROOMLAB_USER_NODES"] = old
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_script_node_editor_is_live_and_saves(self):
+        # New Script Node (Add Node) opens its editor in the side panel (no dialog); a script with an
+        # error lists it by line and column and the node keeps its last good script; fixed, the
+        # node takes it (live, after the pause); a param added in the table reads as $name; Save to
+        # Library writes the file; Done shows the node's params, the new one among them.
+        import shutil
+        import tempfile
+        from PySide2 import QtWidgets
+        folder = tempfile.mkdtemp(prefix="groomlab_gui_scripts_")
+        old = os.environ.get("GROOMLAB_USER_NODES")
+        os.environ["GROOMLAB_USER_NODES"] = folder
+        try:
+            editor = self.editor
+            editor.resize(1200, 800)
+            editor.show()
+            wait(30)
+            editor.scene.clearSelection()
+            editor.items["width"].setSelected(True)
+            editor.fill_add_menu(editor.add_menu)
+            action = next(a for a in editor.add_menu.actions() if a.text() == "New Script Node")
+            action.trigger()
+            wait(60)
+            name = editor.params.editing_script
+            self.assertTrue(name and name.startswith("myScript"), name)
+            self.assertEqual(editor.model.node_type(name), "Script")
+            self.assertEqual(editor.model.source_of(name, "strands"), "width")  # wired after the selection
+            panel = editor.params.findChild(QtWidgets.QWidget, "scriptNodeEditor")
+            self.assertIsNotNone(panel)
+            fields = panel.fields
+            self.assertEqual(groomlab.errors(self.groom), [])
+            good = editor.model.param(name, "definition")["script"]
+
+            # An error: listed with its line and column, its line tinted; the node keeps its script.
+            fields["script"].setPlainText("per point {\n    P += N * ;\n}")
+            wait(450)  # the editor's pause (300 ms)
+            errors = fields["errors"]
+            self.assertTrue(errors.isVisible() or errors.count() == 1)
+            self.assertEqual(errors.count(), 1)
+            self.assertIn("line 2, column 14", errors.item(0).text())
+            self.assertEqual(fields["script"].error_lines, {2})
+            self.assertEqual(editor.model.param(name, "definition")["script"], good)
+
+            # Fixed, with a param of its own added in the table: the node takes it.
+            fields["add"].click()
+            table = fields["params"]
+            row = table.rowCount() - 1
+            table.item(row, 0).setText("push")
+            table.cellWidget(row, 1).setCurrentText("length")
+            table.item(row, 2).setText("0.2")
+            fields["script"].setPlainText("per point {\n    P += N * ($amount + $push) * t;\n}")
+            wait(450)
+            self.assertEqual(errors.count(), 0, [errors.item(i).text() for i in range(errors.count())])
+            definition = editor.model.param(name, "definition")
+            self.assertIn("$push", definition["script"])
+            self.assertEqual([p["name"] for p in definition["params"]], ["amount", "push"])
+            self.assertAlmostEqual(editor.model.param(name, "push"), 0.2)
+            self.assertEqual(groomlab.errors(self.groom), [])
+            self.assertIs(editor.params.widget(), panel)  # the editor stayed through the apply
+
+            # A write the header does not list: said, with where.
+            fields["script"].setPlainText("per point {\n    width = 1;\n}")
+            wait(450)
+            self.assertIn("width is not in the node's", errors.item(0).text())
+            fields["writes"]["width"].setChecked(True)
+            wait(450)
+            self.assertEqual(errors.count(), 0)
+
+            # Save to Library: the file, then Done: the params panel with the new param.
+            fields["label"].setText("Gui Lift")
+            fields["label"].textEdited.emit("Gui Lift")
+            fields["id"].setText("tester.gui_lift")
+            fields["id"].textEdited.emit("tester.gui_lift")
+            fields["save"].click()
+            wait(60)
+            path = os.path.join(folder, "tester.gui_lift.glnode")
+            self.assertTrue(os.path.isfile(path), fields["status"].text())
+            with open(path) as f:
+                saved = json.load(f)
+            self.assertEqual(saved["writes"], ["P", "width"])
+            self.assertEqual(editor.model.library_info(name)["id"], "tester.gui_lift")
+            fields["save_new"].click()  # its id is the library's now: a new node needs another
+            wait(30)
+            self.assertIn("another Id", errors.item(0).text())
+            fields["done"].click()
+            wait(60)
+            self.assertIsNone(editor.params.editing_script)
+            self.assertIsNone(editor.params.findChild(QtWidgets.QWidget, "scriptNodeEditor"))
+            rows = [w.text() for w in editor.params.findChildren(QtWidgets.QLabel)]
+            self.assertTrue(any("Lift" in r for r in rows), rows)
+            editor.hide()
+        finally:
+            if old is None:
+                os.environ.pop("GROOMLAB_USER_NODES", None)
+            else:
+                os.environ["GROOMLAB_USER_NODES"] = old
+            shutil.rmtree(folder, ignore_errors=True)
+
     def test_shaping_nodes_take_strands_or_guides(self):
         # ToGuides -> Noise -> Twist's axes: the Noise gives guides, shown and checked as such.
         model = self.editor.model

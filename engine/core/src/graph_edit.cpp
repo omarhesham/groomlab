@@ -10,8 +10,10 @@
 
 #include "groomlab/attributes.h"
 #include "groomlab/graph_io.h"
+#include "groomlab/node_library.h"
 #include "groomlab/operators.h"
 #include "groomlab/presets.h"
+#include "operators/internal.h"
 
 namespace groomlab {
 
@@ -126,6 +128,15 @@ void completeNode(json& node, int depth = 0) {
         const std::string name = p.value("name", std::string());
         if (!name.empty() && !params.contains(name)) params[name] = p.value("default", json());
     }
+    if (type == "Script") {  // its header's params too (a definition that cannot be read: none)
+        try {
+            const std::unique_ptr<Operator> op = operatorFromJson(type, json{{"definition", definitionOf(node).dump()}}.dump());
+            for (const ParamSpec& p : op->extraParamSpecs()) {
+                if (!params.contains(p.name)) params[p.name] = json::parse(paramSpecJson(p))["default"];
+            }
+        } catch (const std::exception&) {
+        }
+    }
     if (type == "Compound" && depth < 16) {
         json& definition = params["definition"];
         const bool text = definition.is_string();
@@ -138,6 +149,26 @@ void completeNode(json& node, int depth = 0) {
             definition = text ? json(d.dump()) : d;
         }
     }
+}
+
+// A library node's (a Compound's or a Script's copy of a .glnode file) label, description and
+// "library" info: what it is, and whether the library has a newer copy (an Update:
+// GraphEdit::updateLibraryNode).
+void addLibraryInfo(json& spec, const json& definition) {
+    const std::string id = definition["id"].get<std::string>();
+    const int version = definition.value("version", json()).is_number_integer() ? definition["version"].get<int>() : 0;
+    const std::optional<LibraryNode> latest = findLibraryNode(id);
+    const std::string label = definition.value("label", json()).is_string() ? definition["label"].get<std::string>() : id;
+    spec["label"] = label.empty() ? id : label;
+    if (definition.value("description", json()).is_string()) spec["description"] = definition["description"];
+    json info = {{"id", id}, {"version", version}, {"latest", latest ? latest->version : 0},
+                 {"updateAvailable", latest && latest->version > version},
+                 {"embedded", definition.contains("graph") || definition.contains("script")},
+                 {"kind", definition.contains("script") ? "script" : "compound"}};
+    for (const char* key : {"category", "author", "license", "icon"}) {
+        info[key] = definition.value(key, json()).is_string() ? definition[key].get<std::string>() : std::string();
+    }
+    spec["library"] = info;
 }
 
 json specOfNode(const json& node) {
@@ -166,16 +197,26 @@ json specOfNode(const json& node) {
         spec["outputs"] = json::array({spec["output"]});
     } else if (type == "Compound") {
         const json definition = definitionOf(node);
+        const bool library = definition.contains("glnode") && definition.value("id", json()).is_string();
         json inputs = json::array();
         for (const json& port : definition.value("inputs", json::array())) {
+            if (!port.is_object()) continue;
             json in = {{"name", port.value("name", std::string())},
                        {"type", port.value("type", std::string("Strands"))},
                        {"optional", port.value("optional", false)}};
             if (in["type"] == "Value") in["valueKind"] = port.value("valueKind", std::string("any"));
             inputs.push_back(in);
         }
+        if (library && inputs.empty() && !definition.contains("graph")) inputs.push_back({{"name", "strands"}, {"type", "Strands"}, {"optional", false}});
         spec["inputs"] = inputs;
-        spec["output"]["type"] = definitionOutputType(definition);
+        try {
+            spec["output"]["type"] = definitionOutputType(definition);
+            if (library && !definition.contains("graph")) throw GraphError("no copy");
+        } catch (const GraphError&) {
+            // A library node that cannot run hands its first input on (CompoundOp).
+            if (!library) throw;
+            spec["output"]["type"] = inputs.empty() ? std::string("Strands") : inputs[0].value("type", std::string("Strands"));
+        }
         anyValue(spec["output"]);
         spec["outputs"] = json::array({spec["output"]});  // a compound gives one output
         // The exposed params, each with its inner param's spec (range, unit, group, advanced...),
@@ -183,6 +224,10 @@ json specOfNode(const json& node) {
         // lists them, each one's params as its operator does (two names for one param: by name).
         const json inner = definition.value("graph", json::object());
         const json expose = definition.value("expose", json::object());
+        std::map<std::string, json> shown;  // a library node's params by name
+        for (const json& p : library ? definition.value("params", json::array()) : json::array()) {
+            if (p.is_object() && p.value("name", json()).is_string()) shown[p["name"].get<std::string>()] = p;
+        }
         std::map<std::string, std::vector<std::string>> exposedAs;  // "node.param" -> the names showing it
         if (expose.is_object()) {
             for (const auto& [exposed, target] : expose.items()) {
@@ -204,6 +249,16 @@ json specOfNode(const json& node) {
                     exposedSpec["name"] = exposed;
                     exposedSpec["description"] = innerSpec.value("description", std::string()) + " (exposed " + names->first + ")";
                     if (innerParams.is_object() && innerParams.contains(param)) exposedSpec["default"] = innerParams[param];
+                    // A library node's header says how it shows (node_library.h).
+                    if (const auto own = shown.find(exposed); own != shown.end()) {
+                        const json& h = own->second;
+                        for (const char* key : {"label", "description"}) {
+                            if (h.contains(key) && h[key].is_string() && !h[key].get<std::string>().empty()) exposedSpec[key] = h[key];
+                        }
+                        for (const char* key : {"min", "max", "softMin", "softMax"}) {
+                            if (h.contains(key) && h[key].is_number()) exposedSpec[key] = h[key];
+                        }
+                    }
                     // As an input of the compound's node: one value (CompoundOp::extraParamSpecs).
                     if (exposedSpec.contains("port")) {
                         const std::string kind = exposedSpec.value("kind", std::string());
@@ -227,6 +282,29 @@ json specOfNode(const json& node) {
                 }
             }
         }
+        if (library) addLibraryInfo(spec, definition);
+    } else if (type == "Script") {
+        // Its ports and params as its definition says (ScriptOp): the operator made as it is.
+        const json definition = definitionOf(node);
+        const std::unique_ptr<Operator> op = operatorFromJson(type, json{{"definition", definition.dump()}}.dump());
+        json inputs = json::array();
+        for (const PortSpec& p : op->inputs()) {
+            inputs.push_back({{"name", p.name}, {"type", portTypeName(p.type)}, {"optional", p.optional}});
+        }
+        spec["inputs"] = inputs;
+        std::map<std::string, std::string> labels;  // the header's labels of its params
+        for (const json& p : definition.value("params", json::array())) {
+            if (p.is_object() && p.value("name", json()).is_string() && p.value("label", json()).is_string()) {
+                labels[p["name"].get<std::string>()] = p["label"].get<std::string>();
+            }
+        }
+        for (const ParamSpec& p : op->extraParamSpecs()) {
+            json param = json::parse(paramSpecJson(p));
+            if (const auto label = labels.find(p.name); label != labels.end() && !label->second.empty()) param["label"] = label->second;
+            spec["params"].push_back(std::move(param));
+        }
+        spec["scriptNode"] = true;
+        if (definition.contains("glnode") && definition.value("id", json()).is_string()) addLibraryInfo(spec, definition);
     }
     const json exposedInputs = node.value("paramInputs", json::array());
     if (exposedInputs.is_array() && !exposedInputs.empty()) {
@@ -403,6 +481,17 @@ GraphEdit::GraphEdit(const std::string& graphJson) : impl_(std::make_unique<Impl
     const bool blank = graphJson.find_first_not_of(" \t\r\n") == std::string::npos;
     impl_->graph = json::parse(blank ? std::string("{}") : graphJson, nullptr, false);
     if (impl_->graph.is_discarded() || !impl_->graph.is_object()) throw GraphError("the graph is not a JSON object");
+    // A library node by its type ("node:<id>", a graph written by hand): the Compound it stands for.
+    const auto nodes = impl_->graph.find("nodes");
+    if (nodes == impl_->graph.end() || !nodes->is_array()) return;
+    for (json& n : *nodes) {
+        const std::string id = n.is_object() ? libraryNodeId(n.value("type", std::string())) : std::string();
+        if (id.empty()) continue;
+        const json params = n.value("params", json::object());
+        std::string type;
+        n["params"] = json::parse(libraryNodeStubParams(id, params.is_object() ? params.dump() : std::string(), &type));
+        n["type"] = type;  // the Compound or Script it stands for
+    }
 }
 
 GraphEdit::~GraphEdit() = default;
@@ -437,6 +526,16 @@ std::string GraphEdit::uniqueName(const std::string& base) const {
 
 std::string GraphEdit::addNode(const std::string& type, const std::string& name, const std::string& paramsJson,
                                std::optional<double> x, std::optional<double> y, std::optional<double> groomSize) {
+    if (const std::string id = libraryNodeId(type); !id.empty()) {
+        // A library node: a Compound holding the library's copy, fitted to the groom.
+        const std::optional<LibraryNode> library = findLibraryNode(id);
+        if (!library) throw GraphError("no library node " + quoted(id) + " in the node folders");
+        nlohmann::json params = paramsJson.empty() ? nlohmann::json::object() : nlohmann::json::parse(paramsJson, nullptr, false);
+        if (params.is_discarded() || !params.is_object()) throw GraphError("a node's params are a JSON object");
+        params["definition"] = nlohmann::json::parse(libraryNodeParamsJson(*library, groomSize))["definition"];
+        const std::string made = library->kind == "script" ? op::kScript : op::kCompound;  // a script node: a Script
+        return addNode(made, name.empty() ? uniqueName(libraryNodeName(library->label)) : name, params.dump(), x, y);
+    }
     const nlohmann::json& spec = operatorSpec(type);
     const std::string chosen = name.empty() ? uniqueName(type) : name;
     if (hasNode(chosen)) throw GraphError("a node named " + quoted(chosen) + " exists");
@@ -493,6 +592,64 @@ bool GraphEdit::upgradeNode(const std::string& name) {
         if (storedVersion(n, spec) >= newest) return false;
         n["version"] = newest;
         completeNode(n);  // params the newer version added
+        return true;
+    }
+    return false;
+}
+
+bool GraphEdit::updateLibraryNode(const std::string& name, std::optional<double> groomSize, const std::string& asId) {
+    impl_->node(name);
+    for (nlohmann::json& n : impl_->nodes()) {
+        if (!n.is_object() || n.value("name", std::string()) != name) continue;
+        const nlohmann::json old = definitionOf(n);
+        const std::string type = n.value("type", std::string());
+        const std::string own = (type == "Compound" || type == "Script") && old.contains("glnode") ? old.value("id", std::string()) : "";
+        if (type != "Compound" && type != "Script") throw GraphError(name + " is not a Compound or a Script node");
+        const std::string id = asId.empty() ? own : asId;
+        if (id.empty()) throw GraphError(name + " is not a library node");
+        const std::optional<LibraryNode> library = findLibraryNode(id);
+        if (!library) throw GraphError("no library node " + quoted(id) + " in the node folders");
+        // Its inner params all written, as addNode writes them (completeNode).
+        const std::string made = library->kind == "script" ? "Script" : "Compound";
+        nlohmann::json fresh = {{"type", made},
+                                {"params", {{"definition", nlohmann::json::parse(libraryNodeParamsJson(*library, groomSize))["definition"]}}}};
+        completeNode(fresh);
+        const nlohmann::json definition = fresh["params"]["definition"];
+        if (definition == old && made == type) return false;
+        n["type"] = made;
+        // The exposed params it still has keep their values; the others go (a script node's
+        // params by name).
+        auto paramNames = [](const nlohmann::json& d) {
+            if (!d.contains("script")) return d.value("expose", nlohmann::json::object());
+            nlohmann::json names = nlohmann::json::object();
+            for (const nlohmann::json& p : d.value("params", nlohmann::json::array())) {
+                if (p.is_object() && p.value("name", nlohmann::json()).is_string()) names[p["name"].get<std::string>()] = true;
+            }
+            return names;
+        };
+        const nlohmann::json oldExpose = paramNames(old);
+        const nlohmann::json newExpose = paramNames(definition);
+        nlohmann::json& params = n["params"];
+        for (const auto& [exposed, target] : oldExpose.items()) {
+            if (!newExpose.contains(exposed)) params.erase(exposed);
+        }
+        params["definition"] = definition;
+        if (n.contains("paramInputs") && n["paramInputs"].is_array()) {
+            nlohmann::json kept = nlohmann::json::array();
+            for (const nlohmann::json& p : n["paramInputs"]) {
+                if (p.is_string() && newExpose.contains(p.get<std::string>())) kept.push_back(p);
+            }
+            n["paramInputs"] = kept;
+        }
+        // Links into inputs it no longer has go.
+        std::set<std::string> inputs;
+        const nlohmann::json spec = specOfNode(n);
+        for (const nlohmann::json& port : spec["inputs"]) inputs.insert(port.value("name", std::string()));
+        nlohmann::json links = nlohmann::json::array();
+        for (const nlohmann::json& c : impl_->connectionsView()) {
+            if (c.value("to", std::string()) != name || inputs.count(c.value("input", std::string()))) links.push_back(c);
+        }
+        impl_->connections() = std::move(links);
         return true;
     }
     return false;

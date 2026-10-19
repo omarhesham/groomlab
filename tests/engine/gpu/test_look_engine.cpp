@@ -1764,6 +1764,22 @@ TEST_P(LookEngineTest, ASeedDragGivesWhatTheCpuDrawsForIt) {
     }
 }
 
+TEST(GpuPreview, AScriptNodeRunsOnTheCpu) {
+    // Script nodes (script.h) are not GPU stages: a graph ending in one is refused, saying so, and
+    // drags over it evaluate on the CPU.
+    const GraphDocument doc = loadGraphJson(R"({"version": 1, "output": "out",
+      "nodes": [{"name": "scalp", "type": "Scalp"}, {"name": "scatter", "type": "Scatter"},
+                {"name": "wave", "type": "Script", "params": {"definition": {"glnode": 1, "id": "test.wave", "version": 1,
+                 "label": "Wave", "writes": ["P"], "script": "per point { P += N * 0.1 * t; }"}}},
+                {"name": "out", "type": "Output"}],
+      "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"}, {"from": "scatter", "to": "wave", "input": "strands"},
+                      {"from": "wave", "to": "out", "input": "strands"}]})");
+    gpu::LookChain chain;
+    std::string why;
+    EXPECT_FALSE(gpu::findLookChain(doc, &chain, &why));
+    EXPECT_NE(why.find("script node runs on the CPU"), std::string::npos) << why;
+}
+
 TEST(GpuPreview, StageTableNamesRealTypesAndParams) {
     // Every row of look_stages.inc names a registered node type, and every param it lists (mapped,
     // ramp, vector, number) is one of that type's, of the kind it says: a typo there would keep a

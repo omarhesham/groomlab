@@ -16,6 +16,7 @@
 #include "groomlab/operators.h"
 #include "groomlab/paths.h"
 #include "groomlab/node_catalog.h"
+#include "groomlab/node_library.h"
 #include "groomlab/presets.h"
 #include "groomlab/process_caches.h"
 #include "groomlab/shortcuts.h"
@@ -620,6 +621,12 @@ void bindGraph(py::module_& m) {
         .def("node_version", &GraphEdit::nodeVersion, py::arg("name"))
         .def("upgrade_node", &GraphEdit::upgradeNode, py::arg("name"),
              "Raises an outdated node to its operator's newest behaviour; False when it is the newest.")
+        .def("update_library_node", [](GraphEdit& e, const std::string& name, py::object size, const std::string& id) {
+                 return e.updateLibraryNode(name, size.is_none() ? std::nullopt : std::optional<double>(size.cast<double>()), id);
+             }, py::arg("name"), py::arg("groom_size") = py::none(), py::arg("id") = std::string(),
+             "Takes the library's copy of a library node (or of library node `id`: a compound just saved as it); "
+             "exposed values kept where they still are. False when it had it already. GraphError for a node that "
+             "is not one or an id the library lacks.")
         .def("collapse", &GraphEdit::collapse, py::arg("names"), py::arg("compound") = std::string(),
              "Group: the nodes replaced by one Compound node holding them (every field kept), its inputs one per "
              "outside source; returns its name. GraphError (the graph unchanged) when it cannot.")
@@ -674,6 +681,55 @@ void bindGraph(py::module_& m) {
     m.def("preset_categories", [] { return presetCategories(); }, "The Presets menu's categories, in order.");
     m.def("preset_title", &presetTitle, py::arg("name"), "A preset's title when its file gives none: its name in words.");
     m.def("preset_user_dir", &presetUserDir, "The user's preset folder (GROOMLAB_USER_PRESETS, else Maya's user folder).");
+
+    // Compound nodes (node_library.h): the .glnode library every host shares.
+    m.def("check_node_file", &checkNodeFile, py::arg("text"),
+          "A node file's text checked and made a Compound's definition (JSON text); GraphError says what is wrong.");
+    m.def("node_id_error", &nodeIdError, py::arg("id"), "Why an id cannot be a node's (\"\" when it can).");
+    m.def("suggest_node_id", &suggestNodeId, py::arg("label"), py::arg("author") = std::string(),
+          "An id for a new node: author.label as lowercase words joined by _.");
+    m.def("node_user_dir", &nodeUserDir, "The user's node folder (GROOMLAB_USER_NODES, else Documents/GroomLab/nodes).");
+    m.def("set_shipped_node_dir", &setShippedNodeDir, py::arg("dir"), "The folder of nodes shipped with this host.");
+    m.def("shipped_node_dir", &shippedNodeDir);
+    m.def("refresh_node_library", &refreshNodeLibrary, "Reads the node folders again at the next look.");
+    m.def("node_search_dirs", &nodeSearchDirs, "GROOMLAB_NODE_PATH's folders, the user's folder, the shipped folder.");
+    m.def("library_nodes", [] { return jsonLoads(libraryNodesJson()); },
+          "The library: {'nodes': [Add Node entries, type 'node:<id>'], 'errors': [{'path', 'id', 'error'}], 'dirs', 'userDir'}.");
+    m.def("node_file_from_compound", [](const std::string& graph, const std::string& compound, const std::string& header, py::object size) {
+              return nodeFileFromCompound(graph, compound, header, size.is_none() ? std::nullopt : std::optional<double>(size.cast<double>()));
+          }, py::arg("graph_json"), py::arg("compound"), py::arg("header_json") = std::string(), py::arg("size") = py::none(),
+          "The node file (JSON text) made from a Compound of the graph; header: id, version, label, category, "
+          "description, author, license, icon, params (names), paramInfo.");
+    m.def("save_node_file", &saveNodeFile, py::arg("text"), py::arg("dir") = std::string(),
+          "Writes a node file (checked) as <id>.glnode in dir (\"\": the user's folder); returns its path.");
+    m.def("import_node_file", &importNodeFile, py::arg("path"), py::arg("dir") = std::string(),
+          "Copies a node file (checked) into dir (\"\": the user's folder); returns the new path.");
+    // Script nodes (script.h, node_library.h).
+    m.def("is_script_node_file", &isScriptNodeFile, py::arg("text"), "Whether a node file (or definition) is a script node's.");
+    m.def("script_node_errors", [](const std::string& text) {
+              const py::object all = jsonLoads(scriptNodeErrorsJson(text));
+              return py::object(all["errors"]);  // (an accessor would outlive the dict it reads)
+          },
+          py::arg("text"),
+          "What is wrong with a script node file: [{'part': 'json'|'header'|'script', 'message', 'line', 'column'}] "
+          "(line and column in the script; 0 for the header's); [] when it checks.");
+    m.def("script_node_template", &scriptNodeTemplate, py::arg("label") = std::string("My Script"), py::arg("author") = std::string(),
+          "A new script node file (JSON text) to start from.");
+    m.def("library_node_name", &libraryNodeName, py::arg("label"), "The name a node added from the library takes: \"Soft Frizz\" -> \"softFrizz\".");
+    m.def("script_builtin_names", &scriptBuiltinNames, "The names a script reads as built-in (no param may take one).");
+    m.def("script_functions", [] {
+              py::list out;
+              for (const ExpressionFunction& f : scriptFunctions()) {
+                  py::dict d;
+                  d["name"] = f.name;
+                  d["arguments"] = f.arguments;
+                  d["about"] = f.about;
+                  out.append(d);
+              }
+              return out;
+          },
+          "The functions a script has beyond an expression's: [{'name', 'arguments', 'about'}].");
+    m.attr("SCRIPT_STEP_BUDGET") = kScriptStepBudget;
 
     // Built-in operator type names, for scripts.
     py::dict ops;

@@ -20,6 +20,9 @@ mix($n, 1, $crown)                    # the last line is the value
 A number expression on a mappable parameter is mapped from 0-1 onto the parameter's **min** and
 **max**. Expressions give the same values on every machine and every thread count.
 
+[Script nodes](/docs/custom-nodes#script-nodes) use this language too, with blocks that run per
+strand and per point, outputs they assign (the point, its width, its color, channels) and loops.
+
 ## Writing an expression
 
 - **Names** take a `$` or not: `$length` and `length` are the same variable.

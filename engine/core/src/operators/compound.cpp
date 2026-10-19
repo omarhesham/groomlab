@@ -33,6 +33,8 @@
 #include <set>
 #include <type_traits>
 
+#include <nlohmann/json.hpp>
+
 #include "groomlab/field.h"
 #include "groomlab/graph.h"
 #include "groomlab/graph_io.h"
@@ -90,7 +92,7 @@ public:
     }
     std::vector<PortSpec> inputs() const override {
         const auto d = definition();
-        return d ? d->inputs : std::vector<PortSpec>{};
+        return d ? d->inputs : fallbackInputs();
     }
     // The exposed params, each its inner param's spec under its own name: each can be an input of
     // the compound's node, a Value port (one value, set on the inner param as the compound's own
@@ -110,6 +112,15 @@ public:
                 // The value it has where the compound sets none: the inner node's.
                 if (inner.params().has(s.name)) spec.defaultValue = inner.params().get(s.name);
                 if (spec.port != ParamSpec::Port::None) spec.port = ParamSpec::Port::Value;
+                // A library node's header says how it shows (node_library.h).
+                if (const auto own = d->shown.find(exposed); own != d->shown.end()) {
+                    const Shown& o = own->second;
+                    if (!o.description.empty()) spec.description = o.description;
+                    if (o.min) spec.min = o.min;
+                    if (o.max) spec.max = o.max;
+                    if (o.softMin) spec.softMin = o.softMin;
+                    if (o.softMax) spec.softMax = o.softMax;
+                }
                 out.push_back(std::move(spec));
             }
         }
@@ -117,7 +128,10 @@ public:
     }
     PortSpec output() const override {
         const auto d = definition();
-        return d ? d->output : PortSpec{"out", PortType::Strands};
+        if (d) return d->output;
+        // A library node that cannot run hands its first input on: that input's type.
+        const std::vector<PortSpec> in = fallbackInputs();
+        return {"out", in.empty() ? PortType::Strands : in.front().type};
     }
     std::vector<std::string> externalInputs() const override {
         const auto d = definition();
@@ -153,7 +167,14 @@ public:
 
     Value evaluate(const EvalContext& ctx, const std::vector<Value>& inputs) const override {
         const auto d = definition();
-        if (!d) throw GraphError("Compound: " + definitionError());
+        if (!d) {
+            // A library node whose copy cannot run: its input handed on, with why (a groom never
+            // fails to open by it). A compound of the user's own: an error, as any node's.
+            const std::string library = libraryId();
+            if (library.empty()) throw GraphError("Compound: " + definitionError());
+            ctx.note("Error: library node '" + library + "' cannot run and hands its input on: " + definitionError());
+            return inputs.empty() ? Value{} : inputs.front();
+        }
         std::lock_guard<std::mutex> lock(d->mutex);
         Graph& graph = d->doc->graph;
         applyExposed(*d);
@@ -212,12 +233,18 @@ public:
     }
 
 private:
+    // What a library node's header says of an exposed param.
+    struct Shown {
+        std::string description;
+        std::optional<double> min, max, softMin, softMax;
+    };
     struct Definition {
         std::unique_ptr<GraphDocument> doc;
         std::vector<PortSpec> inputs;
         PortSpec output;
         std::map<std::string, std::pair<std::string, std::string>> expose;  // name -> (node, param)
         std::vector<std::string> externals;
+        std::map<std::string, Shown> shown;  // a library node's params by name
         std::vector<Value> held;  // the last evaluation's inputs (identityHash)
         std::mutex mutex;
     };
@@ -262,13 +289,37 @@ private:
             parsedText_ = text;
             parsed_.reset();
             error_.clear();
+            libraryId_.clear();
+            fallbackInputs_.clear();
             try {
                 parsed_ = parse(text);
             } catch (const std::exception& e) {
                 error_ = e.what();
+                // A library node's copy (it names its id): it hands its input on instead.
+                const nlohmann::json d = nlohmann::json::parse(text, nullptr, false);
+                if (d.is_object() && d.contains("glnode") && d.contains("id") && d["id"].is_string()) {
+                    libraryId_ = d["id"].get<std::string>();
+                    if (!d.contains("graph")) {
+                        error_ = "this groom holds no copy of it and the library has none: install the node, then Update it";
+                    }
+                    try {
+                        fallbackInputs_ = compoundInputs(text);
+                    } catch (const GraphError&) {
+                    }
+                    if (fallbackInputs_.empty()) fallbackInputs_ = {{"strands", PortType::Strands}};
+                }
             }
         }
         return parsed_;
+    }
+
+    std::string libraryId() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return libraryId_;
+    }
+    std::vector<PortSpec> fallbackInputs() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return fallbackInputs_;
     }
 
     std::string definitionError() const {
@@ -298,6 +349,22 @@ private:
             }
             for (const auto& [name, value] : op.params().values()) maps = maps || std::holds_alternative<MapRef>(value);
         }
+        // A library node's header: how its params show (node_library.h).
+        const nlohmann::json header = nlohmann::json::parse(text, nullptr, false);
+        if (header.is_object() && header.contains("glnode") && header.contains("params") && header["params"].is_array()) {
+            for (const nlohmann::json& p : header["params"]) {
+                if (!p.is_object() || !p.contains("name") || !p["name"].is_string()) continue;
+                Shown& shown = d->shown[p["name"].get<std::string>()];
+                if (p.contains("description") && p["description"].is_string()) shown.description = p["description"].get<std::string>();
+                auto number = [&](const char* key, std::optional<double>& out) {
+                    if (p.contains(key) && p[key].is_number()) out = p[key].get<double>();
+                };
+                number("min", shown.min);
+                number("max", shown.max);
+                number("softMin", shown.softMin);
+                number("softMax", shown.softMax);
+            }
+        }
         for (const std::string& e : d->doc->graph.controlInputs()) externals.insert(e);  // keyed inner params
         if (maps) externals.insert("scalp");  // maps are sampled on the scalp
         d->externals.assign(externals.begin(), externals.end());
@@ -308,6 +375,8 @@ private:
     mutable std::string parsedText_;
     mutable std::shared_ptr<Definition> parsed_;
     mutable std::string error_;
+    mutable std::string libraryId_;                 // a library node's id when its copy cannot run
+    mutable std::vector<PortSpec> fallbackInputs_;  // its inputs then
 };
 
 }  // namespace

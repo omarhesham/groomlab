@@ -15,6 +15,9 @@ endif()
 # A build tree's helper finds the shipped presets in the sources; an installed one beside it (bin/presets).
 groomlab_path_literal(_helper_presets "${PROJECT_SOURCE_DIR}/hosts/maya/presets")
 target_compile_definitions(groomlab_helper_objs PRIVATE "GROOMLAB_SHIPPED_PRESETS=${_helper_presets}")
+# The compound nodes shipped with every host, the same way (bin/nodes when installed).
+groomlab_path_literal(_helper_nodes "${PROJECT_SOURCE_DIR}/hosts/maya/nodes")
+target_compile_definitions(groomlab_helper_objs PRIVATE "GROOMLAB_SHIPPED_NODES=${_helper_nodes}")
 
 # The shipped helper and the tests' build of it (test hooks) share everything but main's object.
 function(groomlab_helper_executable name)
@@ -48,5 +51,6 @@ if(WIN32 AND GROOMLAB_TBB_RUNTIME)
     install(FILES $<TARGET_RUNTIME_DLLS:groomlab-helper> DESTINATION "${GROOMLAB_BLENDER_BIN}" COMPONENT Blender)
 endif()
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/presets/" DESTINATION "${GROOMLAB_BLENDER_BIN}/presets" COMPONENT Blender)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/" DESTINATION "${GROOMLAB_BLENDER_BIN}/nodes" COMPONENT Blender)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE-HELPER.txt" DESTINATION "${GROOMLAB_BLENDER_BIN}" COMPONENT Blender)
 groomlab_install_legal("${GROOMLAB_BLENDER_BIN}" Blender)

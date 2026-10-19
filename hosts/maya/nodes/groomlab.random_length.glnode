@@ -1,0 +1,45 @@
+{
+  "glnode": 1,
+  "id": "groomlab.random_length",
+  "version": 1,
+  "label": "Random Length",
+  "category": "Scripts",
+  "description": "Shortens each strand by a random share of its length, keeping its shape: its points slide down the strand toward the root.",
+  "author": "GroomLab",
+  "license": "Apache-2.0",
+  "size": 20,
+  "inputs": [
+    {
+      "name": "strands",
+      "type": "Strands"
+    }
+  ],
+  "output": {
+    "name": "out",
+    "type": "Strands"
+  },
+  "params": [
+    {
+      "name": "trim",
+      "type": "number",
+      "label": "Trim",
+      "default": 0.3,
+      "min": 0,
+      "max": 1,
+      "unit": "fraction",
+      "mappable": true,
+      "description": "The most a strand is shortened, as a share of its length (each strand a random share of it)"
+    },
+    {
+      "name": "seed",
+      "type": "int",
+      "label": "Seed",
+      "default": 0,
+      "description": "Picks other lengths"
+    }
+  ],
+  "writes": [
+    "P"
+  ],
+  "script": "# Random Length: shortens each strand by a random share of its length.\n# A script can't remove points, so the strand's points slide down along its own shape toward the\n# root: point t takes the place t x keep of the way along the strand as it came (strandPoint).\nper strand {\n    $keep = 1 - $trim * hash(id, $seed);\n}\nper point {\n    P = strandPoint(t * $keep);\n}\n"
+}

@@ -71,6 +71,16 @@ std::string shippedPresetDir() {
     return {};
 }
 
+std::string shippedNodeFolder() {
+    std::error_code ec;
+    const fs::path beside = fs::u8path(QCoreApplication::applicationDirPath().toStdString()) / "nodes";
+    if (fs::is_directory(beside, ec)) return beside.generic_u8string();
+#ifdef GROOMLAB_SHIPPED_NODES
+    if (fs::is_directory(fs::u8path(GROOMLAB_SHIPPED_NODES), ec)) return GROOMLAB_SHIPPED_NODES;
+#endif
+    return {};
+}
+
 std::vector<std::string> presetDirectories() { return presetSearchDirs(presetUserDir(), shippedPresetDir()); }
 
 std::vector<PresetInfo> availablePresets() { return listPresets(presetDirectories()); }

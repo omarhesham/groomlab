@@ -107,5 +107,7 @@ const std::string& defaultGraphJson();
 // not, and each node's version: a later change of a default or of an operator's behaviour
 // never changes a saved groom. Loading stays tolerant (a param left out takes its default).
 std::string operatorSpecsJson();
+// One param's entry of operatorSpecsJson (a node's extra params too: a Script's, GraphEdit::nodeSpecJson).
+std::string paramSpecJson(const ParamSpec& spec);
 
 }  // namespace groomlab

@@ -177,6 +177,9 @@ target_include_directories(groomlab_app_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/
 # executable (groomlab_app_deploy), where an installed app finds them.
 groomlab_path_literal(_shipped_presets "${PROJECT_SOURCE_DIR}/hosts/maya/presets")
 target_compile_definitions(groomlab_app_lib PUBLIC "GROOMLAB_SHIPPED_PRESETS=${_shipped_presets}")
+# The compound nodes shipped with every host (hosts/maya/nodes), found the same way.
+groomlab_path_literal(_shipped_nodes "${PROJECT_SOURCE_DIR}/hosts/maya/nodes")
+target_compile_definitions(groomlab_app_lib PUBLIC "GROOMLAB_SHIPPED_NODES=${_shipped_nodes}")
 # QRhi's headers (rhi/qrhi.h) ship as Qt's "limited compatibility" API: they come with GuiPrivate.
 # The GPU look preview's engine (engine/gpu/, Windows: Direct3D 11 and OpenGL) runs the graph's last
 # nodes on QRhi's device while a param is dragged or guides are brushed (src/gpu_preview.h).
@@ -255,7 +258,9 @@ function(groomlab_app_deploy target)
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:${target}>/presets"
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/hosts/maya/presets" "$<TARGET_FILE_DIR:${target}>/presets"
-        COMMENT "Copying the graph presets beside ${target}")
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:${target}>/nodes"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/hosts/maya/nodes" "$<TARGET_FILE_DIR:${target}>/nodes"
+        COMMENT "Copying the graph presets and compound nodes beside ${target}")
     if(WIN32)
         if(GROOMLAB_TBB_RUNTIME)
             add_custom_command(TARGET ${target} POST_BUILD
@@ -288,6 +293,7 @@ groomlab_app_deploy(groomlab_app)
 set(GROOMLAB_APP_DIR "GroomLabApp")
 install(TARGETS groomlab_app RUNTIME DESTINATION "${GROOMLAB_APP_DIR}" COMPONENT App)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/presets/" DESTINATION "${GROOMLAB_APP_DIR}/presets" COMPONENT App)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/" DESTINATION "${GROOMLAB_APP_DIR}/nodes" COMPONENT App)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/package/README_BETA.txt" DESTINATION "${GROOMLAB_APP_DIR}" COMPONENT App)
 groomlab_install_legal("${GROOMLAB_APP_DIR}" App)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/package/licenses/" DESTINATION "${GROOMLAB_APP_DIR}/licenses" COMPONENT App)

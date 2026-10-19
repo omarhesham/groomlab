@@ -97,7 +97,7 @@ FAST, SLOW = QtGui.QColor(120, 200, 120), QtGui.QColor(230, 190, 80)  # a node's
 
 # The Add Node menu (its categories, their order, each node's label and search words) is the core's
 # (node_catalog.h, in every operator spec): Maya, the app and Blender list the same nodes the same way.
-HIDDEN_TYPES = {"Compound", "Input"}  # made by Group, not from the Add menu (the specs' "hidden")
+HIDDEN_TYPES = {"Compound", "Input", "Script"}  # made by Group, not from the Add menu (the specs' "hidden")
 # Nodes whose `path` names a file: the file dialog's filter for it.
 FILE_PATH_FILTERS = {"Reference": "Groom files (*.groom)", "ImportCurves": "Alembic (*.abc)"}
 # When a node runs (its Evaluate menu): (mode, label, what it does); the tag under a node set so.
@@ -446,6 +446,28 @@ def describe(op_type, catalog):
         return ""
 
 
+def refresh_library(catalog):
+    """The node library's compound nodes (groomlab.nodes) put in the catalog as Add Node entries
+    ("node:<id>"), read afresh; a stamp of them (None when the library cannot be read)."""
+    if catalog is None:
+        return None
+    try:
+        from groomlab import nodes
+        return catalog.set_library(nodes.library_nodes())
+    except Exception:  # a library that cannot be read never stops the menus
+        return None
+
+
+def library_category(info):
+    """The category title a library node's card takes (its file's category when it is a built-in
+    one, by id or title), else "Compound"."""
+    wanted = (info or {}).get("category", "").strip().lower()
+    for title in CATEGORY_COLORS:
+        if wanted and wanted in (title.lower(), title.split()[0].lower()):
+            return title
+    return "Compound"
+
+
 def categories(catalog):
     """[(category title, [types])] to offer, in the core's menu order (node_catalog.h): only the
     types the plugin has, none of the hidden ones (Compound, Input)."""
@@ -554,6 +576,10 @@ class NodeItem(QtWidgets.QGraphicsItem):
         model = editor.model
         self.op_type = model.node_type(name)
         self.category = "Output" if model.output == name else category_of(self.op_type, model.catalog)
+        # A node from the node library: its label and category, and whether the library has a newer copy.
+        self.library = model.library_info(name) if self.op_type in ("Compound", "Script") else None
+        if self.library:
+            self.category = library_category(self.library)
         spec = model.node_spec(name)
         self.inputs = {}
         y = HEADER_H + ROW_H / 2 + 4
@@ -580,7 +606,12 @@ class NodeItem(QtWidgets.QGraphicsItem):
         self.setAcceptHoverEvents(True)
         self.setFlags(QtWidgets.QGraphicsItem.ItemIsMovable | QtWidgets.QGraphicsItem.ItemIsSelectable |
                       QtWidgets.QGraphicsItem.ItemSendsGeometryChanges)
-        self.setToolTip(label_of(self.op_type, model.catalog))
+        tip = label_of(self.op_type, model.catalog)
+        if self.library:
+            tip = "%s (library node %s, version %d)" % (self.library["label"], self.library["id"], self.library["version"])
+            if self.library.get("updateAvailable"):
+                tip += "\nUpdate available: the library has version %d (right-click > Update Node)" % self.library["latest"]
+        self.setToolTip(tip)
         self.setPos(*model.position(name))
 
     def _summary(self, spec):
@@ -688,6 +719,8 @@ class NodeItem(QtWidgets.QGraphicsItem):
         else:
             painter.setPen(accent.lighter(115))
         label = label_of(self.op_type, self.editor.catalog).upper() if self.category != "Output" else "OUTPUT"
+        if self.library and self.category != "Output":
+            label = self.library["label"].upper()
         painter.drawText(QtCore.QRectF(12, 5 + name_h, NODE_W - 24, QtGui.QFontMetrics(small).height()),
                          QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, label)
 
@@ -736,6 +769,13 @@ class NodeItem(QtWidgets.QGraphicsItem):
             painter.drawEllipse(QtCore.QPointF(NODE_W, 0), 8, 8)
             painter.setPen(readable_on(NOTE))
             painter.drawText(QtCore.QRectF(NODE_W - 8, -8, 16, 16), QtCore.Qt.AlignCenter, "i")
+        if self.library and self.library.get("updateAvailable"):
+            # The library has a newer copy of this node: a mark on its left corner (Update Node).
+            painter.setBrush(SELECTED)
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.drawEllipse(QtCore.QPointF(0, 0), 8, 8)
+            painter.setPen(readable_on(SELECTED))
+            painter.drawText(QtCore.QRectF(-8, -8, 16, 16), QtCore.Qt.AlignCenter, u"\u2191")
         # When it runs, unless always: a tag under the node's left corner.
         tag = EVALUATION_TAGS.get(self.editor.model.evaluation(self.name))
         if tag:
@@ -896,9 +936,53 @@ class NodeItem(QtWidgets.QGraphicsItem):
                 action.setChecked(param in exposed)
                 action.toggled.connect(lambda on, p=param: later(lambda: editor.set_param_exposed(name, p, on)))
         menu.addSeparator()
+        if self.op_type == "Script":
+            menu.addAction("Edit Node...", lambda: later(lambda: editor.show_script_editor(name))).setToolTip(
+                "Edit this script node in the side panel: its script, params and header, live")
+            menu.addAction("Save to Library", lambda: later(lambda: editor.save_script_to_library(name))).setToolTip(
+                "Write this script node to your node library (its file, one version up when the library has it)")
+            if self.library and self.library.get("updateAvailable"):
+                menu.addAction("Update Node (version %d)" % self.library["latest"],
+                               lambda: later(lambda: editor.update_library_node(name))).setToolTip(
+                    "Take the library's newer copy of this node (its values kept where it still has them; one undo step)")
         if self.op_type == "Compound":
             menu.addAction("Ungroup Compound  (Ctrl+Shift+G)", lambda: later(lambda: editor.expand([name]))).setToolTip(
                 "Put this compound's nodes back in the graph, to see and edit them (Ctrl+Z groups them again)")
+            # Its inner nodes' params, each shown on the compound (checked) or not: what Save as Node keeps.
+            definition = (editor.model.nodes[name].get("params") or {}).get("definition") or {}
+            shown = set((definition.get("expose") or {}).values())
+            inner_menu = QtWidgets.QMenu("Show Inner Param", menu)  # owned by the menu, not by Python
+            menu.addMenu(inner_menu)
+            for inner in definition.get("graph", {}).get("nodes", []):
+                try:
+                    specs = editor.catalog.spec(inner.get("type", ""))["params"]
+                except gm.GraphError:
+                    continue
+                specs = [p for p in specs if p.get("kind") in ("float", "int", "bool", "vec3", "string")
+                         and p["name"] not in ("definition",) and not p.get("channel")]
+                if not specs or inner.get("type") == "Input":
+                    continue
+                sub = QtWidgets.QMenu(inner["name"], inner_menu)
+                inner_menu.addMenu(sub)
+                for p in specs:
+                    target = "%s.%s" % (inner["name"], p["name"])
+                    action = sub.addAction(pretty(p["name"]))
+                    action.setCheckable(True)
+                    action.setChecked(target in shown)
+                    action.setToolTip(p.get("description", ""))
+                    action.toggled.connect(lambda on, t=target: later(lambda: editor.show_inner_param(name, t, on)))
+            menu.addAction("Save as Node...", lambda: later(lambda: editor.show_save_node(name))).setToolTip(
+                "Save this compound to your node library: it shows in Add Node and Tab search, in every groom "
+                "and in the standalone app and Blender")
+            if self.library:
+                menu.addAction("Save to Library", lambda: later(lambda: editor.save_to_library(name))).setToolTip(
+                    "Write this node as it is now (its values as the new defaults) over its library file, "
+                    "one version up")
+                if self.library.get("updateAvailable"):
+                    menu.addAction("Update Node (version %d)" % self.library["latest"],
+                                   lambda: later(lambda: editor.update_library_node(name))).setToolTip(
+                        "Take the library's newer copy of this node (its values kept where it still has them; one "
+                        "undo step)")
         menu.addAction("Group Selection into Compound  (Ctrl+G)", lambda: later(editor.collapse_selected)).setToolTip(
             "Collapse the selected nodes into one Compound node")
         menu.addAction("Add Backdrop Around Selection", lambda: later(editor.add_backdrop))
@@ -1084,6 +1168,7 @@ class NodeSearch(QtWidgets.QFrame):
         self.entries = []
         self.labels = {}
         catalog = editor.catalog
+        refresh_library(catalog)
         for category, types in categories(catalog):
             for op_type in types:
                 spec = catalog.spec(op_type) if catalog is not None else {}
@@ -1506,6 +1591,37 @@ class GraphView(QtWidgets.QGraphicsView):
         self._pan = None
         self.auto_frame = True  # keep the graph framed on resize until the user zooms or pans
         self.setTransform(QtGui.QTransform.fromScale(theme.scale(), theme.scale()))  # 1:1 at Maya's UI scale
+        self.setAcceptDrops(True)  # .glnode files dropped in: imported into the library and added
+
+    @staticmethod
+    def node_files(event):
+        """The .glnode files a drag carries."""
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return []
+        return [u.toLocalFile() for u in mime.urls() if u.toLocalFile().lower().endswith(".glnode")]
+
+    def dragEnterEvent(self, event):
+        if self.node_files(event):
+            event.acceptProposedAction()
+        else:
+            super(GraphView, self).dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self.node_files(event):
+            event.acceptProposedAction()
+        else:
+            super(GraphView, self).dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        files = self.node_files(event)
+        if not files:
+            super(GraphView, self).dropEvent(event)
+            return
+        event.acceptProposedAction()
+        at = self.mapToScene(qt.event_pos(event))
+        editor = self.scene().editor
+        later(lambda: editor.import_nodes(files, at=(at.x(), at.y())))()
 
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
@@ -1639,7 +1755,17 @@ class ParamPanel(QtWidgets.QScrollArea):
     # is folded on every Clump shown after. Unset: Advanced folded, the groups open.
     folded = {}
 
+    editing_script = None  # the script node whose editor the panel shows (show_script_editor)
+    script_panel = None
+
     def show_node(self, name):
+        if name is not None and name == self.editing_script:
+            # Its editor stays while it is edited (a rebuild, an apply, the groom evaluating).
+            panel = self.script_panel
+            if panel is None or not widgets.alive(panel) or panel.node != name or self.widget() is not panel:
+                self.show_script_editor(name)
+            return
+        self.editing_script = None
         self.node = name
         self.key_widgets = {}  # param -> its number field(s): keyed params show their state and value per frame
         self.sections = []  # [(section, its header or None, [(spec, row)])]: update_visibility's
@@ -1695,8 +1821,8 @@ class ParamPanel(QtWidgets.QScrollArea):
                 form.addRow(scene)
             rows = []  # (spec, label, widget), laid out by section below
             for spec in model.node_spec(name)["params"]:
-                if op_type == "Compound" and spec["name"] == "definition":
-                    continue  # edited by grouping and expose(), not as text
+                if op_type in ("Compound", "Script") and spec["name"] == "definition":
+                    continue  # edited by grouping and expose() (a script node: Edit Node...), not as text
                 if op_type == "Expression" and spec["name"] in ("expression", "variables"):
                     continue  # in the expression panel above
                 if (op_type, spec["name"]) in PLUMBING and model.param(name, spec["name"]) == spec["default"]:
@@ -1897,6 +2023,146 @@ class ParamPanel(QtWidgets.QScrollArea):
             if header is not None and widgets.alive(header):
                 header.setVisible(any_shown)
 
+    def show_script_editor(self, name):
+        """A script node's editor in the panel (script_editor.ScriptNodePanel): kept while the node is
+        the one shown, until Done or another node. Returns it."""
+        from groomlab.ui import script_editor
+        self.node = name
+        self.editing_script = name
+        self.key_widgets = {}
+        self.sections = []
+        self.row_labels = []
+        self.built_units = {}
+        self.error_line = None
+        self.expression = None
+        self.script_panel = script_editor.ScriptNodePanel(self.editor, name)
+        self.setWidget(self.script_panel)
+        return self.script_panel
+
+    def show_save_node(self, name):
+        """Save as Node: a form in the panel (label, category, description, author, id, version,
+        license, the exposed params to keep). Save writes the file and shows the node again; Cancel
+        shows the node. Returns the form."""
+        import groomlab_core
+        model = self.editor.model
+        self.node = name
+        info = model.library_info(name) or {}
+        definition = (model.nodes[name].get("params") or {}).get("definition") or {}
+        exposed = [p["name"] for p in model.node_spec(name)["params"] if p["name"] in (definition.get("expose") or {})]
+        body = QtWidgets.QWidget()
+        body.setObjectName("saveNodeForm")
+        form = QtWidgets.QFormLayout(body)
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        form.setContentsMargins(theme.px(10), theme.px(4), theme.px(10), theme.px(10))
+        title = QtWidgets.QLabel("Save %s as a node" % name)
+        title.setProperty("role", "title")
+        form.addRow(title)
+        about = QtWidgets.QLabel("It goes to your node library (%s) and shows in Add Node and Tab search in every "
+                                 "groom, the standalone app and Blender. Grooms that use it keep a copy, so they open "
+                                 "anywhere." % groomlab_core.node_user_dir())
+        about.setWordWrap(True)
+        about.setProperty("role", "about")
+        form.addRow(about)
+        import re
+        words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).replace("_", " ")
+        label = QtWidgets.QLineEdit(definition.get("label") or " ".join(w[:1].upper() + w[1:] for w in words.split()))
+        label.setObjectName("saveNodeLabel")
+        category = QtWidgets.QComboBox()
+        category.setObjectName("saveNodeCategory")
+        category.setEditable(True)
+        titles = [c for c in CATEGORY_COLORS if c not in ("Output", "Compound")]
+        for entry in groomlab_core.library_nodes()["nodes"]:
+            if entry.get("categoryTitle") not in titles and entry.get("categoryTitle") != "My Nodes":
+                titles.append(entry["categoryTitle"])
+        category.addItems(["My Nodes"] + titles)
+        category.setCurrentText(definition.get("category") or "My Nodes")
+        category.setToolTip("Where Add Node lists it: a built-in category, or type your own")
+        description = QtWidgets.QPlainTextEdit(definition.get("description") or "")
+        description.setObjectName("saveNodeDescription")
+        description.setPlaceholderText("What it does, in a line (the menus show it)")
+        description.setFixedHeight(theme.px(60))
+        author = QtWidgets.QLineEdit(definition.get("author") or "")
+        author.setObjectName("saveNodeAuthor")
+        node_id = QtWidgets.QLineEdit(info.get("id") or "")
+        node_id.setObjectName("saveNodeId")
+        node_id.setToolTip("Never changes once shared: a newer version of a node keeps its id (yourname.node_name)")
+        version = QtWidgets.QSpinBox()
+        version.setObjectName("saveNodeVersion")
+        version.setRange(1, 1000000)
+        license_ = QtWidgets.QLineEdit(definition.get("license") or "")
+        license_.setObjectName("saveNodeLicense")
+        license_.setPlaceholderText("Optional (CC0-1.0, CC-BY-4.0, your own words)")
+        typed = {"id": bool(info)}
+
+        def suggest():
+            if not typed["id"]:
+                node_id.blockSignals(True)
+                node_id.setText(groomlab_core.suggest_node_id(label.text(), author.text()))
+                node_id.blockSignals(False)
+            versions = dict((e["id"], e["version"]) for e in groomlab_core.library_nodes()["nodes"])
+            version.setValue(max(versions.get(node_id.text().strip(), 0), info.get("version", 0)) + 1
+                             if node_id.text().strip() in versions or info else 1)
+        node_id.textEdited.connect(lambda _t: typed.__setitem__("id", True))
+        node_id.editingFinished.connect(suggest)
+        label.textEdited.connect(lambda _t: suggest())
+        author.textEdited.connect(lambda _t: suggest())
+        suggest()
+        form.addRow("Label", label)
+        form.addRow("Category", category)
+        form.addRow("Description", description)
+        form.addRow("Author", author)
+        form.addRow("Id", node_id)
+        form.addRow("Version", version)
+        form.addRow("License", license_)
+        checks = []
+        if exposed:
+            heading = QtWidgets.QLabel("Params it shows")
+            heading.setProperty("role", "about")
+            form.addRow(heading)
+            for param in exposed:
+                box = QtWidgets.QCheckBox(pretty(param))
+                box.setObjectName("saveNodeParam_" + param)
+                box.setChecked(True)
+                box.setToolTip("Unchecked: its value now is kept inside the node")
+                checks.append((param, box))
+                form.addRow(box)
+        error = QtWidgets.QLabel()
+        error.setObjectName("saveNodeError")
+        error.setWordWrap(True)
+        error.setStyleSheet("color: %s;" % ERROR.name())
+        form.addRow(error)
+        buttons = QtWidgets.QHBoxLayout()
+        save = QtWidgets.QPushButton("Save")
+        save.setObjectName("saveNodeSave")
+        cancel = QtWidgets.QPushButton("Cancel")
+        cancel.setObjectName("saveNodeCancel")
+        buttons.addStretch(1)
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+        form.addRow(buttons)
+
+        def accept():
+            header = {"label": label.text().strip(), "category": category.currentText().strip(),
+                      "description": description.toPlainText().strip(), "author": author.text().strip(),
+                      "id": node_id.text().strip(), "version": version.value(), "license": license_.text().strip(),
+                      "params": [p for p, box in checks if box.isChecked()]}
+            if header["category"] == "My Nodes":
+                header["category"] = ""
+            why = groomlab_core.node_id_error(header["id"])
+            if why:
+                error.setText(why)
+                return
+            if self.editor.save_as_node(name, header) is None:
+                error.setText(self.editor.status.text())
+        save.clicked.connect(accept)
+        cancel.clicked.connect(lambda _=False: self.show_node(name))
+        self.setWidget(body)
+        body.fields = {"label": label, "category": category, "description": description, "author": author,
+                       "id": node_id, "version": version, "license": license_, "params": dict(checks),
+                       "save": save, "cancel": cancel, "error": error}
+        self.save_form = body
+        return body
+
     def header(self, name, op_type):
         """The node's name, its type in its category's color, and what it does."""
         box = QtWidgets.QWidget()
@@ -1909,8 +2175,12 @@ class ParamPanel(QtWidgets.QScrollArea):
         title.setProperty("role", "title")
         title.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         row.addWidget(title)
-        color = CATEGORY_COLORS.get(category_of(op_type, self.editor.catalog), MUTED)
-        pill = QtWidgets.QLabel(op_type)
+        library = self.editor.model.library_info(name) if op_type in ("Compound", "Script") else None
+        color = CATEGORY_COLORS.get(library_category(library) if library else category_of(op_type, self.editor.catalog), MUTED)
+        pill = QtWidgets.QLabel(library["label"] if library else op_type)
+        if library:
+            pill.setToolTip("Library node %s, version %d%s" % (library["id"], library["version"],
+                            "" if library.get("embedded", True) else " (this groom holds no copy of it)"))
         pill.setStyleSheet("QLabel { background: %s; color: %s; border-radius: %dpx; padding: %dpx %dpx; "
                            "font-weight: bold; }" % (color.name(), readable_on(color).name(), theme.px(8),
                                                      theme.px(2), theme.px(8)))
@@ -1928,8 +2198,18 @@ class ParamPanel(QtWidgets.QScrollArea):
                 % (op_type, saved, op_type, newest, op_type))
             upgrade.clicked.connect(lambda _=False, n=name: self.editor.upgrade_node(n))
             row.addWidget(upgrade)
+        if library and library.get("updateAvailable"):  # the library has a newer copy: offer it
+            update = QtWidgets.QToolButton()
+            update.setObjectName("updateLibraryNode")
+            update.setText("Update to v%d" % library["latest"])
+            update.setProperty("role", "chip")
+            update.setToolTip("Your node library has version %d of %s (this groom holds version %d).\n"
+                              "Update: take it (its values kept where it still has them). One undo step."
+                              % (library["latest"], library["label"], library["version"]))
+            update.clicked.connect(lambda _=False, n=name: self.editor.update_library_node(n))
+            row.addWidget(update)
         column.addLayout(row)
-        about = describe(op_type, self.editor.catalog)
+        about = library["description"] if library else describe(op_type, self.editor.catalog)
         if about:
             text = QtWidgets.QLabel(about)
             text.setWordWrap(True)
@@ -2396,10 +2676,23 @@ class ParamPanel(QtWidgets.QScrollArea):
                             "scalp's vertices or its texture, whichever kind the map is (white is 1, Ctrl paints "
                             "black); every param this node feeds follows each stroke",
                             run(paint, lambda c: "painting %s" % c)))
+        elif node_type == "Script":
+            buttons.append(("Edit Node...", "Edit this script node here: its script, params and header, live",
+                            lambda _=False: later(lambda: self.editor.show_script_editor(name))))
+            buttons.append(("Save to Library", "Write this script node to your node library (Add Node, Tab search; "
+                            "the standalone app and Blender too), one version up when the library has it",
+                            lambda _=False: later(lambda: self.editor.save_script_to_library(name))))
         elif node_type == "Compound":
             buttons.append(("Ungroup Compound", "Put this compound's nodes back in the graph, to see and edit "
                             "them (Ctrl+Shift+G; Ctrl+Z groups them again)",
                             lambda _=False: later(lambda: self.editor.expand([name]))))
+            buttons.append(("Save as Node...", "Save this compound to your node library (Add Node, Tab search; "
+                            "the standalone app and Blender too)",
+                            lambda _=False: later(lambda: self.editor.show_save_node(name))))
+            if self.editor.model.library_info(name):
+                buttons.append(("Save to Library", "Write this node as it is now (its values as the new defaults) "
+                                "over its library file, one version up",
+                                lambda _=False: later(lambda: self.editor.save_to_library(name))))
         elif node_type == "Sculpt" and groom:
             from groomlab import sculpts
             edited = sculpts.edited_guides(groom, name)
@@ -3352,8 +3645,7 @@ class GraphEditor(QtWidgets.QWidget):
         # Parented and kept: an unowned QMenu is garbage-collected and the button does nothing.
         self.add_menu = self.build_add_menu()
         # Made before a groom brings the catalog: filled again once it does, or as it opens.
-        self.add_menu.aboutToShow.connect(
-            lambda: self.add_menu.filled_from is self.catalog or self.fill_add_menu(self.add_menu))
+        self.add_menu.aboutToShow.connect(lambda: self.fill_add_menu(self.add_menu))
         popup("Add Node  ▾", self.add_menu, "Add a node (after the selected one). Also: right-click the canvas, or Tab")
         self.preset_menu = QtWidgets.QMenu(self)
         self.preset_menu.aboutToShow.connect(self.fill_preset_menu)
@@ -4063,6 +4355,7 @@ class GraphEditor(QtWidgets.QWidget):
         # results to Python, which garbage-collects them (empty categories).
         menu.submenus = []
         menu.filled_from = self.catalog
+        refresh_library(self.catalog)
         for category, types in categories(self.catalog):
             sub = QtWidgets.QMenu(category.replace("&", "&&"), menu)  # "Fields & Curves": no mnemonic
             sub.setToolTipsVisible(True)  # each node's description
@@ -4072,18 +4365,216 @@ class GraphEditor(QtWidgets.QWidget):
                 action = sub.addAction(label_of(op_type, self.catalog), lambda t=op_type: self.add_node(t, at=at))
                 action.setData(op_type)
                 action.setToolTip(describe(op_type, self.catalog))
+        if self.catalog is not None:
+            menu.addSeparator()
+            menu.addAction("New Script Node", lambda: self.new_script_node(at=at)).setToolTip(
+                "A node of your own, written as a short script (per strand, per point): it opens in the side panel "
+                "to edit, live; Save to Library shares it with every groom, the standalone app and Blender")
+            menu.addAction("Import Node...", lambda: self.import_nodes(None, at=at)).setToolTip(
+                "Copy a .glnode file (a compound node someone shared) into your node library and add it "
+                "(or drop the file on the graph)")
+            menu.addAction("Open Nodes Folder", self.open_nodes_folder).setToolTip(
+                "Your node library's folder (Documents/GroomLab/nodes): the standalone app and Blender read it too")
         return menu
 
-    def add_node(self, op_type, at=None, wire=None):
+    # -- Compound nodes (groomlab.nodes): the .glnode library ------------------------------------
+
+    def show_save_node(self, name):
+        """Save as Node: the form in the side panel (never a dialog)."""
+        if not self.model or name not in self.model.nodes:
+            return None
+        self.scene.clearSelection()
+        if name in self.items:
+            self.items[name].setSelected(True)
+        return self.params.show_save_node(name)
+
+    def show_inner_param(self, compound, target, on=True):
+        """Show inner param `target` ("node.param") on the compound's panel (named after the param,
+        node + Param when taken), or stop showing it. One undo step when Live."""
+        try:
+            if on:
+                inner, _, param = target.partition(".")
+                taken = set(p["name"] for p in self.model.node_spec(compound)["params"])
+                exposed = param if param not in taken else inner + param[:1].upper() + param[1:]
+                self.model.expose(compound, exposed, target)
+            else:
+                self.model.unexpose(compound, target)
+        except gm.GraphError as e:
+            self.report(str(e), trouble=True)
+            return False
+        self.rebuild()
+        self.changed()
+        return True
+
+    def save_as_node(self, name, header):
+        """Save Compound `name` as a library node (header: label, category, description, id,
+        version, author, license, params...: groomlab_core.node_file_from_compound's) to the user's
+        node folder; the node then holds the saved copy (one undo step when Live). Returns the
+        file's path, None (reported) when it cannot."""
+        import groomlab_core
+        try:
+            text = groomlab_core.node_file_from_compound(self.model.to_json(), name, json.dumps(header),
+                                                         self.model.groom_size)
+            path = groomlab_core.save_node_file(text, "")
+            self.model.update_library_node(name, json.loads(text)["id"])
+        except (gm.GraphError, ValueError, RuntimeError, IOError, OSError) as e:
+            self.report("Save as Node: %s" % e, trouble=True)
+            return None
+        self.rebuild()
+        self.changed()
+        self.params.show_node(name)
+        saved = json.loads(text)
+        self.report("saved %s (version %d) to %s" % (saved["label"], saved["version"], path))
+        return path
+
+    def save_to_library(self, name):
+        """A library node written over its file as it is now (its values the new defaults), one
+        version up."""
+        info = self.model.library_info(name) or {}
+        version = max(info.get("version", 0), info.get("latest", 0)) + 1
+        return self.save_as_node(name, {"version": version})
+
+    def update_library_node(self, name):
+        """Update Node: the library's newer copy (one undo step when Live). False when it had it."""
+        try:
+            done = self.model.update_library_node(name)
+        except gm.GraphError as e:
+            self.report(str(e), trouble=True)
+            return False
+        if done:
+            self.rebuild()
+            self.changed()
+            self.report("%s updated to the library's version" % name)
+        return done
+
+    def import_nodes(self, paths=None, at=None):
+        """Copy .glnode files into the user's node library and add each to the graph (at `at`, a scene
+        point). No paths: picked in a file dialog (only a click gets there; scripts pass them).
+        Returns the names of the nodes added."""
+        from groomlab import nodes
+        if paths is None:
+            paths, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Import Node", "", "GroomLab nodes (*.glnode)")
+        made = []
+        for i, path in enumerate(paths or []):
+            try:
+                saved = nodes.import_node(path)
+                node_id = json.loads(open(saved).read())["id"]
+            except (ValueError, IOError, OSError, KeyError) as e:
+                self.report("Import Node: %s" % e, trouble=True)
+                continue
+            if self.model is None:
+                self.report("imported %s into your node library" % node_id)
+                continue
+            point = None if at is None else (at[0] + 30 * i, at[1] + 30 * i)
+            name = self.add_node("node:" + node_id, at=point, wire=False if at is not None else None)
+            if name:
+                made.append(name)
+        if made:
+            self.report("imported and added %s" % ", ".join(made))
+        return made
+
+    def open_nodes_folder(self):
+        import os
+        from groomlab import nodes
+        folder = nodes.user_dir()
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(folder))
+
+    # -- Script nodes (groomlab.nodes, groomlab.ui.script_editor) --------------------------------
+
+    def new_script_node(self, at=None, label="My Script"):
+        """New Script Node: a script node from the template, wired after the selected node (as Add
+        Node wires), its editor open in the side panel. Returns its name."""
+        from groomlab import nodes
+        if not self.model:
+            self.report("Select a groom first: its graph opens here, then add nodes to it")
+            return None
+        definition = nodes.script_template(label)
+        name = self.add_node("Script", at=at, params={"definition": definition},
+                             name=self.model.unique_name(nodes.node_name(label)))
+        if name:
+            self.show_script_editor(name)
+        return name
+
+    def show_script_editor(self, name):
+        """Edit Node... on a script node: its editor in the side panel (never a dialog). Returns it."""
+        if not self.model or name not in self.model.nodes or self.model.node_type(name) != "Script":
+            return None
+        self.params.editing_script = name
+        if name in self.items and not self.items[name].isSelected():
+            self.scene.clearSelection()
+            self.items[name].setSelected(True)  # the panel follows (ParamPanel.show_node)
+        panel = getattr(self.params, "script_panel", None)
+        if panel is None or not widgets.alive(panel) or panel.node != name or self.params.widget() is not panel:
+            panel = self.params.show_script_editor(name)
+        return panel
+
+    def close_script_editor(self, name):
+        """Done: the node's params again."""
+        self.params.editing_script = None
+        self.params.show_node(name if self.model is not None and name in self.model.nodes else None)
+
+    def set_script_definition(self, name, definition):
+        """A script node takes an edited definition (the editor's, once it checks): the params the
+        header no longer has go (with their links), a param still at its old default takes the new
+        one, and the graph applies when Live."""
+        model = self.model
+        before = dict((p["name"], p.get("default")) for p in model.node_spec(name)["params"])
+        old = model.param(name, "definition") or {}
+        old_names = set(p.get("name") for p in old.get("params", []))
+        new_names = set(p.get("name") for p in definition.get("params", []))
+        model.set_param(name, "definition", definition)
+        node = model.nodes[name]
+        params = node.setdefault("params", {})
+        gone = old_names - new_names
+        for key in gone:
+            params.pop(key, None)
+        if node.get("paramInputs"):
+            node["paramInputs"] = [p for p in node["paramInputs"] if p not in gone]
+        model.connections = [c for c in model.connections if not (c["to"] == name and c["input"] in gone)]
+        for p in model.node_spec(name)["params"]:
+            if p["name"] in new_names and (p["name"] not in params or params[p["name"]] == before.get(p["name"])):
+                params[p["name"]] = p.get("default")
+        self.rebuild()
+        self.changed()
+
+    def save_script_node(self, name, definition):
+        """Write a script node's definition to the user's node library (checked) and give the node
+        that copy. Returns the file's path, None (reported) when it cannot."""
+        import groomlab_core
+        try:
+            path = groomlab_core.save_node_file(json.dumps(definition, indent=2), "")
+        except (RuntimeError, ValueError, IOError, OSError) as e:
+            self.report("Save to Library: %s" % e, trouble=True)
+            return None
+        if definition != self.model.param(name, "definition"):
+            self.set_script_definition(name, definition)
+        else:
+            self.rebuild()  # (its update mark)
+        self.report("saved %s (version %d) to %s" % (definition.get("label"), definition.get("version", 1), path))
+        return path
+
+    def save_script_to_library(self, name):
+        """Save to Library on a script node: its file one version up when the library has it."""
+        panel = getattr(self.params, "script_panel", None)
+        if panel is not None and widgets.alive(panel) and panel.node == name and self.params.widget() is panel:
+            return panel.save()
+        from groomlab import nodes
+        definition = nodes.next_version(self.model.param(name, "definition") or {})
+        return self.save_script_node(name, definition)
+
+    def add_node(self, op_type, at=None, wire=None, params=None, name=None):
         """Add a node at `at` (a scene point; the view's center by default); with one node selected
-        and `wire` (by default: no `at`), wire the new one after it (placed after it unless `at`)."""
+        and `wire` (by default: no `at`), wire the new one after it (placed after it unless `at`).
+        `params` and `name`: the new node's, as GraphModel.add_node takes them."""
         if not self.model:
             self.report("Select a groom first: its graph opens here, then add nodes to it")
             return None
         center = self.view.mapToScene(self.view.viewport().rect().center())
         selected = [i.name for i in self.scene.selectedItems() if isinstance(i, NodeItem)]
         try:
-            name = self.model.add_node(op_type, pos=at or (center.x(), center.y()))
+            name = self.model.add_node(op_type, name=name, params=params, pos=at or (center.x(), center.y()))
         except (gm.GraphError, ValueError) as e:
             self.report(str(e))
             return None
