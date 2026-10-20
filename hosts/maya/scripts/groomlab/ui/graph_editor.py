@@ -37,9 +37,9 @@ from groomlab.ui import qt
 from groomlab.ui.qt import QtCore, QtGui, QtWidgets
 
 from groomlab import graph as gm
-from groomlab.ui import theme, widgets
+from groomlab.ui import definitions, theme, widgets
 from groomlab.ui.messages import plain as plain_message
-from groomlab.ui.shortcuts import keys as shortcut_keys, tip as shortcut_tip
+from groomlab.ui.shortcuts import keys as shortcut_keys
 from groomlab.ui.widgets import shrinkable
 
 
@@ -73,10 +73,9 @@ SNAP = 28.0       # a dragged link snaps to a compatible port this close (scene 
 CORNER = 9.0
 TOGGLE_ROOM = 44.0  # header space for the Focus and Bypass toggles
 
-TYPE_COLORS = {"Strands": QtGui.QColor(232, 168, 92), "Guides": QtGui.QColor(92, 196, 232),
-               "Mesh": QtGui.QColor(140, 206, 110), "Field": QtGui.QColor(214, 122, 214),
-               "Curve": QtGui.QColor(245, 215, 90), "Curves": QtGui.QColor(206, 210, 218),
-               "Value": QtGui.QColor(120, 214, 190)}
+# The port types' and the node categories' colors, every host's (engine/ui/graph_ui.json; a theme's
+# graph.ports and graph.categories override them: apply_theme).
+TYPE_COLORS = dict((name, QtGui.QColor(color)) for name, color in definitions.get("graph/portColors").items())
 NODE_BG = QtGui.QColor(43, 45, 50)
 NODE_BG_TOP = QtGui.QColor(50, 53, 59)
 NODE_BORDER = QtGui.QColor(24, 25, 28)
@@ -100,29 +99,16 @@ FAST, SLOW = QtGui.QColor(120, 200, 120), QtGui.QColor(230, 190, 80)  # a node's
 # (node_catalog.h, in every operator spec): Maya, the app and Blender list the same nodes the same way.
 HIDDEN_TYPES = {"Compound", "Input", "Script"}  # made by Group, not from the Add menu (the specs' "hidden")
 # Nodes whose `path` names a file: the file dialog's filter for it.
-FILE_PATH_FILTERS = {"Reference": "Groom files (*.groom)", "ImportCurves": "Alembic (*.abc)"}
-# When a node runs (its Evaluate menu): (mode, label, what it does); the tag under a node set so.
-EVALUATION_CHOICES = [
-    ("always", "Always", "In the viewport and in renders"),
-    ("viewportOnly", "Viewport Only", "Renders, exports, the Arnold procedural and the CLI skip it: a fast stand-in"),
-    ("renderOnly", "Render Only", "The viewport skips it: a heavy node kept for the final strands"),
-]
-EVALUATION_TAGS = {"viewportOnly": "viewport only", "renderOnly": "render only"}
-CATEGORY_COLORS = {"Sources": QtGui.QColor(72, 190, 170), "Grow": QtGui.QColor(79, 209, 197),
-                   "Color": QtGui.QColor(255, 122, 182), "Shape": QtGui.QColor(90, 150, 240),
-                   "Deform": QtGui.QColor(110, 170, 250), "Collide": QtGui.QColor(100, 180, 200),
-                   "Look": QtGui.QColor(170, 120, 240), "Fields & Curves": QtGui.QColor(214, 122, 214),
-                   "Utility": QtGui.QColor(140, 148, 158), "Output": QtGui.QColor(245, 176, 66),
-                   "Compound": QtGui.QColor(110, 200, 120), "Games": QtGui.QColor(90, 200, 230),
-                   "Convert": QtGui.QColor(240, 140, 95), "Motion": QtGui.QColor(120, 200, 255),
-                   "Feathers": QtGui.QColor(226, 186, 90)}
-
-
-
+FILE_PATH_FILTERS = dict(definitions.get("graph/filePathFilters"))
+# When a node runs (its Evaluate menu, choices.json's evaluation): (mode, label, what it does); the
+# tag under a node set so.
+EVALUATION_CHOICES = [(c["value"], c["label"], c["tip"]) for c in definitions.choices("evaluation")]
+EVALUATION_TAGS = dict((c["value"], c["tag"]) for c in definitions.choices("evaluation") if "tag" in c)
+CATEGORY_COLORS = dict((name, QtGui.QColor(color)) for name, color in definitions.get("graph/categoryColors").items())
 
 # Params naming the host's inputs (the external data a groom feeds the graph):
 # plumbing for scripts and compounds, hidden from the panel unless changed.
-PLUMBING = {("Scalp", "input"), ("Guides", "input"), ("Guides", "hierarchy")}
+PLUMBING = set(tuple(pair) for pair in definitions.get("graph/plumbing"))
 
 # Reads whose "no node upstream writes it" note waits until the user sets them, or the param that
 # uses them, off its default (as the core's own note on HairColor does): a fresh groom's HairColor
@@ -241,11 +227,9 @@ def readable_on(color):
 # -- Keyed params: the param fields in the Channel Box's colors ------------------------------------
 
 KEYABLE_KINDS = ("float", "int", "bool", "vec3")
-# A state's theme color (ui.keyed, ...) and Maya's own where a theme has none.
-KEY_COLORS = {"keyed": ("ui.keyed", "#CD4C4C"), "animated": ("ui.animated", "#E3A3A8"),
-              "driven": ("ui.driven", "#E4D46C")}
-KEY_TIPS = {"keyed": "Keyed on this frame", "animated": "Animated (no key on this frame)",
-            "driven": "Driven by a Control node or a connection", "linked": "Set by its attribute (no keys left)"}
+# A state's theme color (ui.keyed, ...) and Maya's own where a theme has none (graph_ui.json's keyStates).
+KEY_COLORS = dict((k, (v["theme"], v["color"])) for k, v in definitions.get("graph/keyStates").items() if "theme" in v)
+KEY_TIPS = dict((k, v["tip"]) for k, v in definitions.get("graph/keyStates").items())
 
 
 def key_state(groom, node, param, model):
@@ -490,6 +474,34 @@ def categories(catalog):
 # Scene items
 
 
+# Nodes and ports cache their painting (see NodeItem): a 30-node graph pans at under 2 ms a frame
+# instead of ~11. An Alt+right-drag zoom draws item-resolution pixmaps scaled instead (GraphView's
+# press and release), sharp again on release: ~7 ms a frame instead of ~43.
+ITEM_CACHE = QtWidgets.QGraphicsItem.DeviceCoordinateCache
+
+
+# Qt's pixmap cache holds those pixmaps; its default 10 MB is a dozen nodes at 1:1 on a 150% screen,
+# past which every frame paints them all again: raised (never lowered) when an editor opens.
+PIXMAP_CACHE_KB = 64 * 1024
+
+
+def make_room_for_cache():
+    if QtGui.QPixmapCache.cacheLimit() < PIXMAP_CACHE_KB:
+        QtGui.QPixmapCache.setCacheLimit(PIXMAP_CACHE_KB)
+
+
+def cache_items(scene, mode):
+    """Every node and port of `scene` cached as `mode` (an ItemCoordinateCache at twice the item's
+    size, so a zoom up to 2x stays readable while it is scaled)."""
+    for item in scene.items():
+        if isinstance(item, (NodeItem, PortItem)):
+            if mode == QtWidgets.QGraphicsItem.ItemCoordinateCache:
+                size = item.boundingRect().size().toSize() * 2
+                item.setCacheMode(mode, size)
+            else:
+                item.setCacheMode(mode)
+
+
 class PortItem(QtWidgets.QGraphicsItem):
     """A port dot: hollow when free, filled when linked; larger to pick than to see."""
 
@@ -507,6 +519,7 @@ class PortItem(QtWidgets.QGraphicsItem):
         kind = gm.port_label(port_type, self.value_kind)
         self.setToolTip("%s (%s)%s" % (name, kind, " — exposed param" if is_param else ""))
         self.setCursor(QtCore.Qt.CrossCursor)
+        self.setCacheMode(ITEM_CACHE)
 
     def boundingRect(self):
         return QtCore.QRectF(-PORT_HIT, -PORT_HIT, 2 * PORT_HIT, 2 * PORT_HIT)
@@ -614,6 +627,9 @@ class NodeItem(QtWidgets.QGraphicsItem):
                 tip += "\nUpdate available: the library has version %d (right-click > Update Node)" % self.library["latest"]
         self.setToolTip(tip)
         self.setPos(*model.position(name))
+        # Painted once into a pixmap at the view's resolution, then blitted: a pan (and a node drag)
+        # repaints none of its text and shapes (anything it shows changing calls update()).
+        self.setCacheMode(ITEM_CACHE)
 
     def _summary(self, spec):
         """A few params that differ from their defaults, e.g. "density 300 · seed 7"."""
@@ -885,109 +901,97 @@ class NodeItem(QtWidgets.QGraphicsItem):
             self.editor.node_moved(self.name, self.pos())
         return super(NodeItem, self).itemChange(change, value)
 
-    def contextMenuEvent(self, event):
-        # Every action rebuilds the scene (this item included): each runs after the menu's event.
-        editor, name = self.editor, self.name
-        menu = QtWidgets.QMenu()
-        menu.addAction("Set as Output", lambda: later(lambda: editor.set_output(name)))
-        if self.viewable():
-            view = menu.addAction("Focus: View Up to Here\t%s" % shortcut_keys("graph.view"))
-            view.setCheckable(True)
-            view.setChecked(editor.viewed == name)
-            view.toggled.connect(lambda on: later(lambda: editor.view_node(name if on else None)))
-        bypass = menu.addAction("Bypass\t%s" % shortcut_keys("graph.bypass"))
-        bypass.setCheckable(True)
-        bypass.setChecked(editor.model.bypassed(name))
-        bypass.toggled.connect(lambda on: later(lambda: editor.set_bypass([name], on)))
+    # What the node's right-click menu runs (engine/ui/graph_ui.json's nodeMenu): functions of the
+    # item. Every action rebuilds the scene (this item included): each runs after the menu's event.
+    ACTIONS = {
+        "node.setOutput": lambda self: later(lambda: self.editor.set_output(self.name)),
+        "node.view": lambda self, on: later(lambda: self.editor.view_node(self.name if on else None)),
+        "node.bypass": lambda self, on: later(lambda: self.editor.set_bypass([self.name], on)),
         # When it runs (Yeti's per-node evaluation): renders and exports skip a viewport-only node,
         # the viewport a render-only one.
-        evaluation = QtWidgets.QMenu("Evaluate", menu)  # owned by the menu, not by Python
-        menu.addMenu(evaluation)
-        current = editor.model.evaluation(name)
-        for mode, label, tip in EVALUATION_CHOICES:
-            action = evaluation.addAction(label)
-            action.setCheckable(True)
-            action.setChecked(mode == current)
-            action.setToolTip(tip)
-            action.triggered.connect(lambda on=True, m=mode: later(lambda: editor.set_evaluation([name], m)))
-        menu.addAction("Rename...", lambda: later(lambda: editor.rename_node(name)))
-        menu.addAction("Duplicate\t%s" % shortcut_keys("graph.duplicate"), lambda: later(lambda: editor.duplicate([name])))
+        "node.evaluate": lambda self, mode, _on: later(lambda: self.editor.set_evaluation([self.name], mode)),
+        "node.rename": lambda self: later(lambda: self.editor.rename_node(self.name)),
+        "node.duplicate": lambda self: later(lambda: self.editor.duplicate([self.name])),
+        # What brushes shape: this node's guides (selecting it picks it too), or the base groom.
+        "node.brushSculpt": lambda self, on: later(lambda: self.editor.target_sculpt(self.name if on else None)),
+        "sculpt.clearEdits": lambda self: later(lambda: self.editor.clear_sculpt_edits(self.name)),
+        "node.bake": lambda self: later(lambda: self.editor.bake_to_guides(self.name)),
+        "node.expose": lambda self, param, on: later(lambda: self.editor.set_param_exposed(self.name, param, on)),
+        "script.edit": lambda self: later(lambda: self.editor.show_script_editor(self.name)),
+        "script.saveToLibrary": lambda self: later(lambda: self.editor.save_script_to_library(self.name)),
+        "node.update": lambda self: later(lambda: self.editor.update_library_node(self.name)),
+        "compound.ungroup": lambda self: later(lambda: self.editor.expand([self.name])),
+        # Its inner nodes' params, each shown on the compound (checked) or not: what Save as Node keeps.
+        "compound.showInner": lambda self, target, on: later(lambda: self.editor.show_inner_param(self.name, target, on)),
+        "compound.saveAsNode": lambda self: later(lambda: self.editor.show_save_node(self.name)),
+        "compound.saveToLibrary": lambda self: later(lambda: self.editor.save_to_library(self.name)),
+        "compound.groupSelection": lambda self: later(self.editor.collapse_selected),
+        "backdrop.add": lambda self: later(self.editor.add_backdrop),
+        "node.delete": lambda self: later(lambda: self.editor.delete_nodes([self.name])),
+    }
+
+    def menu_state(self):
+        """The conditions the node menu's entries need: what kind of node it is, its library copy."""
+        state = set()
+        if self.viewable():
+            state.add("node.viewable")
         if self.op_type == "Sculpt":
-            # What brushes shape: this node's guides (selecting it picks it too), or the base groom.
-            target = menu.addAction("Brush This Node's Guides")
-            target.setCheckable(True)
-            target.setChecked(editor.sculpt_target() == name)
-            target.setToolTip("Brushes shape the guides this node hands on; each stroke is kept in the node and "
-                              "follows the guides when what feeds it changes (off: the base groom)")
-            target.toggled.connect(lambda on: later(lambda: editor.target_sculpt(name if on else None)))
-            clear = menu.addAction("Clear Sculpt Edits", lambda: later(lambda: editor.clear_sculpt_edits(name)))
-            clear.setToolTip("Drop every stroke kept in this node: its guides as it is fed them (one undo step)")
+            state.add("node.sculpt")
         if self.output.port_type in ("Strands", "Guides") and self.op_type != "Output":
-            bake = menu.addAction("Bake Node to Guides...", lambda: later(lambda: editor.bake_to_guides(name)))
-            bake.setToolTip("This node's strands (or guides) as they are now become guides you can brush "
-                            "(GroomLab > Utilities > Bake Node to Guides)")
-        mappable = [p["name"] for p in editor.model.node_spec(name)["params"] if gm.linkable(p)]
-        if mappable:
-            expose = QtWidgets.QMenu("Expose Param as Input", menu)  # owned by the menu, not by Python
-            menu.addMenu(expose)
-            exposed = editor.model.param_inputs(name)
-            for param in mappable:
-                action = expose.addAction(param)
-                action.setCheckable(True)
-                action.setChecked(param in exposed)
-                action.toggled.connect(lambda on, p=param: later(lambda: editor.set_param_exposed(name, p, on)))
-        menu.addSeparator()
-        if self.op_type == "Script":
-            menu.addAction("Edit Node...", lambda: later(lambda: editor.show_script_editor(name))).setToolTip(
-                "Edit this script node in the side panel: its script, params and header, live")
-            menu.addAction("Save to Library", lambda: later(lambda: editor.save_script_to_library(name))).setToolTip(
-                "Write this script node to your node library (its file, one version up when the library has it)")
-            if self.library and self.library.get("updateAvailable"):
-                menu.addAction("Update Node (version %d)" % self.library["latest"],
-                               lambda: later(lambda: editor.update_library_node(name))).setToolTip(
-                    "Take the library's newer copy of this node (its values kept where it still has them; one undo step)")
-        if self.op_type == "Compound":
-            menu.addAction("Ungroup Compound  (Ctrl+Shift+G)", lambda: later(lambda: editor.expand([name]))).setToolTip(
-                "Put this compound's nodes back in the graph, to see and edit them (Ctrl+Z groups them again)")
-            # Its inner nodes' params, each shown on the compound (checked) or not: what Save as Node keeps.
-            definition = (editor.model.nodes[name].get("params") or {}).get("definition") or {}
-            shown = set((definition.get("expose") or {}).values())
-            inner_menu = QtWidgets.QMenu("Show Inner Param", menu)  # owned by the menu, not by Python
-            menu.addMenu(inner_menu)
-            for inner in definition.get("graph", {}).get("nodes", []):
+            state.add("node.bakeable")
+        if self.mappable():
+            state.add("node.mappable")
+        if self.op_type in ("Script", "Compound"):
+            state.add("node." + self.op_type.lower())
+        if self.library:
+            state.add("node.library")
+            if self.library.get("updateAvailable"):
+                state.add("node.updateAvailable")
+        return state
+
+    def mappable(self):
+        """The params Expose Param as Input offers (the linkable ones)."""
+        return [p["name"] for p in self.editor.model.node_spec(self.name)["params"] if gm.linkable(p)]
+
+    def menu_generators(self):
+        """The node menu's generated entries: the params it can expose, a compound's inner params."""
+        def expose(entry):
+            return [{"id": entry["action"], "value": param, "label": param, "tip": ""} for param in self.mappable()]
+
+        def inner(entry):
+            definition = (self.editor.model.nodes[self.name].get("params") or {}).get("definition") or {}
+            subs = []
+            for node in definition.get("graph", {}).get("nodes", []):
                 try:
-                    specs = editor.catalog.spec(inner.get("type", ""))["params"]
+                    specs = self.editor.catalog.spec(node.get("type", ""))["params"]
                 except gm.GraphError:
                     continue
                 specs = [p for p in specs if p.get("kind") in ("float", "int", "bool", "vec3", "string")
                          and p["name"] not in ("definition",) and not p.get("channel")]
-                if not specs or inner.get("type") == "Input":
+                if not specs or node.get("type") == "Input":
                     continue
-                sub = QtWidgets.QMenu(inner["name"], inner_menu)
-                inner_menu.addMenu(sub)
-                for p in specs:
-                    target = "%s.%s" % (inner["name"], p["name"])
-                    action = sub.addAction(pretty(p["name"]))
-                    action.setCheckable(True)
-                    action.setChecked(target in shown)
-                    action.setToolTip(p.get("description", ""))
-                    action.toggled.connect(lambda on, t=target: later(lambda: editor.show_inner_param(name, t, on)))
-            menu.addAction("Save as Node...", lambda: later(lambda: editor.show_save_node(name))).setToolTip(
-                "Save this compound to your node library: it shows in Add Node and Tab search, in every groom "
-                "and in the standalone app and Blender")
-            if self.library:
-                menu.addAction("Save to Library", lambda: later(lambda: editor.save_to_library(name))).setToolTip(
-                    "Write this node as it is now (its values as the new defaults) over its library file, "
-                    "one version up")
-                if self.library.get("updateAvailable"):
-                    menu.addAction("Update Node (version %d)" % self.library["latest"],
-                                   lambda: later(lambda: editor.update_library_node(name))).setToolTip(
-                        "Take the library's newer copy of this node (its values kept where it still has them; one "
-                        "undo step)")
-        menu.addAction("Group Selection into Compound  (Ctrl+G)", lambda: later(editor.collapse_selected)).setToolTip(
-            "Collapse the selected nodes into one Compound node")
-        menu.addAction("Add Backdrop Around Selection", lambda: later(editor.add_backdrop))
-        menu.addAction("Delete", lambda: later(lambda: editor.delete_nodes([name])))
+                subs.append({"submenu": node["name"], "items": [
+                    {"id": entry["action"], "value": "%s.%s" % (node["name"], p["name"]), "label": pretty(p["name"]),
+                     "tip": p.get("description", "")} for p in specs]})
+            return subs
+        return {"exposeParams": expose, "innerParams": inner}
+
+    def contextMenuEvent(self, event):
+        editor, name = self.editor, self.name
+        current = editor.model.evaluation(name)
+        exposed = editor.model.param_inputs(name)
+        definition = (editor.model.nodes[name].get("params") or {}).get("definition") or {}
+        shown = set((definition.get("expose") or {}).values())
+        checked = {"node.view": lambda item: editor.viewed == name,
+                   "node.bypass": lambda item: editor.model.bypassed(name),
+                   "node.evaluate": lambda item: item["value"] == current,
+                   "node.brushSculpt": lambda item: editor.sculpt_target() == name,
+                   "node.expose": lambda item: item["value"] in exposed,
+                   "compound.showInner": lambda item: item["value"] in shown}
+        menu = QtWidgets.QMenu()
+        widgets.fill_menu(menu, definitions.get("graph/nodeMenu"), definitions.binder(self.ACTIONS, self),
+                          self.menu_state(), values={"latest": (self.library or {}).get("latest", "")},
+                          generators=self.menu_generators(), checked=lambda item: checked[item["id"]](item))
         qt.exec_(menu, event.screenPos())
 
 
@@ -1282,7 +1286,7 @@ class BackdropItem(QtWidgets.QGraphicsItem):
 
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        color = QtGui.QColor(*self.data.get("color", [70, 90, 120]))
+        color = QtGui.QColor(*self.data.get("color", definitions.get("graph/backdropColors")[0]["rgb"]))
         fill = QtGui.QColor(color)
         fill.setAlpha(45)
         painter.setPen(QtGui.QPen(SELECTED if self.isSelected() else color, 1.5))
@@ -1356,16 +1360,16 @@ class BackdropItem(QtWidgets.QGraphicsItem):
             self.editor.commit_layout()
             self.update()
 
+    # What the backdrop's right-click menu runs (engine/ui/graph_ui.json's backdropMenu).
+    ACTIONS = {
+        "backdrop.rename": lambda self: self.mouseDoubleClickEvent(None),
+        "backdrop.color": "_recolor",
+        "backdrop.delete": lambda self: later(lambda editor=self.editor, data=self.data: editor.remove_backdrop(data)),
+    }
+
     def contextMenuEvent(self, event):
         menu = QtWidgets.QMenu()
-        menu.addAction("Rename...", lambda: self.mouseDoubleClickEvent(None))
-        colors = QtWidgets.QMenu("Color", menu)
-        menu.addMenu(colors)
-        for label, rgb in (("Blue", [70, 90, 120]), ("Green", [70, 120, 80]), ("Purple", [110, 80, 130]),
-                           ("Amber", [140, 110, 50]), ("Gray", [90, 92, 98])):
-            colors.addAction(label, lambda c=rgb: self._recolor(c))
-        editor, data = self.editor, self.data
-        menu.addAction("Delete Backdrop", lambda: later(lambda: editor.remove_backdrop(data)))
+        widgets.fill_menu(menu, definitions.get("graph/backdropMenu"), definitions.binder(self.ACTIONS, self))
         qt.exec_(menu, event.screenPos())
 
     def _recolor(self, rgb):
@@ -1656,10 +1660,13 @@ class GraphView(QtWidgets.QGraphicsView):
 
     def __init__(self, scene):
         super(GraphView, self).__init__(scene)
+        make_room_for_cache()
         scene.setSceneRect(-self.CANVAS, -self.CANVAS, 2 * self.CANVAS, 2 * self.CANVAS)
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setRenderHint(QtGui.QPainter.Antialiasing)
+        self.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)  # the cached nodes scaled during a zoom drag
+        self.setCacheMode(QtWidgets.QGraphicsView.CacheBackground)  # the dot grid scrolled, not redrawn
         self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)  # a click gives it the keys (Delete, Ctrl+Z...)
@@ -1815,6 +1822,7 @@ class GraphView(QtWidgets.QGraphicsView):
             self._zoom = (pos, self.mapToScene(pos), self.transform().m11())
             self._zoomed = False
             self.setCursor(QtCore.Qt.SizeVerCursor)
+            cache_items(self.scene(), QtWidgets.QGraphicsItem.ItemCoordinateCache)
             event.accept()
             return
         self._zoomed = False
@@ -1843,6 +1851,7 @@ class GraphView(QtWidgets.QGraphicsView):
             self._zoom = None
             self._zoomed = True
             self.unsetCursor()
+            cache_items(self.scene(), ITEM_CACHE)
             event.accept()
             return
         if self._pan is not None and event.button() in (QtCore.Qt.MiddleButton, QtCore.Qt.LeftButton):
@@ -2944,46 +2953,48 @@ class ParamPanel(QtWidgets.QScrollArea):
         if not menu.isEmpty():  # text params have nothing to offer
             qt.exec_(menu, global_pos)
 
+    def param_actions(self, node, param):
+        """What a param's menus run (engine/ui/graph_ui.json's paramMenu, keyMenu, paintMenu) for node.param."""
+        b = definitions.bound
+        return {"param.setKey": b(lambda: self.set_key(node, param)),
+                "param.deleteKey": b(lambda: self.delete_key(node, param)),
+                "param.removeAnimation": b(lambda: self.remove_animation(node, param)),
+                "param.selectAttribute": b(lambda: self.select_attribute(node, param)),
+                "param.expose": b(lambda on: self.editor.set_param_exposed(node, param, on)),
+                "param.paintGuides": b(lambda: self.paint_param(node, param, "guides")),
+                "param.paintVertices": b(lambda: self.paint_param(node, param, "vertices")),
+                "param.paintTexture": b(lambda: self.paint_param(node, param, "texture")),
+                "param.driveWithSlider": b(lambda: self.add_control(node, param))}
+
     def build_param_menu(self, name, param):
         exposed = param in self.editor.model.param_inputs(name)
         menu = QtWidgets.QMenu(self)
         menu.setToolTipsVisible(True)  # why a param cannot be keyed
         spec = self.editor.model.param_spec(name, param)
+        state, values = set(), {}
         if spec and spec.get("kind") in KEYABLE_KINDS:
-            self.add_key_actions(menu, name, param)
-        if not gm.linkable(spec):
-            return menu
-        if not menu.isEmpty():
-            menu.addSeparator()
-        action = menu.addAction("Expose as Input")
-        action.setCheckable(True)
-        action.setChecked(exposed)
-        action.toggled.connect(lambda on: self.editor.set_param_exposed(name, param, on))
-        if spec.get("mappable") and self.editor.groom:
-            menu.addSeparator()
-            menu.addMenu(self.paint_menu(name, param, menu))
-            menu.addSeparator()
-            menu.addAction("Drive with Slider", lambda: self.add_control(name, param)).setToolTip(
-                "A Control node: this param becomes a keyable attribute on the groom (channel box), "
-                "e.g. to animate a Blend from dry to wet")
+            state.add("param.keyable")
+            state, values = self.key_state(name, param, state)
+        if gm.linkable(spec):
+            state.add("param.linkable")
+            if spec.get("mappable"):
+                state.add("param.mappable")
+        if self.editor.groom:
+            state.add("groom")
+        widgets.fill_menu(menu, definitions.get("graph/paramMenu"), definitions.binder(self.param_actions(name, param)),
+                          state, values, generators=self.key_generators(name, param), checked=lambda item: exposed)
         return menu
 
-    PAINT_TIP = ("Paint this param: a map feeding it through a Map node (white = its value now, black = 0), painted "
-                 "in Groom Tools > Paint")
+    PAINT_TIP = definitions.get("graph/paintMenu")["tip"]
 
     def paint_menu(self, name, param, parent):
         """Paint > On Guides / On Scalp Vertices / As Texture: the param's map, painted (the param
-        menu's and the Paint chip's, one list)."""
-        paint = QtWidgets.QMenu("Paint", parent)  # parented: it outlives the caller's references
+        menu's and the Paint chip's, one list: graph_ui.json's paintMenu)."""
+        container = definitions.get("graph/paintMenu")
+        paint = QtWidgets.QMenu(container["label"], parent)  # parented: it outlives the caller's references
         paint.setToolTipsVisible(True)
-        paint.setToolTip(self.PAINT_TIP)
-        paint.addAction("On Guides", lambda: self.paint_param(name, param, "guides")).setToolTip(
-            "A layer on the guides: children inherit it, strands blend it, it survives a new scalp")
-        paint.addAction("On Scalp Vertices", lambda: self.paint_param(name, param, "vertices")).setToolTip(
-            "A value per vertex of the scalp mesh, kept with the groom in the scene")
-        paint.addAction("As Texture", lambda: self.paint_param(name, param, "texture")).setToolTip(
-            "An image at the scalp's UVs in the scene's groomlab/masks folder: the finest detail, editable "
-            "elsewhere, exportable")
+        paint.setToolTip(container["tip"])
+        widgets.fill_menu(paint, container["items"], definitions.binder(self.param_actions(name, param)))
         return paint
 
     def paint_chip(self, name, param):
@@ -3019,29 +3030,34 @@ class ParamPanel(QtWidgets.QScrollArea):
 
     # -- Keyed params: Set Key on a param, its state in the Channel Box's colors ---------------------
 
-    def add_key_actions(self, menu, node, param):
-        """Set Key, Delete Key, Remove Animation and Select Attribute for a param (in its menus)."""
-        import groomlab
+    def key_state(self, node, param, state=()):
+        """The key menu's conditions for a param (keyable here, keyed on this frame, linked to its
+        attribute) and the values its texts name (why it cannot be keyed)."""
         model, groom = self.editor.model, self.editor.groom
         why = model.keyable(node, param) if groom else "no groom"
         linked = model.control_of(node, param) is not None
-        state = key_state(groom, node, param, model) if linked else None
-        action = menu.addAction("Set Key", lambda: self.set_key(node, param))
-        action.setEnabled(linked or why is None)
-        action.setToolTip("Key this param at the current frame (S over it): it becomes a keyable attribute "
-                          "on the groom, edited in Maya's Graph Editor" if linked or why is None else
-                          "Cannot be keyed: " + why)
-        action = menu.addAction("Delete Key", lambda: self.delete_key(node, param))
-        action.setEnabled(state == "keyed")
-        action = menu.addAction("Remove Animation", lambda: self.remove_animation(node, param))
-        action.setEnabled(linked)
-        action.setToolTip("Delete its keys and keep its value now as the param's own")
-        action = menu.addAction("Select Attribute", lambda: self.select_attribute(node, param))
-        action.setEnabled(linked)
-        action.setToolTip("Select the groom with this param's attribute in the Channel Box (Maya's Graph "
-                          "Editor shows its curve)")
+        state = set(state)
+        if linked or why is None:
+            state.add("param.canKey")
         if linked:
-            menu.addAction(groomlab.param_control(groom, node, param) or "").setEnabled(False)
+            state.add("param.linked")
+            if key_state(groom, node, param, model) == "keyed":
+                state.add("param.keyed")
+        return state, {"why": why or ""}
+
+    def key_generators(self, node, param):
+        """The key menu's last entry: the attribute a linked param is set by (disabled, to read)."""
+        def control(menu, _item):
+            import groomlab
+            menu.addAction(groomlab.param_control(self.editor.groom, node, param) or "").setEnabled(False)
+        return {"paramControl": widgets.menu_filler(control)}
+
+    def add_key_actions(self, menu, node, param):
+        """Set Key, Delete Key, Remove Animation and Select Attribute for a param (in its menus:
+        graph_ui.json's keyMenu)."""
+        state, values = self.key_state(node, param)
+        widgets.fill_menu(menu, definitions.get("graph/keyMenu"), definitions.binder(self.param_actions(node, param)),
+                          state, values, generators=self.key_generators(node, param))
 
     def _key_edit(self, fn, *args):
         """Run a key edit on the groom (the editor's graph applied first), then show the result."""
@@ -3730,6 +3746,39 @@ class MappableEditor(QtWidgets.QWidget):
 class GraphEditor(QtWidgets.QWidget):
     """The editor widget; `show()` below wraps it in a dockable Maya panel."""
 
+    # What the Edit, Add Node and Presets menus run (engine/ui/graph_ui.json's editMenu, addMenu,
+    # presetMenu, presetItem): method names, or functions of the editor.
+    ACTIONS = {
+        "graph.undo": "undo",
+        "graph.redo": "redo",
+        "graph.frame": lambda self: self.view.frame(),
+        "graph.frameAll": lambda self: self.view.frame_all(),
+        "graph.tidy": "layout_nodes",
+        "graph.group": "collapse_selected",
+        "graph.ungroup": "expand_selected",
+        "graph.delete": "delete_selected",
+        "graph.copy": "copy_graph",
+        "graph.paste": lambda self: self.paste_graph(),
+        "graph.gpuPreview": "set_gpu_preview",
+        "graph.reload": "reload",
+        "node.newScript": lambda self: self.new_script_node(),
+        "node.import": lambda self: self.import_nodes(None),
+        "node.openFolder": "open_nodes_folder",
+        "preset.save": "save_preset",
+        "preset.apply": "load_preset",
+        "preset.insert": "insert_preset",
+    }
+
+    def edit_generators(self):
+        """The Edit menu's submenus filled here: Units (as it opens) and Theme."""
+        def units(menu, _item):
+            self.units_menu = QtWidgets.QMenu("Units", menu)
+            self.units_menu.setToolTip("Show lengths, widths and densities in real units")
+            self.units_menu.aboutToShow.connect(self.fill_units_menu)
+            menu.addMenu(self.units_menu)
+        return {"units": widgets.menu_filler(units),
+                "themeMenu": widgets.menu_filler(lambda menu, _item: menu.addMenu(widgets.theme_menu(menu)))}
+
     def __init__(self, groom=None, catalog=None, parent=None):
         super(GraphEditor, self).__init__(parent)
         apply_theme()
@@ -3802,41 +3851,15 @@ class GraphEditor(QtWidgets.QWidget):
         # focus is in the editor (Qt widgets, the graph view first, would otherwise keep Ctrl+Z
         # from Maya's hotkeys). QShortcuts rather than action shortcuts: an ambiguous match
         # (another Ctrl+Z shortcut in the same window) still undoes instead of going nowhere.
+        # (graph_ui.json's editMenu; Undo and Redo named after the next step as it opens.)
         self.edit_menu = QtWidgets.QMenu(self)
-        self.undo_action = self.edit_menu.addAction("Undo", self.undo)
-        self.redo_action = self.edit_menu.addAction("Redo", self.redo)
+        made = widgets.fill_menu(self.edit_menu, definitions.get("graph/editMenu"), definitions.binder(self.ACTIONS, self),
+                                 generators=self.edit_generators())
+        self.undo_action, self.redo_action, self.gpu_action = made["graph.undo"], made["graph.redo"], made["graph.gpuPreview"]
         self.edit_menu.aboutToShow.connect(self.fill_edit_menu)
         self.fill_edit_menu(names=False)
-        self.edit_menu.addSeparator()
-        self.edit_menu.addAction("Frame Selection\t%s" % shortcut_keys("graph.frame"), lambda: self.view.frame()).setToolTip(
-            shortcut_tip("Fit the selected nodes in the view, or the whole graph when none is selected", "graph.frame"))
-        self.edit_menu.addAction("Frame All\t%s" % shortcut_keys("graph.frameAll"), lambda: self.view.frame_all()).setToolTip(
-            shortcut_tip("Fit the whole graph in the view", "graph.frameAll"))
-        self.edit_menu.addAction("Tidy Layout", self.layout_nodes)
-        self.edit_menu.addSeparator()
-        group_keys = shortcut_keys("graph.group").split(" / ") + ["", ""]
-        self.edit_menu.addAction("Group into Compound\t%s" % group_keys[0], self.collapse_selected).setToolTip(
-            "Collapse the selected nodes into a Compound node")
-        self.edit_menu.addAction("Ungroup Compound\t%s" % group_keys[1], self.expand_selected).setToolTip(
-            "Put the selected Compound nodes' nodes back in the graph, to see and edit them")
-        self.edit_menu.addAction("Delete\t%s" % shortcut_keys("graph.delete"), self.delete_selected)
-        self.edit_menu.addSeparator()
-        self.add_graph_text_actions(self.edit_menu)
-        self.edit_menu.addSeparator()
-        self.units_menu = QtWidgets.QMenu("Units", self.edit_menu)
-        self.units_menu.setToolTip("Show lengths, widths and densities in real units")
-        self.units_menu.aboutToShow.connect(self.fill_units_menu)
-        self.edit_menu.addMenu(self.units_menu)
-        self.edit_menu.addMenu(widgets.theme_menu(self.edit_menu))
-        self.gpu_action = self.edit_menu.addAction("Preview Drags on the GPU", self.set_gpu_preview)
-        self.gpu_action.setCheckable(True)
-        self.gpu_action.setToolTip("Dragging a value of Interpolate (radius), Length, Clump, Noise, Curl or Width, "
-                                   "and brushing guides, draws on the graphics card without evaluating (the "
-                                   "release evaluates as ever); off: every drag and dab evaluates")
         self.edit_menu.aboutToShow.connect(self.sync_gpu_action)
         self.sync_gpu_action()
-        self.edit_menu.addSeparator()
-        self.edit_menu.addAction("Reload from Groom", self.reload)
         self.edit_menu.setToolTipsVisible(True)
         more = popup("", self.edit_menu, "Undo, layout, grouping, copy and paste the whole graph, units, theme")
         more.setIcon(widgets.glyph("more"))
@@ -3886,7 +3909,9 @@ class GraphEditor(QtWidgets.QWidget):
         self._time_job = None      # scriptJob: the time changed (timings and errors follow)
         self._sync_pending = False
         self._selection_job = None  # scriptJob: follow the selected groom
+        self._scene_jobs = []       # callbacks: File > New and Open
         self._watch_selection()
+        self._watch_scene()
         self.refresh_grooms()
         if groom:
             self.set_groom(groom)
@@ -4083,6 +4108,70 @@ class GraphEditor(QtWidgets.QWidget):
         except RuntimeError:  # no UI events (batch)
             self._selection_job = None
 
+    def _watch_scene(self):
+        """File > New and Open: the editor empties as the scene closes (no nodes of a groom that is
+        gone), then shows the opened scene's groom (groomlab.adopt_scene_groom)."""
+        from maya.api import OpenMaya as om
+        self._unwatch_scene()
+        scene = om.MSceneMessage
+
+        def closing(*_):
+            if widgets.alive(self):
+                self.clear_groom()
+            else:  # the editor was deleted without closing
+                self._unwatch_scene()
+
+        def opened(*_):
+            if widgets.alive(self):
+                QtCore.QTimer.singleShot(0, lambda: widgets.alive(self) and self.scene_opened())
+            else:
+                self._unwatch_scene()
+        try:
+            self._scene_jobs = [scene.addCallback(when, closing) for when in (scene.kBeforeNew, scene.kBeforeOpen)]
+            self._scene_jobs += [scene.addCallback(when, opened) for when in (scene.kAfterNew, scene.kAfterOpen)]
+        except RuntimeError:
+            self._scene_jobs = []
+
+    def _unwatch_scene(self):
+        from maya.api import OpenMaya as om
+        for job in self._scene_jobs:
+            try:
+                om.MMessage.removeCallback(job)
+            except RuntimeError:
+                pass
+        self._scene_jobs = []
+
+    def clear_groom(self):
+        """No groom: an empty canvas and the empty state (the scene closing)."""
+        self.scene.cancel_drag()
+        self._unwatch_graph()
+        self.groom = self._groom_uuid = self.model = self.viewed = None
+        self._preview_base = self._key_preview = None
+        self.node_errors, self.node_warnings, self.node_notes, self.node_times, self.node_channels = {}, {}, {}, {}, {}
+        self.scene.blockSignals(True)
+        try:
+            self.scene.clear()
+        finally:
+            self.scene.blockSignals(False)
+        self.items = {}
+        self.groom_box.clear()
+        self.params.show_node(None)
+        self.report("")
+
+    def scene_opened(self):
+        """A new or opened scene: its groom (pinned, selected, else the first), or the empty state."""
+        import groomlab
+        from maya import cmds
+        shown = _uuid(self.groom) if self.groom else None
+        if self.model is not None and shown is not None and shown == getattr(self, "_groom_uuid", None):
+            return  # (showing one of this scene's grooms already: picked since)
+        groom = groomlab.adopt_scene_groom()
+        self.refresh_grooms()
+        if groom:
+            self.set_groom(cmds.ls(groom)[0])
+        elif self.groom is not None:
+            self.clear_groom()
+
     def _selection_changed_in_maya(self):
         """Selecting another groom (or its transform) shows its graph, unless a groom is pinned
         (groomlab.pin_groom): then the tools, and this editor, stay on it (and move with the pin:
@@ -4105,6 +4194,7 @@ class GraphEditor(QtWidgets.QWidget):
         super(GraphEditor, self).showEvent(event)
         if self._selection_job is None:  # closed and shown again
             self._watch_selection()
+            self._watch_scene()
             self._watch_graph()
             self._sync_from_groom()
 
@@ -4116,6 +4206,7 @@ class GraphEditor(QtWidgets.QWidget):
         """Stop following Maya (the groom's callback, the time and selection scriptJobs, the status
         timer): closing, or Maya quitting."""
         self._unwatch_graph()
+        self._unwatch_scene()
         self._kill_job(self._selection_job)
         self._graph_job = self._selection_job = None
         timer = getattr(self, "_status_timer", None)
@@ -4494,33 +4585,32 @@ class GraphEditor(QtWidgets.QWidget):
         return menu
 
     def fill_add_menu(self, menu, at=None):
-        """(Re)fill an Add Node menu from the catalog (the toolbar's: once a groom brings the
-        catalog, and as it opens if it is still empty)."""
+        """(Re)fill an Add Node menu (graph_ui.json's addMenu) from the catalog (the toolbar's: once a
+        groom brings the catalog, and as it opens if it is still empty)."""
         menu.clear()
         # Submenus made with an explicit parent and kept: PySide gives addMenu("title")
         # results to Python, which garbage-collects them (empty categories).
         menu.submenus = []
         menu.filled_from = self.catalog
         refresh_library(self.catalog)
-        for category, types in categories(self.catalog):
-            sub = QtWidgets.QMenu(category.replace("&", "&&"), menu)  # "Fields & Curves": no mnemonic
-            sub.setToolTipsVisible(True)  # each node's description
-            menu.addMenu(sub)
-            menu.submenus.append(sub)
-            for op_type in types:
-                action = sub.addAction(label_of(op_type, self.catalog), lambda t=op_type: self.add_node(t, at=at))
-                action.setData(op_type)
-                action.setToolTip(describe(op_type, self.catalog))
-        if self.catalog is not None:
-            menu.addSeparator()
-            menu.addAction("New Script Node", lambda: self.new_script_node(at=at)).setToolTip(
-                "A node of your own, written as a short script (per strand, per point): it opens in the side panel "
-                "to edit, live; Save to Library shares it with every groom, the standalone app and Blender")
-            menu.addAction("Import Node...", lambda: self.import_nodes(None, at=at)).setToolTip(
-                "Copy a .glnode file (a compound node someone shared) into your node library and add it "
-                "(or drop the file on the graph)")
-            menu.addAction("Open Nodes Folder", self.open_nodes_folder).setToolTip(
-                "Your node library's folder (Documents/GroomLab/nodes): the standalone app and Blender read it too")
+
+        def node_categories(target, _item):
+            for category, types in categories(self.catalog):
+                sub = QtWidgets.QMenu(category.replace("&", "&&"), target)  # "Fields & Curves": no mnemonic
+                sub.setToolTipsVisible(True)  # each node's description
+                target.addMenu(sub)
+                menu.submenus.append(sub)
+                for op_type in types:
+                    action = sub.addAction(label_of(op_type, self.catalog), lambda t=op_type: self.add_node(t, at=at))
+                    action.setData(op_type)
+                    action.setToolTip(describe(op_type, self.catalog))
+
+        # New Script Node and Import Node... add theirs where the menu was asked for.
+        actions = dict(self.ACTIONS, **{"node.newScript": definitions.bound(lambda: self.new_script_node(at=at)),
+                                        "node.import": definitions.bound(lambda: self.import_nodes(None, at=at))})
+        widgets.fill_menu(menu, definitions.get("graph/addMenu"), definitions.binder(actions, self),
+                          {"catalog"} if self.catalog is not None else (),
+                          generators={"nodeCategories": widgets.menu_filler(node_categories)})
         return menu
 
     # -- Compound nodes (groomlab.nodes): the .glnode library ------------------------------------
@@ -5274,40 +5364,31 @@ class GraphEditor(QtWidgets.QWidget):
         category (your own), each titled, its description as the tooltip and status tip."""
         from groomlab import presets
         self.preset_menu.clear()
-        by_category = {}
-        for info in presets.list_presets(details=True):
-            by_category.setdefault(info["category"], []).append(info)
-        order = [c for c in presets.CATEGORIES if c in by_category]
-        order += sorted(c for c in by_category if c and c not in presets.CATEGORIES)
         # Submenus made with an explicit parent and kept (see build_add_menu).
         self.preset_menu.submenus = []
-        for category in order:
-            sub = QtWidgets.QMenu(category, self.preset_menu)
-            sub.setToolTipsVisible(True)
-            self.preset_menu.addMenu(sub)
-            self.preset_menu.submenus.append(sub)
-            for info in sorted(by_category[category], key=lambda i: i["title"].lower()):
-                self._preset_action(sub, info)
-        if by_category.get(""):
-            if order:
-                self.preset_menu.addSeparator()
-            for info in sorted(by_category[""], key=lambda i: i["title"].lower()):
-                self._preset_action(self.preset_menu, info)
-        self.preset_menu.addSeparator()
-        self.preset_menu.addAction("Save as Preset...", self.save_preset)
-        self.preset_menu.addSeparator()
-        self.add_graph_text_actions(self.preset_menu)
 
-    GRAPH_TEXT_TIPS = (
-        "Put this groom's whole graph on the clipboard as text (a preset with the control values), to share "
-        "in a chat or forum or save as a .json preset",
-        "Replace this groom's graph with one copied as text (Copy Graph, or a preset's JSON), sizes fitted to "
-        "this scalp: one undo step. The status bar says what it reads that this groom lacks")
+        def fill_presets(menu, _item):
+            by_category = {}
+            for info in presets.list_presets(details=True):
+                by_category.setdefault(info["category"], []).append(info)
+            order = [c for c in presets.CATEGORIES if c in by_category]
+            order += sorted(c for c in by_category if c and c not in presets.CATEGORIES)
+            for category in order:
+                sub = QtWidgets.QMenu(category, menu)
+                sub.setToolTipsVisible(True)
+                menu.addMenu(sub)
+                menu.submenus.append(sub)
+                for info in sorted(by_category[category], key=lambda i: i["title"].lower()):
+                    self._preset_action(sub, info)
+            if by_category.get(""):
+                if order:
+                    menu.addSeparator()
+                for info in sorted(by_category[""], key=lambda i: i["title"].lower()):
+                    self._preset_action(menu, info)
 
-    def add_graph_text_actions(self, menu):
-        """Copy Graph and Paste Graph: the whole look as text, for the clipboard."""
-        menu.addAction("Copy Graph", self.copy_graph).setToolTip(self.GRAPH_TEXT_TIPS[0])
-        menu.addAction("Paste Graph", self.paste_graph).setToolTip(self.GRAPH_TEXT_TIPS[1])
+        # (graph_ui.json's presetMenu: the presets, Save as Preset..., Copy Graph and Paste Graph.)
+        widgets.fill_menu(self.preset_menu, definitions.get("graph/presetMenu"), definitions.binder(self.ACTIONS, self),
+                          generators={"presets": widgets.menu_filler(fill_presets)})
 
     def copy_graph(self):
         """The groom's whole graph on the clipboard as text (groomlab.copy_graph_text). Returns it."""
@@ -5356,12 +5437,9 @@ class GraphEditor(QtWidgets.QWidget):
         action.setToolTip(tip)
         action.setStatusTip(tip)
         action.setData(info["name"])
-        apply = sub.addAction("Apply", lambda n=info["name"]: self.load_preset(n))
-        apply.setToolTip("Replace this groom's graph with the preset, sizes fitted to this scalp, the maps it reads "
-                         "made: one undo step")
-        insert = sub.addAction("Insert After Selected Node", lambda n=info["name"]: self.insert_preset(n))
-        insert.setToolTip("Keep this graph and add the preset's look to it as one Compound after the selected node "
-                          "(before the Output when none is selected), fitted to this scalp: one undo step")
+        # Apply and Insert (graph_ui.json's presetItem), each called with the preset's name.
+        entries = [e if e == "-" else {"id": e, "value": info["name"]} for e in definitions.get("graph/presetItem")]
+        widgets.fill_menu(sub, entries, definitions.binder(self.ACTIONS, self))
         return action
 
     def insert_preset(self, name):
@@ -5502,34 +5580,57 @@ def show(groom=None):
     """Open (or raise) the dockable graph editor for `groom`, else the pinned or selected groom."""
     global _window
     from maya import cmds
-    from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 
     if groom is None:  # the groom the tools work on (pinned, else selected), else the scene's first
         import groomlab
         groom = groomlab.active_groom() or (cmds.ls(type="groomLabShape") or [None])[0]
 
-    class DockableGraphEditor(MayaQWidgetDockableMixin, GraphEditor):
-        pass
-
     if _window is not None and not widgets.alive(_window):  # its dock was deleted (workspace change, reload)
         _window = None
     docked = False
     if _window is None:
-        widgets.free_dock("groomLabGraphEditor")
-        _window = DockableGraphEditor(groom=groom)  # first positional arg is the Qt parent
-        _window.setObjectName("groomLabGraphEditor")
-        widgets.at_exit(_close_at_exit)
-        # On a small screen (or Maya's UI at 125-150%) a floating editor this big would hide the
-        # viewport whose changes it is for: it opens docked under the viewport instead (drag its
-        # tab out to float it).
-        docked = open_docked((_window.width(), _window.height()), widgets.available_geometry(_window))
+        _window = _make(groom)
+        # The dock Maya kept opens where it was. A new one: on a small screen (or Maya's UI at
+        # 125-150%) a floating editor this big would hide the viewport whose changes it is for: it
+        # opens docked under the viewport instead (drag its tab out to float it).
+        if not widgets.into_dock(_window, UI_SCRIPT):
+            docked = open_docked((_window.width(), _window.height()), widgets.available_geometry(_window))
     elif groom:
         _window.set_groom(groom)
     if docked:
-        _window.show(dockable=True, floating=False, area="bottom")
+        _window.show(dockable=True, floating=False, area="bottom", uiScript=UI_SCRIPT)
     else:
-        _window.show(dockable=True)
+        _window.show(dockable=True, uiScript=UI_SCRIPT)
     return _window
+
+
+# What Maya runs to rebuild the editor in its dock as it restores its workspace (restore).
+UI_SCRIPT = "import groomlab.ui.graph_editor; groomlab.ui.graph_editor.restore()"
+
+
+def _make(groom):
+    from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
+
+    class DockableGraphEditor(MayaQWidgetDockableMixin, GraphEditor):
+        pass
+
+    window = DockableGraphEditor(groom=groom)  # first positional arg is the Qt parent
+    window.setObjectName("groomLabGraphEditor")
+    widgets.at_exit(_close_at_exit)
+    return window
+
+
+def restore():
+    """Maya restoring its workspace (a restart, an update's too): the editor rebuilt in its dock,
+    where it was when Maya last quit, on the groom the tools work on (else the scene's first)."""
+    global _window
+    import groomlab
+    from maya import cmds
+    groomlab.ensure_plugin()
+    if _window is not None and widgets.alive(_window):
+        widgets.dispose(_window)
+    _window = _make(groomlab.active_groom() or (cmds.ls(type="groomLabShape") or [None])[0])
+    widgets.into_dock(_window, UI_SCRIPT, restoring=True)
 
 
 def open_docked(size, available):

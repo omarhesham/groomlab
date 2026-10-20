@@ -314,6 +314,41 @@ TEST(Brush, ShapeMirrorsAndLeavesFrozenGuidesAlone) {
     EXPECT_EQ(s.h.guide(frozen)->tube.width, (std::vector<float>{0.1f, 0.1f}));
 }
 
+TEST(Brush, TwistTurnsTheMirrorGuideTheOtherWay) {
+    // A turn about the guide is handed: with symmetry, the mirror guide turns the opposite way,
+    // so the two stay mirror images (the Shape brush's twist channel too).
+    Scene s;
+    s.primary = s.h.addGroup("primary");
+    const GuideId left = s.h.addGuide(s.primary, test::straightCurve({0.25f, 0, 0.5f}, {-0.4f, 1, 0.3f}, 8));
+    const GuideId right = s.h.addGuide(s.primary, test::straightCurve({0.75f, 0, 0.5f}, {0.4f, 1, 0.3f}, 8));
+    s.h.evaluate(s.scalp.get());
+    BrushSettings b;
+    b.mode = BrushMode::Twist;
+    b.radius = 0.3f;
+    b.strength = 1.0f;
+    b.mirrorAxis = 0;
+    b.mirrorCenter = 0.5f;
+    applyBrushStroke(s.h, s.scalp.get(), b, {{0.2f, 0.6f, 0.6f}, {0.2f, 0.6f, 0.4f}});
+    const Vec3f l = s.pts(left).back(), r = s.pts(right).back();
+    EXPECT_GT((l - test::straightCurve({0.25f, 0, 0.5f}, {-0.4f, 1, 0.3f}, 8).back()).length(), 1e-3f);  // it turned
+    EXPECT_NEAR(r.x, 1.0f - l.x, 1e-4f);
+    EXPECT_NEAR(r.y, l.y, 1e-4f);
+    EXPECT_NEAR(r.z, l.z, 1e-4f);
+
+    b.mode = BrushMode::ShapeTube;
+    b.tubeChannel = TubeChannel::Twist;
+    applyBrushStroke(s.h, s.scalp.get(), b, {{0.2f, 0.6f, 0.6f}, {0.2f, 0.6f, 0.4f}});
+    const std::vector<float>& lt = s.h.guide(left)->tube.twist;
+    const std::vector<float>& rt = s.h.guide(right)->tube.twist;
+    ASSERT_EQ(lt.size(), rt.size());
+    float most = 0.0f;
+    for (std::size_t i = 0; i < lt.size(); ++i) {
+        most = std::max(most, std::fabs(lt[i]));
+        EXPECT_NEAR(rt[i], -lt[i], 1e-5f) << "section " << i;
+    }
+    EXPECT_GT(most, 1e-4f);  // it twisted
+}
+
 TEST(Brush, NothingOutsideTheRadiusChanges) {
     Scene s;
     const GuideId id = s.add(0.1f, 0.1f);

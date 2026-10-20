@@ -730,6 +730,7 @@ def show(groom, scalp=None):
     if _window is None:
         _window = MayaTransferWindow(groom=groom, scalp=scalp)  # the first positional arg is the Qt parent
         _window.setWindowFlags(_window.windowFlags() | QtCore.Qt.Window)
+        widgets.remember_geometry(_window, "transfer")
     elif scalp:
         _window.refresh_scalps(scalp)
     _window.show()

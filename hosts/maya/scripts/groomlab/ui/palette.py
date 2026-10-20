@@ -22,7 +22,7 @@ from groomlab.ui.qt import QtCore, QtWidgets
 
 import groomlab
 import groomlab_core
-from groomlab.ui import theme, tool_tabs, widgets
+from groomlab.ui import definitions, theme, tool_tabs, widgets
 
 # The tools are the core's brush catalog (brush_catalog.h), the one list both hosts build their
 # palettes from: id, label, category, default strength, whether the strength is signed, a hint
@@ -41,35 +41,27 @@ CREATORS = set(t for t, s in TOOL_SETTINGS.items() if "newGuides" in s)
 # Brushes that also shape part lines and flow arrows (the Brushes box picks what they act on).
 TARGETABLE = set(t for t, s in TOOL_SETTINGS.items() if "targets" in s)
 PART = "part"
-TABS = ["tools", "paint", "correctives", "photos"]
-TAB_ALIASES = {"sculpt": "correctives", "reference": "photos"}  # the tabs' old ids
+# The tabs, the texts and the option lists: the UI definitions every host shares (engine/ui:
+# palette.json, choices.json; groomlab.ui.definitions).
+TABS = [t["id"] for t in definitions.get("palette/tabs")]
+TAB_ALIASES = dict((a, t["id"]) for t in definitions.get("palette/tabs") for a in t.get("aliases", []))  # old ids
 # What each tool does, shown under its name while it is active (the tiles' tooltips say the same).
 HINTS = dict((t["id"], t["hint"]) for t in CATALOG)
 NAMES = dict((t["id"], t["label"]) for t in CATALOG)
-GESTURES = ("Middle-drag: radius · Shift+middle-drag: strength · Shift+click a guide: solo it (the rest frozen) "
-            "and brush its group · Shift+click off a guide: unfreeze all · with the GroomLab hotkey set: B / M + drag "
-            "radius / strength, Page Up / Down the level, Alt+Shift+X symmetry")
-SYMMETRY_TIP = ("Alt+Shift+X turns it on or off (with the GroomLab hotkey set: GroomLab > Help > Install GroomLab "
-                "Hotkeys). While it is on, a red line on the scalp shows the mirror plane for as long as a brush is "
-                "on; the brushes that mirror (and Place, Draw, Select) use it.")
+GESTURES = definitions.text("gestures")
+SYMMETRY_TIP = definitions.text("symmetryTip")
 # What the Erase brush does not do, said under its settings: the hair itself goes with the density map.
-ERASE_NOTE = ("Erase removes guides (with their children), parts and flow arrows, not the scattered hair. "
-              "To take hair away, paint the density map holding Ctrl (Paint tab > + New Map > for a setting > "
-              "Density).")
+ERASE_NOTE = definitions.text("eraseNote")
+
+
+def _options(name):
+    """A choices.json list as (value, label, tooltip)."""
+    return [(c["value"], c["label"], c.get("tip", "")) for c in definitions.choices(name)]
 
 
 # The Shape brush's channels: (name, label, tooltip); Ctrl does the opposite of each.
-TUBE_CHANNELS = [
-    ("width", "Width", "Grow the tubes near the brush (Ctrl: shrink them)"),
-    ("flatness", "Flatness", "Flatten the tubes near the brush toward a ribbon (Ctrl: round them back)"),
-    ("twist", "Twist", "Turn the tubes near the brush about their guides (Ctrl: the other way)"),
-]
-TUBE_SHAPES = [
-    ("round", "Round", "A round tube: hair in a disc round the guide"),
-    ("ribbon", "Ribbon", "A rounded rectangle: a flat ribbon of hair once Flatness flattens it"),
-    ("teardrop", "Teardrop", "Round on top, pointed toward the scalp: a lock tapering to an edge underneath"),
-    ("blade", "Blade", "A lens pointed at both sides: a sharp, cartoon lock"),
-]
+TUBE_CHANNELS = _options("tubeChannel")
+TUBE_SHAPES = _options("tubeShape")
 
 
 def tools_of(*ids):
@@ -80,12 +72,8 @@ def tools_of(*ids):
 STARTER_VAR = "groomLabHideStarter"
 # A first groom, step by step: (key, what to do, the tip on how). The card ticks each off as the
 # groom gets there; clicking a step still to do takes you to it.
-STARTER_STEPS = [
-    ("guides", "Place some guides", "Place: click the scalp, or drag to lay down many."),
-    ("look", "Give it a look", "Graph Editor: add Clump, Noise or Curl after Interpolate."),
-]
-LOOK_TYPES = {"Clump", "Noise", "Curl", "Flyaway", "Tangle", "Wet", "Twist", "Braid",
-              "Gravity", "Displace", "HairColor", "Bend", "Direction", "Transform", "SelfCollide", "Static", "Tie"}
+STARTER_STEPS = [(step["id"], step["label"], step["tip"]) for step in definitions.get("palette/starter/steps")]
+LOOK_TYPES = set(definitions.get("palette/starter/lookTypes"))
 
 
 def starter_progress(groom):
@@ -109,13 +97,13 @@ class StarterCard(QtWidgets.QFrame):
         column.setContentsMargins(pad, theme.px(10), theme.px(6), pad)
         column.setSpacing(theme.px(4))
         top = QtWidgets.QHBoxLayout()
-        title = QtWidgets.QLabel("Your first groom")
+        title = QtWidgets.QLabel(definitions.get("palette/starter/title"))
         title.setProperty("role", "subheading")
         top.addWidget(title, 1)
         close = QtWidgets.QToolButton()
         close.setText("\u2715")
         close.setAutoRaise(True)
-        close.setToolTip("Hide these steps (for good)")
+        close.setToolTip(definitions.get("palette/starter/dismissTip"))
         close.clicked.connect(self.dismiss)
         top.addWidget(close)
         column.addLayout(top)
@@ -340,10 +328,9 @@ class TubePanel(QtWidgets.QWidget):
         self.smooth.clicked.connect(self.smooth_selected)
         self.smooth_what = QtWidgets.QComboBox()
         self.smooth_what.setObjectName("tubeSmoothChannels")
-        self.smooth_what.addItem("Current channel", "current")
-        self.smooth_what.addItem("All channels", "all")
-        self.smooth_what.setToolTip("What Smooth evens out: the channel the brush paints (Width, Flatness or Twist), "
-                                    "or all three")
+        for value, label, _tip in _options("tubeSmooth"):
+            self.smooth_what.addItem(label, value)
+        self.smooth_what.setToolTip(definitions.get("choices/tubeSmooth")["tip"])
         smooth_row.addWidget(self.smooth)
         smooth_row.addWidget(self.smooth_what, 1)
         sections.addRow("", smooth_row)
@@ -809,26 +796,26 @@ class ToolPalette(QtWidgets.QWidget):
         top = QtWidgets.QHBoxLayout()
         top.setSpacing(theme.px(4))
         self.grooms = QtWidgets.QComboBox()
-        self.grooms.setToolTip("The groom every tool works on: the selected one, or pick one to stay on it whatever is selected")
+        header = definitions.get("palette/header")
+        self.grooms.setToolTip(header["groom"]["tip"])
         self.grooms.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.grooms.setMinimumContentsLength(8)
         self.grooms.activated.connect(self.groom_picked)
         top.addWidget(self.grooms, 1)
-        self.visible = self.header_button("eye", "Show or hide the groom", checkable=True)
+        self.visible = self.header_button("eye", header["visible"]["tip"], checkable=True)
         self.visible.toggled.connect(self.groom_visibility)
         top.addWidget(self.visible)
         self.header_icons = {}
-        graph = self.header_button(None, "Graph Editor: the groom's look")
+        graph = self.header_button(None, header["graph"]["tip"])
         graph.setIcon(widgets.icon("graph"))
         graph.clicked.connect(self.open_graph)
         self.header_icons["graph"] = graph
         top.addWidget(graph)
-        more = self.header_button("more", "More: new groom, theme")
+        more = self.header_button("more", header["more"]["tip"])
         more.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         self.more_menu = QtWidgets.QMenu(more)
-        self.more_menu.addAction("Create Groom from Selection", self.create_groom)
-        self.more_menu.addSeparator()
-        self.more_menu.addMenu(widgets.theme_menu(self))
+        widgets.fill_menu(self.more_menu, header["more"]["items"], definitions.binder(self.ACTIONS, self),
+                          generators=self.generators())
         more.setMenu(self.more_menu)
         top.addWidget(more)
         outer.addLayout(top)
@@ -872,31 +859,34 @@ class ToolPalette(QtWidgets.QWidget):
         pad = theme.px(14)
         column.setContentsMargins(pad, pad, pad, pad)
         column.setSpacing(theme.px(8))
-        title = QtWidgets.QLabel("Start a groom")
+        empty = definitions.get("palette/empty")
+        title = QtWidgets.QLabel(empty["title"])
         title.setProperty("role", "title")
         column.addWidget(title)
         self.empty_text = QtWidgets.QLabel()
         self.empty_text.setWordWrap(True)
         self.empty_text.setProperty("role", "about")
         column.addWidget(self.empty_text)
-        make = QtWidgets.QPushButton("Create Groom from Selection")
-        make.setProperty("role", "primary")
-        make.setToolTip("Select the scalp mesh (and any guide curves), then click: a new groom on it")
-        make.clicked.connect(self.create_groom)
-        column.addWidget(make)
-        sample = QtWidgets.QPushButton("Add Sample Mesh")
-        sample.setToolTip("No mesh yet? A sample to start from, added at the origin and selected: Nika (a head and "
-                          "shoulders), Manny (a head) or a wolf")
-        samples = QtWidgets.QMenu(sample)
-        samples.addAction("Nika (head)", lambda: self.add_sample("nika"))
-        samples.addAction("Manny (head)", lambda: self.add_sample("manny"))
-        samples.addAction("Wolf", lambda: self.add_sample("wolf"))
-        sample.setMenu(samples)
-        column.addWidget(sample)
-        # Or bring one in from XGen, Yeti, Alembic curves or a groom file.
-        self.empty_import = self.menu_chip("Import", "import", "Bring a groom in: XGen, Yeti, Alembic curves (on the "
-                                                               "selected mesh) or a groom file")
-        column.addWidget(self.empty_import)
+        # Make one on the selected mesh, add a sample mesh, or bring one in from XGen, Yeti, Alembic
+        # curves or a groom file (the chip: the Output strip's Import list).
+        bind = definitions.binder(self.ACTIONS, self)
+        for item in definitions.resolve(empty["items"]):
+            if item["kind"] == "action":
+                make = QtWidgets.QPushButton(item["label"])
+                make.setProperty("role", "primary")
+                make.setToolTip(item["tip"])
+                make.clicked.connect(lambda _=False, fn=bind(item): fn())
+                column.addWidget(make)
+            elif item["id"] == "import":
+                self.empty_import = self.menu_chip(item)
+                column.addWidget(self.empty_import)
+            else:
+                sample = QtWidgets.QPushButton(item["label"])
+                sample.setToolTip(item["tip"])
+                samples = QtWidgets.QMenu(sample)
+                widgets.fill_menu(samples, definitions.get(item["entry"]["ref"]), bind)
+                sample.setMenu(samples)
+                column.addWidget(sample)
         outer.addWidget(self.empty)
         self.starter = StarterCard(self)
         self.starter.setVisible(False)
@@ -931,9 +921,9 @@ class ToolPalette(QtWidgets.QWidget):
         self.sculpt_layout.setContentsMargins(0, 0, 0, 0)
         self.sculpt_layout.setSpacing(theme.px(8))
         self.reference_tab = tool_tabs.ReferenceTab(self)
-        for widget, title in ((tools_tab, "Tools"), (self.paint_tab, "Paint"), (sculpt_tab, "Correctives"),
-                              (self.reference_tab, "Photos")):
-            self.tabs.addTab(widget, title)
+        pages = {"tools": tools_tab, "paint": self.paint_tab, "correctives": sculpt_tab, "photos": self.reference_tab}
+        for tab in definitions.get("palette/tabs"):
+            self.tabs.addTab(pages[tab["id"]], tab["label"])
         self.tabs.currentChanged.connect(self.tab_changed)
         work.addWidget(self.tabs)
 
@@ -997,9 +987,7 @@ class ToolPalette(QtWidgets.QWidget):
         self.symmetry = self.setting_box("symmetry")
         self.symmetry_mode = QtWidgets.QComboBox()
         self.symmetry_mode.setObjectName("symmetryMode")
-        for label, name, tip in (("World X", "x", "Across the plane x = 0"),
-                                 ("Topology", "topology", "Across the scalp's own surface: its left and right "
-                                                          "vertices matched once, whatever its pose")):
+        for name, label, tip in _options("symmetry"):
             self.symmetry_mode.addItem(label, name)
             self.symmetry_mode.setItemData(self.symmetry_mode.count() - 1, tip, QtCore.Qt.ToolTipRole)
         self.symmetry_mode.setToolTip(SETTINGS["symmetry"]["hint"])
@@ -1074,12 +1062,11 @@ class ToolPalette(QtWidgets.QWidget):
         self.part_list = QtWidgets.QListWidget()
         self.part_list.setMaximumHeight(theme.px(90))
         part_buttons = QtWidgets.QHBoxLayout()
-        for label, slot, tip in (("From Curves", self.parts_from_curves, "Add the selected Maya curves as parts"),
-                                 ("Remove", self.remove_part, "Remove the part picked above"),
-                                 ("Clear All", self.clear_parts, "Remove every part")):
-            b = QtWidgets.QPushButton(label)
-            b.setToolTip(tip)
-            b.clicked.connect(slot)
+        bind = definitions.binder(self.ACTIONS, self)
+        for item in definitions.resolve(definitions.get("lists/parts/bar"), None):
+            b = QtWidgets.QPushButton(item["label"])
+            b.setToolTip(item["tip"])
+            b.clicked.connect(lambda _=False, fn=bind(item): fn())
             part_buttons.addWidget(b)
         form.addRow("Name", self.part_name)
         column.addWidget(self.part_list)
@@ -1090,16 +1077,12 @@ class ToolPalette(QtWidgets.QWidget):
         self.flow_box, column = self.options("Flow")
         row = QtWidgets.QHBoxLayout()
         self.flow_sink = QtWidgets.QComboBox()
-        for label, kind, tip in (("Arrows", "", "Drag to lay arrows; drag over arrows to comb them"),
-                                 ("Whorl", "whorl", "Hair spirals out counter-clockwise around the click (a crown)"),
-                                 ("Whorl (clockwise)", "whorlcw", "Hair spirals out clockwise around the click"),
-                                 ("Gather", "converge", "Hair points in toward the click"),
-                                 ("Part out", "part", "Hair points away from the click (a cowlick)")):
+        for kind, label, tip in _options("flowSink"):
             self.flow_sink.addItem(label, kind)
             self.flow_sink.setItemData(self.flow_sink.count() - 1, tip, QtCore.Qt.ToolTipRole)
-        self.flow_sink.setToolTip("What a click or drag lays: arrows, or a sink (brush-sized) hair turns around")
+        self.flow_sink.setToolTip(definitions.get("choices/flowSink")["tip"])
         self.flow_sink.currentIndexChanged.connect(self.flow_sink_changed)
-        row.addWidget(QtWidgets.QLabel("Place"))
+        row.addWidget(QtWidgets.QLabel(definitions.get("choices/flowSink")["label"]))
         row.addWidget(self.flow_sink, 1)
         clear_flow = QtWidgets.QPushButton("Clear All")
         clear_flow.setToolTip("Remove every arrow and sink")
@@ -1217,12 +1200,13 @@ class ToolPalette(QtWidgets.QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         form.setLabelAlignment(QtCore.Qt.AlignRight)
         self.sculpt = QtWidgets.QComboBox()
-        self.sculpt.addItems(["Strands as they are", "Strands dimmed", "Guides only"])
-        self.sculpt.setCurrentIndex(1)
-        self.sculpt.setToolTip("How strands draw while a stroke is live (they also drop to a lighter density "
-                               "unless Full density is on)")
+        sculpt = definitions.get("choices/sculptDisplay")
+        for value, label, _tip in _options("sculptDisplay"):
+            self.sculpt.addItem(label, value)
+        self.sculpt.setCurrentIndex(self.sculpt.findData(sculpt["default"]))
+        self.sculpt.setToolTip(sculpt["tip"])
         self.sculpt.currentIndexChanged.connect(self.apply_sculpt_display)
-        form.addRow("Strands", self.sculpt)
+        form.addRow(sculpt["label"], self.sculpt)
         self.full_density = QtWidgets.QCheckBox("Full density")
         self.full_density.setObjectName("sculptFullDensity")
         self.full_density.setToolTip("Keep every strand of the preview up while a stroke is live, instead of a "
@@ -1231,20 +1215,22 @@ class ToolPalette(QtWidgets.QWidget):
         form.addRow(self.full_density)
         # Tubes: shapes, sizes and the shape library, a section of its own (open with the Shape
         # brush, Place or Draw; any time from its header).
-        self.tubes_section = widgets.Section("Tubes", self.tube_panel)
+        sections = dict((section["id"], section) for section in definitions.get("palette/sections"))
+        self.tubes_section = widgets.Section(sections["tubes"]["label"], self.tube_panel)
         self.tubes_section.header.toggled.connect(lambda on: on and self.tube_panel.refresh(self.groom()))
         work.addWidget(self.tubes_section)
-        self.display_section = widgets.Section("While sculpting", display)
+        self.display_section = widgets.Section(sections["sculptDisplay"]["label"], display)
         work.addWidget(self.display_section)
 
         # Guide groups and edits on many guides (Tools tab).
         self.guides_tab = tool_tabs.GuidesTab(self)
-        self.guides_section = widgets.Section("Guide groups & edits", self.guides_tab)
+        self.guides_section = widgets.Section(sections["groups"]["label"], self.guides_tab)
         work.addWidget(self.guides_section)
 
         # After grooming: simulate, export, render, transfer, import (the GroomLab menu's items).
         self.output_strip = self.output_buttons()
-        self.output_section = widgets.Section("Output", self.output_strip, expanded=True)
+        self.output_section = widgets.Section(sections["output"]["label"], self.output_strip,
+                                              expanded=sections["output"].get("expanded", False))
         work.addWidget(self.output_section)
 
         # Correctives: the groom as a stack (base groom + correctives); the picked row is what brushes edit.
@@ -1259,6 +1245,8 @@ class ToolPalette(QtWidgets.QWidget):
         self.timer.setInterval(self.POLL_IDLE_MS)
         self.timer.timeout.connect(self.poll)
         self.timer.start()
+        self._scene_jobs = []
+        self._watch_scene()
         self.poll()
         self.tab_changed(self.tabs.currentIndex())
         self.show_tool_settings()
@@ -1275,36 +1263,53 @@ class ToolPalette(QtWidgets.QWidget):
         b.setProperty("role", "glyph")
         return b
 
+    # What the Groom Tools' own buttons and menus run (engine/ui ids; the Output strip runs the GroomLab
+    # menu's: menu.ACTIONS): method names, or functions of the palette.
+    ACTIONS = {
+        "groom.create": "create_groom",
+        "sample.nika": lambda self: self.add_sample("nika"),
+        "sample.manny": lambda self: self.add_sample("manny"),
+        "sample.wolf": lambda self: self.add_sample("wolf"),
+        "parts.fromCurves": "parts_from_curves",
+        "parts.remove": "remove_part",
+        "parts.clear": "clear_parts",
+    }
+
+    def generators(self):
+        """The menus' entries the Groom Tools fill themselves: the Theme submenu (menus/theme)."""
+        return {"themeMenu": widgets.menu_filler(lambda menu, _item: menu.addMenu(widgets.theme_menu(self)))}
+
     @staticmethod
-    def action_chip(label, fn, tip):
-        """A chip running the GroomLab menu's action `fn` (guarded: errors in plain words)."""
+    def action_chip(item):
+        """A chip running the GroomLab menu's action of a definitions item (guarded: errors in plain words)."""
         from groomlab.ui import menu
         chip = QtWidgets.QToolButton()
-        chip.setText(label)
-        chip.setToolTip(tip)
+        chip.setText(item["label"])
+        chip.setToolTip(item["tip"])
         chip.setProperty("role", "chip")
         chip.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        chip.clicked.connect(menu._guarded(fn, label))
+        chip.clicked.connect(menu._guarded(definitions.binder(menu.ACTIONS)(item), item["label"]))
         return chip
 
     @staticmethod
-    def menu_chip(label, kind, tip):
-        """A chip opening the Groom Tools' list of the GroomLab menu's `kind` items ("import",
-        "export", "render", "studio": menu.output_items, one table for both)."""
+    def menu_chip(item):
+        """A chip opening a submenu item's list of the GroomLab menu's actions (the Output strip's
+        Import, Export, Render and Studio: menus/output.<kind>; menu.shown_items, one table for both)."""
         from groomlab.ui import menu
+        kind = item["id"]
         chip = QtWidgets.QToolButton()
-        chip.setText(label + "  ▾")
-        chip.setToolTip(tip)
+        chip.setText(item["label"] + "  ▾")
+        chip.setToolTip(item["tip"])
         chip.setProperty("role", "chip")
         chip.setObjectName("output_" + kind)
         chip.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         chip.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         popup = QtWidgets.QMenu(chip)
-        for item in menu.shown_items(kind, menu.TOOLS_ONLY):
-            if item is None:
+        for entry in menu.shown_items(kind, menu.TOOLS_ONLY):
+            if entry is None:
                 popup.addSeparator()
                 continue
-            text, fn, annotation = item[:3]
+            text, fn, annotation = entry[:3]
             action = popup.addAction(text)
             action.setToolTip(annotation)
             action.triggered.connect(menu._guarded(fn, text))
@@ -1313,26 +1318,15 @@ class ToolPalette(QtWidgets.QWidget):
         return chip
 
     def output_buttons(self):
-        """The Output strip: Simulate Range, Export, Render, Studio, Transfer... and Import, the steps after
-        grooming one click away (the same actions as the GroomLab menu's)."""
-        from groomlab.ui import menu
+        """The Output strip (palette.json's output): Simulate Range, Export, Render, Studio, Transfer... and
+        Import, the steps after grooming one click away (the same actions as the GroomLab menu's)."""
         box = QtWidgets.QWidget()
         box.setObjectName("groomToolsOutput")
         grid = QtWidgets.QGridLayout(box)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(theme.px(6))
-        chips = [
-            self.action_chip("Simulate Range", menu.simulate_range,
-                             "Step the Simulate nodes over the playback range into their cache (Simulate > Add "
-                             "Simulate Node first); Esc stops"),
-            self.menu_chip("Export", "export", "The strands, cards or a groom file for other apps and engines"),
-            self.menu_chip("Render", "render", "Arnold: from a groom file, as curves, or a turntable"),
-            self.menu_chip("Studio", "studio", "Studio lighting for showcase renders in Arnold: a backdrop, area "
-                           "lights and a camera round the groom, by preset; Remove Studio puts things back"),
-            self.action_chip("Transfer...", menu.transfer_dialog,
-                             "Move the groom onto another mesh (Transfer Groom to Scalp...)"),
-            self.menu_chip("Import", "import", "XGen, Yeti, Alembic curves or a groom file"),
-        ]
+        chips = [self.menu_chip(item) if item["kind"] == "submenu" else self.action_chip(item)
+                 for item in definitions.resolve(definitions.get("palette/output"))]
         for i, chip in enumerate(chips):
             grid.addWidget(chip, i // 3, i % 3)
         self.output_chips = chips
@@ -1397,8 +1391,38 @@ class ToolPalette(QtWidgets.QWidget):
         """The tabs stop following their groom (their Maya callbacks go), and the poll stops:
         closing, or Maya quitting."""
         self.timer.stop()
+        self._unwatch_scene()
         for tab in (self.guides_tab, self.paint_tab, self.correctives, self.reference_tab):
             tab.unwatch()
+
+    def _watch_scene(self):
+        """File > Open: the opened scene's groom is the one worked on (groomlab.adopt_scene_groom)."""
+        from maya.api import OpenMaya as om
+        self._unwatch_scene()
+
+        def opened(*_):
+            if widgets.alive(self):
+                QtCore.QTimer.singleShot(0, lambda: widgets.alive(self) and self.scene_opened())
+            else:  # deleted without closing
+                self._unwatch_scene()
+        try:
+            self._scene_jobs = [om.MSceneMessage.addCallback(om.MSceneMessage.kAfterOpen, opened)]
+        except RuntimeError:
+            self._scene_jobs = []
+
+    def _unwatch_scene(self):
+        from maya.api import OpenMaya as om
+        for job in getattr(self, "_scene_jobs", []):
+            try:
+                om.MMessage.removeCallback(job)
+            except RuntimeError:
+                pass
+        self._scene_jobs = []
+
+    def scene_opened(self):
+        groomlab.adopt_scene_groom()
+        self._groom_rows = None
+        self.poll()
 
     def showEvent(self, event):
         super(ToolPalette, self).showEvent(event)
@@ -1406,6 +1430,7 @@ class ToolPalette(QtWidgets.QWidget):
             for tab in (self.guides_tab, self.paint_tab, self.correctives, self.reference_tab):
                 tab._watch()
                 tab.refresh()
+            self._watch_scene()
             self.timer.start()
         if not getattr(self, "_polled", False):  # the first show: the groom (or the empty state) at once
             QtCore.QTimer.singleShot(0, lambda: widgets.alive(self) and not getattr(self, "_polled", False) and self.poll())
@@ -1565,7 +1590,7 @@ class ToolPalette(QtWidgets.QWidget):
     def apply_sculpt_display(self, index):
         groom = self.groom()
         if groom:
-            cmds_mode = ("normal", "dimStrands", "guidesOnly")[index]
+            cmds_mode = self.sculpt.itemData(index)
             groomlab.set_sculpt_display(groom, cmds_mode, density=1.0 if self.full_density.isChecked() else 0.35)
 
     def sync(self, from_negative):
@@ -1677,8 +1702,9 @@ class ToolPalette(QtWidgets.QWidget):
             return
         self._polled = True
         from maya import cmds
-        pinned_groom = groomlab.pinned_groom()
         groom = groomlab.active_groom()
+        # The list picks the pinned groom, or the scene's (adopted) while it is the one worked on.
+        pinned_groom = groomlab.pinned_groom() or (groom if groom and groom == groomlab.adopted_groom() else None)
         # Levels and layers: on a groom change, and every few seconds for edits made elsewhere.
         self._ticks = getattr(self, "_ticks", 0) + 1
         if (groom, pinned_groom) != getattr(self, "_groom_key", None) or self._ticks % 3 == 0:
@@ -2022,8 +2048,7 @@ class ToolPalette(QtWidgets.QWidget):
 
     def flow_sink_changed(self, *_):
         kind = self.flow_sink.currentData() or ""
-        self.flow_hint.setText("Drag to lay arrows; drag over arrows to comb them; Ctrl erases." if not kind else
-                               "Click to place, the size of the brush; Ctrl-click removes sinks.")
+        self.flow_hint.setText(definitions.text("flowSinks" if kind else "flowArrows"))
         self.push(flowSink=kind)
 
     def clear_flow(self):
@@ -2063,27 +2088,48 @@ def select_map(name):
         _window.paint_tab.select(name)
 
 
-def show(tab=None):
-    """Open (or raise) the dockable Groom Tools; `tab` picks "tools", "paint", "correctives" or "photos" (the
-    old ids "sculpt" and "reference" too; "guides": the Tools tab with its guide groups open)."""
-    global _window
+# What Maya runs to rebuild the Groom Tools in their dock as it restores its workspace (restore).
+UI_SCRIPT = "import groomlab.ui.palette; groomlab.ui.palette.restore()"
+
+
+def _make():
     from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 
     class DockableToolPalette(MayaQWidgetDockableMixin, ToolPalette):
         pass
 
+    window = DockableToolPalette()
+    window.setObjectName("groomLabToolPalette")
+    widgets.at_exit(_close_at_exit)
+    return window
+
+
+def show(tab=None):
+    """Open (or raise) the dockable Groom Tools; `tab` picks "tools", "paint", "correctives" or "photos" (the
+    old ids "sculpt" and "reference" too; "guides": the Tools tab with its guide groups open)."""
+    global _window
     if _window is not None and not widgets.alive(_window):  # its dock was deleted
         _window = None
     if _window is None:
-        widgets.free_dock("groomLabToolPalette")
-        _window = DockableToolPalette()
-        _window.setObjectName("groomLabToolPalette")
-        widgets.at_exit(_close_at_exit)
-    _window.show(dockable=True, area="left", floating=False)
+        _window = _make()
+        widgets.into_dock(_window, UI_SCRIPT)  # the dock Maya kept: opens where it was
+    _window.show(dockable=True, area="left", floating=False, uiScript=UI_SCRIPT)  # (a new dock: on the left)
     if tab:
         _window.show_tab(tab)
+    groomlab.adopt_scene_groom()  # a scene with grooms: one of them, not "Start a groom"
     _window.poll()
     return _window
+
+
+def restore():
+    """Maya restoring its workspace (a restart, an update's too): the Groom Tools rebuilt in their
+    dock, where they were when Maya last quit."""
+    global _window
+    groomlab.ensure_plugin()
+    if _window is not None and widgets.alive(_window):
+        widgets.dispose(_window)
+    _window = _make()
+    widgets.into_dock(_window, UI_SCRIPT, restoring=True)
 
 
 def _close_at_exit():

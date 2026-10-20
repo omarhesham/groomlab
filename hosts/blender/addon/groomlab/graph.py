@@ -379,3 +379,202 @@ def insert_preset(scalp, name, after=None):
     r = _call("insert_preset", **args)
     _changed(scalp, rt)
     return r
+
+
+# ---- Authoring: the Graph Editor's edits (Maya's GraphModel), one undo step each on the helper's stack ----
+
+def _authored(scalp, r):
+    """After one of the helper's undoable edits: the kept graph and the node tree follow, the groom
+    evaluates, the palette shows the undo labels."""
+    from . import tools
+    tools.follow_graph(scalp, r)
+    tools.after_edit(scalp, groom.scene_of(scalp), r.get("undo"), refresh=True)
+    return r
+
+
+def _author(scalp, **args):
+    rt = _ensure(scalp)
+    return _authored(scalp, _edit(rt, **args))
+
+
+def group(scalp, names, name=None):
+    """Group nodes into one Compound (Ctrl+G); returns its name."""
+    return _author(scalp, op="group", names=list(names), name=name or "")["name"]
+
+
+def ungroup(scalp, name):
+    """A Compound's nodes back in the graph (Ctrl+Shift+G); returns their names."""
+    return _author(scalp, op="ungroup", name=name)["names"]
+
+
+def expose_param(scalp, node, param):
+    """Give a param an input port (a Field, Curve or Value port: another node drives it)."""
+    return _author(scalp, op="expose_param", name=node, param=param)
+
+
+def unexpose_param(scalp, node, param):
+    """Remove a param's input port and what fed it; the param keeps its own value."""
+    return _author(scalp, op="unexpose_param", name=node, param=param)
+
+
+def compound_expose(scalp, compound, name, target):
+    """Show a Compound's inner param `target` ("node.param") on its panel as `name`."""
+    return _author(scalp, op="compound_expose", name=compound, param=name, target=target)
+
+
+def compound_unexpose(scalp, compound, target):
+    return _author(scalp, op="compound_unexpose", name=compound, target=target)
+
+
+def insert_on_link(scalp, src, dst, input_name, node, output=None):
+    """Route the link src -> dst.input_name through `node` (a node dropped on a wire)."""
+    args = {"op": "insert_on_link", "from": src, "to": dst, "input": input_name, "node": node}
+    if output:
+        args["output"] = output
+    return _author(scalp, **args)
+
+
+def add_control(scalp, node, param, name=None, default=None, min=0.0, max=1.0):  # noqa: A002 (Maya's names)
+    """Drive node.param with a slider: a Control node (its control `name`, the param's by default)
+    wired to the param. Returns the control's name; set its value with set_controls."""
+    args = {"op": "add_control", "node": node, "param": param, "min": float(min), "max": float(max)}
+    if name:
+        args["name"] = name
+    if default is not None:
+        args["default"] = float(default)
+    return _author(scalp, **args)["control"]
+
+
+def link_control(scalp, node, param, control=None):
+    """Key node.param in place: linked to a control of its own (<node>_<param>; three for a vector)
+    that set_controls gives on each frame (from the property's fcurve). Returns the control(s)."""
+    args = {"op": "link_control", "node": node, "param": param}
+    if control:
+        args["control"] = control
+    return _author(scalp, **args)["control"]
+
+
+def unlink_control(scalp, node, param):
+    """The keyed param back to its own value (the control's value now)."""
+    return _author(scalp, op="unlink_control", node=node, param=param)
+
+
+def controls(scalp):
+    """The controls the graph reads: [{name, kind (control, variable, keyed), node, param?, default,
+    min?, max?, value, set}]."""
+    rt = groom.ensure(scalp)
+    return _call("controls_list", session=rt.session)["controls"]
+
+
+def set_controls(scalp, values, replace=False):
+    """The controls' values now ({name: number}; None unsets one). Not an undo step: Blender's
+    properties and their fcurves hold them, given again on each frame."""
+    rt = groom.ensure(scalp)
+    r = _call("set_controls", session=rt.session, controls=dict(values), replace=bool(replace))
+    if r.get("changed"):
+        groom.mark(scalp, "eval")
+    return r
+
+
+def set_backdrops(scalp, backdrops):
+    """The Graph Editor's backdrops ([{title, x, y, w, h, color: [r, g, b] 0-255}], all of them),
+    kept in the graph with the layout (not an undo step)."""
+    rt = _ensure(scalp)
+    _edit(rt, op="set_positions", backdrops=list(backdrops))
+    groom.remember_graph(scalp, rt)
+
+
+# ---- The node library (Maya's nodes.py) and Save as Preset ---------------------------------------
+
+def nodes_folder():
+    """{userDir, dirs, shippedDir}: where Save as Node and import write, where nodes are looked up."""
+    return _call("nodes_folder")
+
+
+def node_file(scalp, compound, **header):
+    """The .glnode Save as Node would write for Compound `compound` (a dict; nothing saved). Header:
+    node_id, version, label, category, description, author, license, icon, params, paramInfo."""
+    rt = groom.ensure(scalp)
+    return _call("node_file", session=rt.session, node=compound, **_header(header))["file"]
+
+
+def _header(header):
+    out = dict((k, v) for k, v in header.items() if v is not None)
+    if "node_id" in out:
+        out["nodeId"] = out.pop("node_id")
+    return out
+
+
+def save_node(scalp, compound, directory=None, **header):
+    """Save Compound `compound` as a library node (the user's folder, or `directory`); the compound
+    then holds the saved copy (one undo step). Returns the file's path."""
+    rt = _ensure(scalp)
+    args = _header(header)
+    if directory:
+        args["dir"] = directory
+    r = _authored(scalp, _call("save_node", session=rt.session, node=compound, **args))
+    library_nodes(refresh=True)
+    return r["path"]
+
+
+def import_node(path, directory=None):
+    """Copy a .glnode (checked) into the user's node folder (or `directory`). Returns the new path."""
+    args = {"path": path}
+    if directory:
+        args["dir"] = directory
+    r = _call("import_node", **args)
+    library_nodes(refresh=True)
+    return r["path"]
+
+
+def script_template(label="My Script", author=""):
+    """A new script node's file (a dict) whose id the library does not have yet."""
+    return _call("script_template", label=label, author=author)["definition"]
+
+
+def script_errors(definition):
+    """[{part, message, line, column}] wrong with a script node's file (a dict or its text); []: it checks."""
+    return _call("script_errors", definition=definition)["errors"]
+
+
+def add_script_node(scalp, definition=None, name=None, after=None):
+    """A script node (the template by default) fed by `after` and feeding what it fed. Returns its name."""
+    rt = _ensure(scalp)
+    args = {}
+    if definition is not None:
+        args["definition"] = definition
+    if name:
+        args["name"] = name
+    if after:
+        args["after"] = after
+    return _authored(scalp, _call("new_script_node", session=rt.session, **args))["name"]
+
+
+def set_script(scalp, node, definition):
+    """Script node `node` takes an edited file (HelperError "script" saying what is wrong)."""
+    rt = _ensure(scalp)
+    return _authored(scalp, _call("set_script", session=rt.session, node=node, definition=definition))
+
+
+def save_script_node(scalp, node, as_new=False, directory=None):
+    """Script node `node` to the library, one version past its copy there (as_new: a new node).
+    Returns the file's path."""
+    rt = _ensure(scalp)
+    args = {"node": node, "asNew": bool(as_new)}
+    if directory:
+        args["dir"] = directory
+    r = _authored(scalp, _call("save_script_node", session=rt.session, **args))
+    library_nodes(refresh=True)
+    return r["path"]
+
+
+def save_preset(scalp, name, overwrite=False, about=None):
+    """The groom's graph (with its layout) as a user preset, in the folder Maya's presets use.
+    Returns the file's path."""
+    rt = _ensure(scalp)
+    args = {"name": name, "overwrite": bool(overwrite)}
+    if about:
+        args["about"] = dict(about)
+    r = _call("save_preset", session=rt.session, **args)
+    presets(refresh=True)
+    return r["path"]

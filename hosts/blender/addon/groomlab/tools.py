@@ -530,10 +530,358 @@ def map_for_param(scalp, node, param, kind="vertices", resolution=1024):
     return r
 
 
-def map_remove(scalp, name):
-    r = call(scalp, "map_remove", name=name)
+def map_remove(scalp, name, delete_file=False):
+    """Remove a map (Maya's remove_map): what reads it lets go of it (its Map nodes removed, map
+    params naming it back to their defaults); a texture map's file is deleted too with `delete_file`
+    when GroomLab made it (it is in the maps folder) and nothing else reads it. One undo step."""
+    r = call(scalp, "map_remove", name=name, deleteFile=bool(delete_file))
+    follow_graph(scalp, r)
     after_edit(scalp, groom.scene_of(scalp), r.get("undo"), refresh=True)
     return r
+
+
+# ---- Map management (the Paint tab's list menu; Maya's painting.py) --------------------------------
+
+def _map_edit(scalp, cmd, **args):
+    """A map command that is one undo step: the graph, palette and groom follow."""
+    r = call(scalp, cmd, **args)
+    follow_graph(scalp, r)
+    after_edit(scalp, groom.scene_of(scalp), r.get("undo"), refresh=True)
+    return r
+
+
+def map_rename(scalp, name, new):
+    """Rename a map; the Map nodes and map params reading it follow, and a texture map's file named
+    after it (in the maps folder) too. Returns the helper's answer (name, renamed, graphChanged, file?)."""
+    r = _map_edit(scalp, "map_rename", name=name, to=new)
+    scene = groom.scene_of(scalp)
+    if scene.groomlab_tools.paint_map == name:
+        with props.quiet():
+            scene.groomlab_tools.paint_map = new
+    return r
+
+
+def map_convert(scalp, name, kind, resolution=1024, texture=None):
+    """Resample a map into another kind (guides, vertices, texture), its name kept."""
+    args = {"name": name, "kind": kind, "resolution": int(resolution)}
+    if texture:
+        args["texture"] = texture
+    return _map_edit(scalp, "map_convert", **args)
+
+
+def map_set_channels(scalp, name, channels):
+    """Make a map gray (1) or color (4: r g b a); a guide layer stays gray."""
+    return _map_edit(scalp, "map_set_channels", name=name, channels=int(channels))
+
+
+def map_fill(scalp, name, value=None, color=None, channels="rgba", selected=False):
+    """Set a map to `value` everywhere (any kind), or a guide layer on the selected guides only; a
+    color map takes `color` (r, g, b[, a]) in the channels of `channels`."""
+    args = {"name": name, "channels": channels or "rgba", "selected": bool(selected)}
+    if value is not None:
+        args["value"] = float(value)
+    if color is not None:
+        args["color"] = [float(c) for c in color]
+    return _map_edit(scalp, "map_fill", **args)
+
+
+def map_import(scalp, path, name=None, color=None, copy=None):
+    """A new texture map reading the image at `path`: a PNG in place, another format (or a PNG
+    with `copy`) copied into the maps folder as a PNG. Named after the file unless `name`; color
+    when the image has color unless `color` says. Returns the helper's answer (name, file...)."""
+    args = {"path": path}
+    if name:
+        args["name"] = name
+    if color is not None:
+        args["color"] = bool(color)
+    if copy is not None:
+        args["copy"] = bool(copy)
+    return _map_edit(scalp, "map_import", **args)
+
+
+def map_relink(scalp, name, path, copy=None):
+    """Map `name` reads the image at `path` as a texture map (the file rules of map_import)."""
+    args = {"name": name, "path": path}
+    if copy is not None:
+        args["copy"] = bool(copy)
+    return _map_edit(scalp, "map_relink", **args)
+
+
+def map_reload(scalp, name=None):
+    """Texture map `name`'s image (every texture map's when None) read again after an edit outside
+    Blender; the groom evaluates again. Not an undo step. Returns the files."""
+    r = call(scalp, "map_reload", **({"name": name} if name else {}))
+    after_edit(scalp, groom.scene_of(scalp), refresh=True)
+    return r.get("files") or []
+
+
+def map_users(scalp, name):
+    """(node, param) pairs map `name` feeds (through its Map nodes, and map params naming it)."""
+    return [tuple(u) for u in call(scalp, "map_users", name=name).get("users") or []]
+
+
+# ---- Guide edits: Segments, Mirror Selection, group colors -------------------------------------------
+
+def _targets(guides=None, group=None, level=None):
+    if guides:
+        return {"ids": [int(g) for g in guides]}
+    if group:
+        return {"group": group}
+    if level is not None:
+        return {"level": int(level)}
+    return {}
+
+
+def guide_segments(scalp, guides=None, group=None, level=None):
+    """The segment counts of guides (default: the selected ones, else every guide): {ids, segments}."""
+    return call(scalp, "guide_segments", **_targets(guides, group, level))
+
+
+def resample_guides(scalp, segments, guides=None, group=None, level=None):
+    """Give guides (default: the selected ones, else every guide) `segments` segments. One undo step."""
+    return guides_edit(scalp, "resample", segments=int(segments), **_targets(guides, group, level))
+
+
+def _preview_shown(scalp):
+    from . import display
+    groom.sync_safely(scalp, scene=groom.scene_of(scalp), force_eval=True, topology=False)
+    display.mark(scalp)
+    groom._redraw()
+
+
+def preview_resample(scalp, segments, guides=None, group=None, level=None):
+    """The Segments slider while dragged: the guides shown resampled, no change, no undo step;
+    resample_guides commits, end_preview drops it."""
+    r = call(scalp, "guides_preview", segments=int(segments), **_targets(guides, group, level))
+    _preview_shown(scalp)
+    return r
+
+
+def end_preview(scalp):
+    """Drop a guide preview (Segments, a tube shape's points): the stored guides show again."""
+    r = call(scalp, "guides_preview_end")
+    if r.get("ended"):
+        _preview_shown(scalp)
+    return r
+
+
+def mirror_selection(scalp, axis="x", center=0.0, add=False):
+    """Select the mirror images of the selected guides (the nearest guide of the same group across
+    the plane). A selection: not an undo step."""
+    from . import display
+    r = call(scalp, "guides_edit", op="mirror_selection", axis=axis, center=float(center), add=bool(add))
+    display.mark(scalp)
+    refresh_info(scalp)
+    mark_state(scalp)
+    return r
+
+
+def set_group_color(scalp, group, color):
+    """Give a guide group its own viewport color ("#rrggbb" or (r, g, b) in 0-1); None goes back to
+    the level colors. One undo step."""
+    if isinstance(color, (tuple, list)):
+        color = [float(c) for c in color[:3]]
+    return guides_edit(scalp, "set_group_color", group=group, color=color)
+
+
+# ---- Tubes (the Tubes section; Maya's guides.py tube functions) ------------------------------------
+
+TUBE_CHANNELS = ("width", "flatness", "twist")
+
+
+def tube_tool(scalp, channel=None, tube=None):
+    """The Shape brush's channel (`channel`: width, flatness or twist) and the tube Place and Draw
+    give new guides (`tube`: {shape, width (scene units), aspect, twist}): helper tool_set."""
+    settings = {}
+    if channel is not None:
+        settings["tubeChannel"] = channel
+    if tube is not None:
+        settings["tube"] = dict(tube)
+    return call(scalp, "tool_set", settings=settings)
+
+
+def tube_targets(scalp):
+    """The guides the Tubes section edits: {source (selection, solo, none), guides, shapes, tube}."""
+    return call(scalp, "tube_targets")
+
+
+def get_tube(scalp, guide):
+    """A guide's tube: {shape, width (scene units), aspect, twist (radians)}, lists root to tip."""
+    return call(scalp, "tube_get", guide=int(guide))["tube"]
+
+
+def _tube_edit(scalp, cmd, **args):
+    r = call(scalp, cmd, **args)
+    after_edit(scalp, groom.scene_of(scalp), r.get("undo"), refresh=True)
+    return r
+
+
+def set_tube(scalp, guides=None, group=None, level=None, shape=None, width=None, aspect=None, twist=None, samples=None):
+    """Edit guides' tubes (default: the selected ones): a number or a list root to tip for each of
+    width (scene units), aspect and twist (radians); a shape's name. One undo step."""
+    args = _targets(guides, group, level)
+    for key, value in (("shape", shape), ("width", width), ("aspect", aspect), ("twist", twist), ("samples", samples)):
+        if value is not None:
+            args[key] = list(value) if isinstance(value, (list, tuple)) else value
+    return _tube_edit(scalp, "tube_set", **args)
+
+
+def scale_tube(scalp, factor, guides=None, group=None, level=None):
+    """Every width of guides' tubes times `factor` (their taper kept). One undo step."""
+    return _tube_edit(scalp, "tube_scale", factor=float(factor), **_targets(guides, group, level))
+
+
+def smooth_tube(scalp, channel="all", passes=3, guides=None, group=None, level=None):
+    """Smooth guides' tubes along each guide: channel width, flatness, twist or all. One undo step."""
+    return _tube_edit(scalp, "tube_smooth", channel=channel, passes=int(passes), **_targets(guides, group, level))
+
+
+def tube_shapes(scalp):
+    """The built-in shapes and the groom's library: [{name, builtin, points, smooth, users}]."""
+    return call(scalp, "tube_shapes")["shapes"]
+
+
+def add_tube_shape(scalp, name, points, smooth=True):
+    return _tube_edit(scalp, "tube_shape_add", name=name, points=[[float(u), float(v)] for u, v in points], smooth=bool(smooth))
+
+
+def set_tube_shape_points(scalp, name, points=None, smooth=None):
+    args = {"name": name}
+    if points is not None:
+        args["points"] = [[float(u), float(v)] for u, v in points]
+    if smooth is not None:
+        args["smooth"] = bool(smooth)
+    return _tube_edit(scalp, "tube_shape_set", **args)
+
+
+def rename_tube_shape(scalp, name, new):
+    return _tube_edit(scalp, "tube_shape_rename", name=name, to=new)
+
+
+def remove_tube_shape(scalp, name):
+    return _tube_edit(scalp, "tube_shape_remove", name=name)
+
+
+def preview_tube_shape(scalp, name, points, smooth=True):
+    """The shape editor's drag: the library shape shown with new points, no change, no undo step;
+    set_tube_shape_points commits, end_preview drops it."""
+    r = call(scalp, "tube_shape_preview", name=name, points=[[float(u), float(v)] for u, v in points], smooth=bool(smooth))
+    _preview_shown(scalp)
+    return r
+
+
+# ---- Parts and flow ---------------------------------------------------------------------------------
+
+def parts_list(scalp):
+    """The groom's parts: [{name, points}]."""
+    return call(scalp, "parts_list")["parts"]
+
+
+def part_add(scalp, points, name="part"):
+    """A part through points on or near the scalp (scene units, the scalp object's space), named
+    `name` or name1, name2... One undo step. Returns its name."""
+    pts = np.asarray(points, np.float64).reshape(-1, 3)
+    r = call(scalp, "part_add", name=name, points=pts.tolist())
+    after_edit(scalp, groom.scene_of(scalp), r.get("undo"), refresh=True)
+    return r["name"]
+
+
+def part_remove(scalp, name):
+    return _tube_edit(scalp, "part_remove", name=name)
+
+
+def parts_clear(scalp):
+    return _tube_edit(scalp, "parts_clear")
+
+
+def flow_clear(scalp):
+    return _tube_edit(scalp, "flow_clear")
+
+
+# ---- Correctives and Sculpt nodes (Maya's shots.py and sculpts.py) -----------------------------
+
+def correctives(scalp):
+    """The corrective stack, bottom first ([{name, enabled, guides, weight, weightNow, keyed, keys
+    [[frame, weight]], allFrames, frame, fadeIn, fadeOut}]), what brushes edit ({kind: base,
+    corrective or node, name}) and the Sculpt nodes ([{name, editedGuides}])."""
+    return call(scalp, "correctives_list")
+
+
+def _corrective_edit(scalp, cmd, **args):
+    r = call(scalp, cmd, **args)
+    after_edit(scalp, groom.scene_of(scalp), r.get("undo"), refresh=True)
+    return r
+
+
+def corrective_new(scalp, name=None, frame=None, fade=None, fade_in=None, fade_out=None, all_frames=None):
+    """A new corrective on top of the stack, what brushes sculpt into: on every frame, or with a fade
+    (frames) a fix keyed around `frame` (the current one by default). Returns its name."""
+    args = {}
+    for key, value in (("name", name), ("frame", frame), ("fade", fade), ("fadeIn", fade_in), ("fadeOut", fade_out),
+                       ("allFrames", all_frames)):
+        if value is not None:
+            args[key] = value
+    return _corrective_edit(scalp, "corrective_new", **args)["name"]
+
+
+def corrective_set(scalp, name, enabled=None, weight=None, keys=None, frame=None, fade=None, fade_in=None, fade_out=None,
+                   all_frames=None):
+    """Change a corrective: on or off, its weight (a keyed one keyed at the current frame), its keys
+    ([(frame, weight)], the weight's fcurve sampled; [] drops them), every frame, or re-timed as a fix."""
+    args = {"name": name}
+    for key, value in (("enabled", enabled), ("weight", weight), ("frame", frame), ("fade", fade), ("fadeIn", fade_in),
+                       ("fadeOut", fade_out), ("allFrames", all_frames)):
+        if value is not None:
+            args[key] = value
+    if keys is not None:
+        args["keys"] = [[float(f), float(w)] for f, w in keys]
+    return _corrective_edit(scalp, "corrective_set", **args)
+
+
+def corrective_rename(scalp, name, new):
+    return _corrective_edit(scalp, "corrective_rename", name=name, to=new)
+
+
+def corrective_move(scalp, name, step):
+    """Up the stack (+1) or down (-1)."""
+    return _corrective_edit(scalp, "corrective_move", name=name, step=int(step))
+
+
+def corrective_solo(scalp, name):
+    """Only this corrective on; when it already is, every one back on."""
+    return _corrective_edit(scalp, "corrective_solo", name=name)
+
+
+def corrective_delete(scalp, name):
+    return _corrective_edit(scalp, "corrective_delete", name=name)
+
+
+def corrective_clear_keys(scalp, name):
+    """Drop a corrective's keys (or a fix's fades): on every frame at its weight now."""
+    return _corrective_edit(scalp, "corrective_clear_keys", name=name)
+
+
+def sculpt_target(scalp, node=None, corrective=None, base=False):
+    """What brushes edit: Sculpt node `node`'s guides, corrective `corrective`, or the base groom
+    (`base`); none given: as it is. Returns {target, sculptNodes}."""
+    from . import display
+    args = {}
+    if node:
+        args["node"] = node
+    elif corrective:
+        args["corrective"] = corrective
+    elif base:
+        args["base"] = True
+    r = call(scalp, "sculpt_target", **args)
+    if args:
+        display.mark(scalp)
+        groom._redraw()
+    return r
+
+
+def sculpt_clear(scalp, node):
+    """Drop Sculpt node `node`'s edits: its guides as it is fed them. One undo step."""
+    return _corrective_edit(scalp, "sculpt_clear", node=node)
 
 
 def set_hidden_groups(scalp, names):

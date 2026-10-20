@@ -1,0 +1,140 @@
+{
+  "$schema": "./ui.schema.json",
+  "version": 1,
+  "choices": {
+    "symmetry": {
+      "label": "Across",
+      "default": "x",
+      "items": [
+        {"value": "x", "label": "World X", "tip": "Across the plane x = 0"},
+        {"value": "topology", "label": "Topology", "tip": "Across the scalp's own surface: its left and right vertices matched once, whatever its pose"}
+      ]
+    },
+    "flowSink": {
+      "label": "Place",
+      "tip": "What a click or drag lays: arrows, or a sink (brush-sized) hair turns around",
+      "default": "",
+      "items": [
+        {"value": "", "label": "Arrows", "tip": "Drag to lay arrows; drag over arrows to comb them"},
+        {"value": "whorl", "label": "Whorl", "tip": "Hair spirals out counter-clockwise around the click (a crown)"},
+        {"value": "whorlcw", "label": "Whorl (clockwise)", "tip": "Hair spirals out clockwise around the click"},
+        {"value": "converge", "label": "Gather", "tip": "Hair points in toward the click"},
+        {"value": "part", "label": "Part out", "tip": "Hair points away from the click (a cowlick)"}
+      ]
+    },
+    "sculptDisplay": {
+      "label": "Strands",
+      "tip": "How strands draw while a stroke is live (they also drop to a lighter density unless Full density is on)",
+      "default": "dimStrands",
+      "items": [
+        {"value": "normal", "label": "Strands as they are"},
+        {"value": "dimStrands", "label": "Strands dimmed"},
+        {"value": "guidesOnly", "label": "Guides only"}
+      ]
+    },
+    "tubeChannel": {
+      "label": "Paints",
+      "default": "width",
+      "items": [
+        {"value": "width", "label": "Width", "tip": "Grow the tubes near the brush (Ctrl: shrink them)"},
+        {"value": "flatness", "label": "Flatness", "tip": "Flatten the tubes near the brush toward a ribbon (Ctrl: round them back)"},
+        {"value": "twist", "label": "Twist", "tip": "Turn the tubes near the brush about their guides (Ctrl: the other way)"}
+      ]
+    },
+    "tubeShape": {
+      "label": "Shape",
+      "default": "round",
+      "items": [
+        {"value": "round", "label": "Round", "tip": "A round tube: hair in a disc round the guide"},
+        {"value": "ribbon", "label": "Ribbon", "tip": "A rounded rectangle: a flat ribbon of hair once Flatness flattens it"},
+        {"value": "teardrop", "label": "Teardrop", "tip": "Round on top, pointed toward the scalp: a lock tapering to an edge underneath"},
+        {"value": "blade", "label": "Blade", "tip": "A lens pointed at both sides: a sharp, cartoon lock"}
+      ]
+    },
+    "tubeSmooth": {
+      "tip": "What Smooth evens out: the channel the brush paints (Width, Flatness or Twist), or all three",
+      "default": "current",
+      "items": [
+        {"value": "current", "label": "Current channel"},
+        {"value": "all", "label": "All channels"}
+      ]
+    },
+    "mapKind": {
+      "label": "Kind",
+      "default": "guides",
+      "items": [
+        {"value": "guides", "label": "On the guides", "convert": "A layer on the guides", "tip": "A layer on the guides: children inherit it, strands blend it from their guides, it survives a new scalp. Paint over the guides. As fine as the guides are."},
+        {"value": "vertices", "label": "On the scalp's vertices", "convert": "Values on the scalp's vertices", "tip": "A value per vertex of the scalp mesh, kept with the groom in the scene. Paint over the scalp. As fine as the mesh is."},
+        {"value": "texture", "label": "A texture", "convert": "A texture at the scalp's UVs...", "tip": "An image at the scalp's UVs (needs UVs), a PNG in the scene's groomlab/<scene>/masks folder: the finest detail, editable in any image editor, exportable. Paint over the scalp."}
+      ]
+    },
+    "mapValues": {
+      "label": "Values",
+      "default": "gray",
+      "items": [
+        {"value": "gray", "label": "Gray (one value)", "tip": "One value, 0-1: a mask any param reads through a Map node."},
+        {"value": "color", "label": "Color (r g b a)", "tip": "Red, green, blue and alpha: painted hair color (a HairColor node's map), regions each strand's guides stay within (an Interpolate's regionMap: a color per region), or up to four masks packed in one map (a Map node reads each channel). On the scalp's vertices or a texture; guide layers are gray."}
+      ]
+    },
+    "mapResolution": {
+      "label": "Resolution",
+      "default": 1024,
+      "items": [
+        {"value": 512, "label": "512 x 512"},
+        {"value": 1024, "label": "1024 x 1024"},
+        {"value": 2048, "label": "2048 x 2048"},
+        {"value": 4096, "label": "4096 x 4096"}
+      ]
+    },
+    "scalpChannel": {
+      "label": "Channel",
+      "tip": "What of a color map the scalp shows: its color, or one channel black to white",
+      "default": "rgb",
+      "items": [
+        {"value": "rgb", "label": "RGB", "tip": "Its color"},
+        {"value": "r", "label": "R"},
+        {"value": "g", "label": "G"},
+        {"value": "b", "label": "B"},
+        {"value": "a", "label": "A"}
+      ]
+    },
+    "paintChannel": {
+      "items": [
+        {"value": "r", "label": "R", "tip": "Paint, smooth and fill change red (untick the others to paint one mask packed in a channel)"},
+        {"value": "g", "label": "G", "tip": "Paint, smooth and fill change green (untick the others to paint one mask packed in a channel)"},
+        {"value": "b", "label": "B", "tip": "Paint, smooth and fill change blue (untick the others to paint one mask packed in a channel)"},
+        {"value": "a", "label": "A", "tip": "Paint, smooth and fill change alpha (untick the others to paint one mask packed in a channel)"}
+      ]
+    },
+    "photoDepth": {
+      "label": "Photo",
+      "default": "front",
+      "items": [
+        {"value": "front", "label": "In front", "tip": "The photo draws over the mesh (see the mesh through it)"},
+        {"value": "behind", "label": "Behind", "tip": "The mesh draws over the photo"}
+      ]
+    },
+    "strandColor": {
+      "label": "Strand Colors",
+      "tip": "What the strands show in the viewport (renders keep the hair's material)",
+      "default": "solid",
+      "items": [
+        {"value": "solid", "label": "Solid", "tip": "The hair's own color"},
+        {"value": "colorSet", "label": "Color set", "tip": "A color set (map) of the scalp, at each root"},
+        {"value": "attribute", "label": "Attribute", "tip": "A strand channel of the graph, black to white over Min to Max"},
+        {"value": "random", "label": "Random", "tip": "A color per strand"},
+        {"value": "clump", "label": "Clump", "tip": "A color per clump"},
+        {"value": "density", "label": "Density", "tip": "Strands per area: a heatmap"}
+      ]
+    },
+    "evaluation": {
+      "label": "Evaluate",
+      "default": "always",
+      "items": [
+        {"value": "always", "label": "Always", "tip": "In the viewport and in renders"},
+        {"value": "viewportOnly", "label": "Viewport Only", "tip": "Renders, exports, the Arnold procedural and the CLI skip it: a fast stand-in", "tag": "viewport only"},
+        {"value": "renderOnly", "label": "Render Only", "tip": "The viewport skips it: a heavy node kept for the final strands", "tag": "render only"}
+      ]
+    }
+  }
+}

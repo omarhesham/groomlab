@@ -188,7 +188,7 @@ class ProtocolTest(HelperTestCase):
         r = self.h.call("hello", protocol=1)
         self.assertEqual(r["protocol"], 1)
         self.assertEqual(r["groomSpace"], {"upAxis": "Y", "units": "cm"})
-        self.assertEqual(r["features"], {"tools": 1, "state": 1, "cardMaps": 1})
+        self.assertEqual(r["features"], {"tools": 1, "state": 1, "cardMaps": 1, "authoring": 1})
         if CLI:
             out = subprocess.run([CLI, "--version"], capture_output=True, text=True).stdout
             self.assertIn(r["version"], out)
@@ -1541,6 +1541,594 @@ class ToolsTest(HelperTestCase):
         self.assertTrue(json.loads(self.call("get_state")["groom"]).get("scalp"))
         self.call("map_create", name="mask", kind="vertices", value=0.25)
         self.assertIn("mask", json.loads(self.call("get_state", scalp="maps")["groom"])["scalp"]["colorSets"])
+
+    # ---- Groom Tools' edits beyond strokes (Maya's groomLabGuides/-Parts/-ScalpMaps over the helper) ----
+
+    def test_tube_settings_and_tube_commands(self):
+        # The Shape brush's channel and the new guides' tube, as Maya's brush context takes them.
+        self.assertEqual(self.call("tool_set", tool="shape", settings={"tubeChannel": "flatness"})["settings"]["tubeChannel"], "flatness")
+        with self.assertRaises(HelperError):
+            self.call("tool_set", settings={"tubeChannel": "nope"})
+        tube = self.call("tool_set", tool="place", settings={"tube": {"shape": "ribbon", "width": 0.004, "aspect": 0.5}})["settings"]["tube"]
+        self.assertEqual(tube["shape"], "ribbon")
+        self.assertAlmostEqual(tube["width"][0], 0.004, places=6)  # host units (meters)
+        self.place_guides(3)
+        self.assertEqual(self.call("tube_targets")["source"], "none")  # nothing selected or soloed
+        self.call("selection_set", all=True)
+        info = self.call("tube_targets")
+        self.assertEqual((info["source"], len(info["guides"]), info["shapes"]), ("selection", 3, ["ribbon"]))
+        gid = info["guides"][0]
+        placed = self.texts()["guideData"]
+        r = self.call("tube_set", shape="blade", width=0.01, aspect=0.4, twist=0.5)
+        self.assertEqual((r["changed"], r["undo"]["undoLabel"]), (3, "set tube"))
+        got = self.call("tube_get", guide=gid)["tube"]
+        self.assertEqual(got["shape"], "blade")
+        self.assertAlmostEqual(got["width"][0], 0.01, places=5)
+        self.assertAlmostEqual(got["twist"][0], 0.5, places=5)
+        self.call("tube_scale", factor=2.0, ids=[gid])
+        self.assertAlmostEqual(self.call("tube_get", guide=gid)["tube"]["width"][0], 0.02, places=5)
+        self.assertEqual(self.call("tube_smooth", channel="flatness", passes=2)["changed"], 3)
+        for bad in ({"channel": "nope"},):
+            with self.assertRaises(HelperError):
+                self.call("tube_smooth", **bad)
+        with self.assertRaises(HelperError):
+            self.call("tube_set", shape="nope")  # not built in, not in the library
+        # The shape library: built-ins, then the groom's own; guides taking a shape follow its edits.
+        shapes = self.call("tube_shapes")["shapes"]
+        self.assertEqual([s["name"] for s in shapes if s["builtin"]], ["round", "ribbon", "teardrop", "blade"])
+        square = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+        self.assertEqual(self.call("tube_shape_add", name="square", points=square, smooth=False)["users"], 0)
+        with self.assertRaises(HelperError):
+            self.call("tube_shape_add", name="square", points=square)
+        self.call("tube_set", shape="square")
+        self.assertEqual(self.call("tube_targets")["shapes"], ["square"])
+        slab = [[-1, -0.5], [1, -0.5], [1, 0.5], [-1, 0.5]]
+        depth = self.call("undo_state")["undoDepth"]
+        self.assertTrue(self.call("tube_shape_preview", name="square", points=slab, smooth=False)["previewing"])
+        self.assertEqual(self.call("undo_state")["undoDepth"], depth)  # a preview: no undo step
+        self.assertTrue(self.call("guides_preview_end")["ended"])
+        self.assertEqual(self.call("tube_shape_set", name="square", points=slab)["users"], 3)
+        self.call("tube_shape_rename", name="square", to="slab")
+        self.assertEqual(self.call("tube_targets")["shapes"], ["slab"])
+        self.assertEqual(self.call("tube_shape_remove", name="slab")["users"], 3)
+        self.assertEqual(self.call("tube_targets")["shapes"], ["round"])
+        # Each edit one undo step: back to the tubes as placed.
+        for _ in range(8):
+            self.assertTrue(self.call("undo")["done"])
+        self.assertEqual(self.texts()["guideData"], placed)
+
+    def test_resample_mirror_selection_and_group_colors(self):
+        self.place_guides(4)
+        # Segments: the slider's value, a live preview (no undo step), the commit.
+        placed = self.call("guide_segments")["segments"]
+        self.assertEqual(len(placed), 4)
+        depth = self.call("undo_state")["undoDepth"]
+        self.assertEqual(self.call("guides_preview", segments=3)["previewed"], 4)
+        self.assertEqual(self.call("undo_state")["undoDepth"], depth)
+        self.assertEqual(self.call("guide_segments")["segments"], placed)  # the stored guides unchanged
+        self.call("guides_preview_end")
+        r = self.call("guides_edit", op="resample", segments=5)
+        self.assertEqual((r["resampled"], r["undo"]["undoLabel"]), (4, "resample guides"))
+        self.assertEqual(self.call("guide_segments")["segments"], [5] * 4)
+        self.call("undo")
+        self.assertEqual(self.call("guide_segments")["segments"], placed)
+        with self.assertRaises(HelperError):
+            self.call("guides_edit", op="resample", segments=0)
+        # Mirror Selection: the guide across the plane selected (a selection: no undo step).
+        g = self.guides()
+        left = min(g, key=lambda k: g[k][0][0])
+        self.call("selection_set", ids=[left])
+        r = self.call("guides_edit", op="mirror_selection", axis="x", add=True)
+        self.assertEqual(len(r["picked"]), 1)
+        self.assertGreater(g[r["picked"][0]][0][0], 0.0)
+        self.assertEqual(sorted(r["selection"]["selection"]), sorted([left, r["picked"][0]]))
+        self.assertEqual(self.call("undo_state")["undoDepth"], depth)
+        # A group's own color: in guides_info and the display, kept with the state, one undo step.
+        self.call("selection_set", ids=[])
+        shown = self.call("display")["items"]["guides"]["version"]
+        r = self.call("guides_edit", op="set_group_color", group="primary", color="#FF8000")
+        self.assertEqual((r["color"], r["undo"]["undoLabel"]), ("#ff8000", "group color"))
+        self.assertEqual(r["guides"]["groups"][0]["color"], "#ff8000")
+        self.assertEqual(r["guides"]["guideGroupColors"], "primary:#ff8000")
+        self.assertNotEqual(self.call("display", have={"guides": shown})["items"]["guides"]["version"], shown)
+        r = self.call("guides_edit", op="rename_group", group="primary", name="main")
+        self.assertEqual(r["guides"]["guideGroupColors"], "main:#ff8000")  # the color follows its group
+        self.call("undo")
+        self.assertEqual(self.call("guides_info")["guideGroupColors"], "primary:#ff8000")
+        self.call("undo")
+        self.assertEqual(self.call("guides_info")["guideGroupColors"], "")
+        self.call("redo")
+        self.assertEqual(self.call("get_state", textures=False)["tools"]["groupColors"], {"primary": "#ff8000"})
+        self.call("guides_edit", op="set_group_color", group="primary", color=[0.1, 0.2, 0.3])
+        self.assertEqual(self.call("guides_info")["groups"][0]["color"], "#1a334d")
+        self.assertIsNone(self.call("guides_edit", op="set_group_color", group="primary", color=None)["color"])
+        for bad in ({"group": "primary", "color": "orange"}, {"group": "nope", "color": "#000000"}):
+            with self.assertRaises(HelperError):
+                self.call("guides_edit", op="set_group_color", **bad)
+
+    def test_parts_and_flow_commands(self):
+        self.place_guides(3)
+        pts = np.array(crown_points(9), dtype=np.float64)
+        path = pts[1:8]
+        self.assertEqual(self.call("part_add", points=path.tolist(), name="middle")["name"], "middle")
+        r = self.call("part_add", points=path.tolist(), name="middle")
+        self.assertEqual((r["name"], r["undo"]["undoLabel"]), ("middle1", "add part"))
+        parts = self.call("parts_list")["parts"]
+        self.assertEqual([p["name"] for p in parts], ["middle", "middle1"])
+        self.assertGreater(parts[0]["points"], 1)
+        self.call("part_remove", name="middle1")
+        with self.assertRaises(HelperError):
+            self.call("part_remove", name="middle1")
+        self.call("part_add", name="side", **self.h.put(points=path.astype(np.float32)))  # from shared memory
+        self.assertEqual([p["name"] for p in self.call("parts_list")["parts"]], ["middle", "side"])
+        self.assertTrue(self.call("parts_clear")["cleared"])
+        self.assertEqual(self.texts()["partData"], "")
+        depth = self.call("undo_state")["undoDepth"]
+        self.assertFalse(self.call("parts_clear")["cleared"])  # nothing to clear: no undo step
+        self.assertEqual(self.call("undo_state")["undoDepth"], depth)
+        self.call("undo")
+        self.assertEqual(len(self.call("parts_list")["parts"]), 2)
+        # Flow: a stroke lays arrows; flow_clear takes them all in one step.
+        c, d = self.cam.pixel(pts[2]), self.cam.pixel(pts[6])
+        self.stroke("flow", line((c[0], c[1] - 30.0), (d[0], d[1] - 30.0), 14))
+        laid = self.texts()["flowData"]
+        self.assertTrue(json.loads(laid))
+        r = self.call("flow_clear")
+        self.assertEqual((r["cleared"], r["undo"]["undoLabel"]), (True, "clear flow"))
+        self.assertEqual(self.texts()["flowData"], "")
+        self.call("undo")
+        self.assertEqual(self.texts()["flowData"], laid)
+
+    def test_map_management(self):
+        self.place_guides(3)
+        folder = self.call("maps_list")["folder"]
+
+        def maps():
+            return {m["name"]: m for m in self.call("maps_list")["maps"]}
+
+        def read(path):
+            with open(path, "rb") as f:
+                return f.read()
+
+        self.call("map_create", name="tint", kind="texture", color=True, fill=[0.2, 0.3, 0.4], resolution=32)
+        self.call("map_create", name="gray", kind="texture", value=0.5, resolution=32)
+        self.call("map_create", name="layer", kind="guides", value=0.5)
+        scatter = [n["name"] for n in self.call("list_nodes")["nodes"] if n["type"] == "Scatter"][0]
+        made = self.call("map_for_param", node=scatter, param="density", kind="vertices")["name"]
+        self.assertEqual(self.call("map_users", name=made)["users"], [[scatter, "density"]])
+        # Rename: the readers follow (one undo step); a texture's file follows its name.
+        r = self.call("map_rename", name=made, to="dens")
+        self.assertTrue(r["graphChanged"])
+        self.assertEqual(self.call("map_users", name="dens")["users"], [[scatter, "density"]])
+        self.call("undo")
+        self.assertEqual(self.call("map_users", name=made)["users"], [[scatter, "density"]])
+        self.call("redo")
+        tint_file = maps()["tint"]["file"]
+        r = self.call("map_rename", name="tint", to="color")
+        color_file = r["file"]
+        self.assertIn("color", os.path.basename(color_file))
+        self.assertFalse(os.path.exists(tint_file))
+        self.assertTrue(os.path.exists(color_file))
+        self.call("undo")
+        self.assertTrue(os.path.exists(tint_file))
+        self.assertFalse(os.path.exists(color_file))
+        self.call("redo")
+        self.assertEqual(maps()["color"]["file"], color_file)
+        self.call("map_rename", name="layer", to="layer2")
+        with self.assertRaises(HelperError):
+            self.call("map_rename", name="layer2", to="dens")  # taken
+        # Fill: a vertex map's values; a color texture's file (its bytes back on undo); selected guides.
+        self.call("map_fill", name="dens", value=0.75)
+        self.assertTrue(all(abs(v - 0.75) < 1e-3 for v in json.loads(self.texts()["scalpMaps"])["dens"]["values"]))
+        self.call("undo")
+        before = read(color_file)
+        self.assertEqual(self.call("map_fill", name="color", color=[1, 0, 0], channels="rg")["undo"]["undoLabel"], "fill map color")
+        after = read(color_file)
+        self.assertNotEqual(after, before)
+        self.call("undo")
+        self.assertEqual(read(color_file), before)
+        self.call("redo")
+        self.assertEqual(read(color_file), after)
+        self.call("selection_set", ids=[sorted(self.guides())[0]])
+        self.call("map_fill", name="layer2", value=1.0, selected=True)
+        for bad in ({"name": "dens", "color": [1, 0, 0]}, {"name": "dens", "value": 1.0, "selected": True}, {"name": "dens"}):
+            with self.assertRaises(HelperError):
+                self.call("map_fill", **bad)
+        # Channels: gray <-> color, a texture's file rewritten.
+        self.assertEqual(self.call("map_set_channels", name="dens", channels=4)["channels"], 4)
+        self.assertEqual(len(json.loads(self.texts()["scalpMaps"])["dens"]["values"]) % 4, 0)
+        self.call("map_set_channels", name="color", channels=1)
+        self.assertEqual(maps()["color"]["channels"], 1)
+        with self.assertRaises(HelperError):
+            self.call("map_set_channels", name="layer2", channels=4)
+        self.call("undo")
+        self.call("undo")
+        self.assertEqual((maps()["dens"]["channels"], maps()["color"]["channels"]), (1, 4))
+        # Convert: vertices -> texture (a new file, gone again on undo); a guide layer and back.
+        r = self.call("map_convert", name="dens", kind="texture", resolution=32)
+        self.assertTrue(os.path.exists(r["file"]))
+        self.assertEqual(maps()["dens"]["kind"], "texture")
+        self.call("undo")
+        self.assertFalse(os.path.exists(r["file"]))
+        self.assertEqual(maps()["dens"]["kind"], "vertices")
+        self.call("map_convert", name="layer2", kind="vertices")
+        self.assertNotIn("layer2", self.call("guides_info")["layers"])
+        self.call("map_convert", name="layer2", kind="guides")
+        self.assertEqual(maps()["layer2"]["kind"], "guides")
+        # Import: a PNG read in place (gray: a gray map), or copied into the maps folder; another
+        # format copied as a PNG.
+        src = os.path.join(self.tmp, "my image.png")
+        shutil.copyfile(maps()["gray"]["file"], src)
+        r = self.call("map_import", path=src)
+        self.assertEqual((r["name"], r["channels"]), ("my_image", 1))
+        self.assertEqual(os.path.normcase(os.path.abspath(r["file"])), os.path.normcase(src))
+        r = self.call("map_import", path=src, name="copied", copy=True)
+        copied = r["file"]
+        self.assertTrue(os.path.exists(copied))
+        self.assertNotEqual(os.path.normcase(os.path.abspath(copied)), os.path.normcase(src))
+        tga = os.path.join(self.tmp, "red.tga")
+        with open(tga, "wb") as f:  # 2 x 2, 24-bit, uncompressed: red
+            f.write(bytes([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 24, 0]) + bytes([0, 0, 255]) * 4)
+        with self.assertRaises(HelperError):
+            self.call("map_import", path=tga, copy=False)
+        r = self.call("map_import", path=tga)
+        self.assertEqual((r["name"], r["channels"]), ("red", 4))
+        self.assertTrue(r["file"].endswith(".png"))
+        self.call("undo")
+        self.assertFalse(os.path.exists(r["file"]))
+        # Relink: a guide layer becomes a texture map reading the image; reload lists the files.
+        r = self.call("map_relink", name="layer2", path=src)
+        self.assertEqual((maps()["layer2"]["kind"], maps()["layer2"]["channels"]), ("texture", 1))
+        self.assertIn(os.path.normcase(src), [os.path.normcase(os.path.abspath(p)) for p in self.call("map_reload")["files"]])
+        with self.assertRaises(HelperError):
+            self.call("map_reload", name="dens")  # not a texture map
+        # Remove: what reads the map lets go of it; a file is deleted only when GroomLab made it.
+        r = self.call("map_remove", name="dens")
+        self.assertEqual((r["unlinked"], r["graphChanged"]), ([[scatter, "density"]], True))
+        density = self.call("get_param", node=scatter, param="density")["value"]
+        self.assertNotIsInstance(density, dict)
+        self.call("undo")
+        self.assertEqual(self.call("map_users", name="dens")["users"], [[scatter, "density"]])
+        r = self.call("map_remove", name="copied", deleteFile=True)
+        self.assertTrue(r["fileDeleted"])
+        self.assertFalse(os.path.exists(copied))
+        self.call("undo")
+        self.assertTrue(os.path.exists(copied))
+        r = self.call("map_remove", name="my_image", deleteFile=True)
+        self.assertFalse(r["fileDeleted"])  # yours, linked in place: it stays
+        self.assertTrue(os.path.exists(src))
+        self.assertTrue(folder)
+
+
+    # ---- Correctives and Sculpt nodes (Maya's shots.py and sculpts.py over the helper) ----
+
+    def test_correctives_shot_sculpt_into_layers(self):
+        self.place_guides(4)
+        self.call("set_time", frame=10)
+        r = self.call("corrective_new")  # on every frame, made what brushes sculpt into
+        self.assertEqual((r["name"], r["target"], r["undo"]["undoLabel"]), ("sculpt1", {"kind": "corrective", "name": "sculpt1"}, "add corrective"))
+        self.assertTrue(r["layers"][0]["allFrames"])
+        guide_data = self.texts()["guideData"]
+        end = self.stroke("comb", self.comb_events())
+        self.assertTrue(end["committed"])
+        self.assertEqual(self.texts()["guideData"], guide_data)  # the stroke went into the layer
+        self.assertGreater(self.call("correctives_list")["layers"][0]["guides"], 0)
+        # A fix keyed around frame 20: no weight at frame 10, so a stroke there records nothing.
+        r = self.call("corrective_new", frame=20, fade=4)
+        fix = r["layers"][-1]
+        self.assertEqual((fix["name"], fix["allFrames"], fix["frame"], fix["fadeIn"]), ("shot20", False, 20.0, 4.0))
+        self.assertEqual(fix["weightNow"], 0.0)
+        end = self.stroke("comb", self.comb_events())
+        self.assertFalse(end["committed"])
+        self.assertTrue(any("shot sculpt" in w for w in end["warnings"]))
+        self.call("set_time", frame=20)
+        self.assertTrue(self.stroke("comb", self.comb_events())["committed"])
+        self.assertGreater(self.call("correctives_list")["layers"][1]["guides"], 0)
+        # Weights: a value, keys from the host's curve ([frame, weight]), a key set where it is keyed.
+        layer = self.call("corrective_set", name="shot20", weight=0.5)["layers"][1]
+        self.assertEqual(layer["weight"], 0.5)
+        layer = self.call("corrective_set", name="shot20", keys=[[15, 0.0], [20, 1.0], [25, 0.0]])["layers"][1]
+        self.assertEqual((layer["keyed"], layer["keys"], layer["frame"]), (True, [[15.0, 0.0], [20.0, 1.0], [25.0, 0.0]], 20.0))
+        layer = self.call("corrective_set", name="shot20", weight=0.25)["layers"][1]
+        self.assertEqual(layer["keys"][1], [20.0, 0.25])
+        layer = self.call("corrective_clear_keys", name="shot20")["layers"][1]
+        self.assertEqual((layer["keyed"], layer["allFrames"], layer["weight"]), (False, True, 0.25))
+        layer = self.call("corrective_set", name="shot20", frame=30, fade=2)["layers"][1]
+        self.assertEqual((layer["allFrames"], layer["frame"], layer["fadeIn"], layer["fadeOut"]), (False, 30.0, 2.0, 2.0))
+        with self.assertRaises(HelperError):
+            self.call("corrective_set", name="nope", weight=1.0)
+        # The stack: rename (the target follows), reorder, solo, the base groom, delete.
+        r = self.call("corrective_rename", name="shot20", to="hero")
+        self.assertEqual(r["target"], {"kind": "corrective", "name": "hero"})
+        for bad in ("sculpt1", "1 x"):
+            with self.assertRaises(HelperError):
+                self.call("corrective_rename", name="hero", to=bad)
+        names = [l["name"] for l in self.call("corrective_move", name="hero", step=-1)["layers"]]
+        self.assertEqual(names, ["hero", "sculpt1"])
+        self.assertEqual([l["enabled"] for l in self.call("corrective_solo", name="sculpt1")["layers"]], [False, True])
+        self.assertEqual([l["enabled"] for l in self.call("corrective_solo", name="sculpt1")["layers"]], [True, True])
+        self.assertEqual(self.call("sculpt_target", base=True)["target"]["kind"], "base")
+        self.assertEqual(self.call("sculpt_target", corrective="hero")["target"]["name"], "hero")
+        r = self.call("corrective_delete", name="hero")
+        self.assertEqual(([l["name"] for l in r["layers"]], r["target"]["kind"]), (["sculpt1"], "base"))
+        self.call("undo")
+        self.assertEqual([l["name"] for l in self.call("correctives_list")["layers"]], ["hero", "sculpt1"])
+        # Every edit one undo step, back to the guides as placed; the layers travel with the groom file.
+        path = os.path.join(self.tmp, "shots.groom")
+        self.call("save_groom", path=path)
+        with open(path) as f:
+            saved = json.load(f)["correctives"]["layers"]
+        self.assertEqual([l["name"] for l in saved], ["hero", "sculpt1"])
+        while self.call("undo_state")["undoLabel"] != "place":
+            self.call("undo")
+        self.assertEqual(self.texts()["correctiveData"], "")
+        self.assertEqual(self.call("correctives_list")["target"]["kind"], "base")
+
+    def test_sculpt_node_strokes_and_clear(self):
+        self.place_guides(4)
+        self.call("set_graph", graph=SCULPT_GRAPH)
+        self.assertEqual(self.call("evaluate", density=0.1)["errors"], [])
+        placed = self.call("display")["items"]["guides"]["vertexCount"]
+        r = self.call("sculpt_target", node="sculpt1")
+        self.assertGreater(self.call("display")["items"]["guides"]["vertexCount"], placed)  # the node's guides shown
+        self.assertEqual((r["target"], r["sculptNodes"]), ({"kind": "node", "name": "sculpt1"}, [{"name": "sculpt1", "editedGuides": 0}]))
+        for bad in ("nope", "hair"):
+            with self.assertRaises(HelperError):
+                self.call("sculpt_target", node=bad)
+        guide_data = self.texts()["guideData"]
+        self.assertTrue(self.stroke("comb", self.comb_events(), settings={"radius": 150.0})["committed"])
+        self.assertEqual(self.texts()["guideData"], guide_data)  # the node's guides, not the stored ones
+        self.assertTrue(self.texts()["sculptData"])
+        self.assertGreater(self.call("correctives_list")["sculptNodes"][0]["editedGuides"], 0)
+        sculpted = self.texts()["sculptData"]
+        r = self.call("sculpt_clear", node="sculpt1")
+        self.assertEqual((r["cleared"], r["undo"]["undoLabel"]), (True, "clear sculpt edits"))
+        self.assertEqual(json.loads(self.texts()["sculptData"] or "{}"), {})
+        self.assertFalse(self.call("sculpt_clear", node="sculpt1")["cleared"])
+        self.call("undo")
+        self.assertEqual(self.texts()["sculptData"], sculpted)
+        # Grouped, the node's edits follow it into the compound in the same step; brushes go back to the base groom.
+        r = self.call("edit_graph", op="group", names=["sculpt1"], name="look")
+        self.assertEqual(r["moved"], [["sculpt1", "look/sculpt1"]])
+        self.assertIn("look/sculpt1", json.loads(self.texts()["sculptData"]))
+        self.assertEqual(self.call("sculpt_target")["target"]["kind"], "base")
+        self.call("undo")
+        self.assertEqual(self.texts()["sculptData"], sculpted)
+
+
+# Sparse hand guides -> an even Scatter + Interpolate -> ToGuides -> Sculpt -> the strands'
+# Interpolate (sculpt.h's workflow, Maya's test_grooming.py).
+SCULPT_GRAPH = {
+    "version": 1, "output": "output",
+    "nodes": [{"name": "scalp", "type": "Scalp"}, {"name": "sparse", "type": "Guides"},
+              {"name": "even", "type": "Scatter", "params": {"density": 0.5, "randomness": 0.0, "length": 4.0,
+                                                             "previewAll": True}},
+              {"name": "dense", "type": "Interpolate"}, {"name": "toGuides", "type": "ToGuides"},
+              {"name": "sculpt1", "type": "Sculpt"}, {"name": "roots", "type": "Scatter", "params": {"density": 20.0}},
+              {"name": "hair", "type": "Interpolate"}, {"name": "output", "type": "Output"}],
+    "connections": [{"from": "scalp", "to": "even", "input": "scalp"},
+                    {"from": "even", "to": "dense", "input": "strands"},
+                    {"from": "sparse", "to": "dense", "input": "guides"},
+                    {"from": "scalp", "to": "dense", "input": "scalp"},
+                    {"from": "dense", "to": "toGuides", "input": "strands"},
+                    {"from": "toGuides", "to": "sculpt1", "input": "guides"},
+                    {"from": "scalp", "to": "sculpt1", "input": "scalp"},
+                    {"from": "scalp", "to": "roots", "input": "scalp"},
+                    {"from": "roots", "to": "hair", "input": "strands"},
+                    {"from": "sculpt1", "to": "hair", "input": "guides"},
+                    {"from": "scalp", "to": "hair", "input": "scalp"},
+                    {"from": "hair", "to": "output", "input": "strands"}],
+}
+
+
+@unittest.skipIf(HEAD is None, "no test head")
+class AuthoringTest(HelperTestCase):
+    """The Graph Editor's authoring, the controls, the node library and presets over the helper (Maya's
+    GraphModel, params.py, nodes.py and presets.py)."""
+
+    def setUp(self):
+        HelperTestCase.setUp(self)
+        self.assertEqual(self.h.close(), 0)
+        self.nodes_dir = os.path.join(self.tmp, "nodes")
+        self.presets_dir = os.path.join(self.tmp, "presets")
+        self.h = HelperClient(HELPER, env=env_for(user_nodes=self.nodes_dir, user_presets=self.presets_dir))
+        self.s = self.head_session()
+
+    def call(self, cmd, **args):
+        return self.h.call(cmd, session=self.s, **args)
+
+    def graph(self):
+        return self.call("get_graph")["graph"]
+
+    def node(self, name):
+        return next((n for n in self.graph()["nodes"] if n["name"] == name), None)
+
+    def links(self):
+        return sorted((c["from"], c["to"], c["input"]) for c in self.graph()["connections"])
+
+    def test_group_ungroup_expose_and_insert(self):
+        before = self.graph()
+        strands, _ = self.evaluate_hash(self.s, 0.05)
+        r = self.call("edit_graph", op="group", names=["noise", "color"], name="look")
+        self.assertEqual((r["name"], r["graphChanged"], r["undo"]["undoLabel"]), ("look", True, "group nodes"))
+        self.assertEqual(self.node("look")["type"], "Compound")
+        self.assertIsNone(self.node("noise"))
+        self.assertEqual(self.evaluate_hash(self.s, 0.05)[0], strands)  # the same strands, grouped
+        r = self.call("edit_graph", op="ungroup", name="look")
+        self.assertEqual(sorted(r["names"]), ["color", "noise"])
+        self.assertEqual(self.evaluate_hash(self.s, 0.05)[0], strands)
+        self.call("undo")
+        self.assertEqual(self.node("look")["type"], "Compound")
+        self.call("undo")
+        self.assertEqual(self.graph(), before)
+        self.call("redo")
+        depth = self.call("undo_state")["undoDepth"]
+        for op, args in (("group", {"names": ["scatter", "clump"]}),  # two nodes feeding out
+                         ("ungroup", {"name": "noise"}), ("ungroup", {"name": "nope"})):
+            with self.assertRaises(HelperError):
+                self.call("edit_graph", op=op, **args)
+        self.assertEqual(self.call("undo_state")["undoDepth"], depth)  # a refused edit: no step
+        # A compound's own panel: an inner param shown under a name of its own.
+        self.call("edit_graph", op="compound_expose", name="look", param="amount", target="noise.amplitude")
+        spec = self.call("node_spec", node="look")["spec"]
+        self.assertIn("amount", [p["name"] for p in spec["params"]])
+        with self.assertRaises(HelperError):
+            self.call("edit_graph", op="compound_expose", name="look", param="x", target="noise.nope")
+        self.call("edit_graph", op="compound_unexpose", name="look", target="noise.amplitude")
+        self.assertNotIn("amount", [p["name"] for p in self.call("node_spec", node="look")["spec"]["params"]])
+        self.call("edit_graph", op="ungroup", name="look")
+        # An exposed param: an input port of its own; unexposed, what fed it goes.
+        r = self.call("edit_graph", op="expose_param", name="width", param="width")
+        self.assertEqual(r["undo"]["undoLabel"], "expose param")
+        ports = {p["name"]: p for p in self.call("node_spec", node="width")["spec"]["inputs"]}
+        self.assertTrue(ports["width"]["param"])
+        self.assertFalse(self.call("edit_graph", op="expose_param", name="width", param="width")["graphChanged"])
+        with self.assertRaises(HelperError):
+            self.call("edit_graph", op="expose_param", name="width", param="nope")
+        self.call("edit_graph", op="unexpose_param", name="width", param="width")
+        self.assertNotIn("paramInputs", self.node("width"))
+        # A node put on a link: from -> node -> to, one step (Maya's insert_on_link).
+        extra = self.call("edit_graph", op="add_node", type="Noise", name="noise2")["name"]
+        r = self.call("edit_graph", op="insert_on_link", **{"from": "width", "to": "resample", "input": "strands", "node": extra})
+        self.assertEqual(r["undo"]["undoLabel"], "insert node")
+        self.assertIn(("width", extra, "strands"), self.links())
+        self.assertIn((extra, "resample", "strands"), self.links())
+        self.assertNotIn(("width", "resample", "strands"), self.links())
+        with self.assertRaises(HelperError):
+            self.call("edit_graph", op="insert_on_link", **{"from": "width", "to": "resample", "input": "strands", "node": extra})
+        self.call("undo")
+        self.assertIn(("width", "resample", "strands"), self.links())
+
+    def test_controls_keyed_params_and_maps(self):
+        strands, _ = self.evaluate_hash(self.s, 0.05)
+        amplitude = self.call("get_param", node="noise", param="amplitude")["value"]
+        r = self.call("edit_graph", op="add_control", node="noise", param="amplitude", name="frizz", min=0.0, max=2.0)
+        self.assertEqual((r["control"], r["node"], r["undo"]["undoLabel"]), ("frizz", "frizzControl", "control"))
+        self.assertIn(("frizzControl", "noise", "amplitude"), self.links())
+        controls = {c["name"]: c for c in self.call("controls_list")["controls"]}
+        self.assertEqual((controls["frizz"]["kind"], controls["frizz"]["default"], controls["frizz"]["max"]), ("control", amplitude, 2.0))
+        self.assertFalse(controls["frizz"]["set"])
+        slider, _ = self.evaluate_hash(self.s, 0.05)  # the slider at its default
+        self.assertTrue(self.call("set_controls", controls={"frizz": amplitude * 3.0})["changed"])
+        self.assertEqual(self.call("undo_state")["undoLabel"], "control")  # a control's value: the host's, no step
+        self.assertNotEqual(self.evaluate_hash(self.s, 0.05)[0], slider)
+        self.call("set_controls", controls={"frizz": None})
+        self.assertEqual(self.evaluate_hash(self.s, 0.05)[0], slider)
+        with self.assertRaises(HelperError):
+            self.call("edit_graph", op="add_control", node="noise", param="frequency", name="frizz")  # taken
+        with self.assertRaises(HelperError):
+            self.call("set_controls", controls={"frizz": "a lot"})
+        self.call("undo")
+        self.assertEqual(self.evaluate_hash(self.s, 0.05)[0], strands)
+        # A keyed param: linked to a control of its own, which the host keys.
+        width = self.call("get_param", node="width", param="width")["value"]
+        r = self.call("edit_graph", op="link_control", node="width", param="width")
+        self.assertEqual((r["control"], r["undo"]["undoLabel"]), ("width_width", "key param"))
+        self.assertEqual(self.node("width")["paramControls"], {"width": "width_width"})
+        controls = {c["name"]: c for c in self.call("controls_list")["controls"]}
+        self.assertEqual((controls["width_width"]["kind"], controls["width_width"]["param"]), ("keyed", "width"))
+        self.call("set_controls", controls={"width_width": width * 0.5})
+        widths = self.h.array(self.call("evaluate", density=0.05)["arrays"]["widths"])
+        self.call("set_controls", controls={"width_width": width})
+        full = self.h.array(self.call("evaluate", density=0.05)["arrays"]["widths"])
+        np.testing.assert_allclose(widths, full * 0.5, rtol=1e-4)
+        for param in ("segments", "nope"):  # a count is never keyed
+            with self.assertRaises(HelperError):
+                self.call("edit_graph", op="link_control", node="resample", param=param)
+        self.call("set_controls", controls={"width_width": width * 0.25})
+        r = self.call("edit_graph", op="unlink_control", node="width", param="width")
+        self.assertAlmostEqual(r["value"], width * 0.25, places=5)  # the value now goes back into the graph
+        self.assertNotIn("paramControls", self.node("width"))
+        # A param reading a map: checked before the graph takes it.
+        self.call("set_param", node="noise", param="amplitude", value={"expression": "0.5 * u", "min": 0, "max": 1})
+        self.assertEqual(self.call("evaluate", density=0.05)["errors"], [])
+        self.call("set_param", node="width", param="width", value={"guide": "clumpiness", "component": "r", "min": 1, "max": 3})
+        for value, code in (({"expression": "0.5 *"}, "expression"), ({"texture": "a.png", "colorSet": "b"}, "type_mismatch"),
+                            ({"attribute": "melanin", "component": "q"}, "type_mismatch"),
+                            ({"attribute": "melanin", "scale": 2}, "type_mismatch"), ({"colorSet": ""}, "type_mismatch")):
+            with self.assertRaises(HelperError) as e:
+                self.call("set_param", node="noise", param="amplitude", value=value)
+            self.assertEqual(e.exception.code, code, value)
+        with self.assertRaises(HelperError) as e:
+            self.call("set_param", node="resample", param="segments", value={"expression": "4"})
+        self.assertEqual(e.exception.code, "type_mismatch")
+        # Backdrops ride with the positions (the layout): kept in the graph, not an undo step.
+        depth = self.call("undo_state")["undoDepth"]
+        box = {"title": "Look", "x": 10.0, "y": -20.0, "w": 300.0, "h": 200.0, "color": [200, 100, 50]}
+        self.call("edit_graph", op="set_positions", backdrops=[box])
+        self.assertEqual(self.graph()["backdrops"], [box])
+        self.assertEqual(self.call("undo_state")["undoDepth"], depth)
+        with self.assertRaises(HelperError):
+            self.call("edit_graph", op="set_positions", backdrops=[dict(box, w=0)])
+        self.call("edit_graph", op="set_positions", positions={"noise": [1.0, 2.0]}, backdrops=[])
+        self.assertNotIn("backdrops", self.graph())
+        self.assertEqual(self.node("noise")["ui"], {"x": 1.0, "y": 2.0})
+
+    def test_node_library_and_presets(self):
+        folders = self.h.call("nodes_folder")
+        self.assertEqual(os.path.normcase(os.path.abspath(folders["userDir"])), os.path.normcase(os.path.abspath(self.nodes_dir)))
+        # Save as Node: a compound to the user's library; the compound then holds the saved copy.
+        self.call("edit_graph", op="group", names=["noise", "color"], name="look")
+        self.call("edit_graph", op="compound_expose", name="look", param="amount", target="noise.amplitude")
+        preview = self.call("node_file", node="look", label="My Look", author="Tester", category="look")
+        self.assertEqual((preview["file"]["label"], preview["file"]["version"]), ("My Look", 1))
+        self.assertFalse(os.path.exists(self.nodes_dir))  # a preview writes nothing
+        r = self.call("save_node", node="look", label="My Look", author="Tester", category="look")
+        node_id = r["id"]
+        self.assertTrue(os.path.isfile(r["path"]))
+        self.assertEqual((r["version"], r["undo"]["undoLabel"]), (1, "save node"))
+        self.assertIn(node_id, {n["id"] for n in self.h.call("library_nodes")["nodes"]})
+        library = self.call("node_spec", node="look")["spec"]["library"]
+        self.assertEqual((library["id"], library["updateAvailable"]), (node_id, False))
+        self.call("undo")
+        self.assertNotIn("library", self.call("node_spec", node="look")["spec"])
+        self.assertTrue(os.path.isfile(r["path"]))  # the file stays, as Maya's does
+        # Import: a node file checked and copied into a folder.
+        other = os.path.join(self.tmp, "imported")
+        r = self.h.call("import_node", path=r["path"], dir=other)
+        self.assertEqual((r["id"], os.path.dirname(os.path.abspath(r["path"]))), (node_id, os.path.abspath(other)))
+        bad = os.path.join(self.tmp, "bad.glnode")
+        with open(bad, "w") as f:
+            f.write("{\"glnode\": 1}")
+        with self.assertRaises(HelperError):
+            self.h.call("import_node", path=bad, dir=other)
+        # Script nodes: a template, its errors, one added after a node, edited, saved to the library.
+        template = self.h.call("script_template", label="Lift")["definition"]
+        self.assertEqual(self.h.call("script_errors", definition=template)["errors"], [])
+        broken = dict(template, script="per point { P += ; }")
+        errors = self.h.call("script_errors", definition=broken)["errors"]
+        self.assertEqual(errors[0]["part"], "script")
+        r = self.call("new_script_node", definition=template, after="width")
+        name = r["name"]
+        self.assertEqual((name, r["undo"]["undoLabel"]), ("lift", "add script node"))
+        self.assertIn(("width", name, "strands"), self.links())
+        self.assertIn((name, "resample", "strands"), self.links())
+        self.assertEqual(self.call("evaluate", density=0.05)["errors"], [])
+        with self.assertRaises(HelperError) as e:
+            self.call("set_script", node=name, definition=broken)
+        self.assertEqual(e.exception.code, "script")
+        edited = dict(template, label="Lift More")
+        self.assertEqual(self.call("set_script", node=name, definition=edited)["undo"]["undoLabel"], "edit script node")
+        r = self.call("save_script_node", node=name)
+        self.assertEqual((r["version"], os.path.dirname(os.path.abspath(r["path"]))), (template["version"], os.path.abspath(self.nodes_dir)))
+        self.assertEqual(self.call("save_script_node", node=name)["version"], template["version"] + 1)  # one up from the library's
+        with self.assertRaises(HelperError):
+            self.call("save_script_node", node=name, asNew=True)  # the library has its id
+        # Save as Preset: the graph with its scalp's size, about and layout, in the user's preset folder.
+        self.call("edit_graph", op="set_positions", backdrops=[{"title": "Look", "x": 0, "y": 0, "w": 100, "h": 80}])
+        r = self.call("save_preset", name="my look", about={"title": "My look", "category": "hair"})
+        with open(r["path"]) as f:
+            preset = json.load(f)
+        self.assertEqual(os.path.dirname(os.path.abspath(r["path"])), os.path.abspath(self.presets_dir))
+        self.assertEqual((preset["about"]["title"], preset["backdrops"][0]["title"]), ("My look", "Look"))
+        self.assertGreater(preset["size"], 0.0)
+        self.assertIn("my look", {p["name"] for p in self.h.call("list_presets")["presets"]})
+        with self.assertRaises(HelperError) as e:
+            self.call("save_preset", name="my look")
+        self.assertEqual(e.exception.code, "exists")
+        self.call("save_preset", name="my look", overwrite=True)
+        with self.assertRaises(HelperError):
+            self.call("save_preset", name="a/b")
 
 
 if __name__ == "__main__":

@@ -1266,6 +1266,92 @@ class GraphEditorTest(unittest.TestCase):
             empty.deleteLater()
             self.editor.close()
 
+    def test_a_new_scene_clears_and_an_opened_one_shows_its_groom(self):
+        # File > New empties the editor (testers saw the closed scene's nodes stay); File > Open shows
+        # the opened scene's groom, and the Groom Tools pick it too rather than "Start a groom".
+        import tempfile
+        from groomlab.ui import palette
+        groomlab.pin_groom(None)
+        self.addCleanup(groomlab.pin_groom, None)
+        path = os.path.join(tempfile.mkdtemp(), "groomed.ma").replace("\\", "/")
+        cmds.file(rename=path)
+        cmds.file(save=True, type="mayaAscii", force=True)
+        self.editor.resize(900, 500)
+        self.editor.show()
+        wait(30)
+        self.assertTrue(self.editor.items)
+        cmds.file(new=True, force=True)
+        cmds.flushIdleQueue()
+        wait(30)
+        try:
+            self.assertIsNone(self.editor.groom)
+            self.assertIsNone(self.editor.model)
+            self.assertEqual(self.editor.items, {})
+            self.assertEqual(self.editor.scene.items(), [])
+            self.assertEqual(self.editor.groom_box.count(), 0)
+            tools = palette.show()
+            try:
+                self.assertTrue(tools.empty.isVisibleTo(tools))  # an empty scene: Start a groom
+                cmds.file(path, open=True, force=True)
+                cmds.flushIdleQueue()
+                wait(60)
+                (groom,) = cmds.ls(type="groomLabShape")
+                self.assertEqual(groomlab.adopted_groom(), groom)
+                self.assertIsNone(groomlab.pinned_groom())  # not a pin: selecting another groom still leads
+                self.assertEqual(self.editor.groom, groom)
+                self.assertEqual(set(self.editor.items), set(self.editor.model.order))
+                self.assertEqual(tools.grooms.currentData(), groom)
+                self.assertFalse(tools.empty.isVisibleTo(tools))
+            finally:
+                tools.close()
+        finally:
+            self.editor.close()
+
+    def test_scene_grooms_are_adopted_only_when_none_is_active(self):
+        other = groomlab.create_groom(cmds.polySphere()[0])
+        groomlab.pin_groom(None)
+        self.addCleanup(groomlab.pin_groom, None)
+        cmds.select(clear=True)
+        cmds.optionVar(stringValue=(groomlab.ACTIVE_VAR, other))  # the groom last worked on: picked again
+        self.assertEqual(groomlab.adopt_scene_groom(), other)
+        self.assertEqual((groomlab.adopted_groom(), groomlab.active_groom()), (other, other))
+        self.assertIsNone(groomlab.pinned_groom())
+        cmds.select(self.groom)  # a groom selected leads; nothing selected, the scene's again
+        self.assertEqual(groomlab.active_groom(), self.groom)
+        cmds.select(clear=True)
+        self.assertEqual(groomlab.active_groom(), other)
+        groomlab.pin_groom(None)
+        cmds.optionVar(stringValue=(groomlab.ACTIVE_VAR, "noSuchGroom"))
+        self.assertEqual(groomlab.adopt_scene_groom(), sorted([self.groom, other])[0])  # else the first
+        groomlab.pin_groom(None)
+        cmds.select(other)
+        self.assertEqual(groomlab.adopt_scene_groom(), other)  # one selected: followed, nothing adopted
+        self.assertIsNone(groomlab.adopted_groom())
+
+    def test_nodes_pan_from_their_cached_pictures(self):
+        # Testers found Alt+drag panning sluggish: nodes and ports paint once into pixmaps a pan
+        # moves; an Alt+right-drag zoom scales item-resolution ones, sharp again on release.
+        from PySide2 import QtCore, QtGui, QtWidgets
+        device, scaled = QtWidgets.QGraphicsItem.DeviceCoordinateCache, QtWidgets.QGraphicsItem.ItemCoordinateCache
+        items = [i for i in self.editor.scene.items() if isinstance(i, (self.ge.NodeItem, self.ge.PortItem))]
+        self.assertTrue(items)
+        self.assertEqual({i.cacheMode() for i in items}, {device})
+        self.assertGreaterEqual(QtGui.QPixmapCache.cacheLimit(), self.ge.PIXMAP_CACHE_KB)
+        self.editor.resize(900, 500)
+        self.editor.show()
+        wait(30)
+        view = self.editor.view.viewport()
+        center = QtCore.QPointF(view.width() / 2.0, view.height() / 2.0)
+        right, alt = QtCore.Qt.RightButton, QtCore.Qt.AltModifier
+        try:
+            self.app.sendEvent(view, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonPress, center, right, right, alt))
+            self.assertEqual({i.cacheMode() for i in items}, {scaled})
+            self.app.sendEvent(view, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonRelease, center, right,
+                                                       QtCore.Qt.NoButton, alt))
+            self.assertEqual({i.cacheMode() for i in items}, {device})
+        finally:
+            self.editor.close()
+
     def test_ctrl_z_in_the_editor_is_mayas_undo(self):
         # Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z sent to the editor window undo and redo the groom's graph
         # (Maya's undo), and the editor shows the result, keeping the selection where it can.
@@ -3286,6 +3372,68 @@ class DockableWindowsTest(unittest.TestCase):
         tools.close()
         self.assertIs(palette.show(), tools)
         tools.close()
+
+    def test_docks_and_windows_reopen_where_they_were(self):
+        # Testers' windows went back to their default places after an update (a restart): the docks
+        # carry a uiScript, so Maya keeps them in its workspace and rebuilds them where they were,
+        # and a dock Maya kept is filled again rather than replaced; standalone windows keep their
+        # geometry in an optionVar.
+        import maya.OpenMayaUI as omui
+        from PySide2 import QtWidgets
+        from shiboken2 import wrapInstance
+        from groomlab.ui import graph_editor, palette, updates_window, widgets
+        control = "groomLabGraphEditorWorkspaceControl"
+
+        def top():
+            return wrapInstance(int(omui.MQtUtil.findControl(control)), QtWidgets.QWidget).window()
+        window = graph_editor.show(self.groom)
+        try:
+            cmds.workspaceControl(control, edit=True, floating=True)
+            wait(30)
+            top().setGeometry(240, 180, 820, 460)
+            wait(30)
+            placed = top().geometry()
+            # Maya quitting (its panel goes, the dock stays as Maya saves it), then the editor opened again.
+            graph_editor._close_at_exit()
+            self.assertFalse(widgets.alive(window))
+            window = graph_editor.show(self.groom)
+            wait(30)
+            self.assertTrue(cmds.workspaceControl(control, query=True, floating=True))
+            self.assertEqual(top().geometry(), placed)
+            # Maya rebuilding it as it restores its workspace (the uiScript, its dock the current parent).
+            cmds.setParent(control)
+            graph_editor.restore()
+            window = graph_editor._window
+            wait(30)
+            self.assertTrue(window.isVisible())
+            self.assertEqual(window.groom, self.groom)
+            self.assertEqual(top().geometry(), placed)
+            self.assertEqual(len(top().findChildren(QtWidgets.QWidget, "groomLabGraphEditor")), 1)
+        finally:
+            if widgets.alive(window):
+                window.close()
+        # The Groom Tools rebuilt the same way, in the dock they had.
+        tools = palette.show()
+        cmds.setParent("groomLabToolPaletteWorkspaceControl")
+        palette.restore()
+        self.assertFalse(widgets.alive(tools))
+        tools = palette._window
+        try:
+            self.assertIs(palette.show(), tools)
+            self.assertTrue(tools.isVisible())
+        finally:
+            tools.close()
+        # A standalone window: where it was, after Maya quit with it open.
+        updates = updates_window.show(check=False)
+        updates.setGeometry(300, 260, 520, 360)
+        wait(700)  # (its geometry written soon after a move)
+        placed = updates.geometry()
+        updates_window._close_at_exit()
+        updates = updates_window.show(check=False)
+        try:
+            self.assertEqual(updates.geometry(), placed)
+        finally:
+            updates.close()
 
     def test_output_strip_and_alembic_curves_import(self):
         """Groom Tools' Output strip runs the GroomLab menu's items (one table); Import > Alembic

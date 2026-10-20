@@ -62,7 +62,7 @@ bad request never ends the helper.
 `protocol` error (the add-on and helper ship together; the add-on refuses a helper of another
 protocol). `kProtocolVersion` (helper.h) rises only for a change an older add-on would misread; new
 commands and fields keep it. `features` versions what came after protocol 1's first commands
-(`kToolsVersion`: GroomLab's own tools, section "Tools"; `state`: get_state/set_state): an add-on
+(`kToolsVersion`: GroomLab's own tools, section "Tools"; `state`: get_state/set_state; `authoring`: section "Authoring"): an add-on
 checks the one it draws.
 
 ### Arrays
@@ -160,8 +160,8 @@ All but the process ones take `"session": <id>`.
 | `graph_channels` | | `channels`: the attributes per node (graphChannelsJson, attributes.h): `incoming` (reaching it, each with its writer), `writes`, `overwrites`, `reads` (`reaches`, `optional`) |
 | `list_nodes` | | `[{name, type, version, output}]` |
 | `node_spec` | `node` | GraphEdit::nodeSpecJson: ports, params with their ParamSpec metadata (group, advanced, unit, showWhen, min/max...), `outdated` |
-| `get_param` / `set_param` | `node`, `param`, `value` | the value (`set`: false for a spec default); set checks the kind as the editors do |
-| `edit_graph` | `op`: add_node (`type`, `name`, `params`, `x`, `y`: defaults fitted to the scalp), remove_node, rename_node, connect (`from`, `to`, `input`, `output`: the user's link, `GraphEdit::connectByHand`: a Clump picking its centers fed centers takes them, `centersFrom` `inputPoints`), disconnect, set_output, upgrade_node, set_positions (`positions` {node: [x, y]}: each node's `"ui"`), set_bypass (`name`, `bypass`), set_evaluation (`name`, `mode`: always, viewportOnly or renderOnly) | `graphError` ("" when the graph loads); a graph that does not load yet takes every op (set_graph refuses it) |
+| `get_param` / `set_param` | `node`, `param`, `value` | the value (`set`: false for a spec default); set checks the kind as the editors do, and a map value's source, keys and expression ("Authoring" below) |
+| `edit_graph` | `op`: add_node (`type`, `name`, `params`, `x`, `y`: defaults fitted to the scalp), remove_node, rename_node, connect (`from`, `to`, `input`, `output`: the user's link, `GraphEdit::connectByHand`: a Clump picking its centers fed centers takes them, `centersFrom` `inputPoints`), disconnect, set_output, upgrade_node, set_positions (`positions` {node: [x, y]}: each node's `"ui"`; `backdrops`), set_bypass (`name`, `bypass`), set_evaluation (`name`, `mode`: always, viewportOnly or renderOnly); the undoable authoring ops (group, ungroup, expose_param, unexpose_param, compound_expose, compound_unexpose, insert_on_link, add_control, link_control, unlink_control: "Authoring" below) | `graphError` ("" when the graph loads); a graph that does not load yet takes every op (set_graph refuses it) |
 | `list_presets` | | presets with title, description, category; the folders searched |
 | `apply_preset` | `name` or `path` | the graph replaced, fitted to the scalp (`fitFactor`), controls applied; `missingMaps` the preset reads |
 | `insert_preset` | `name` or `path`, `after`, `nodeName` | the preset's look as a Compound after `after`; `node` |
@@ -281,6 +281,8 @@ the symmetry in the **host's axes**; strengths, values and pixels are as in Maya
 | `symmetry` ("x", "y", "z", "none"), `symmetryCenter` (host units) | Blender's y is the groom's -z, its z the groom's y |
 | `collide`, `frontFacingOnly` (alias `maskByScalp`), `stretch` (Comb) | |
 | `length`, `segments`, `tubeRadius`, `spacing` (host units), `matchNeighbors` | Place and Draw's new guides |
+| `tube` {`shape` (round, ribbon, teardrop, blade or a library shape), `width` (host units, a number or a list root to tip), `aspect`, `twist` (radians)} | Place and Draw's new guides' tube (Maya's `placeTube`; `tool_get` answers it whole) |
+| `tubeChannel` (width, flatness, twist) | what the Shape brush paints on the tubes |
 | `targets` ("guides,parts,flow" or a list), `eraseGuides`, `eraseParts`, `eraseFlow` | what shaping brushes and Erase act on |
 | `partName`, `flowSink` ("", whorl, whorlcw, converge, part) | Part and Flow |
 | `attribute`, `value`, `pointwise`, `paintKind` (guides, vertices, texture), `paintTexture`, `paintResolution`, `paintColor` [r,g,b(,a)], `paintChannels` ("rgba"...), `smoothStrength` | Paint (and Smooth on a map) |
@@ -300,16 +302,41 @@ the symmetry in the **host's axes**; strengths, values and pixels are as in Maya
 | `selection_get` / `selection_set` | `ids`, or `group`, or `level`, or `all`; `mode`; `softSelectRadius` | the selection (not in the undo stack, as in Maya) |
 | `pick_level` | `view`, `x`, `y` | `{"level" (-2: none), "group", "settings"}` |
 | `set_hidden_groups` | `groups` [names] | hidden groups are not drawn, picked or brushed |
-| `guides_info` | | `{"groups": [{id, name, parent, level, guides, hidden}], "levels", "guides", "primaries", "frozen", "layers", "hiddenGroups", "selection", "hierarchyError"}` |
-| `guides_edit` | `op`: add_group (`name`?, `parent`?), remove_group / promote_group (`group`), rename_group (`group`, `name`), demote_group (`group`, `parent`), generate_children (`group` (the last), `count` (5), `selected`, `childGroup`, `rootSpread`, `tipSpread`, `twist`, `jitter`, `childTubeScale`, `seed`), delete_guides / lock / unlock / freeze / unfreeze (`ids` or the selection), set_attribute (`name`, `value`), unfreeze_all, remove_layer (`name`), mirror_all / mirror_group (`axis` host, `center` host units, `fromPositive`, `group`), reparent (`ids`, `parent`) | `{"group"?, "added"?, "removed"?, "undo", "guides": guides_info}`; one undo step each (the app's editGuides) |
-| `maps_list` | | `{"maps": [{name, kind (vertices, texture, guides), channels, texture?, file?, freezeMask?}], "folder"}` |
+| `guides_info` | | `{"groups": [{id, name, parent, level, guides, hidden, color ("#rrggbb" or null)}], "levels", "guides", "primaries", "frozen", "layers", "hiddenGroups", "guideGroupColors", "selection", "hierarchyError"}` |
+| `guides_edit` | `op`: add_group (`name`?, `parent`?), remove_group / promote_group (`group`), rename_group (`group`, `name`; its color follows), demote_group (`group`, `parent`), generate_children (`group` (the last), `count` (5), `selected`, `childGroup`, `rootSpread`, `tipSpread`, `twist`, `jitter`, `childTubeScale`, `seed`), delete_guides / lock / unlock / freeze / unfreeze (`ids` or the selection), set_attribute (`name`, `value`), unfreeze_all, remove_layer (`name`), mirror_all / mirror_group (`axis` host, `center` host units, `fromPositive`, `group`), reparent (`ids`, `parent`), resample (`segments` 1-256; `ids`, `group` or `level`, else the selection, else every guide: Maya's `-resample`, along the smooth curve through the points), mirror_selection (`axis`, `center`, `add`; `ids` or the selection: Maya's `mirror_guide_selection`, a selection, no undo step), set_group_color (`group`, `color` "#rrggbb", [r,g,b] 0-1, or null for the level colors: Maya's `guideGroupColors`) | `{"group"?, "added"?, "removed"?, "resampled"?, "picked"?, "selection"?, "color"?, "undo", "guides": guides_info}`; one undo step each (the app's editGuides) |
+| `guide_segments` | `ids`, `group` or `level` (else the selection, else every guide) | `{"ids", "segments"}`: each guide's points - 1 (the Segments slider) |
+| `guides_preview` | `segments`, targets as resample | `{"previewed"}`: the guides shown resampled (`setPreviewHierarchy`, from the stored guides each time), no change, no undo step; `guides_edit resample` commits |
+| `guides_preview_end` | | `{"ended"}`: the stored guides shown again (after `guides_preview` or `tube_shape_preview`) |
+| `tube_targets` | | `{"source" (selection, solo, none), "guides", "shapes", "tube" (the first's, or null)}`: what the Tubes section edits (Maya's `-tubeTargets`: the selection, else the soloed guides) |
+| `tube_get` | `guide` (an ID) | `{"tube": {"shape", "width" (host units), "aspect", "twist" (radians)}}`, lists evenly spaced root to tip |
+| `tube_set` | `shape`, `width` (host units), `aspect`, `twist` (each a number or a list root to tip), `samples`; targets `ids`, `group` or `level`, else the selection | `{"changed", "undo"}` (Maya's `-setTube`, `editedTube`) |
+| `tube_scale` | `factor` (0 or more), targets | `{"changed", "undo"}`: every width times it, the taper kept |
+| `tube_smooth` | `channel` (width, flatness, twist, all), `passes` (3), targets | `{"changed", "undo"}` (`smoothedTube`, the root's and tip's kept) |
+| `tube_shapes` | | `{"shapes": [{name, builtin, points [[u, v]...], smooth, users (null for a built-in), outline?}]}`: the built-ins, then the groom's library |
+| `tube_shape_add` / `tube_shape_set` | `name`, `points` [[u, v], ...] (3 or more; set: optional), `smooth` (true) | `{"users", "undo", "shapes"}`: the library edited (Maya's `-editTubeShape`), every guide taking the shape following |
+| `tube_shape_rename` | `name`, `to` | the same |
+| `tube_shape_remove` | `name` | the same; `users`: the guides that became round |
+| `tube_shape_preview` | `name`, `points`, `smooth` | `{"previewing"}`: the shape's new points shown live (the editor's drag), no undo step; `tube_shape_set` commits, `guides_preview_end` drops it |
+| `parts_list` | | `{"parts": [{name, points}]}` |
+| `part_add` | `points` (host space, a list or a shared memory array of (n, 3)), `name` ("part") | `{"name", "undo"}`: a part through them bound to the cage, resampled to 64 points, named name, name1... (Maya's `groomLabParts -fromCurves`) |
+| `part_remove` | `name` | `{"removed", "undo"}` |
+| `parts_clear` / `flow_clear` | | `{"cleared", "undo"}` (nothing to clear: no undo step) |
+| `maps_list` | | `{"maps": [{name, kind (vertices, texture, guides), channels, texture?, file?, missing? (its file is not there), freezeMask?}], "folder"}` |
 | `map_create` | `name`, `kind` (vertices, texture, guides), `color`, `value`, `fill` [r,g,b(,a)], `resolution` (1024) | `{"name", "kind", "file"?, "undo"}` (a texture map's PNG written in the maps folder) |
-| `map_remove` | `name` | `{"removed", "undo"}` (a texture's file stays) |
+| `map_remove` | `name`, `deleteFile` (false) | `{"removed", "unlinked" [[node, param]...], "graphChanged", "fileDeleted", "undo"}`: Maya's `remove_map`. What reads the map lets go of it (its Map nodes removed, the params they fed read their own values again, map params naming it back to their defaults); a texture's file stays unless `deleteFile`, it is in the maps folder (GroomLab made it) and no other map reads it (undo writes it back) |
+| `map_rename` | `name`, `to` | `{"name", "renamed", "graphChanged", "file"?, "undo"}`: Maya's `rename_map`; the readers follow (`retargetMapReaders`), a texture's file too when it is named after the map and in the maps folder (`renamedMapTexture`, a free name) |
+| `map_convert` | `name`, `kind`, `resolution` (1024), `texture`? (a .png) | `{"name", "kind", "file"?, "warnings", "undo"}`: Maya's `convert_map` (guides, vertices, texture; the name kept; a new file never replaces one) |
+| `map_set_channels` | `name`, `channels` (1 gray, 4 color) | `{"channels", "undo"}` (a guide layer stays gray) |
+| `map_fill` | `name`, `value` or `color` [r,g,b(,a)], `channels` ("rgba"), `selected` (a guide layer on `ids` or the selection) | `{"name", "undo"}`: Maya's `fill_map`, any kind; a texture's file rewritten (its bytes are the undo step) |
+| `map_import` | `path`, `name`? (else the file's), `color`? (else whether the image has color), `copy`? | `{"name", "kind", "channels", "file", "undo"}`: Maya's `import_map`. A PNG is read in place; another format (or a PNG with `copy`) is copied into the maps folder as `<name>.png` (the copy removed on undo) |
+| `map_relink` | `name`, `path`, `copy`? | `{"name", "file", "undo"}`: Maya's `set_map_texture`, the map (any kind) reading the image as a texture map, its channels kept |
+| `map_reload` | `name`? (else every texture map) | `{"files"}`: read again at the next evaluation after an edit outside (not an undo step) |
+| `map_users` | `name` | `{"name", "nodes" (its Map nodes), "users" [[node, param]...]}` (Maya's `map_users`) |
 | `map_for_param` | `node`, `param`, `kind` (vertices, texture), `resolution` (1024) | `{"name", "kind", "made", "graphChanged", "tool", "undo"}`: New Map > For a setting. The map node.param reads, else a white map `<node>_<param>` made and linked to it (the graph's map param) as one undo step; the Paint tool on it toward 1 (Ctrl: toward 0; on Scatter's density, no hair). The Width and Density brushes it replaced answer `tool_set` with an error naming it |
 | `undo` / `redo` | | `undo_state` + `"done"` |
 | `undo_state` | | `{"canUndo", "canRedo", "undoLabel" ("comb", "place", "generate children", "create map mask"...), "redoLabel", "undoDepth", "redoDepth"}` |
 | `display` | `settings`, `have` {item: version}, `generation`, `map` (name or {name, channel}), `strandColors` {mode, source, min, max, perPoint} | the display buffers (below) |
-| `get_state` | `scalp` (true; false; "maps": only while maps painted on the scalp's vertices live in its color sets, what the add-on asks for: the scalp as JSON is most of the state on a dense mesh), `textures` (true), `texts` (false) | `{"format": "groomlab.groom", "groom": the .groom text (groom space), "textures": [{name, stored, png (base64)}], "tools": {selection, softSelectRadius, hiddenGroups}, "texts"?: {guideData, partData, flowData, correctiveData, scalpMaps}}` |
+| `get_state` | `scalp` (true; false; "maps": only while maps painted on the scalp's vertices live in its color sets, what the add-on asks for: the scalp as JSON is most of the state on a dense mesh), `textures` (true), `texts` (false) | `{"format": "groomlab.groom", "groom": the .groom text (groom space), "textures": [{name, stored, png (base64)}], "tools": {selection, softSelectRadius, hiddenGroups, groupColors}, "texts"?: {guideData, partData, flowData, correctiveData, scalpMaps}}` |
 | `set_state` | `groom` (text or object), `textures`, `tools`, `keepScalp` (true) | groom info: the state adopted as `load_groom` adopts a file, its textures written into the maps folder (the maps repointed), the session's scalp kept |
 
 **Strokes.** `stroke_begin`, any number of `stroke_drag`s, `stroke_end`: the app's press, moves
@@ -323,9 +350,16 @@ drops the stroke and answers `stroke`. The Freeze tool is Paint on the guides' `
 toward 1 (Ctrl: 0), every other brush leaving frozen guides alone (BrushSettings::freeze); leaving
 it puts back what Paint painted (the app's rule).
 
-**Undo.** One stack per session, beside Blender's: strokes, `guides_edit`, `map_create`,
-`map_remove`, `map_for_param`. `undo`/`redo` put back the stored texts bit for bit (texture maps: their tiles,
-the file written again). The add-on maps Ctrl+Z / Ctrl+Shift+Z to them while a GroomLab tool is
+**Undo.** One stack per session, beside Blender's: strokes, `guides_edit`, the `tube_*` edits,
+the parts and flow edits and every map edit (`map_create`, `map_remove`, `map_for_param`,
+`map_rename`, `map_convert`, `map_set_channels`, `map_fill`, `map_import`, `map_relink`) and the
+authoring edits below (the graph's undoable `edit_graph` ops, `save_node`, the script node edits,
+every corrective edit, `sculpt_clear`). `undo`/`redo` put back the stored texts bit for bit (texture maps: their tiles, the file written
+again), and what an edit did beside them: the files it wrote, moved, copied or deleted (their bytes
+before and after) and the guide groups' colors. Previews, selections (`mirror_selection`) and
+`map_reload` are not steps. The group colors are kept with the tools' state (`get_state`'s
+`tools.groupColors`), as Maya keeps `guideGroupColors` on its node; `display` draws them unless its
+settings give their own `guideGroupColors`. The add-on maps Ctrl+Z / Ctrl+Shift+Z to them while a GroomLab tool is
 active.
 
 **Painted maps** live in the session (`ScalpMaps`): vertex maps per vertex of the cage, texture
@@ -333,6 +367,9 @@ maps as PNG files (made in the maps folder, painted in place, kept open between 
 file is what they wrote), guide layers on the guides. A groom file's maps are adopted when it is
 read (so they outlive the host's scalp, which has no color sets); `save_groom` and `get_state`
 write them back as Maya reads them (the catalog, vertex maps as the scalp's color sets).
+The maps folder (`set_options mapsDir`, else a folder of the session's in the temp folder) is
+Blender's stand-in for Maya's masks folder: what `map_remove deleteFile` may delete and
+`map_rename` may move. The images themselves travel in the .blend (`get_state`'s `textures`).
 
 **Display buffers.** `display` runs a `DisplayBuilder` (one per session) on the guides as they
 are now (`GroomSession::hierarchy()`: a live stroke's preview included), the last evaluation's
@@ -385,6 +422,56 @@ maps as color sets, the hierarchy, parts, flow, graph, maps catalog) plus each t
 and the tools' selection and hidden groups: what the add-on keeps in the `.blend`. `set_state` gives it back to any session (a new helper's),
 keeping the session's scalp; a vertex map travels per face corner, so a point no face uses comes
 back 0 (as in every host).
+
+### Authoring (Maya's Graph Editor, node library, correctives and Sculpt nodes)
+
+What Maya's Graph Editor (`groomlab/graph.py`'s GraphModel, `params.py`), node library
+(`nodes.py`), Save as Preset (`presets.py`), Correctives tab (`shots.py`) and Sculpt nodes
+(`sculpts.py`) do, over the helper (`hosts/blender/helper/src/authoring.cpp`). Every edit of the
+groom is one step on the session's undo stack (above): `"undo"` in the answer, `"graphChanged"`
+when the graph changed (the add-on's tree follows, as after `map_for_param`), and `undo`/`redo`
+answer `graphChanged` too. The tree-sync ops of `edit_graph` (add_node, connect...) stay outside the
+stack: Blender's own undo restores their graph (section 7). A graph edit is refused (`graph`, nothing
+changed) when it would leave a graph that loads one that does not; while the graph does not load yet
+it is kept as `edit_graph` keeps it, without a step (`"undoable": false`).
+
+| Command | Arguments | Result |
+|---|---|---|
+| `edit_graph` `op=group` | `names`, `name` ("": compound1...) | `{"name", "moved" [[from, to]...]}`: Group (Ctrl+G), `GraphEdit::collapse`; the Sculpt nodes' edits follow their nodes in the same step (`moveSculptNodes`) |
+| `edit_graph` `op=ungroup` | `name` (a Compound) | `{"names", "moved"}`: `GraphEdit::expand` |
+| `edit_graph` `op=expose_param` / `unexpose_param` | `name`, `param` | the param's input port (`paramInputs`: a Field port for a mappable number or a color field, Curve for a ramp, Value for the rest; refused for a param that sets the node's ports); unexposed, what fed it goes and the param keeps its value |
+| `edit_graph` `op=compound_expose` / `compound_unexpose` | `name` (a Compound), `param` (the name it shows), `target` ("node.param" inside) | the compound's panel (`definition.expose`); unexposed, the inner param keeps the value the compound set last |
+| `edit_graph` `op=insert_on_link` | `from`, `to`, `input`, `node`, `output` | the one link routed through `node`: its first input that takes from's output, `node` feeding `to.input` (Maya's `insert_on_link`, a node dropped on a wire) |
+| `edit_graph` `op=add_control` | `node`, `param`, `name` (the param's), `default` (the param's value), `min` (0), `max` (1) | `{"node", "control"}`: a Control node (the slider) wired to the param, exposed first (params.py's `add_control`) |
+| `edit_graph` `op=link_control` / `unlink_control` | `node`, `param`, `control` (`<node>_<param>`) | a keyed param (`paramControls`): the param reads control `<node>_<param>` (three, X Y Z or R G B, for a vector), which the host keys and gives with `set_controls`; refused for counts and seeds (`animatable` false), maps, Control nodes. Unlinked, the control's value now goes back into the param (`value`) |
+| `edit_graph` `op=set_positions` | `positions` {node: [x, y]}, `backdrops` [{`title`, `x`, `y`, `w`, `h`, `color` [r, g, b] 0-255}] (all of them; [] none) | the layout: node positions and the graph's `backdrops` (Maya's `save_layout`); not an undo step |
+| `set_param` | `node`, `param`, `value` | a map value (`texture`, `colorSet`, `attribute`, `expression`, `guide`; `component` r g b a luminance; `min`, `max`) is checked before the graph takes it: a mappable param, one source naming something, no other keys, an expression that compiles (`expression` error with its position); a vec3 param that takes a vector expression (`vectorExpression`) takes `{"expression"}` alone. Not an undo step (the add-on's widgets: Blender's undo) |
+| `controls_list` | | `controls` [{`name`, `kind` (control, variable, keyed), `node`, `param`?, `variable`?, `default`, `min`?, `max`?, `value`, `set`}], `unused` (values for names the graph no longer reads) |
+| `set_controls` | `controls` {name: number, or null to unset}, `replace` | `{"changed", "controls"}`: the controls' values now (`GroomSession::setControls`; Maya's `ctl_` attributes). Not an undo step: the host's properties and their fcurves hold them, given again each frame as `set_time` is; saved in the `.groom` (`controls`) |
+| `nodes_folder` | | `{"userDir", "dirs", "shippedDir"}` (`nodeUserDir`: $GROOMLAB_USER_NODES, else Documents/GroomLab/nodes, shared with Maya and the app) |
+| `node_file` | `node` (a Compound), header: `nodeId`, `version`, `label`, `category`, `description`, `author`, `license`, `icon`, `params`, `paramInfo` | `{"text", "file"}`: the .glnode Save as Node would write (`nodeFileFromCompound`); nothing saved |
+| `save_node` | as `node_file`, `dir` (the user's folder) | `{"path", "id", "version", "node", "undo"}`: the file written (`saveNodeFile`), the compound then holding the saved copy (`updateLibraryNode` with its id, one undo step; the file stays on undo, as Maya's does) |
+| `import_node` | `path`, `dir` | `{"path", "id", "version", "label", "kind"}`: a .glnode checked and copied (`importNodeFile`) |
+| `script_template` | `label` ("My Script"), `author` | `{"definition"}`: a new script node's file whose id the library does not have yet (`scriptNodeTemplate`) |
+| `script_errors` | `definition` (an object or its text) | `{"errors": [{"part": json, header or script, "message", "line", "column"}]}` (`scriptNodeErrorsJson`; [] when it checks) |
+| `new_script_node` | `definition` (the template's), `label`, `author`, `name`, `after`, `x`, `y` | `{"name", "definition", "undo"}`: a Script node, fed by `after` and feeding what it fed (nodes.py's `add_script_node`) |
+| `set_script` | `node`, `definition` | the script node's edited file (refused with `script` and what is wrong); params its header no longer has go |
+| `save_script_node` | `node`, `asNew`, `dir` | `{"path", "version", "undo"}`: to the library one version past its copy there (asNew: version 1, refused when the library has its id); the node holds the saved copy |
+| `save_preset` | `name`, `overwrite`, `about` {title, description, category} | `{"path", "name"}`: the graph (the default one if none) with the scalp's `size`, `about`, the layout and `backdrops`, in the user's preset folder (`presetUserDir`, where Maya saves; `exists` without `overwrite`). Not an undo step |
+| `correctives_list` | | `layers` [{`name`, `enabled`, `guides` (with offsets), `weight`, `weightNow` (at the session's time, 0 off), `keyed`, `keys` [[frame, weight]...], `allFrames`, `frame` (a fix's or the strongest key's), `fadeIn`, `fadeOut` (frames), `holdBefore`, `holdAfter`, `slot`?}], `target`, `sculptNodes` |
+| `corrective_new` | `name`, `frame` (the session's), `fade` / `fadeIn` / `fadeOut` (frames) or `fix` (6 frames), `allFrames` | `{"name", "layers", "target", "undo"}`: a new layer on top (shots.py's `add_layer`, the app's Add and Fix Frame): on every frame (`sculpt<n>`), or with fades a fix at the frame fading in and out (`shot<frame>`); named with letters, digits and _ (unique: `_2`...). It becomes what brushes sculpt into |
+| `corrective_set` | `name`, `enabled`, `weight` (a keyed layer: keyed at the session's time, as auto key does), `keys` [[frame, weight]...] (the host's weight curve sampled, as Maya writes keyed weights into files; [] drops them), `allFrames`, `frame` / `fade` / `fadeIn` / `fadeOut` (re-timed as a fix) | `{"name", "changed", "layers", "target", "undo"}` |
+| `corrective_rename` | `name`, `to` | refused when `to` is taken or not letters, digits and _ (the answer suggests one); the target follows |
+| `corrective_move` / `corrective_solo` | `name`, `step` (+1 up the stack) / `name` | reordered / only this one on (on again: every one back on) |
+| `corrective_delete` / `corrective_clear_keys` | `name` | removed (the target goes back to the base groom) / its keys or fades dropped: on every frame at its weight now |
+| `sculpt_target` | `node` (a Sculpt node), `corrective`, or `base`; none: as it is | `{"target": {"kind": base, corrective or node, "name"}, "sculptNodes": [{"name", "editedGuides"}]}`: what brushes edit. A corrective: strokes reshape the groom as shown and record offsets into the layer at the session's time (shot sculpting, `SessionStrokeHost::setShotSculpt`; a layer with no weight then records nothing and the stroke answers a warning). A Sculpt node: shaping brushes reshape its output guides (`GroomSession::setSculptTarget`; `display` shows them as the guides), their edits kept in `sculptData`. Not an undo step; an undo or edit that takes the layer or node away puts the base groom back |
+| `sculpt_clear` | `node` | `{"cleared", "sculptNodes", "undo"}`: the node's edits dropped, its guides as it is fed them (`clearSculptNode`) |
+
+Differences from Maya: a corrective's weight is the layer's own (its value, its fades, or its
+`keys` as the weight curve the core evaluates on every frame, exports and renders included),
+not a keyable attribute driving a slot: the add-on samples a Blender fcurve into `keys`. Controls
+are given values (`set_controls`) rather than read from attributes. Saving a node or preset writes
+the file at once (Maya's too); only the graph part of Save as Node is undone.
 
 ## 4. Install layout
 

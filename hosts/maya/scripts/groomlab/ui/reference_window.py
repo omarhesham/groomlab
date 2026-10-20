@@ -1657,6 +1657,7 @@ def show(groom=None):
     if _window is None:
         _window = MayaReferenceWindow(groom=groom)
         _window.setWindowFlags(_window.windowFlags() | QtCore.Qt.Window)
+        widgets.remember_geometry(_window, "reference")
     _window.show()
     _window.raise_()
     _window.ensure_views()

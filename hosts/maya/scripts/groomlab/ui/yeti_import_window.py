@@ -190,6 +190,7 @@ def show():
     if _window is None:
         _window = MayaYetiImportWindow()
         _window.setWindowFlags(_window.windowFlags() | QtCore.Qt.Window)
+        widgets.remember_geometry(_window, "yetiImport")
         widgets.at_exit(_close_at_exit)
     else:
         _window.refresh()

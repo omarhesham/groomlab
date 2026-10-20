@@ -393,6 +393,9 @@ private:
     void forgetDrawn();    // the next update rebuilds everything
     std::uint64_t drawnVersion_ = ~std::uint64_t{0};
     std::uint64_t drawnDisplay_ = ~std::uint64_t{0};
+    // The guide selection drawn (GroomShape::selectionHash): compared by value, so a new selection
+    // draws even when no dirty message for guideSelection reached setDependentsDirty.
+    std::uint64_t drawnSelection_ = ~std::uint64_t{0};
     bool drawnVisible_ = true;
     std::uint64_t drawnTheme_ = 0;  // DisplayTheme version
     // The groom's scale with its scalp the strands were last drawn at (GroomShape::groomScale): another
@@ -416,6 +419,7 @@ private:
     std::vector<Vec3f> tubeWires_, tubeWiresSelected_;
     std::uint64_t tubeWiresKey_ = ~std::uint64_t{0};
     bool tubeWiresDrawn_ = false;
+    std::uint64_t uiSelection_ = 0;  // the guide selection the tube wires were drawn with
     mutable MMatrix uiCamera_;  // the view-projection the dots were last built for
     mutable int uiHeight_ = 0;
     std::array<float, 3> drawnColor_{};

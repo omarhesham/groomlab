@@ -18,7 +18,7 @@ from groomlab.ui.qt import QtCore, QtWidgets
 
 import groomlab
 from groomlab import graph as gm
-from groomlab.ui import menu, theme, widgets
+from groomlab.ui import definitions, menu, theme, widgets
 
 
 class _GroomTab(QtWidgets.QWidget):
@@ -194,6 +194,21 @@ def _action_bar(chips, glyphs):
     return bar, made
 
 
+def _bar(entries, bind, owner):
+    """_action_bar from a list's bar (engine/ui/lists.json): the entries with a glyph on the right, the
+    rest as chips; a submenu entry's button opens its menu (filled from the definitions)."""
+    chips, glyphs = [], []
+    for item in definitions.resolve(entries, None):
+        if item["kind"] == "submenu":
+            slot = QtWidgets.QMenu(owner)
+            widgets.fill_menu(slot, definitions.items_of(item["entry"]), bind, None)
+            slot.setToolTipsVisible(True)
+        else:
+            slot = bind(item)
+        (glyphs if item["glyph"] else chips).append((item["glyph"] or item["label"], item["tip"], slot))
+    return _action_bar(chips, glyphs)
+
+
 def _missing_map_files(groom, entries):
     """groomlab.missing_map_files from the maps already read (groomlab.maps)."""
     from groomlab import presets
@@ -232,19 +247,35 @@ def _about(text):
 
 
 class GuidesTab(_GroomTab):
+    # What the group list's bar, right-click menu and Edit Guides menu run (engine/ui/lists.json's
+    # groups): method names, or functions of the tab.
+    ACTIONS = {
+        "group.new": lambda self: self.owner.new_group(),
+        "group.rename": "rename_group",
+        "group.color": lambda self: self.pick_color(self.group()),
+        "group.defaultColor": lambda self: self.set_color(self.group(), None),
+        "group.select": "select_group",
+        "group.delete": "delete_group",
+        "guides.children": "generate_children",
+        "guides.syncPos": lambda self: self.menu_action(lambda: menu.symmetry_sync(False)),
+        "guides.syncNeg": lambda self: self.menu_action(lambda: menu.symmetry_sync(True)),
+        "guides.mirrorSelection": lambda self: self.menu_action(menu.mirror_selection),
+        "guides.mirrorGroup": lambda self: self.menu_action(menu.mirror_group_dialog),
+        "guides.reparent": lambda self: self.menu_action(menu.reparent_dialog),
+        "group.promoteDemote": "promote_demote",
+        "guides.fromCurves": lambda self: self.menu_action(menu.guides_from_selected_curves),
+        "guides.clearSelection": lambda self: self.menu_action(menu.clear_selection),
+    }
+
     def __init__(self, owner):
         super(GuidesTab, self).__init__(owner)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(theme.px(6))
-        layout.addWidget(_about("Place and Draw add to the <b>Group</b> picked at the top; brushes edit it. "
-                                "Guides nodes in the graph read groups by name."))
-        bar, _ = _action_bar(
-            [("+ New Group", "New group (top-level, or a child group of another)", lambda: self.owner.new_group())],
-            [("rename", "Rename the group (or double-click its name); graph params naming it follow",
-              self.rename_group),
-             ("select", "Select the group's guides", self.select_group),
-             ("delete", "Delete the group, its child groups and their guides", self.delete_group)])
+        lists = definitions.get("lists/groups")
+        layout.addWidget(_about(lists["about"]))
+        bind = definitions.binder(self.ACTIONS, self)
+        bar, _ = _bar(lists["bar"], bind, self)
         layout.addLayout(bar)
 
         self.tree = QtWidgets.QTreeWidget()
@@ -262,33 +293,10 @@ class GuidesTab(_GroomTab):
         layout.addWidget(self.tree, 1)
 
         # Edits on many guides: one menu.
-        edits = QtWidgets.QPushButton("Edit Guides  \u25be")
-        edits.setToolTip("Children, resampling, symmetry, mirroring, reparenting, curves, selection")
+        edits = QtWidgets.QPushButton(lists["edits"]["label"] + "  \u25be")
+        edits.setToolTip(lists["edits"]["tip"])
         self.edits_menu = QtWidgets.QMenu(edits)
-        for label, tip, slot in (
-                ("Children", "Generate children for the selected guides (or the picked group): the count beside Edit Guides",
-                 self.generate_children),
-                (None, None, None),
-                ("Sync +X \u2192 -X", "Copy every guide on the +X side, children and edits included, over the -X side",
-                 lambda: self.menu_action(lambda: menu.symmetry_sync(False))),
-                ("Sync -X \u2192 +X", "Copy every guide on the -X side over the +X side",
-                 lambda: self.menu_action(lambda: menu.symmetry_sync(True))),
-                ("Mirror Selection", "Select the mirror images of the selected guides",
-                 lambda: self.menu_action(menu.mirror_selection)),
-                ("Mirror Group...", "Copy a root group from one side to the other",
-                 lambda: self.menu_action(menu.mirror_group_dialog)),
-                (None, None, None),
-                ("Reparent...", "Move the selected children under another parent",
-                 lambda: self.menu_action(menu.reparent_dialog)),
-                ("Promote / Demote...", "Move a group one level up, or down under a sibling group", self.promote_demote),
-                ("From Curves", "Add the selected Maya curves as primary guides",
-                 lambda: self.menu_action(menu.guides_from_selected_curves)),
-                ("Clear Selection", "Deselect every guide", lambda: self.menu_action(menu.clear_selection))):
-            if label is None:
-                self.edits_menu.addSeparator()
-                continue
-            action = self.edits_menu.addAction(label, slot)
-            action.setToolTip(tip)
+        widgets.fill_menu(self.edits_menu, lists["edits"]["items"], bind)
         self.edits_menu.setToolTipsVisible(True)
         edits.setMenu(self.edits_menu)
         row = QtWidgets.QHBoxLayout()
@@ -503,17 +511,15 @@ class GuidesTab(_GroomTab):
     def context_menu(self, pos):
         item = self.tree.itemAt(pos)
         menu_ = QtWidgets.QMenu(self)
-        menu_.addAction("New Group...", lambda: self.owner.new_group())
+        state, actions = set(), dict(self.ACTIONS)
         if item is not None:
             name = item.data(0, QtCore.Qt.UserRole)
             self.tree.setCurrentItem(item)
-            menu_.addAction("Rename", lambda: self.tree.editItem(item, 0))
-            menu_.addAction("Color...", lambda: self.pick_color(name))
+            state.add("group")
             if name in groomlab.guide_group_colors(self.groom):
-                menu_.addAction("Default Color", lambda: self.set_color(name, None))
-            menu_.addAction("Select Guides", self.select_group)
-            menu_.addSeparator()
-            menu_.addAction("Delete", self.delete_group)
+                state.add("group.color")
+            actions["group.rename"] = definitions.bound(lambda: self.tree.editItem(item, 0))  # in place
+        widgets.fill_menu(menu_, definitions.get("lists/groups/context"), definitions.binder(actions, self), state)
         qt.exec_(menu_, self.tree.viewport().mapToGlobal(pos))
 
     def _need_group(self):
@@ -585,20 +591,10 @@ class GuidesTab(_GroomTab):
 
 
 KIND_LABELS = {"guides": "guides", "vertices": "vertices", "texture": "texture"}
-KIND_TIPS = {
-    "guides": "A layer on the guides: children inherit it, strands blend it from their guides, it survives a new "
-              "scalp. Paint over the guides. As fine as the guides are.",
-    "vertices": "A value per vertex of the scalp mesh, kept with the groom in the scene. Paint over the scalp. As "
-                "fine as the mesh is.",
-    "texture": "An image at the scalp's UVs (needs UVs), a PNG in the scene's groomlab/<scene>/masks folder: the "
-               "finest detail, editable in any image editor, exportable. Paint over the scalp.",
-}
-VALUES_TIPS = {
-    "gray": "One value, 0-1: a mask any param reads through a Map node.",
-    "color": "Red, green, blue and alpha: painted hair color (a HairColor node's map), regions each strand's "
-             "guides stay within (an Interpolate's regionMap: a color per region), or up to four masks packed in one "
-             "map (a Map node reads each channel). On the scalp's vertices or a texture; guide layers are gray.",
-}
+# The map kinds and values (engine/ui/choices.json's mapKind, mapValues): what each is, said in the
+# New Map dialog, the list's tooltips and Convert to.
+KIND_TIPS = dict((c["value"], c["tip"]) for c in definitions.choices("mapKind"))
+VALUES_TIPS = dict((c["value"], c["tip"]) for c in definitions.choices("mapValues"))
 CHANNELS = "rgba"
 MISSING_ROLE = QtCore.Qt.UserRole + 3  # a texture map's list row: its image's expected path when it is missing
 IMAGE_FILTER = ("Images (*.png *.jpg *.jpeg *.tga *.bmp *.psd *.gif *.hdr *.pic *.pnm *.pgm *.ppm);;"
@@ -645,9 +641,7 @@ def _map_icon(channels):
     return QtGui.QIcon(pixmap)
 
 
-FOR_TIP = ("A map for a setting is made white (the setting as it is), linked to it and picked with the Paint brush on "
-           "it, in one undo step: strokes paint toward the value, Ctrl toward 0 (on Density: no hair). When the "
-           "setting reads a map already, that map is picked instead.")
+FOR_TIP = definitions.get("lists/maps/forTip")
 
 
 class NewMapDialog(QtWidgets.QDialog):
@@ -685,23 +679,18 @@ class NewMapDialog(QtWidgets.QDialog):
         self.name.setToolTip("Letters, digits and _ (not starting with a digit)")
         form.addRow("Name", self.name)
         self.kind = QtWidgets.QComboBox()
-        for k in ("guides", "vertices", "texture"):
-            self.kind.addItem({"guides": "On the guides", "vertices": "On the scalp's vertices", "texture": "A texture"}[k], k)
-            self.kind.setItemData(self.kind.count() - 1, KIND_TIPS[k], QtCore.Qt.ToolTipRole)
-        self.kind.setCurrentIndex(("guides", "vertices", "texture").index(kind))
-        form.addRow("Kind", self.kind)
         self.values_box = QtWidgets.QComboBox()
         self.values_box.setObjectName("newMapValues")
-        for key, label in (("gray", "Gray (one value)"), ("color", "Color (r g b a)")):
-            self.values_box.addItem(label, key)
-            self.values_box.setItemData(self.values_box.count() - 1, VALUES_TIPS[key], QtCore.Qt.ToolTipRole)
-        self.values_box.setCurrentIndex(1 if color else 0)
-        form.addRow("Values", self.values_box)
         self.resolution = QtWidgets.QComboBox()
-        for r in (512, 1024, 2048, 4096):
-            self.resolution.addItem("%d x %d" % (r, r), r)
-        self.resolution.setCurrentIndex(1)
-        form.addRow("Resolution", self.resolution)
+        for box, name in ((self.kind, "mapKind"), (self.values_box, "mapValues"), (self.resolution, "mapResolution")):
+            for c in definitions.choices(name):
+                box.addItem(c["label"], c["value"])
+                if c.get("tip"):
+                    box.setItemData(box.count() - 1, c["tip"], QtCore.Qt.ToolTipRole)
+            form.addRow(definitions.get("choices/" + name)["label"], box)
+        self.kind.setCurrentIndex(self.kind.findData(kind))
+        self.values_box.setCurrentIndex(self.values_box.findData("color" if color else "gray"))
+        self.resolution.setCurrentIndex(self.resolution.findData(definitions.choice_default("mapResolution")))
         self.about = QtWidgets.QLabel()
         self.about.setWordWrap(True)
         self.about.setProperty("role", "about")
@@ -783,6 +772,21 @@ class PaintTab(_GroomTab):
     value per scalp vertex, a texture at the scalp's UVs) that convert into each other, read by
     any mappable param through a Map node."""
 
+    # What the map list's bar and right-click menu run (engine/ui/lists.json's maps).
+    ACTIONS = {
+        "map.new": lambda self: self.new_map(),
+        "map.import": lambda self: self.import_map(),
+        "map.rename": "rename_map",
+        "map.convert": "convert_map",
+        "map.makeGray": lambda self: self.set_channels(1),
+        "map.makeColor": lambda self: self.set_channels(4),
+        "map.relink": lambda self: self.relink_image(),
+        "map.reloadImage": "reload_image",
+        "map.showFile": "show_in_explorer",
+        "map.delete": "delete_map",
+        "map.deleteFiles": definitions.bound(lambda on: set_delete_map_files(on)),
+    }
+
     WATCH = ("guideData", "graph", "scalpMaps", "scalpMapDisplay", "scalpMapChannel", "strandColorMode",
              "strandColorSource")
     def __init__(self, owner):
@@ -794,24 +798,9 @@ class PaintTab(_GroomTab):
         layout.setSpacing(theme.px(6))
         from groomlab.ui import palette  # the painting brushes (the catalog's Paint ones), beside the maps they paint
         layout.addWidget(owner.tool_grid(dict(palette.SECTIONS).get("Paint", [])))
-        convert_menu = QtWidgets.QMenu(self)
-        for kind, label in (("guides", "A layer on the guides"), ("vertices", "Values on the scalp's vertices"),
-                            ("texture", "A texture at the scalp's UVs...")):
-            action = convert_menu.addAction(label, lambda k=kind: self.convert_map(k))
-            action.setToolTip(KIND_TIPS[kind])
-        convert_menu.setToolTipsVisible(True)
-        self.convert_menu = convert_menu
-        bar, made = _action_bar(
-            [("+ New Map", "A new map: on the guides, on the scalp's vertices, or a texture; blank, or for a setting "
-                           "(Density, Width, Length...: made, linked and painted at once; Ctrl on Density removes hair)",
-              self.new_map),
-             ("Import...", "A new texture map from an image (named after the file; a JPEG, TGA, PSD... is copied "
-                           "into the masks folder as a PNG; color or gray as the image is)", lambda: self.import_map())],
-            [("rename", "Rename the map; Map nodes and params reading it follow", self.rename_map),
-             ("convert", "Convert to another kind: its name, and what reads it, stay the same", convert_menu),
-             ("delete", "Delete the map (a texture map's file too, unless Delete Its File is off in the "
-                        "list's right-click menu)", self.delete_map)])
+        bar, made = _bar(definitions.get("lists/maps/bar"), definitions.binder(self.ACTIONS, self), self)
         made[3].setObjectName("paintConvert")
+        self.convert_menu = made[3].menu()
         layout.addLayout(bar)
         self.list = QtWidgets.QListWidget()
         self.list.setMinimumHeight(theme.px(110))
@@ -859,8 +848,7 @@ class PaintTab(_GroomTab):
             b.setCheckable(True)
             b.setChecked(True)
             b.setProperty("role", "chip")
-            b.setToolTip("Paint, smooth and fill change %s (untick the others to paint one mask packed in a "
-                         "channel)" % {"r": "red", "g": "green", "b": "blue", "a": "alpha"}[letter])
+            b.setToolTip(definitions.choice("paintChannel", letter)["tip"])
             b.toggled.connect(lambda _on, toggled=letter: self.channels_changed(toggled))
             color_row.addWidget(b)
             self.channel_buttons[letter] = b
@@ -895,9 +883,9 @@ class PaintTab(_GroomTab):
         views.addWidget(self.view_scalp)
         self.view_channel = QtWidgets.QComboBox()
         self.view_channel.setObjectName("paintScalpChannel")
-        for key, label in (("rgb", "RGB"), ("r", "R"), ("g", "G"), ("b", "B"), ("a", "A")):
-            self.view_channel.addItem(label, key)
-        self.view_channel.setToolTip("What of a color map the scalp shows: its color, or one channel black to white")
+        for c in definitions.choices("scalpChannel"):
+            self.view_channel.addItem(c["label"], c["value"])
+        self.view_channel.setToolTip(definitions.get("choices/scalpChannel")["tip"])
         self.view_channel.currentIndexChanged.connect(lambda _i: self.view_channel_changed())
         views.addWidget(self.view_channel)
         views.addStretch(1)
@@ -907,49 +895,32 @@ class PaintTab(_GroomTab):
         self.users.setProperty("role", "hint")
         layout.addWidget(self.users)
 
+    def menu_state(self):
+        """The conditions the list menu's entries need (engine/ui/lists.json's maps): a map picked, on
+        the scalp, in color, a texture."""
+        if self.list.currentItem() is None:
+            return set()
+        state = {"map"}
+        if self.current_kind() in ("vertices", "texture"):
+            state.add("map.scalp")
+            if self.current_channels() == 4:
+                state.add("map.color")
+        if self.current_kind() == "texture":
+            state.add("map.texture")
+        return state
+
     def list_menu(self, global_pos):
         menu_ = QtWidgets.QMenu(self)
-        menu_.addAction("New Map...", self.new_map)
-        menu_.addAction("Import Image as Map...", lambda: self.import_map())
-        if self.list.currentItem() is not None:
-            menu_.addAction("Rename...", self.rename_map)
-            convert = menu_.addMenu("Convert to")
-            for action in self.convert_menu.actions():
-                convert.addAction(action)
-            if self.current_kind() in ("vertices", "texture"):
-                if self.current_channels() == 4:
-                    menu_.addAction("Make Gray (its luminance)", lambda: self.set_channels(1))
-                else:
-                    menu_.addAction("Make Color (r g b a)", lambda: self.set_channels(4))
-            menu_.addSeparator()
-            for label, tip, fn in self.image_actions():
-                action = menu_.addAction(label, fn)
-                action.setToolTip(tip)
-            menu_.setToolTipsVisible(True)
-            menu_.addSeparator()
-            menu_.addAction("Delete", self.delete_map)
-            if self.current_kind() == "texture":
-                files = menu_.addAction("Delete Its File Too")
-                files.setCheckable(True)
-                files.setChecked(delete_map_files())
-                files.setToolTip("Deleting a texture map deletes its image from the masks folder too (undo puts "
-                                 "it back). A PNG of yours linked in place, or one another map reads, stays.")
-                files.toggled.connect(set_delete_map_files)
+        widgets.fill_menu(menu_, definitions.get("lists/maps/context"), definitions.binder(self.ACTIONS, self),
+                          self.menu_state(), checked=lambda item: delete_map_files())
+        menu_.setToolTipsVisible(True)
         qt.exec_(menu_, global_pos)
 
     def image_actions(self):
         """The list menu's entries for the picked map's image: (label, tip, function)."""
-        if self.list.currentItem() is None:
-            return []
-        texture = self.current_kind() == "texture"
-        actions = [("Relink Image...", "Point the map at another image: a PNG is used in place (painting edits it); "
-                                       "a JPEG, TGA, PSD... is copied into the masks folder as a PNG" +
-                    ("" if texture else ". The map becomes a texture map (what reads it follows)"),
-                    lambda: self.relink_image())]
-        if texture:
-            actions += [("Reload Image", "Read the image again after editing it outside Maya", self.reload_image),
-                        ("Show in Explorer", "Open the image's folder in the file browser", self.show_in_explorer)]
-        return actions
+        bind = definitions.binder(self.ACTIONS, self)
+        return [(item["label"], item["tip"], bind(item))
+                for item in definitions.resolve(definitions.get("lists/maps/image"), self.menu_state())]
 
     def current_missing(self):
         """The picked texture map's expected image path when the file is missing, else ""."""
@@ -1443,6 +1414,22 @@ class CorrectivesBox(_GroomTab):
     node's guides (groomlab.sculpts)."""
 
     WATCH = ("correctiveData", "shotLayer", "shotSculpt", "sculptData", "sculptNode", "graph")
+    # What the stack's bar and right-click menus run (engine/ui/lists.json's correctives); the menus
+    # act on the row clicked (picked first).
+    ACTIONS = {
+        "corrective.new": "new_layer",
+        "corrective.fixFrame": "fix_frame",
+        "corrective.up": lambda self: self.move(1),
+        "corrective.down": lambda self: self.move(-1),
+        "corrective.solo": "solo",
+        "corrective.delete": "delete",
+        "corrective.goTo": lambda self: (self.run(self.shots.go_to_layer, self.groom, self.current()), self._changed()),
+        "corrective.keyWeight": "key_weight",
+        "corrective.clearKeys": lambda self: (self.run(self.shots.clear_keys, self.groom, self.current()),
+                                              self._changed()),
+        "corrective.rename": lambda self: self.tree.editItem(self.tree.currentItem(), 0),
+        "sculpt.clearEdits": "clear_node_edits",
+    }
 
     def __init__(self, owner):
         super(CorrectivesBox, self).__init__(owner)
@@ -1452,17 +1439,9 @@ class CorrectivesBox(_GroomTab):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(theme.px(6))
-        layout.addWidget(_about(
-            "Brushes edit the picked row: the <b>Base groom</b>, a corrective on top of it, or a "
-            "<b>Sculpt node</b>'s guides. <b>Fix Frame</b> keys a corrective in and out around this frame."))
-        bar, _ = _action_bar(
-            [("+ New", "New corrective on every frame (unkeyed weight 1)", self.new_layer),
-             ("\u25c6 Fix Frame", "A corrective on this frame, keyed to blend in over the 6 frames before and out "
-                                  "over the 6 after (drag the keys in the timeline to change that)", self.fix_frame)],
-            [("up", "Move up the stack", lambda: self.move(1)),
-             ("down", "Move down the stack", lambda: self.move(-1)),
-             ("solo", "Solo: only this corrective on (again: all on)", self.solo),
-             ("delete", "Delete the corrective and its keys", self.delete)])
+        lists = definitions.get("lists/correctives")
+        layout.addWidget(_about(lists["about"]))
+        bar, _ = _bar(lists["bar"], definitions.binder(self.ACTIONS, self), self)
         layout.addLayout(bar)
 
         self.tree = QtWidgets.QTreeWidget()
@@ -1490,7 +1469,7 @@ class CorrectivesBox(_GroomTab):
         row.addWidget(self.weight, 1)
         self.key = QtWidgets.QToolButton()
         self.key.setText("◆")
-        self.key.setToolTip("Key the weight on this frame")
+        self.key.setToolTip(definitions.action("corrective.keyWeight")["tip"])
         self.key.setFixedSize(theme.px(28), theme.px(26))
         self.key.clicked.connect(self.key_weight)
         row.addWidget(self.key)
@@ -1560,6 +1539,16 @@ class CorrectivesBox(_GroomTab):
             self.run(self.shots.key_weight, self.groom, name, value=self.weight.value())
             self._changed()
 
+    def clear_node_edits(self, node=None):
+        """A Sculpt node's row: drop the strokes kept in it (the picked row's node by default)."""
+        if node is None:
+            item = self.tree.currentItem()
+            name = item.data(0, QtCore.Qt.UserRole) if item else ""
+            node = name[len(NODE):] if name.startswith(NODE) else None
+        if node:
+            self.run(self.sculpts.clear_edits, self.groom, node)
+            self._changed()
+
     def picked(self, item):
         if not (self.groom and item):
             return
@@ -1595,22 +1584,15 @@ class CorrectivesBox(_GroomTab):
         name = item.data(0, QtCore.Qt.UserRole) if item else None
         if not name or name == BASE:
             return
+        m = QtWidgets.QMenu(self)
         if name.startswith(NODE):
             node = name[len(NODE):]
-            m = QtWidgets.QMenu(self)
-            m.addAction("Clear Edits", lambda: (self.run(self.sculpts.clear_edits, self.groom, node), self._changed()))
+            actions = dict(self.ACTIONS, **{"sculpt.clearEdits": definitions.bound(lambda: self.clear_node_edits(node))})
+            widgets.fill_menu(m, definitions.get("lists/correctives/nodeContext"), definitions.binder(actions, self))
             qt.exec_(m, self.tree.viewport().mapToGlobal(pos))
             return
         self.tree.setCurrentItem(item)
-        m = QtWidgets.QMenu(self)
-        m.addAction("Go to Its Frame", lambda: (self.run(self.shots.go_to_layer, self.groom, name), self._changed()))
-        m.addAction("Key Weight Here", self.key_weight)
-        m.addAction("Clear Keys (every frame)", lambda: (self.run(self.shots.clear_keys, self.groom, name),
-                                                          self._changed()))
-        m.addAction("Rename", lambda: self.tree.editItem(item, 0))
-        m.addSeparator()
-        m.addAction("Solo", self.solo)
-        m.addAction("Delete", self.delete)
+        widgets.fill_menu(m, definitions.get("lists/correctives/context"), definitions.binder(self.ACTIONS, self))
         qt.exec_(m, self.tree.viewport().mapToGlobal(pos))
 
     # -- refresh
@@ -1715,6 +1697,21 @@ class ReferenceTab(_GroomTab):
     list follows the viewport: looking through a reference elsewhere picks it here."""
 
     WATCH = ()
+    # What the photo list's and the point pairs' bars and menus run (engine/ui/lists.json's photos).
+    ACTIONS = {
+        "photo.import": lambda self: self.import_photo(),
+        "photo.lookThrough": "look_through",
+        "photo.rename": "rename",
+        "photo.selectCamera": "select_camera",
+        "photo.remove": "remove",
+        "photo.addView": "cameras_menu",  # a menu: the cameras with an image plane, as it opens
+        "photos.guides": lambda self: self.open_window(),
+        "pairs.solve": "solve",
+        "pairs.clear": "clear_pairs",
+        "pairs.delete": "delete_pair",
+        "pairs.repickPhoto": lambda self: self.clear_point(self._picked_pair(), "image"),
+        "pairs.repickMesh": lambda self: self.clear_point(self._picked_pair(), "mesh"),
+    }
 
     def __init__(self, owner):
         super(ReferenceTab, self).__init__(owner)
@@ -1728,13 +1725,10 @@ class ReferenceTab(_GroomTab):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(theme.px(6))
-        layout.addWidget(_about("Each photo is a camera. <b>Look Through</b> it, line it up with the mesh (by eye, or "
-                                "<b>Align by Points</b>), then <b>Lock</b> it and groom to it."))
-        bar, made = _action_bar(
-            [("+ Import Photo...", "A photo as a camera: copied into the scene's groomlab/<scene>/references folder, "
-                                   "aimed at the groom", lambda: self.import_photo())],
-            [("rename", "Rename the reference (or double-click it)", self.rename),
-             ("delete", "Remove the reference camera (its photo file stays on disk)", self.remove)])
+        lists = definitions.get("lists/photos")
+        bind = definitions.binder(self.ACTIONS, self)
+        layout.addWidget(_about(lists["about"]))
+        bar, made = _bar(lists["bar"], bind, self)
         made[0].setObjectName("referenceImport")
         layout.addLayout(bar)
 
@@ -1781,8 +1775,7 @@ class ReferenceTab(_GroomTab):
         sides = QtWidgets.QHBoxLayout()
         sides.setSpacing(theme.px(4))
         self.side_buttons = {}
-        for key, label, tip in (("front", "In front", "The photo draws over the mesh (see the mesh through it)"),
-                                ("behind", "Behind", "The mesh draws over the photo")):
+        for key, label, tip in [(c["value"], c["label"], c["tip"]) for c in definitions.choices("photoDepth")]:
             b = QtWidgets.QToolButton()
             b.setText(label)
             b.setObjectName("referenceDepth_" + key)
@@ -1804,7 +1797,7 @@ class ReferenceTab(_GroomTab):
         self.visible.toggled.connect(self.set_visible)
         self._eye(True)
         sides.addWidget(self.visible)
-        form.addRow("Photo", sides)
+        form.addRow(definitions.get("choices/photoDepth")["label"], sides)
         layout.addLayout(form)
 
         # Align by points: pairs of a feature on the photo and the same feature on the mesh.
@@ -1848,10 +1841,7 @@ class ReferenceTab(_GroomTab):
         self.pairs.customContextMenuRequested.connect(
             lambda pos: self.pairs_menu(self.pairs.viewport().mapToGlobal(pos)))
         layout.addWidget(self.pairs)
-        bar, made = _action_bar(
-            [("Solve", "Line the camera up with the pairs: its position, rotation and focal length", self.solve),
-             ("Clear Pairs", "Forget every pair", self.clear_pairs)],
-            [("delete", "Delete the picked pair", self.delete_pair)])
+        bar, made = _bar(lists["pairsBar"], bind, self)
         made[0].setObjectName("referenceSolve")
         layout.addLayout(bar)
         self.result = QtWidgets.QLabel()
@@ -1878,15 +1868,9 @@ class ReferenceTab(_GroomTab):
         self.gen_hint.setWordWrap(True)
         self.gen_hint.setProperty("role", "hint")
         layout.addWidget(self.gen_hint)
-        cameras_menu = QtWidgets.QMenu(self)
-        cameras_menu.aboutToShow.connect(lambda m=cameras_menu: self._fill_cameras_menu(m))
-        bar, made = _action_bar(
-            [("Open Guides from Photos...", "The photo and the mesh side by side: landmarks line the photo's camera up, "
-                                          "flow arrows and mask touch-ups on the photo, Generate and the measured look",
-              lambda: self.open_window()),
-             ("Add Camera", "Add View from Camera: a camera that already shows a photo on an image plane becomes a "
-                            "reference", cameras_menu)],
-            [])
+        self.cameras_menu = QtWidgets.QMenu(self)
+        self.cameras_menu.aboutToShow.connect(lambda m=self.cameras_menu: self._fill_cameras_menu(m))
+        bar, made = _bar(definitions.get("lists/photos/guidesBar"), definitions.binder(self.ACTIONS, self), self)
         made[0].setObjectName("referenceOpenWindow")
         made[1].setObjectName("referenceAddView")
         layout.addLayout(bar)
@@ -2072,25 +2056,15 @@ class ReferenceTab(_GroomTab):
 
     def list_menu(self, global_pos):
         menu_ = QtWidgets.QMenu(self)
-        menu_.addAction("Import Photo...", lambda: self.import_photo())
-        if self.current():
-            menu_.addAction("Look Through", self.look_through)
-            menu_.addAction("Rename...", self.rename)
-            menu_.addAction("Select Camera", self.select_camera)
-            menu_.addSeparator()
-            menu_.addAction("Remove", self.remove)
+        widgets.fill_menu(menu_, definitions.get("lists/photos/context"), definitions.binder(self.ACTIONS, self),
+                          {"photo"} if self.current() else ())
         qt.exec_(menu_, global_pos)
 
     def pairs_menu(self, global_pos):
-        item = self.pairs.currentItem()
-        if item is None:
+        if self.pairs.currentItem() is None:
             return
-        index = item.data(0, QtCore.Qt.UserRole)
         menu_ = QtWidgets.QMenu(self)
-        menu_.addAction("Pick the Photo Point Again", lambda: self.clear_point(index, "image"))
-        menu_.addAction("Pick the Mesh Point Again", lambda: self.clear_point(index, "mesh"))
-        menu_.addSeparator()
-        menu_.addAction("Delete Pair", self.delete_pair)
+        widgets.fill_menu(menu_, definitions.get("lists/photos/pairsContext"), definitions.binder(self.ACTIONS, self))
         qt.exec_(menu_, global_pos)
 
     # -- Following the viewport ------------------------------------------------------

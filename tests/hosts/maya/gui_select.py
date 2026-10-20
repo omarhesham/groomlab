@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """GUI test for guide selection and interactive symmetric paint (needs a Maya UI session).
 
-The viewport ignores synthetic mouse input, so the lasso and the stroke go
+The viewport ignores synthetic Qt mouse events, so most lassos and the stroke go
 through the tools' -debugLasso / -debugStroke hooks, which run the same code
-as the mouse from view coordinates.
+as the mouse from view coordinates; mouse_marquee posts Windows mouse messages
+instead (the real input path, the cursor left where it is).
 
 A suite of the GUI session (gui_runner.py, ctest maya.gui; harness: gui_support.py).
 Each step is a deferred call, as with a user.
@@ -14,7 +15,7 @@ import math
 import maya.OpenMayaUI as omui
 from maya import cmds
 
-from gui_support import check, finish, persp_panel, settle_undo, soon, to_view
+from gui_support import check, finish, guarded, persp_panel, settle_undo, soon, to_view
 
 state = {}
 
@@ -76,7 +77,127 @@ def undo_selection():
     import groomlab
     cmds.undo()
     check("undo restores the clicked selection", groomlab.selected_guides(state["groom"]) == [state["target"]])
-    soon(symmetric_paint)
+    soon(mouse_marquee)
+
+
+def draw_serial():
+    """The count of viewport updates that drew new geometry (any groom's)."""
+    import json
+    return json.loads(cmds.groomLabGraphStats(state["groom"], drawTimes=True))["draw"].get("serial")
+
+
+def post_mouse(points, done, shift=False):
+    """A press at points[0], moves through the rest and a release at the last, as Windows mouse
+    messages to the viewport's window (the path a real mouse takes through Qt to the tool, which
+    synthetic Qt events skip), one per timer tick (Qt merges queued moves). The cursor stays put.
+    `shift`: Shift held through it (Maya's thread's key state, as SetKeyboardState sets it for
+    this thread only, and the messages' MK_SHIFT), let go after the release."""
+    import ctypes
+    from PySide2 import QtCore, QtWidgets
+    from shiboken2 import wrapInstance
+    widget = wrapInstance(int(omui.M3dView.active3dView().widget()), QtWidgets.QWidget)
+    native = widget if widget.testAttribute(QtCore.Qt.WA_NativeWindow) else (widget.nativeParentWidget() or widget.window())
+    hwnd, ratio = int(native.winId()), widget.devicePixelRatioF()
+
+    def lparam(p):
+        q = widget.mapTo(native, QtCore.QPoint(*p))
+        return (int(q.y() * ratio) << 16) | (int(q.x() * ratio) & 0xFFFF)
+    held = 0x4 if shift else 0  # MK_SHIFT
+    messages = [(0x200, held, points[0]), (0x201, 1 | held, points[0])]  # WM_MOUSEMOVE, WM_LBUTTONDOWN (MK_LBUTTON)
+    for a, b in zip(points, points[1:]):
+        messages += [(0x200, 1 | held, (a[0] + (b[0] - a[0]) * i // 6, a[1] + (b[1] - a[1]) * i // 6)) for i in range(1, 7)]
+    messages.append((0x202, held, points[-1]))  # WM_LBUTTONUP
+
+    def hold_shift(down):
+        keys = (ctypes.c_ubyte * 256)()
+        ctypes.windll.user32.GetKeyboardState(keys)
+        for vk in (0x10, 0xA0):  # VK_SHIFT, VK_LSHIFT
+            keys[vk] = 0x80 if down else 0
+        ctypes.windll.user32.SetKeyboardState(keys)
+    if shift:
+        hold_shift(True)
+
+    def step():
+        if not messages:
+            if shift:
+                QtCore.QTimer.singleShot(300, lambda: hold_shift(False))
+            QtCore.QTimer.singleShot(400, guarded(done))  # the release's work and redraw
+            return
+        message, keys, p = messages.pop(0)
+        ctypes.windll.user32.PostMessageW(hwnd, message, keys, lparam(p))
+        QtCore.QTimer.singleShot(15, step)
+    step()
+
+
+def mouse_marquee():
+    """The Select tool driven by the mouse: a marquee, then a click on nothing, each drawn at once
+    (testers saw the selection change only once the camera moved)."""
+    import sys
+    import groomlab
+    from PySide2 import QtCore, QtWidgets
+    from shiboken2 import wrapInstance
+    if sys.platform != "win32":  # (Windows mouse messages)
+        soon(symmetric_paint)
+        return
+    groom = state["groom"]
+    groomlab.clear_guide_selection(groom)
+    groomlab.unfreeze_all(groom)
+    groomlab.select_tool(level=0)
+    cmds.refresh(force=True)
+    widget = wrapInstance(int(omui.M3dView.active3dView().widget()), QtWidgets.QWidget)
+    w, h = widget.width(), widget.height()
+    state["serial"] = draw_serial()
+    primaries = groomlab.guide_ids(groom, "primary")
+
+    def marqueed():
+        check("a mouse marquee selects the %d primaries" % len(primaries),
+              sorted(groomlab.selected_guides(groom)) == sorted(primaries))
+        drawn = draw_serial()
+        check("the viewport draws the marquee's selection without a camera move (draws %s -> %s)" % (state["serial"], drawn),
+              drawn != state["serial"])
+        state["serial"] = drawn
+        post_mouse([(6, 6)], clicked)
+
+    def clicked():
+        check("a click on nothing deselects every guide", groomlab.selected_guides(groom) == [])
+        drawn = draw_serial()
+        check("the viewport draws the deselection without a camera move (draws %s -> %s)" % (state["serial"], drawn),
+              drawn != state["serial"])
+        state["serial"] = drawn
+        # Pick A, then B, then A again (a tester's steps: the second pick of A drew only once the
+        # camera moved; Maya sends no dirty message for a plug set again while still dirty).
+        a_, b_ = primaries[0], primaries[1]
+        state["picks"] = [(a_, False, [a_]), (b_, False, [b_]), (a_, False, [a_]),
+                          # Shift toggles: B added, A off, A on again (multi-select drawn each time)
+                          (b_, True, sorted([a_, b_])), (a_, True, [b_]), (a_, True, sorted([a_, b_]))]
+        pick_next()
+
+    def tip(guide):
+        """A guide's tip in the widget's coordinates (view coordinates are pixels from the bottom)."""
+        view = omui.M3dView.active3dView()
+        x, y = to_view(cmds.groomLabGuides(groom, guidePoints=guide)[-3:])
+        ratio = widget.devicePixelRatioF()
+        return int(x / ratio), int((view.portHeight() - y) / ratio)
+
+    def pick_next():
+        if not state["picks"]:
+            soon(symmetric_paint)
+            return
+        guide, shift, wanted = state["picks"].pop(0)
+        what = "a Shift-click on guide %s" % guide if shift else "a click on guide %s" % guide
+
+        def picked():
+            got = sorted(groomlab.selected_guides(groom))
+            check("%s selects %s (got %s)" % (what, wanted, got), got == wanted)
+            drawn = draw_serial()
+            check("the viewport draws %s without a camera move (draws %s -> %s)" % (what, state["serial"], drawn),
+                  drawn != state["serial"])
+            state["serial"] = drawn
+            # Past the double-click interval: a second press on the same spot within it is Qt's
+            # double click, which Maya's tools take as one (a person's clicks are farther apart).
+            QtCore.QTimer.singleShot(QtWidgets.QApplication.doubleClickInterval() + 100, guarded(pick_next))
+        post_mouse([tip(guide)], picked, shift=shift)
+    post_mouse([(10, 10), (w - 10, 10), (w - 10, h - 10), (10, h - 10), (10, 12)], marqueed)
 
 
 def symmetric_paint():

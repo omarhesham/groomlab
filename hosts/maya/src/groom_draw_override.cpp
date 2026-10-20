@@ -270,7 +270,7 @@ bool GroomSubSceneOverride::needsUpdate() const {
     // preview's results) stays until it lands, which marks the drawing dirty.
     if (shape_->commitPending()) return false;
     if (shape_->evaluationVersion() != drawnVersion_ || shape_->displayVersion() != drawnDisplay_ ||
-        displayTheme().version != drawnTheme_) {
+        displayTheme().version != drawnTheme_ || shape_->selectionHash() != drawnSelection_) {
         return true;
     }
     // Card maps rewritten in place (a bake from another session, a paint-over): reload them.
@@ -296,7 +296,8 @@ bool GroomSubSceneOverride::needsUpdate() const {
 bool GroomSubSceneOverride::hasUIDrawables() const { return true; }
 
 bool GroomSubSceneOverride::areUIDrawablesDirty() const {
-    return uiDirty_ || (shape_ && (shape_->symmetrySeamVersion() != seamDrawn_ || shape_->tubeWires() != tubeWiresDrawn_));
+    return uiDirty_ || (shape_ && (shape_->symmetrySeamVersion() != seamDrawn_ || shape_->tubeWires() != tubeWiresDrawn_ ||
+                                   (tubeWiresDrawn_ && shape_->selectionHash() != uiSelection_)));
 }
 
 void GroomSubSceneOverride::addUIDrawables(MHWRender::MUIDrawManager& draw, const MHWRender::MFrameContext& context) {
@@ -343,6 +344,7 @@ void GroomSubSceneOverride::addUIDrawables(MHWRender::MUIDrawManager& draw, cons
 
 void GroomSubSceneOverride::addTubeWires(MHWRender::MUIDrawManager& draw) {
     tubeWiresDrawn_ = shape_ && shape_->tubeWires();
+    uiSelection_ = shape_ ? shape_->selectionHash() : 0;  // the selected tubes stand out
     if (!tubeWiresDrawn_) {
         if (!tubeWires_.empty() || !tubeWiresSelected_.empty()) tubeWires_ = {}, tubeWiresSelected_ = {};
         tubeWiresKey_ = ~std::uint64_t{0};
@@ -466,6 +468,7 @@ void GroomSubSceneOverride::forgetDrawn() {
     overlayBatches_.clear();
     drawnVersion_ = ~std::uint64_t{0};
     drawnDisplay_ = ~std::uint64_t{0};
+    drawnSelection_ = ~std::uint64_t{0};
     drawnTheme_ = 0;
     colorDirty_ = true;
     points_.clear();
@@ -565,6 +568,7 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     drawnTheme_ = theme.version;
     drawnVersion_ = shape_->evaluationVersion();
     drawnDisplay_ = shape_->displayVersion();
+    drawnSelection_ = shape_->selectionHash();
     // The groom scaled with its scalp to another size: drawn afresh (drawnScale_).
     if (const double k = shape_->groomScale(); k != drawnScale_) {
         if (drawnScale_ != 0.0) drawAfreshForScale(container);

@@ -17,6 +17,8 @@ makes a "GroomLab" hotkey set (a copy of the current one) with:
 
 from maya import cmds, mel
 
+from groomlab.ui import definitions
+
 CATEGORY = "GroomLab"
 MARKING_MENU = "groomLabMarkingMenu"
 HOTKEY_SET = "GroomLab"
@@ -26,16 +28,19 @@ last_changes = []
 # Key names as people read them, for the list of changes.
 _KEY_NAMES = {"y": "Y", "Page_Up": "Page Up", "Page_Down": "Page Down", "b": "B", "m": "M", "X": "Alt+Shift+X"}
 
-# Radial positions: the brushes reached for most; the rest of the catalog (brush_catalog.h) below
-# them in its order, Select and Freeze after a divider.
-RADIAL = [("N", "comb"), ("NE", "slide"), ("E", "smooth"), ("SE", "cut"),
-          ("S", "place"), ("SW", "draw"), ("W", "length"), ("NW", "lift")]
+# The marking menu's layout, every host's (engine/ui/marking_menu.json; Blender's pie reads the
+# same): the brushes reached for most at radial positions, the rest of the catalog (brush_catalog.h)
+# below them in its order, then a divider and the tail (Select, Freeze, Groom Tools).
+RADIAL = [(r["position"], r["tool"]) for r in definitions.get("markingMenu/radial")]
+# What the tail's action ids run; Freeze has always shown without its icon here.
+ACTIONS = {"tools.open": lambda: __import__("groomlab.ui.palette", fromlist=["palette"]).show()}
+_NO_ICON = {"freeze"}
 
 
 def overflow():
     import groomlab_core
-    radial = set(mode for _, mode in RADIAL)
-    return [t["id"] for t in groomlab_core.brush_catalog() if t["id"] not in radial and t["id"] not in ("select", "freeze")]
+    skip = set(mode for _, mode in RADIAL) | set(definitions.get("markingMenu/overflow").get("exclude", []))
+    return [t["id"] for t in groomlab_core.brush_catalog() if t["id"] not in skip]
 
 
 def tool(mode):
@@ -119,10 +124,15 @@ def _build(menu, *_):
         cmds.menuItem(parent=menu, label=mode.capitalize(), image=widgets.icon_path(mode),
                       command=lambda _, m=mode: tool(m))
     cmds.menuItem(parent=menu, divider=True)
-    cmds.menuItem(parent=menu, label="Select", image=widgets.icon_path("select"), command=lambda _: tool("select"))
-    cmds.menuItem(parent=menu, label="Freeze", command=lambda _: tool("freeze"))
-    cmds.menuItem(parent=menu, label="Groom Tools", image=widgets.icon_path("palette"),
-                  command=lambda _: __import__("groomlab.ui.palette", fromlist=["palette"]).show())
+    for entry in definitions.get("markingMenu/tail"):
+        if isinstance(entry, dict):  # a tool
+            mode = entry["tool"]
+            icon = {} if mode in _NO_ICON else {"image": widgets.icon_path(mode)}
+            cmds.menuItem(parent=menu, label=mode.capitalize(), command=lambda _, m=mode: tool(m), **icon)
+        else:
+            action = definitions.action(entry)
+            icon = {"image": widgets.icon_path(action["icon"])} if action.get("icon") else {}
+            cmds.menuItem(parent=menu, label=action["label"], command=lambda _, a=entry: ACTIONS[a](), **icon)
 
 
 def marking_menu_press():

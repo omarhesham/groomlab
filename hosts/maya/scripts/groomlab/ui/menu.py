@@ -6,6 +6,7 @@ import os
 from maya import cmds, mel
 
 from groomlab.links import DOCS_URL, DONATE_URL, REPO_URL
+from groomlab.ui import definitions
 
 MENU = "groomLabMenu"
 
@@ -1540,287 +1541,157 @@ def open_guides_from_reference(groom=None):
     return reference_window.show(groom)
 
 
-MENU_ONLY, BOTH, TOOLS_ONLY = "menu", "both", "tools"
+MENU_ONLY, TOOLS_ONLY = "menu", "tools"
 
 
-def output_items(kind):
-    """The items of the Import, Export, Render and Studio menus, one table for the GroomLab menu and the
-    Groom Tools' Output strip: (label, fn, annotation, where, item name) per item, None for a
-    divider. `where`: MENU_ONLY, BOTH or TOOLS_ONLY (the strip's short lists)."""
-    if kind == "import":
-        return [
-            ("From XGen...", import_xgen_window,
-             "The scene's XGen descriptions (Interactive Groom and Core) as GroomLab grooms: guides, density, "
-             "modifiers as nodes, maps copied into the masks folder, and a report", BOTH, None),
-            ("From Yeti...", import_yeti_window,
-             "The scene's Yeti graphs as GroomLab grooms, read without Yeti: the groom's strands as guides, painted "
-             "attributes as guide layers, graph nodes as GroomLab nodes, textures copied into the masks folder, and "
-             "a report", BOTH, None),
-            ("Alembic Curves...", import_alembic_curves_dialog,
-             "An Alembic file's curves as the selected groom's guides (an ImportCurves node rooted on the scalp); "
-             "with a mesh selected and no groom, a groom is made on it first", BOTH, None),
-            None,
-            ("Groom File...", import_groom_dialog,
-             "A groom from a .groom file (exported from Maya or saved by the standalone app)", TOOLS_ONLY, None),
-        ]
-    if kind == "render":
-        return [
-            ("Render from Groom File...", render_from_groom_file_dialog,
-             "Arnold renders the groom from a groom file at render time (small .ass files, farm renders); the "
-             "scalp's animation is cached into it", BOTH, None),
-            ("Render as Curves", render_curves,
-             "Arnold renders the groom's strands from the scene as curves (the default; undoes Render from Groom "
-             "File)", BOTH, RENDER_AS_CURVES_ITEM),
-            None,
-            ("Render Turntable...", render_turntable_dialog,
-             "Render the groom going round in Arnold, in the background, for dailies", TOOLS_ONLY, None),
-        ]
-    if kind == "export":
-        return [
-            ("Alembic...", lambda: export_curves_dialog("alembic"),
-             "The strands as Alembic curves over the playback range", BOTH, None),
-            ("USD...", lambda: export_curves_dialog("usd"), "The strands as USD curves over the playback range",
-             BOTH, None),
-            None,
-            ("Unreal Groom...", export_unreal_dialog,
-             "Alembic in Unreal's groom format: strands plus primary guides, at the current frame", BOTH, None),
-            ("Unreal Cards...", export_unreal_cards_dialog,
-             "The game cards as FBX with TGA maps in Unreal's hair card layout and a manifest, into a folder",
-             BOTH, None),
-            ("Unity Strands (.abc)...", export_unity_strands_dialog,
-             "Alembic curves for Unity's hair package: widths and root UVs per point, at the current frame",
-             BOTH, None),
-            ("Unity Feathers...", export_unity_feathers_dialog,
-             "Feathers for Unity's hair package: barbs as strand groups, the rachis FBX to skin, and a manifest of "
-             "the Hair Asset settings", MENU_ONLY, None),
-            ("Unity Cards...", export_unity_cards_dialog,
-             "The game cards as FBX (meters, Y up) with PNG maps for HDRP/URP and a manifest", BOTH, None),
-            ("glTF Cards...", export_gltf_cards_dialog,
-             "The game cards as glTF 2.0 (.glb): PBR material, coverage as alpha mask, AO, hair cap", BOTH, None),
-            ("Card Maps...", export_card_maps_window,
-             "The card maps as an engine wants them: a preset (Unreal, Unity HDRP, every map on its own, your own "
-             "packing), up to 8K, PNG, TGA, TIFF or EXR", BOTH, None),
-            None,
-            ("Scales Mesh (FBX)...", export_scales_fbx_dialog,
-             "The scales bent onto the skin as one mesh for Unreal's static or skeletal mesh import, their data in "
-             "uv and color sets", MENU_ONLY, None),
-            ("Scales Instancer (USD)...", export_usd_scale_instancer_dialog,
-             "The scales as a USD PointInstancer of their plates: Unreal imports instanced static meshes (light, "
-             "editable; the plates are not bent onto the skin)", MENU_ONLY, None),
-            None,
-            ("Save Groom File As...", export_groom_dialog,
-             "Write the groom to a new groom file (the standalone app, groomlab-cli, the Arnold procedural)",
-             TOOLS_ONLY, None),
-        ]
-    if kind == "studio":
-        from groomlab import studio
-        items = [(studio.get_preset(name)["label"], lambda name=name: studio_action(name),
-                  "Studio lighting in Arnold: %s. A backdrop, area lights and a camera round the groom, the head in a "
-                  "matte grey (one undo step; another preset relights in place)" % studio.get_preset(name)["description"],
-                  BOTH, None) for name in studio.preset_names()]
-        return items + [
-            None,
-            ("Look Through Studio Camera", look_through_studio,
-             "The viewport looks through groomlab_studio_cam (Panels > Perspective to go back)", BOTH, None),
-            ("Remove Studio", remove_studio_action,
-             "Delete the studio; the head's material, the render settings and the playback range back as they were",
-             BOTH, None),
-        ]
-    raise ValueError("no %s items" % kind)
+def _studio_entries(entry):
+    """The Studio menus' presets (groomlab.studio's, in its order), the generator's tip filled per preset."""
+    from groomlab import studio
+    return [{"id": entry["action"], "value": name, "label": studio.get_preset(name)["label"],
+             "tip": definitions.fill(entry["tip"], {"description": studio.get_preset(name)["description"]})}
+            for name in studio.preset_names()]
+
+
+# The generators the GroomLab menu expands (engine/ui/menus.json) and the values its texts name.
+GENERATORS = {"studioPresets": _studio_entries}
+VALUES = {"donateUrl": DONATE_URL}
+
+# What each action id of the GroomLab menu and the Groom Tools' Output strip runs (engine/ui:
+# actions.json says the labels and tips, menus.json the order). Every command is guarded (_item,
+# _guarded): a failure is said in plain words with a next step, its traceback in the Script Editor.
+ACTIONS = {
+    "tools.open": open_palette,
+    "graph.open": open_graph_editor,
+    "groom.create": create_groom_from_selection,
+    "sample.nika": lambda: add_sample_action("nika"),
+    "sample.manny": lambda: add_sample_action("manny"),
+    "sample.wolf": lambda: add_sample_action("wolf"),
+    "photos.guides": open_guides_from_reference,
+    "file.import": import_groom_dialog,
+    "file.reload": reload_groom_file,
+    "file.save": save_groom_file,
+    "file.saveAs": export_groom_dialog,
+    "import.xgen": import_xgen_window,
+    "import.yeti": import_yeti_window,
+    "import.alembicCurves": import_alembic_curves_dialog,
+    "add.feathers": add_feathers_dialog,
+    "add.braid": add_braid_dialog,
+    "add.cards.hero": lambda: add_cards_action("hero"),
+    "add.cards.mid": lambda: add_cards_action("mid"),
+    "add.cards.low": lambda: add_cards_action("low"),
+    "add.collider": add_collider_action,
+    "add.wind": add_wind_action,
+    "add.jiggle": add_jiggle_action,
+    "sim.add": add_simulate_node,
+    "sim.range": simulate_range,
+    "sim.bake": bake_core_simulation,
+    "sim.clear": clear_core_simulation,
+    "nhair.simulate": simulate_guides_dialog,
+    "nhair.bake": bake_simulation_dialog,
+    "nhair.remove": remove_simulation,
+    "nhair.exportGuides": export_guides_dialog,
+    "nhair.loadCache": load_guide_cache_dialog,
+    "review.heatmap": toggle_density_heatmap,
+    "review.hud": toggle_hud,
+    "review.turntable": make_turntable,
+    "render.turntable": render_turntable_dialog,
+    "studio.preset": studio_action,
+    "studio.lookThrough": look_through_studio,
+    "studio.remove": remove_studio_action,
+    "render.fromGroomFile": render_from_groom_file_dialog,
+    "render.asCurves": render_curves,
+    "export.alembic": lambda: export_curves_dialog("alembic"),
+    "export.usd": lambda: export_curves_dialog("usd"),
+    "export.unrealGroom": export_unreal_dialog,
+    "export.unrealCards": export_unreal_cards_dialog,
+    "export.unityStrands": export_unity_strands_dialog,
+    "export.unityFeathers": export_unity_feathers_dialog,
+    "export.unityCards": export_unity_cards_dialog,
+    "export.gltfCards": export_gltf_cards_dialog,
+    "export.cardMaps": export_card_maps_window,
+    "export.scalesFbx": export_scales_fbx_dialog,
+    "export.scalesUsd": export_usd_scale_instancer_dialog,
+    "guides.toCurves": guides_to_curves_action,
+    "guides.curvesToGuides": curves_to_guides_dialog,
+    "strands.toCurves": strands_to_curves_dialog,
+    "strands.toMesh": strands_to_mesh_dialog,
+    "node.bakeToGuides": bake_node_dialog,
+    "scales.bakeMaps": bake_scale_maps_action,
+    "groom.transfer": transfer_dialog,
+    "graph.copyToGrooms": copy_graph_dialog,
+    "files.findMissing": find_missing_files_dialog,
+    "hotkeys.install": install_hotkeys,
+    "help.docs": open_docs,
+    "help.shortcuts": show_shortcuts,
+    "help.updates": open_updates,
+    "help.discord": open_discord,
+    "help.donate": open_donate,
+    "help.about": show_about,
+}
+# Maya's names for the items other code finds (the RenderMan item goes after Render as Curves; the
+# Review check marks follow the groom as the menu opens), and the check items' state.
+ITEM_NAMES = {"render.asCurves": RENDER_AS_CURVES_ITEM, "review.heatmap": HEATMAP_ITEM, "review.hud": HUD_ITEM}
+CHECKED = {"review.heatmap": density_heatmap_on,
+           "review.hud": lambda: bool(__import__("groomlab.review", fromlist=["review"]).hud_visible())}
+# Submenus with a command as they open (made from the submenu's name), and the ones that tear off.
+POST_MENU = {"review": lambda _menu: _sync_review_items,
+             # RenderMan for Maya's item only while RfM is loaded (it may load after GroomLab).
+             "render": lambda menu: (lambda *_: _sync_renderman_item(menu))}
+TEAR_OFF = {"utilities"}
 
 
 def shown_items(kind, where):
-    """output_items(kind) for one place (MENU_ONLY: the GroomLab menu, TOOLS_ONLY: the Groom Tools),
-    dividers kept only between items."""
-    out = []
-    for item in output_items(kind):
-        if item is None:
-            if out and out[-1] is not None:
-                out.append(None)
-        elif item[3] in (BOTH, where):
-            out.append(item)
-    while out and out[-1] is None:
-        out.pop()
-    return out
+    """The Import, Export, Render or Studio items of one place (MENU_ONLY: the GroomLab menu's
+    menus/<kind>, TOOLS_ONLY: the Groom Tools' Output strip's menus/output.<kind>): (label, fn,
+    annotation, where, item name) per item, None for a divider (only between items)."""
+    path = "menus/%s" % kind if where == MENU_ONLY else "menus/output.%s" % kind
+    bind = definitions.binder(ACTIONS)
+    return [None if item["kind"] == "divider" else
+            (item["label"], bind(item), item["tip"], where, ITEM_NAMES.get(item["id"]))
+            for item in definitions.resolve(definitions.get(path), values=VALUES, generators=GENERATORS)]
 
 
-def _menu_items(kind):
-    """The GroomLab menu's part of output_items(kind), under the current submenu."""
-    for item in shown_items(kind, MENU_ONLY):
-        if item is None:
+def _build(items):
+    """GroomLab menu items (definitions.resolve's) under the current menu."""
+    from groomlab.ui import widgets
+    bind = definitions.binder(ACTIONS)
+    for item in items:
+        if item["kind"] == "divider":
             cmds.menuItem(divider=True)
+        elif item["kind"] == "submenu":
+            if item["id"] == "menus/theme":
+                _theme_submenu()
+                continue
+            kwargs = {"annotation": item["tip"]} if item["tip"] else {}
+            if item["id"] in TEAR_OFF:
+                kwargs["tearOff"] = True
+            sub = cmds.menuItem(label=item["label"], subMenu=True, **kwargs)
+            if item["id"] in POST_MENU:
+                cmds.menuItem(sub, edit=True, postMenuCommand=POST_MENU[item["id"]](sub))
+            _build(item["items"])
+            cmds.setParent("..", menu=True)
+        elif item["kind"] == "action":
+            kwargs = {}
+            if item["icon"]:
+                kwargs["image"] = widgets.icon_path(item["icon"])
+            if item["checkable"]:
+                kwargs["checkBox"] = CHECKED[item["id"]]()
+            _item(item["label"], bind(item), item["tip"] or None, name=ITEM_NAMES.get(item["id"]), **kwargs)
         else:
-            label, fn, annotation, _where, name = item
-            _item(label, fn, annotation, name=name)
+            raise ValueError("the GroomLab menu has no generator %r" % item["name"])
 
 
 def install():
-    """The GroomLab menu: the two windows, making a groom, and pipeline steps.
-    Grooming itself lives in the Groom Tools; the look in the Graph Editor."""
+    """The GroomLab menu (engine/ui/menus.json's main): the two windows, making a groom, and
+    pipeline steps. Grooming itself lives in the Groom Tools; the look in the Graph Editor."""
     if cmds.about(batch=True):
         return
     if cmds.menu(MENU, exists=True):  # a rebuild (a new theme): the simulations' callbacks stay
         cmds.deleteUI(MENU)
     main = mel.eval("$tmp = $gMainWindow")
     cmds.menu(MENU, parent=main, label="GroomLab", tearOff=True)
-    from groomlab.ui import widgets
-    # Every item's command is guarded (_item, _guarded): a failure is said in plain words with a
-    # next step, its traceback in the Script Editor. "..." ends the items that open a dialog or a
-    # window to fill in; the others act at once.
-    _item("Groom Tools", open_palette, "Brushes, guide groups, painted maps and sculpt layers",
-          image=widgets.icon_path("palette"))
-    _item("Graph Editor", open_graph_editor, "The look: the groom's node graph", image=widgets.icon_path("graph"))
-    cmds.menuItem(divider=True)
-    _item("Create Groom from Selection", create_groom_from_selection,
-          "Selected mesh becomes the scalp; selected curves become guides (an untitled scene goes on: its files move "
-          "beside it when it is saved)")
-    cmds.menuItem(label="Add Sample Mesh", subMenu=True, annotation="A mesh to start from, at the origin and selected")
-    _item("Nika (head)", lambda: add_sample_action("nika"),
-          "Nika, a head and shoulders, at the origin and selected: then Create Groom from Selection")
-    _item("Manny (head)", lambda: add_sample_action("manny"),
-          "Manny, a head, at the origin and selected: then Create Groom from Selection")
-    _item("Wolf", lambda: add_sample_action("wolf"),
-          "A sitting wolf (body, eyes, nails, mouth), at the origin, its body selected: then Create Groom from Selection")
-    cmds.setParent("..", menu=True)
-    _item("Guides from Photos (experimental)...", open_guides_from_reference,
-          "Grow guides from reference photos: the photo and the mesh side by side, a few landmarks to line the camera "
-          "up, optional flow arrows and mask touch-ups, Generate")
-    # Grooms to and from .groom files (the round trip with the standalone app): one block.
-    cmds.menuItem(label="Groom Files", subMenu=True)
-    _item("Import Groom File...", import_groom_dialog,
-          "A groom from a .groom file (exported from Maya or saved by the standalone app), on the selected mesh when "
-          "it is the file's scalp, else on a mesh made from the file")
-    _item("Reload from Groom File", reload_groom_file,
-          "Replace the groom's graph, guides, correctives and maps with its groom file's (the standalone app's edits), "
-          "keeping the node and its scalp; one undo step")
-    cmds.menuItem(divider=True)
-    _item("Save to Groom File", save_groom_file,
-          "Write the groom to the groom file it is linked to (asked for when none), for the standalone app to open")
-    _item("Save Groom File As...", export_groom_dialog,
-          "Write the groom to a new groom file, the scalp's animation cached over the playback range, and link the "
-          "groom to it: for groomlab-cli, the Arnold procedural and the standalone app")
-    cmds.setParent("..", menu=True)
-    # Other hair systems' grooms as GroomLab grooms (groomlab.importers).
-    cmds.menuItem(label="Import", subMenu=True)
-    _menu_items("import")
-    cmds.setParent("..", menu=True)
-    cmds.menuItem(divider=True)
-    # The graph's building blocks: feathers, braids, cards, colliders and motion from the menu.
-    cmds.menuItem(label="Add", subMenu=True)
-    _item("Feathers...", add_feathers_dialog,
-          "Feathers on the groom: a design (or an assortment) on scattered shafts, or one hand-placed feather per "
-          "selected curve")
-    _item("Braid on Curves...", add_braid_dialog,
-          "The selected curves (drawn from the scalp) become braid paths: a Braid node braids the strands along them")
-    cmds.menuItem(label="Cards", subMenu=True, annotation="A Cards node before the output at a level of detail")
-    for lod, what in (("hero", "6 x 2 cards a clump with flyaways"), ("mid", "2 x 1 cards a clump"),
-                      ("low", "one flat card a clump")):
-        _item(lod.capitalize(), lambda lod=lod: add_cards_action(lod),
-              "A Cards node before the output at the %s level of detail: %s" % (lod, what))
-    cmds.setParent("..", menu=True)
-    _item("Collider", add_collider_action,
-          "The selected mesh (besides the groom) keeps the strands off it: a ColliderMesh and a Collide node before "
-          "the output")
-    _item("Wind", add_wind_action, "A Wind node before the output: strands bend in a wind that varies over space and time")
-    _item("Jiggle", add_jiggle_action,
-          "A Jiggle node before the output: strands lag behind the scalp's motion and settle")
-    cmds.setParent("..", menu=True)
-    # GroomLab's own simulation (every host's), Maya's nHair kept under Legacy.
-    cmds.menuItem(label="Simulate", subMenu=True)
-    _item("Add Simulate Node", add_simulate_node,
-          "GroomLab's own hair simulation (every host's): a Simulate node between the guides and Interpolate; play the "
-          "timeline to see it")
-    _item("Simulate Range", simulate_range,
-          "Step the Simulate nodes over the playback range into their cache (scrubbing reads it); the main progress "
-          "bar counts the frames, Esc stops")
-    _item("Bake Simulation", bake_core_simulation,
-          "Simulate the playback range and write the Simulate nodes' frames to the scene's caches folder: renders, "
-          "exports and groom files read the bake")
-    _item("Clear Simulation", clear_core_simulation,
-          "Drop the Simulate nodes' frames and bakes: the next frame shown simulates again")
-    cmds.menuItem(divider=True)
-    cmds.menuItem(label="Legacy", subMenu=True, annotation="Maya's nHair on the guides (before the Simulate node)")
-    _item("Simulate Guides (nHair)...", simulate_guides_dialog,
-          "Maya's nHair on one guide group; children follow the simulated guides")
-    _item("Bake Simulation to Cache...", bake_simulation_dialog,
-          "Run the nHair sim over the playback range, cache the guides and drop the live sim")
-    _item("Remove Simulation", remove_simulation, "Drop the live nHair simulation and the guide cache")
-    cmds.menuItem(divider=True)
-    _item("Export Guides for Simulation...", export_guides_dialog,
-          "A guide group as Alembic curves (strandId = guide ID), to simulate in another package")
-    _item("Load Guide Cache...", load_guide_cache_dialog, "Guide poses from an Alembic cache, by guide ID")
-    cmds.setParent("..", menu=True)
-    cmds.setParent("..", menu=True)
-    review_menu = cmds.menuItem(label="Review", subMenu=True)
-    # The check marks follow the groom (and the HUD) each time the menu opens.
-    cmds.menuItem(review_menu, edit=True, postMenuCommand=_sync_review_items)
-    _item("Density Heatmap", toggle_density_heatmap,
-          "Color strands by root density: blue sparse, green typical, red bunched", name=HEATMAP_ITEM,
-          checkBox=density_heatmap_on())
-    from groomlab import review
-    _item("Strand Count HUD", toggle_hud, "The active groom's strand, render strand and guide counts in the viewport",
-          name=HUD_ITEM, checkBox=bool(review.hud_visible()))
-    _item("Turntable", make_turntable,
-          "A camera orbiting the groom over 120 frames, with a key, fill and rim light (the viewport looks through it)")
-    _item("Render Turntable...", render_turntable_dialog,
-          "Render the groom going round in Arnold, in the background, for dailies")
-    cmds.setParent("..", menu=True)
-    # Showcase lighting: a photo studio round the groom (groomlab.studio), relit in place by preset.
-    cmds.menuItem(label="Studio", subMenu=True, annotation="A backdrop, Arnold area lights and a camera round the groom")
-    _menu_items("studio")
-    cmds.setParent("..", menu=True)
-    render_menu = cmds.menuItem(label="Render", subMenu=True)
-    # RenderMan for Maya's item only while RfM is loaded (it may load after GroomLab): checked as the menu opens.
-    cmds.menuItem(render_menu, edit=True, postMenuCommand=lambda *_: _sync_renderman_item(render_menu))
-    _menu_items("render")
-    cmds.setParent("..", menu=True)
-    cmds.menuItem(label="Export", subMenu=True)
-    _menu_items("export")
-    cmds.setParent("..", menu=True)
-    cmds.menuItem(label="Utilities", subMenu=True, tearOff=True)
-    _item("Guides to Curves", guides_to_curves_action,
-          "A NURBS curve per guide (the selected guides, else all), grouped by guide group and tagged with its guide "
-          "ID, to edit with Maya's tools and bring back")
-    _item("Curves to Guides...", curves_to_guides_dialog,
-          "Selected curves into the groom: curves from Guides to Curves reshape their guides in place (same IDs), any "
-          "other curve becomes a new guide")
-    cmds.menuItem(divider=True)
-    _item("Strands to Curves...", strands_to_curves_dialog,
-          "The groom's (or a node's) strands as Maya curves, up to a cap, with width and channels as attributes")
-    _item("Strands to Mesh...", strands_to_mesh_dialog,
-          "The strands as one polygon mesh: tubes, or ribbons lying along the scalp, with UVs root to tip")
-    _item("Bake Node to Guides...", bake_node_dialog,
-          "A graph node's strands or guides (ToGuides, a Scatter...) become guides you can brush")
-    _item("Bake Scale Maps", bake_scale_maps_action,
-          "The scales baked into the skin's uvs as normal, height and color maps (PNG, UDIM tiles too), in the "
-          "groom's bake folder: distant or tiny scales without their geometry")
-    cmds.menuItem(divider=True)
-    _item("Transfer Groom to Scalp...", transfer_dialog,
-          "Move the groom onto another mesh (a new sculpt, a retopologized head, another character): guides, parts "
-          "and flow re-rooted")
-    _item("Copy Graph to Other Grooms...", copy_graph_dialog,
-          "The active groom's graph (its look) onto the other selected grooms; their guides kept or replaced")
-    cmds.menuItem(divider=True)
-    _item("Find Missing Files...", find_missing_files_dialog,
-          "Relink the selected grooms' (else every groom's) missing texture maps, images, Alembic files and caches to "
-          "files of the same name in a folder you pick")
-    cmds.setParent("..", menu=True)
-    cmds.menuItem(divider=True)
-    _theme_submenu()
-    _item("Install GroomLab Hotkeys", install_hotkeys,
-          "A GroomLab hotkey set (a copy of yours): Y + click the marking menu, Page Up/Down the level, B/M + drag the radius/strength, Alt+Shift+X symmetry. Lists what it changes")
-    cmds.menuItem(label="Help", subMenu=True)
-    _item("Docs", open_docs, "The docs at getgroomlab.com/docs (the folder shipped with the plugin without a browser)")
-    _item("Keyboard Shortcuts", show_shortcuts, "The brush and Graph Editor keys")
-    cmds.menuItem(divider=True)
-    _item("Check for Updates...", open_updates,
-          "This version and the newest one with what's new; update in place (restart Maya to finish)")
-    _item("Discord", open_discord, "The GroomLab community: questions, work in progress, feedback")
-    _item("Support GroomLab", open_donate,
-          "GroomLab is free for any use: support it with a donation at %s" % DONATE_URL)
-    cmds.menuItem(divider=True)
-    _item("About GroomLab", show_about, "The version and where the plugin lives")
-    cmds.setParent("..", menu=True)
+    # "..." ends the items that open a dialog or a window to fill in; the others act at once.
+    _build(definitions.resolve(definitions.get("menus/main"), values=VALUES, generators=GENERATORS))
     try:
         from groomlab.ui import hotkeys
         hotkeys.create_runtime_commands()
@@ -1840,31 +1711,25 @@ def install():
 
 
 def _theme_submenu():
-    """GroomLab > Theme: every theme (the active one checked); picking one restyles everything at
-    once (the menu rebuilds itself after, so the switch waits for the click to finish)."""
+    """GroomLab > Theme (menus/theme): every theme (the active one checked); picking one restyles
+    everything at once (the menu rebuilds itself after, so the switch waits for the click to finish)."""
     from groomlab.ui import widgets
     from maya import utils
-    cmds.menuItem(label="Theme", subMenu=True,
-                  annotation="GroomLab's colors: the Groom Tools, the Graph Editor and the viewport's guides")
+    container = definitions.get("menus/theme")
+    cmds.menuItem(label=container["label"], subMenu=True, annotation=container["tip"])
     cmds.radioMenuItemCollection()
     # The windows' Theme menus' items (widgets.theme_menu_items: one list); each runs after the click.
     for item in widgets.theme_menu_items():
         if item is None:
             cmds.menuItem(divider=True)
             continue
-        label, run, checked = item
+        label, run, checked, tip = item
         command = _guarded(lambda run=run: utils.executeDeferred(run), label)
         if checked is None:
-            cmds.menuItem(label=label, command=command, annotation=_THEME_NOTES.get(label, label))
+            cmds.menuItem(label=label, command=command, annotation=tip or label)
         else:
-            cmds.menuItem(label=label, radioButton=checked, command=command,
-                          annotation="Restyle GroomLab with the %s theme (remembered across sessions)" % label)
+            cmds.menuItem(label=label, radioButton=checked, command=command, annotation=tip)
     cmds.setParent("..", menu=True)
-
-
-_THEME_NOTES = {"New Theme from Current...": "A copy of the active theme in your themes folder, to edit",
-                "Reload Theme": "Read the active theme's file again, after editing it",
-                "Open Themes Folder": "Your themes folder (GROOMLAB_THEME_PATH adds others)"}
 
 
 def _theme_changed(_theme):

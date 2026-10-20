@@ -223,20 +223,78 @@ def run_exit_steps(*_):
             pass
 
 
-def free_dock(name):
-    """Delete the dock (workspace control) a panel named `name` lives in when the panel is not
-    there to fill it: kept after its widget went (at_exit), or from before a reload of the module.
-    MayaQWidgetDockableMixin makes the control anew on the first show and fails on a name taken."""
+GEOMETRY_VAR = "groomLabGeometry_"  # + a window's key: its geometry (Qt's saveGeometry, base64)
+
+
+class _GeometryKeeper(QtCore.QObject):
+    """Writes its window's geometry to an optionVar soon after it moves or resizes, and as it hides:
+    in the prefs whenever Maya quits, with the window open or not."""
+
+    def __init__(self, window, var):
+        super(_GeometryKeeper, self).__init__(window)
+        self.window, self.var = window, var
+        self.timer = QtCore.QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(500)
+        self.timer.timeout.connect(self.keep)
+
+    def eventFilter(self, obj, event):
+        if obj is self.window:
+            if event.type() in (QtCore.QEvent.Move, QtCore.QEvent.Resize) and obj.isVisible():
+                self.timer.start()
+            elif event.type() in (QtCore.QEvent.Hide, QtCore.QEvent.Close):
+                self.keep()
+        return False
+
+    def keep(self):
+        from maya import cmds
+        if alive(self.window) and self.window.isVisible():
+            data = bytes(self.window.saveGeometry().toBase64()).decode("ascii")
+            cmds.optionVar(stringValue=(self.var, data))
+
+
+def remember_geometry(window, key):
+    """A standalone window (not a dock) opens where it was last: its place, size and monitor, from
+    this session or an earlier one (an update's too: an optionVar in Maya's prefs). Call before its
+    first show."""
     from maya import cmds
-    control = name + "WorkspaceControl"
-    if cmds.workspaceControl(control, exists=True):
-        cmds.deleteUI(control)
+    var = GEOMETRY_VAR + key
+    if cmds.optionVar(exists=var):
+        window.restoreGeometry(QtCore.QByteArray.fromBase64(cmds.optionVar(query=var).encode("ascii")))
+    window.installEventFilter(_GeometryKeeper(window, var))
+
+
+def into_dock(panel, ui_script, restoring=False):
+    """Put a dockable panel (MayaQWidgetDockableMixin, named) in the dock (workspace control
+    `<name>WorkspaceControl`) Maya has for it, where it was: floating on another monitor, docked or
+    tabbed, its size. Maya rebuilds a dock with a `ui_script` (Python) as it restores its workspace
+    after a restart (an update's too): `restoring` is that call, the dock Maya's current parent;
+    otherwise the dock still there (its panel gone at_exit, or from before a reload of the module).
+    False when there is none: show(dockable=True, uiScript=...) makes one."""
+    from maya import cmds
+    from maya.app.general import mayaMixin
+    import maya.OpenMayaUI as omui
+    control = panel.objectName() + "WorkspaceControl"
+    if restoring:
+        parent = omui.MQtUtil.getCurrentParent()
+    else:
+        parent = omui.MQtUtil.findControl(control) if cmds.workspaceControl(control, exists=True) else None
+    if not parent:
+        return False
+    dock = qt.wrap_instance(parent, QtWidgets.QWidget)
+    for old in dock.findChildren(QtWidgets.QWidget, panel.objectName()):  # a reload's: its panel goes
+        if old is not panel:
+            dispose(old)
+    omui.MQtUtil.addWidgetToMayaLayout(int(qt.shiboken.getCppPointer(panel)[0]), int(parent))
+    mayaMixin.mixinWorkspaceControls[control] = panel
+    cmds.workspaceControl(control, edit=True, uiScript=ui_script)
+    return True
 
 
 def dispose(widget):
     """Delete `widget` (and its children) now, not on a later event loop turn: when Maya quits
     there is none. Its Python wrapper stays, invalid (alive() False); its dock stays, as Maya saves
-    it (free_dock before the panel is made again)."""
+    it (into_dock when the panel is made again)."""
     if widget is not None and alive(widget):
         qt.shiboken.delete(widget)
 
@@ -539,26 +597,44 @@ def open_themes_folder():
     QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(folder))
 
 
-def theme_menu_items(parent=None):
-    """Every Theme menu's items, one list for GroomLab > Theme and the windows' own menus: (label,
-    action, checked) with checked True/False for a theme (the active one True) and None for an
-    action; None for a divider."""
+def theme_actions(parent=None):
+    """What the Theme menus' action ids run (menus/theme); theme.set is called with the theme's name."""
     from groomlab.ui import theme
+    return {"theme.set": lambda name: _theme_run(theme.set_theme, name),
+            "theme.new": lambda: new_theme_from_current(parent),
+            "theme.reload": lambda: _theme_run(theme.reload),
+            "theme.openFolder": open_themes_folder}
+
+
+def theme_menu_items(parent=None):
+    """Every Theme menu's items (engine/ui/menus.json's theme), one list for GroomLab > Theme and the
+    windows' own menus: (label, action, checked, tip) with checked True/False for a theme (the
+    active one True) and None for an action; None for a divider."""
+    from groomlab.ui import definitions, theme
     try:
         entries = theme.menu_entries()
     except (ValueError, IOError, OSError):
         entries = []
-    items = [(label, (lambda n=name: _theme_run(theme.set_theme, n)), bool(active)) for name, label, active in entries]
-    items += [None,
-              ("New Theme from Current...", lambda: new_theme_from_current(parent), None),
-              ("Reload Theme", lambda: _theme_run(theme.reload), None),
-              ("Open Themes Folder", open_themes_folder, None)]
+    tip = definitions.action("theme.set")["tip"]
+
+    def themes(entry):
+        return [{"id": entry["action"], "value": name, "label": label, "checked": bool(active),
+                 "tip": definitions.fill(tip, {"label": label})} for name, label, active in entries]
+    bind = definitions.binder(theme_actions(parent))
+    items = []
+    for item in definitions.resolve(definitions.get("menus/theme")["items"], generators={"themes": themes}):
+        if item["kind"] == "divider":
+            items.append(None)
+        else:
+            checked = bool(item["entry"]["checked"]) if "checked" in item["entry"] else None
+            items.append((item["label"], bind(item), checked, item["tip"]))
     return items
 
 
 def theme_menu(parent):
     """A Theme menu (Qt): theme_menu_items, the active theme checked."""
-    menu = QtWidgets.QMenu("Theme", parent)
+    from groomlab.ui import definitions
+    menu = QtWidgets.QMenu(definitions.get("menus/theme")["label"], parent)
 
     def fill():
         menu.clear()
@@ -567,7 +643,7 @@ def theme_menu(parent):
             if item is None:
                 menu.addSeparator()
                 continue
-            label, run, checked = item
+            label, run, checked, _tip = item
             action = menu.addAction(label)
             action.triggered.connect(lambda _=False, run=run: run())
             if checked is not None:
@@ -577,6 +653,77 @@ def theme_menu(parent):
 
     menu.aboutToShow.connect(fill)
     return menu
+
+
+def fill_menu(menu, entries, bind, state=(), values=None, generators=None, checked=None, wrap=None):
+    """Fill a QMenu from UI definitions (engine/ui: a container's entries, definitions.resolve):
+    each action's label (its shortcut's keys after a tab), tooltip (with the keys when it has them
+    all), check box and enabled state. `bind(item)`: the callable an item runs (definitions.binder:
+    a generated entry's value comes first); a checkable one gets the check state. `checked(item)`:
+    an item's check state. `generators`: name -> a function giving entries, or filling the menu
+    itself (called with the menu and the item) for the ones the files leave to the host. `wrap(fn,
+    label)` guards the commands (menu._guarded). Submenus are parented to their menu (PySide would
+    collect them) and show tooltips when it does. Returns {action id: QAction} (the last of an id)."""
+    from groomlab.ui import definitions, shortcuts
+    made = {}
+    expanding = dict((k, v) for k, v in (generators or {}).items() if not getattr(v, "fills_menu", False))
+    filling = dict((k, v) for k, v in (generators or {}).items() if getattr(v, "fills_menu", False))
+    menu.submenus = getattr(menu, "submenus", [])
+
+    def build(target, items):
+        for item in items:
+            if item["kind"] == "divider":
+                target.addSeparator()
+            elif item["kind"] == "submenu":
+                sub = QtWidgets.QMenu(item["label"].replace("&", "&&"), target)
+                sub.setToolTipsVisible(target.toolTipsVisible())
+                if item["tip"]:
+                    sub.setToolTip(item["tip"])
+                target.addMenu(sub)
+                menu.submenus.append(sub)
+                build(sub, item["items"])
+            elif item["kind"] == "generator":
+                filling[item["name"]](target, item)
+            else:
+                label, tip = item["label"], item["tip"]
+                if item["shortcut"]:
+                    keys = shortcuts.keys(item["shortcut"])
+                    if item["shortcutPart"] is not None:
+                        keys = (keys.split(" / ") + [""] * (item["shortcutPart"] + 1))[item["shortcutPart"]]
+                    elif tip:
+                        tip = shortcuts.tip(tip, item["shortcut"])
+                    label = "%s	%s" % (label, keys)
+                action = target.addAction(label)
+                if tip:
+                    action.setToolTip(tip)
+                fn = bind(item)
+                if wrap is not None:
+                    fn = wrap(fn, item["label"])
+                if item["checkable"]:
+                    action.setCheckable(True)
+                    action.setChecked(bool(checked(item)) if checked else False)
+                    action.triggered.connect(_check_slot(fn))  # a click (or trigger()), not setChecked
+                else:
+                    action.triggered.connect(lambda _=False, fn=fn: fn())
+                action.setEnabled(item["enabled"])
+                made[item["id"]] = action
+
+    build(menu, definitions.resolve(entries, state, values, expanding))
+    return made
+
+
+def _check_slot(fn):
+    """A slot passing a checkable action's state on to fn: a plain one-argument function, as PySide
+    calls a lambda with defaults (lambda on=False, fn=fn) without the state."""
+    def slot(on):
+        fn(on)
+    return slot
+
+
+def menu_filler(fn):
+    """A fill_menu generator that fills the menu itself: fn(menu, item)."""
+    fn.fills_menu = True
+    return fn
 
 
 def icon_path(name):

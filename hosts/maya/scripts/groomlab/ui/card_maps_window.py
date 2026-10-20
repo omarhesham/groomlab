@@ -502,6 +502,7 @@ def show(groom=None):
         _window.setWindowIcon(widgets.icon("logo"))
         _window.setWindowFlags(_window.windowFlags() | QtCore.Qt.Window)
         _window.resize(theme.px(620), theme.px(560))
+        widgets.remember_geometry(_window, "cardMaps")
         widgets.at_exit(_close_at_exit)
     else:
         _window.set_groom(groom)

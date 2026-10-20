@@ -26,6 +26,7 @@
 #include "groomlab/shortcuts.h"
 #include "groomlab/color_patterns.h"
 #include "groomlab/export_view.h"
+#include "groomlab/expression.h"
 #include "groomlab/follow_scalp.h"
 #include "groomlab/frame_time.h"
 #include "groomlab/graph.h"
@@ -49,6 +50,7 @@
 #include "groomlab/sim_cache.h"
 #endif
 
+#include "authoring.h"
 #include "host_space.h"
 #include "request.h"
 #include "session.h"
@@ -103,6 +105,45 @@ json paramSpec(const json& node, const std::string& param) {
         if (p.is_object() && p.value("name", std::string()) == param) return p;
     }
     return nullptr;
+}
+
+// A map a param reads (map_ref.h), checked before the graph takes it: one source (texture,
+// colorSet, attribute, expression, guide) naming something, a known component, numbers for min
+// and max, nothing else; an expression that compiles (a vector one for a vec3 param, which
+// takes an expression alone: ParamSpec::vectorExpression).
+void checkMapValue(const std::string& where, const json& v, bool vector) {
+    static const char* const kSources[] = {"texture", "colorSet", "attribute", "expression", "guide"};
+    std::string source;
+    int sources = 0;
+    for (const char* k : kSources) {
+        if (v.contains(k)) {
+            source = k;
+            ++sources;
+        }
+    }
+    if (sources != 1) fail("type_mismatch", where + ": a map names exactly one of texture, colorSet, attribute, expression or guide");
+    if (!v[source].is_string() || v[source].get<std::string>().empty()) fail("type_mismatch", where + ": the map's " + source + " is a name");
+    for (const auto& [key, value] : v.items()) {
+        if (key == source) continue;
+        if (key == "component") {
+            static const std::set<std::string> kComponents = {"r", "g", "b", "a", "luminance"};
+            if (!value.is_string() || !kComponents.count(value.get<std::string>())) {
+                fail("type_mismatch", where + ": component is r, g, b, a or luminance");
+            }
+        } else if (key == "min" || key == "max") {
+            if (!value.is_number() || !std::isfinite(value.get<double>())) fail("type_mismatch", where + ": the map's " + key + " is a number");
+        } else {
+            fail("type_mismatch", where + ": a map has no '" + key + "' (source, component, min, max)");
+        }
+    }
+    if (vector && source != "expression") fail("type_mismatch", where + " is a vector: it reads an expression, not a " + source);
+    if (source == "expression") {
+        try {
+            Expression(v[source].get<std::string>(), {}, vector ? ExpressionType::Vector : ExpressionType::Number);
+        } catch (const ExpressionError& e) {
+            fail("expression", where + ": " + e.what());
+        }
+    }
 }
 
 const json& operatorSpecs() {
@@ -994,7 +1035,9 @@ json getState(Session& s, const json& args) {
                       {"partData", d.partsJson},
                       {"flowData", d.flowJson},
                       {"correctiveData", d.correctivesJson},
-                      {"scalpMaps", s.groom->scalpMapsJson()}};
+                      {"scalpMaps", s.groom->scalpMapsJson()},
+                      {"graph", d.graphJson},
+                      {"sculptData", d.sculptsJson}};
     }
     return r;
 }
@@ -1114,7 +1157,7 @@ json Helper::run(const std::string& cmd, const json& args) {
         // What this helper offers beyond protocol 1's first commands, each with its own version
         // (raised when its commands change in a way an add-on must know): GroomLab's own tools
         // (new_groom, tool_*, stroke_*, select, guides_edit, maps, undo, display) and the state.
-        r["features"] = {{"tools", kToolsVersion}, {"state", 1}, {"cardMaps", 1}};
+        r["features"] = {{"tools", kToolsVersion}, {"state", 1}, {"cardMaps", 1}, {"authoring", 1}};
         return r;
     }
     if (cmd == "ping") return {{"pong", true}};
@@ -1503,14 +1546,17 @@ json Helper::run(const std::string& cmd, const json& args) {
         const json spec = paramSpec(n, param);
         if (spec.is_null()) fail("not_found", "node '" + node + "' has no param '" + param + "'");
         const std::string kind = spec.value("kind", std::string());
-        const bool mapped = spec.value("mappable", false) && value.is_object();
+        const bool vectorExpression = kind == "vec3" && spec.value("vectorExpression", false);
+        const bool mapped = (spec.value("mappable", false) || vectorExpression) && value.is_object();
         const bool fits = (kind == "bool" && value.is_boolean()) || (kind == "int" && (value.is_number_integer() || mapped)) ||
                           (kind == "float" && (value.is_number() || mapped)) || (kind == "string" && value.is_string()) ||
-                          (kind == "vec3" && value.is_array() && value.size() == 3) || kind == "ramp" || kind == "map";
+                          (kind == "vec3" && ((value.is_array() && value.size() == 3) || mapped)) || kind == "ramp" || kind == "map";
         if (!fits) {
-            fail("type_mismatch", node + "." + param + " takes a " + kind + (spec.value("mappable", false) ? " or a map" : "") +
-                                      ", not " + value.dump());
+            fail("type_mismatch", node + "." + param + " takes a " + kind +
+                                      (spec.value("mappable", false) ? " or a map" : vectorExpression ? " or an expression" : "") + ", not " +
+                                      value.dump());
         }
+        if (mapped) checkMapValue(node + "." + param, value, vectorExpression);
         json& params = n["params"];
         if (!params.is_object()) params = json::object();
         params[param] = value;
@@ -1519,9 +1565,12 @@ json Helper::run(const std::string& cmd, const json& args) {
     }
     if (cmd == "edit_graph") {
         Session& s = session(args);
-        GraphEdit edit(graphText(*s.groom));
         const std::string op = needString(args, "op");
         json r;
+        // The Graph Editor's authoring (Group, exposed params, a node on a link, sliders, keyed
+        // params): one undo step each on the session's stack (authoring.cpp).
+        if (runGraphAuthoring(s, op, args, r)) return r;
+        GraphEdit edit(graphText(*s.groom));
         if (op == "add_node") {
             const json& params = args.contains("params") && args["params"].is_object() ? args["params"] : json::object();
             std::optional<double> x, y;
@@ -1551,7 +1600,43 @@ json Helper::run(const std::string& cmd, const json& args) {
             json g = json::parse(edit.toJson());
             if (!g.contains("nodes") || !g["nodes"].is_array()) g["nodes"] = json::array();
             if (op == "set_positions") {
-                const json& positions = need(args, "positions");
+                // The backdrops framing parts of the graph go with the positions (Maya's
+                // GraphModel.save_layout: the graph's "backdrops", layout only): [{"title", "x",
+                // "y", "w", "h", "color": [r, g, b] 0-255}], all of them each time ([] none).
+                if (args.contains("backdrops") && !args["backdrops"].is_null()) {
+                    const json& given = args["backdrops"];
+                    if (!given.is_array()) fail("bad_request", "backdrops is [{title, x, y, w, h, color}]");
+                    json backdrops = json::array();
+                    for (const json& b : given) {
+                        if (!b.is_object()) fail("bad_request", "a backdrop is {title, x, y, w, h, color}");
+                        if (b.contains("title") && !b["title"].is_string()) fail("bad_request", "a backdrop's title is text");
+                        json kept = {{"title", b.value("title", std::string())}};
+                        for (const char* k : {"x", "y", "w", "h"}) {
+                            if (!b.contains(k) || !b[k].is_number() || !std::isfinite(b[k].get<double>())) {
+                                fail("bad_request", std::string("a backdrop's ") + k + " is a number");
+                            }
+                            kept[k] = b[k].get<double>();
+                        }
+                        if (!(kept["w"].get<double>() > 0.0) || !(kept["h"].get<double>() > 0.0)) fail("bad_request", "a backdrop's w and h are above 0");
+                        if (b.contains("color") && !b["color"].is_null()) {
+                            const json& c = b["color"];
+                            if (!c.is_array() || c.size() != 3 || !c[0].is_number() || !c[1].is_number() || !c[2].is_number()) {
+                                fail("bad_request", "a backdrop's color is [r, g, b] 0-255");
+                            }
+                            json rgb = json::array();
+                            for (const json& x : c) rgb.push_back(static_cast<int>(std::clamp(std::lround(x.get<double>()), 0L, 255L)));
+                            kept["color"] = rgb;
+                        }
+                        backdrops.push_back(std::move(kept));
+                    }
+                    if (backdrops.empty()) {
+                        g.erase("backdrops");
+                    } else {
+                        g["backdrops"] = std::move(backdrops);
+                    }
+                }
+                const json positions = args.contains("positions") && !args["positions"].is_null() ? args["positions"] : json::object();
+                if (!args.contains("positions") && !args.contains("backdrops")) need(args, "positions");
                 if (!positions.is_object()) fail("bad_request", "positions is {node: [x, y]}");
                 for (const auto& [name, at] : positions.items()) {
                     if (!at.is_array() || at.size() != 2 || !at[0].is_number() || !at[1].is_number()) {
@@ -1775,6 +1860,10 @@ json Helper::run(const std::string& cmd, const json& args) {
     if (cmd == "get_state") return getState(session(args), args);
     if (cmd == "set_state") return setState(session(args), args);
     if (cmd == "tool_catalog") return toolCatalogJson();
+    if (isAuthoringCommand(cmd)) {
+        if (shippedNodeDir().empty()) setShippedNodeDir(shippedNodesDir());
+        return runAuthoringCommand(cmd, args, [&]() -> Session& { return session(args); });
+    }
     if (isToolCommand(cmd)) {
         json r;
         runToolCommand(session(args), cmd, args, blocks, r);

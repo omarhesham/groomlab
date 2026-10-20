@@ -1,0 +1,18 @@
+{
+  "$schema": "./ui.schema.json",
+  "version": 1,
+  "markingMenu": {
+    "radial": [
+      {"position": "N", "tool": "comb"},
+      {"position": "NE", "tool": "slide"},
+      {"position": "E", "tool": "smooth"},
+      {"position": "SE", "tool": "cut"},
+      {"position": "S", "tool": "place"},
+      {"position": "SW", "tool": "draw"},
+      {"position": "W", "tool": "length"},
+      {"position": "NW", "tool": "lift"}
+    ],
+    "overflow": {"generator": "brushCatalog", "exclude": ["select", "freeze"]},
+    "tail": [{"tool": "select"}, {"tool": "freeze"}, "tools.open"]
+  }
+}

@@ -20,7 +20,8 @@ execute_process(
 if(NOT _rc EQUAL 0)
     message(FATAL_ERROR "installing the Blender component failed (${_rc})")
 endif()
-foreach(_need blender_manifest.toml LICENSE bin/LICENSE bin/NOTICE bin/THIRD_PARTY_NOTICES.txt bin/LICENSE-HELPER.txt)
+foreach(_need blender_manifest.toml LICENSE bin/LICENSE bin/NOTICE bin/THIRD_PARTY_NOTICES.txt bin/LICENSE-HELPER.txt
+        ui/actions.json ui/menus.json)
     if(NOT EXISTS "${_dir}/${_need}")
         message(FATAL_ERROR "no ${_need} in ${_dir}")
     endif()

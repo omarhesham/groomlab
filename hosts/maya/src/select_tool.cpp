@@ -85,6 +85,10 @@ MStatus GuideSelectContext::doRelease(MEvent&, MHWRender::MUIDrawManager&, const
     return groomlab::maya::guarded("GuideSelectContext::doRelease", [&]() -> MStatus {
         select(lasso_, mode_);
         lasso_.clear();
+        // The selection drawn now, as the brushes' release does (BrushContext::endStroke): testers
+        // saw a marquee, a Shift pick and a click on nothing wait for the camera to move, though
+        // the command schedules a redraw.
+        M3dView::active3dView().refresh(true, true);
         return MS::kSuccess;
     });
 }

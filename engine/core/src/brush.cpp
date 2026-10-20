@@ -902,6 +902,16 @@ BrushReachFn mirroredReach(const BrushReachFn& reach, int axis, float center) {
     };
 }
 
+// The settings the mirrored stamp brushes with: a turn about the guide (Twist, the Shape brush's
+// twist) is handed, so its mirror image turns the other way.
+BrushSettings mirroredSettings(const BrushSettings& s) {
+    BrushSettings out = s;
+    if (s.mode == BrushMode::Twist || (s.mode == BrushMode::ShapeTube && s.tubeChannel == TubeChannel::Twist)) {
+        out.strength = -s.strength;
+    }
+    return out;
+}
+
 // One stamp, and its mirror image when symmetry is on (skipping guides the
 // first one already changed, so seam guides change once). A custom weight is
 // mirrored too: the mirrored stamp weighs a point as the original weighs its
@@ -916,11 +926,11 @@ std::size_t symmetricStamp(GuideHierarchy& h, const ScalpMesh* scalp, const Brus
         // (the cursor's screen circle does not carry over a head in another pose).
         const StrokeSymmetry sym = StrokeSymmetry::of(s, scalp);
         if (!sym.on()) return changed;
-        return changed + stamp(h, scalp, s, sym.point(center), sym.vector(center, drag), {}, {}, cache, threadSafeWeight,
-                               changedIds, &touched, nullptr);
+        return changed + stamp(h, scalp, mirroredSettings(s), sym.point(center), sym.vector(center, drag), {}, {}, cache,
+                               threadSafeWeight, changedIds, &touched, nullptr);
     }
     if (s.mirrorAxis < 0 || s.mirrorAxis > 2) return changed;
-    changed += stamp(h, scalp, s, mirrorPoint(center, s.mirrorAxis, s.mirrorCenter), mirrorVector(drag, s.mirrorAxis),
+    changed += stamp(h, scalp, mirroredSettings(s), mirrorPoint(center, s.mirrorAxis, s.mirrorCenter), mirrorVector(drag, s.mirrorAxis),
                      mirroredWeight(weight, s.mirrorAxis, s.mirrorCenter), mirroredReach(reach, s.mirrorAxis, s.mirrorCenter),
                      cache, threadSafeWeight, changedIds, &touched, nullptr);
     return changed;
@@ -1618,11 +1628,14 @@ std::size_t symmetricFlowStamp(FlowSet& flow, const ScalpMesh& scalp, const Brus
     if (s.mirrorTopology) {
         const StrokeSymmetry sym = StrokeSymmetry::of(s, &scalp);
         FlowTouched second;
-        if (sym.on()) changed += flowStamp(flow, scalp, s, sym.point(center), sym.vector(center, drag), {}, &first, &second);
+        if (sym.on()) {
+            changed += flowStamp(flow, scalp, mirroredSettings(s), sym.point(center), sym.vector(center, drag), {}, &first,
+                                 &second);
+        }
         first.add(second);
     } else if (s.mirrorAxis >= 0 && s.mirrorAxis <= 2) {
         FlowTouched second;
-        changed += flowStamp(flow, scalp, s, mirrorPoint(center, s.mirrorAxis, s.mirrorCenter),
+        changed += flowStamp(flow, scalp, mirroredSettings(s), mirrorPoint(center, s.mirrorAxis, s.mirrorCenter),
                              mirrorVector(drag, s.mirrorAxis), mirroredWeight(weight, s.mirrorAxis, s.mirrorCenter),
                              &first, &second);
         first.add(second);

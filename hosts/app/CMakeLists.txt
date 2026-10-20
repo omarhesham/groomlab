@@ -100,6 +100,11 @@ qt_add_resources(groomlab_app_lib "groomlab_app_fonts" PREFIX "/groomlab" BASE "
 file(GLOB _groomlab_themes CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/hosts/maya/themes/*.json")
 qt_add_resources(groomlab_app_lib "groomlab_app_theme" PREFIX "/groomlab/themes" BASE "${PROJECT_SOURCE_DIR}/hosts/maya/themes"
     FILES ${_groomlab_themes})
+# The UI structure every host shares (engine/ui/*.json: menus, lists, choices...), embedded the same
+# way: ":/groomlab/ui/menus.json" and so on (docs/UI_DEFINITIONS.md).
+file(GLOB _groomlab_ui CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/engine/ui/*.json")
+qt_add_resources(groomlab_app_lib "groomlab_app_ui" PREFIX "/groomlab/ui" BASE "${PROJECT_SOURCE_DIR}/engine/ui"
+    FILES ${_groomlab_ui})
 # Every shader set is PRECOMPILEd: on Windows qsb runs the SDK's fxc at build time and the .qsb
 # carries DXBC, so Direct3D 11 and 12 load bytecode instead of compiling HLSL when the first frame
 # makes its pipelines (the wolf's first frame 3.9 s -> 0.26 s; the pixels as before).

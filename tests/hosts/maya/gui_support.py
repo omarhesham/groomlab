@@ -302,10 +302,25 @@ def pin_view():
     for dock in ("ChannelBoxLayerEditor", "AttributeEditor", "ToolSettings", "Outliner", "MayaHome"):
         if cmds.workspaceControl(dock, exists=True) and cmds.workspaceControl(dock, query=True, visible=True):
             cmds.workspaceControl(dock, edit=True, visible=False)
+    drop_groomlab_docks()  # GroomLab's, restored from the last session's workspace
+    import groomlab
+    groomlab.pin_groom(None)  # no groom pinned or adopted (adopt_scene_groom) by the last session
     maya.mel.eval('setNamedPanelLayout "Single Perspective View"')
     QtWidgets.QApplication.processEvents()
     view = omui.M3dView.active3dView()
     say("view %dx%d (window %dx%d)" % (view.portWidth(), view.portHeight(), WINDOW_SIZE[0], WINDOW_SIZE[1]))
+
+
+def drop_groomlab_docks():
+    """Delete GroomLab's docks (the Groom Tools, the Graph Editor). They carry a uiScript, so Maya
+    keeps them in the prefs folder's workspace when it quits with them open and rebuilds them at
+    the next start, where they would take the view's room."""
+    for name in cmds.lsUI(type="workspaceControl") or []:
+        if name.startswith("groomLab"):
+            try:
+                cmds.deleteUI(name)
+            except RuntimeError:
+                pass
 
 
 def take_baseline():
@@ -479,6 +494,7 @@ def run(quit_maya=True):
             say("FAILED %s: %s" % (suite, what))
         say("OK" if not S.failures else "FAILED")
         S.log.close()
+        drop_groomlab_docks()  # not kept in the prefs' workspace for the next session
         if quit_maya:
             cmds.quit(force=True, exitCode=1 if S.failures else 0)
 

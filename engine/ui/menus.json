@@ -1,0 +1,125 @@
+{
+  "$schema": "./ui.schema.json",
+  "version": 1,
+  "menus": {
+    "main": [
+      "tools.open",
+      "graph.open",
+      "-",
+      "groom.create",
+      {"submenu": "Add Sample Mesh", "id": "samples", "tip": "A mesh to start from, at the origin and selected", "ref": "menus/samples"},
+      "photos.guides",
+      {"submenu": "Groom Files", "id": "groomFiles", "items": ["file.import", "file.reload", "-", "file.save", "file.saveAs"]},
+      {"submenu": "Import", "id": "import", "ref": "menus/import"},
+      "-",
+      {"submenu": "Add", "id": "add", "items": [
+        "add.feathers",
+        "add.braid",
+        {"submenu": "Cards", "id": "cards", "tip": "A Cards node before the output at a level of detail", "items": ["add.cards.hero", "add.cards.mid", "add.cards.low"]},
+        "add.collider",
+        "add.wind",
+        "add.jiggle"
+      ]},
+      {"submenu": "Simulate", "id": "simulate", "items": [
+        "sim.add",
+        "sim.range",
+        "sim.bake",
+        "sim.clear",
+        "-",
+        {"submenu": "Legacy", "id": "legacy", "tip": "Maya's nHair on the guides (before the Simulate node)", "hosts": ["maya"], "items": [
+          "nhair.simulate", "nhair.bake", "nhair.remove", "-", "nhair.exportGuides", "nhair.loadCache"
+        ]}
+      ]},
+      {"submenu": "Review", "id": "review", "items": ["review.heatmap", "review.hud", "review.turntable", "render.turntable"]},
+      {"submenu": "Studio", "id": "studio", "tip": "A backdrop, Arnold area lights and a camera round the groom", "ref": "menus/studio"},
+      {"submenu": "Render", "id": "render", "ref": "menus/render"},
+      {"submenu": "Export", "id": "export", "ref": "menus/export"},
+      {"submenu": "Utilities", "id": "utilities", "items": [
+        "guides.toCurves",
+        "guides.curvesToGuides",
+        "-",
+        "strands.toCurves",
+        "strands.toMesh",
+        "node.bakeToGuides",
+        "scales.bakeMaps",
+        "-",
+        "groom.transfer",
+        "graph.copyToGrooms",
+        "-",
+        "files.findMissing"
+      ]},
+      "-",
+      {"ref": "menus/theme"},
+      "hotkeys.install",
+      {"submenu": "Help", "id": "help", "ref": "menus/help"}
+    ],
+    "samples": ["sample.nika", "sample.manny", "sample.wolf"],
+    "import": ["import.xgen", "import.yeti", "import.alembicCurves"],
+    "export": [
+      "export.alembic",
+      "export.usd",
+      "-",
+      "export.unrealGroom",
+      "export.unrealCards",
+      "export.unityStrands",
+      "export.unityFeathers",
+      "export.unityCards",
+      "export.gltfCards",
+      "export.cardMaps",
+      "-",
+      "export.scalesFbx",
+      "export.scalesUsd"
+    ],
+    "render": ["render.fromGroomFile", "render.asCurves"],
+    "studio": [
+      {"generator": "studioPresets", "action": "studio.preset", "hosts": ["maya"], "tip": "Studio lighting in Arnold: {description}. A backdrop, area lights and a camera round the groom, the head in a matte grey (one undo step; another preset relights in place)"},
+      "-",
+      "studio.lookThrough",
+      "studio.remove"
+    ],
+    "theme": {
+      "label": "Theme",
+      "tip": "GroomLab's colors: the Groom Tools, the Graph Editor and the viewport's guides",
+      "items": [
+        {"generator": "themes", "action": "theme.set"},
+        "-",
+        "theme.new",
+        "theme.reload",
+        "theme.openFolder"
+      ]
+    },
+    "help": [
+      "help.docs",
+      "help.shortcuts",
+      "-",
+      "help.updates",
+      "help.discord",
+      "help.donate",
+      "-",
+      "help.about"
+    ],
+
+    "output.import": [
+      "import.xgen",
+      "import.yeti",
+      "import.alembicCurves",
+      "-",
+      {"id": "file.import", "label": "Groom File...", "tip": "A groom from a .groom file (exported from Maya or saved by the standalone app)"}
+    ],
+    "output.export": [
+      "export.alembic",
+      "export.usd",
+      "-",
+      "export.unrealGroom",
+      "export.unrealCards",
+      "export.unityStrands",
+      "export.unityCards",
+      "export.gltfCards",
+      "export.cardMaps",
+      "-",
+      {"id": "file.saveAs", "tip": "Write the groom to a new groom file (the standalone app, groomlab-cli, the Arnold procedural)"}
+    ],
+    "output.render": ["render.fromGroomFile", "render.asCurves", "-", "render.turntable"],
+    "output.studio": [{"include": "menus/studio"}]
+  }
+}

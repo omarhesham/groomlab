@@ -206,6 +206,19 @@ if(_tool_python)
     set_tests_properties(tools.new_node_dry_run PROPERTIES LABELS "quick;core")
 endif()
 
+# engine/ui/*.json, the UI structure every host reads: the schema, the references, and (under the
+# Python the core module was built for) the shortcut ids and tools against the core.
+if(GROOMLAB_BUILD_PYTHON AND TARGET groomlab_core_py)
+    add_test(NAME ui.definitions
+        COMMAND ${GROOMLAB_PYTHON_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/check_ui_definitions.py")
+    set_tests_properties(ui.definitions PROPERTIES LABELS "quick;core"
+        ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:groomlab_core_py>")
+elseif(_tool_python)
+    add_test(NAME ui.definitions
+        COMMAND "${_tool_python}" "${CMAKE_CURRENT_SOURCE_DIR}/engine/ui/check_ui_definitions.py")
+    set_tests_properties(ui.definitions PROPERTIES LABELS "quick;core")
+endif()
+
 # groomlab-cli's MCP server (engine/cli/mcp_server.h) played a scripted agent session as a client
 # would: a subprocess on stdin/stdout, files in a folder of its own as the server's root.
 if(_tool_python AND TARGET groomlab-cli AND TARGET groomlab_alembic)

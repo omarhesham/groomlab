@@ -334,21 +334,52 @@ def pin_new_groom(groom):
         pin_groom(groom)
 
 
-def pinned_groom():
-    """The pinned groom, or None."""
-    if cmds.optionVar(query=PIN_VAR) != 1:
+def _groom_var(pin):
+    """The groom named in ACTIVE_VAR when PIN_VAR is `pin` and it exists, else None."""
+    if cmds.optionVar(query=PIN_VAR) != pin:
         return None
     name = cmds.optionVar(query=ACTIVE_VAR) if cmds.optionVar(exists=ACTIVE_VAR) else ""
     return name if name and cmds.objExists(name) and cmds.nodeType(name) == GROOM_TYPE else None
 
 
+def pinned_groom():
+    """The pinned groom, or None."""
+    return _groom_var(1)
+
+
+def adopted_groom():
+    """The groom a scene opened with (adopt_scene_groom), or None: the tools work on it while no
+    groom is pinned or selected."""
+    return _groom_var(2)
+
+
 def active_groom():
-    """The groom tools work on: the pinned one, else the first selected one."""
+    """The groom tools work on: the pinned one, else the first selected one, else the scene's
+    (adopted_groom)."""
     pinned = pinned_groom()
     if pinned:
         return pinned
     found = cmds.ls(selection=True, dag=True, type=GROOM_TYPE)
-    return found[0] if found else None
+    return found[0] if found else adopted_groom()
+
+
+def adopt_scene_groom():
+    """A scene just opened (or the Groom Tools opening) with grooms but none to work on (none
+    pinned, none selected): the tools work on one of them, the groom last worked on when this
+    scene has it, else the first, until a groom is selected or pinned (PIN_VAR 2: not a pin, which
+    would hold through selecting another groom). The Groom Tools and the Graph Editor show it rather
+    than "Start a groom". Returns the active groom."""
+    active = active_groom()
+    if active:
+        return active
+    grooms = sorted(cmds.ls(type=GROOM_TYPE) or [])
+    if not grooms:
+        return None
+    last = cmds.optionVar(query=ACTIVE_VAR) if cmds.optionVar(exists=ACTIVE_VAR) else ""
+    found = cmds.ls(last, type=GROOM_TYPE) if last and cmds.objExists(last) else []
+    groom = found[0] if found else grooms[0]
+    cmds.optionVar(stringValue=(ACTIVE_VAR, groom), intValue=(PIN_VAR, 2))
+    return groom
 
 
 def list_grooms():

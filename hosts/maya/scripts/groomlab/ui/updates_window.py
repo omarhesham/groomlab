@@ -203,6 +203,7 @@ def show(check=True):
     if _window is None:
         _window = MayaUpdatesWindow()
         _window.setWindowFlags(_window.windowFlags() | QtCore.Qt.Window)
+        widgets.remember_geometry(_window, "updates")
         widgets.at_exit(_close_at_exit)
     _window.show()
     _window.raise_()

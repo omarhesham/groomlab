@@ -197,6 +197,70 @@ def main():
         _expect(studio_items[0] == "Portrait" and studio_items[-1] == "Remove Studio", "Studio: %r" % studio_items)
     check.run("GroomLab's menu: one place for each thing, Help holds the rest", menu_layout)
 
+    # The UI definitions every host shares (engine/ui): every action id a Maya menu, bar or list shows
+    # has a binding here, each binding names an action of the files and a method the owner has.
+    def every_id_bound():
+        from groomlab.ui import definitions as d, hotkeys, menu, tool_tabs
+        tools = palette.ToolPalette()
+        editor = graph_editor.GraphEditor()
+        try:
+            def ids(*paths, **generators):
+                return set(i for p in paths for i in d.listed_ids(d.get(p), generators=generators.items()))
+
+            theme_ids = ids("menus/theme/items")
+            empty = [e for e in d.get("palette/empty/items") if not (isinstance(e, dict) and e.get("id") == "import")]
+            tables = (
+                ("menu.ACTIONS", menu.ACTIONS, None,
+                 (ids("menus/main", studioPresets="studio.preset") - theme_ids)
+                 | ids("palette/output", "menus/output.import", "menus/output.export", "menus/output.render",
+                       "menus/output.studio")),
+                ("widgets.theme_actions", widgets.theme_actions(), None, theme_ids),
+                ("ToolPalette.ACTIONS", palette.ToolPalette.ACTIONS, tools,
+                 ids("palette/header/more/items", "lists/parts/bar") | set(d.listed_ids(empty))),
+                ("GuidesTab.ACTIONS", tool_tabs.GuidesTab.ACTIONS, tools.guides_tab,
+                 ids("lists/groups/bar", "lists/groups/context", "lists/groups/edits/items")),
+                ("PaintTab.ACTIONS", tool_tabs.PaintTab.ACTIONS, tools.paint_tab,
+                 ids("lists/maps/bar", "lists/maps/context")),
+                ("CorrectivesBox.ACTIONS", tool_tabs.CorrectivesBox.ACTIONS, tools.correctives,
+                 ids("lists/correctives/bar", "lists/correctives/context", "lists/correctives/nodeContext")),
+                ("ReferenceTab.ACTIONS", tool_tabs.ReferenceTab.ACTIONS, tools.reference_tab,
+                 ids("lists/photos/bar", "lists/photos/context", "lists/photos/pairsBar", "lists/photos/pairsContext",
+                     "lists/photos/guidesBar")),
+                ("NodeItem.ACTIONS", graph_editor.NodeItem.ACTIONS, graph_editor.NodeItem,
+                 ids("graph/nodeMenu", exposeParams="node.expose", innerParams="compound.showInner")),
+                ("BackdropItem.ACTIONS", graph_editor.BackdropItem.ACTIONS, graph_editor.BackdropItem,
+                 ids("graph/backdropMenu")),
+                ("GraphEditor.ACTIONS", graph_editor.GraphEditor.ACTIONS, editor,
+                 ids("graph/editMenu", "graph/addMenu", "graph/presetMenu", "graph/presetItem")),
+                ("ParamPanel.param_actions", editor.params.param_actions("node", "param"), None,
+                 ids("graph/paramMenu")),
+                ("hotkeys.ACTIONS", hotkeys.ACTIONS, None, set(e for e in d.get("markingMenu/tail") if isinstance(e, str))),
+            )
+            actions = d.get("actions")
+            for name, table, owner, listed in tables:
+                _expect(listed, "%s: the definitions list nothing for it" % name)
+                missing = sorted(listed - set(table))
+                _expect(not missing, "%s: no binding for %r" % (name, missing))
+                stale = sorted(set(table) - set(actions))
+                _expect(not stale, "%s: binds ids no file defines: %r" % (name, stale))
+                for aid, target in table.items():
+                    if isinstance(target, str):
+                        _expect(hasattr(owner, target), "%s: %s binds %r, which it has not" % (name, aid, target))
+            # Every Maya action of the files is shown somewhere in Maya (the rest are other hosts' only).
+            shown = set()
+            for _name, table, _owner, listed in tables:
+                shown |= listed
+            unshown = sorted(a for a, v in actions.items() if "maya" in v.get("hosts", ["maya"]) and a not in shown)
+            _expect(not unshown, "actions Maya never shows: %r" % unshown)
+            # The option lists Maya builds widgets from.
+            _expect([tools.flow_sink.itemData(i) for i in range(tools.flow_sink.count())]
+                    == [c["value"] for c in d.choices("flowSink")], "flow sinks from choices.json")
+            _expect(palette.TABS == [t["id"] for t in d.get("palette/tabs")], "tabs from palette.json")
+        finally:
+            widgets.dispose(tools)
+            widgets.dispose(editor)
+    check.run("every UI definition id Maya shows has a binding", every_id_bound)
+
     def every_theme_styles_the_windows():
         catalog = gm.OperatorCatalog.from_json(groomlab_core.operator_specs_json())
         tools = palette.ToolPalette()

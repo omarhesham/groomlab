@@ -8,10 +8,13 @@
 // all in the host's space.
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "groomlab/groom_file.h"
+#include "groomlab/stroke.h"
 
 namespace groomlab::helper {
 
@@ -48,5 +51,18 @@ std::string resolveMapFile(const Session& s, const std::string& stored);
 // Where new texture maps' images go: the session's mapsDir, else a folder of its own in the temp
 // folder.
 std::string mapsFolderOf(Session& s);
+
+// One undo step on the session's stack (authoring.cpp's edits: the graph, correctives, Sculpt
+// nodes' edits): the stored texts given, set as one edit named `label` (a stroke in flight dropped
+// first). Throws what the session's setters throw (a GraphError for a graph that does not load),
+// nothing changed then.
+void commitTexts(Session& s, const std::string& label, const std::vector<std::pair<StrokeField, std::string>>& texts);
+// undo_state's answer.
+nlohmann::json undoStateJson(Session& s);
+// The corrective layer strokes sculpt into ("" the base groom: no shot sculpting), as Maya's
+// shotLayer and shotSculpt: strokes reshape the groom as shown and record into it at the
+// session's time (SessionStrokeHost::setShotSculpt). Dropped by an undo or edit that removes it.
+void setShotLayer(Session& s, const std::string& layer);
+std::string shotLayer(Session& s);
 
 }  // namespace groomlab::helper

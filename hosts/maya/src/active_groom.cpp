@@ -24,14 +24,18 @@ bool groomInSelection(const MSelectionList& selection, MDagPath& out) {
 
 bool activeGroom(MDagPath& out) {
     bool exists = false;
-    if (MGlobal::optionVarIntValue("groomLabPinGroom", &exists) == 1 && exists) {
-        const MString name = MGlobal::optionVarStringValue("groomLabActiveGroom", &exists);
+    const int pin = MGlobal::optionVarIntValue("groomLabPinGroom", &exists);
+    auto named = [&]() {
+        bool found = false;
+        const MString name = MGlobal::optionVarStringValue("groomLabActiveGroom", &found);
         MSelectionList pinned;
-        if (exists && name.length() > 0 && pinned.add(name) == MS::kSuccess && groomInSelection(pinned, out)) return true;
-    }
+        return found && name.length() > 0 && pinned.add(name) == MS::kSuccess && groomInSelection(pinned, out);
+    };
+    if (exists && pin == 1 && named()) return true;
     MSelectionList selection;
     MGlobal::getActiveSelectionList(selection);
-    return groomInSelection(selection, out);
+    if (groomInSelection(selection, out)) return true;
+    return exists && pin == 2 && named();  // the scene's groom, with no groom selected
 }
 
 }  // namespace groomlab::maya

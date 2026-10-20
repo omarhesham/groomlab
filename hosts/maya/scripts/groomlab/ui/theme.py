@@ -473,11 +473,14 @@ QSlider::sub-page:horizontal:disabled, QSlider[accent]::sub-page:horizontal:disa
 QSlider::handle:horizontal:disabled { background: %(dim)s; }
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled, QCheckBox:disabled { color: %(dim)s; }
 QCheckBox::indicator:checked:disabled { background: %(hover)s; }
-QScrollBar:vertical { background: transparent; width: {{8}}px; margin: 0; }
-QScrollBar::handle:vertical { background: %(raised)s; border-radius: {{4}}px; min-height: {{24}}px; }
+QScrollBar:vertical { background: %(raised)s; width: {{12}}px; margin: 0; border-radius: {{6}}px; }
+QScrollBar::handle:vertical { background: %(hover)s; border-radius: {{6}}px; min-height: {{32}}px; margin: {{1}}px; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
-QScrollBar:horizontal { background: transparent; height: {{8}}px; margin: 0; }
-QScrollBar::handle:horizontal { background: %(raised)s; border-radius: {{4}}px; min-width: {{24}}px; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+QScrollBar:horizontal { background: %(raised)s; height: {{12}}px; margin: 0; border-radius: {{6}}px; }
+QScrollBar::handle:horizontal { background: %(hover)s; border-radius: {{6}}px; min-width: {{32}}px; margin: {{1}}px; }
+QScrollBar::handle:hover { background: %(dim)s; }
+QScrollBar::handle:pressed { background: %(accent)s; }
 QMenu { background: %(panel)s; border: {{1}}px solid %(border)s; border-radius: %(small)dpx; padding: {{4}}px; }
 QMenu::item { padding: {{5}}px {{18}}px; border-radius: %(small)dpx; }
 QMenu::item:selected { background: %(selection)s; color: %(selectionText)s; }

@@ -185,6 +185,8 @@ install(DIRECTORY presets/ DESTINATION "${GROOMLAB_MODULE_DIR}/presets" COMPONEN
 install(DIRECTORY icons/ DESTINATION "${GROOMLAB_MODULE_DIR}/icons" COMPONENT GroomLab)  # on XBMLANGPATH
 install(DIRECTORY expressions/ DESTINATION "${GROOMLAB_MODULE_DIR}/expressions" COMPONENT GroomLab)  # the expression library's examples
 install(DIRECTORY themes/ DESTINATION "${GROOMLAB_MODULE_DIR}/themes" COMPONENT GroomLab)  # UI themes (JSON)
+# The UI structure every host shares (engine/ui: menus, lists, choices...), read by scripts/groomlab/ui/definitions.py.
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/engine/ui/" DESTINATION "${GROOMLAB_MODULE_DIR}/ui" COMPONENT GroomLab)
 install(DIRECTORY nodes/ DESTINATION "${GROOMLAB_MODULE_DIR}/nodes" COMPONENT GroomLab)  # compound nodes (.glnode) shipped with every host
 install(DIRECTORY meshes/ DESTINATION "${GROOMLAB_MODULE_DIR}/meshes" COMPONENT GroomLab)  # Nika, the sample head (CC BY 4.0)
 # GroomLab's license and NOTICE, and the licenses of the open-source code inside the binaries and of

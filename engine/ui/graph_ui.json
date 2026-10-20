@@ -1,0 +1,118 @@
+{
+  "$schema": "./ui.schema.json",
+  "version": 1,
+  "graph": {
+    "categoryColors": {
+      "Sources": "#48BEAA", "Grow": "#4FD1C5", "Color": "#FF7AB6", "Shape": "#5A96F0", "Deform": "#6EAAFA",
+      "Collide": "#64B4C8", "Look": "#AA78F0", "Fields & Curves": "#D67AD6", "Utility": "#8C949E", "Output": "#F5B042",
+      "Compound": "#6EC878", "Games": "#5AC8E6", "Convert": "#F08C5F", "Motion": "#78C8FF", "Feathers": "#E2BA5A"
+    },
+    "portColors": {
+      "Strands": "#E8A85C", "Guides": "#5CC4E8", "Mesh": "#8CCE6E", "Field": "#D67AD6", "Curve": "#F5D75A",
+      "Curves": "#CED2DA", "Value": "#78D6BE"
+    },
+    "keyStates": {
+      "keyed": {"theme": "ui.keyed", "color": "#CD4C4C", "tip": "Keyed on this frame"},
+      "animated": {"theme": "ui.animated", "color": "#E3A3A8", "tip": "Animated (no key on this frame)"},
+      "driven": {"theme": "ui.driven", "color": "#E4D46C", "tip": "Driven by a Control node or a connection"},
+      "linked": {"tip": "Set by its attribute (no keys left)"}
+    },
+    "backdropColors": [
+      {"label": "Blue", "rgb": [70, 90, 120]},
+      {"label": "Green", "rgb": [70, 120, 80]},
+      {"label": "Purple", "rgb": [110, 80, 130]},
+      {"label": "Amber", "rgb": [140, 110, 50]},
+      {"label": "Gray", "rgb": [90, 92, 98]}
+    ],
+    "plumbing": [["Scalp", "input"], ["Guides", "input"], ["Guides", "hierarchy"]],
+    "filePathFilters": {"Reference": "Groom files (*.groom)", "ImportCurves": "Alembic (*.abc)"},
+
+    "nodeMenu": [
+      "node.setOutput",
+      "node.view",
+      "node.bypass",
+      {"submenu": "Evaluate", "id": "evaluate", "items": [{"generator": "choices", "choices": "evaluation", "action": "node.evaluate"}]},
+      "node.rename",
+      "node.duplicate",
+      "node.brushSculpt",
+      {"id": "sculpt.clearEdits", "needs": ["node.sculpt"]},
+      "node.bake",
+      {"submenu": "Expose Param as Input", "id": "expose", "needs": ["node.mappable"], "items": [{"generator": "exposeParams", "action": "node.expose"}]},
+      "-",
+      "script.edit",
+      "script.saveToLibrary",
+      {"id": "node.update", "needs": ["node.script", "node.updateAvailable"]},
+      "compound.ungroup",
+      {"submenu": "Show Inner Param", "id": "innerParams", "needs": ["node.compound"], "items": [{"generator": "innerParams", "action": "compound.showInner"}]},
+      "compound.saveAsNode",
+      "compound.saveToLibrary",
+      {"id": "node.update", "needs": ["node.compound", "node.library", "node.updateAvailable"]},
+      "compound.groupSelection",
+      "backdrop.add",
+      "node.delete"
+    ],
+    "backdropMenu": [
+      "backdrop.rename",
+      {"submenu": "Color", "id": "color", "items": [{"generator": "backdropColors", "action": "backdrop.color"}]},
+      "backdrop.delete"
+    ],
+    "editMenu": [
+      "graph.undo",
+      "graph.redo",
+      "-",
+      "graph.frame",
+      "graph.frameAll",
+      "graph.tidy",
+      "-",
+      "graph.group",
+      "graph.ungroup",
+      "graph.delete",
+      "-",
+      "graph.copy",
+      "graph.paste",
+      "-",
+      {"generator": "units"},
+      {"generator": "themeMenu"},
+      "graph.gpuPreview",
+      "-",
+      "graph.reload"
+    ],
+    "addMenu": [
+      {"generator": "nodeCategories"},
+      "-",
+      {"id": "node.newScript", "needs": ["catalog"]},
+      {"id": "node.import", "needs": ["catalog"]},
+      {"id": "node.openFolder", "needs": ["catalog"]}
+    ],
+    "presetMenu": [
+      {"generator": "presets"},
+      "-",
+      "preset.save",
+      "-",
+      "graph.copy",
+      "graph.paste"
+    ],
+    "presetItem": ["preset.apply", "preset.insert"],
+    "keyMenu": [
+      "param.setKey",
+      "param.deleteKey",
+      "param.removeAnimation",
+      "param.selectAttribute",
+      {"generator": "paramControl", "needs": ["param.linked"], "hosts": ["maya"]}
+    ],
+    "paramMenu": [
+      {"include": "graph/keyMenu", "needs": ["param.keyable"]},
+      "-",
+      {"id": "param.expose", "needs": ["param.linkable"]},
+      "-",
+      {"ref": "graph/paintMenu", "needs": ["param.linkable", "param.mappable", "groom"]},
+      "-",
+      {"id": "param.driveWithSlider", "needs": ["param.linkable", "param.mappable", "groom"]}
+    ],
+    "paintMenu": {
+      "label": "Paint",
+      "tip": "Paint this param: a map feeding it through a Map node (white = its value now, black = 0), painted in Groom Tools > Paint",
+      "items": ["param.paintGuides", "param.paintVertices", "param.paintTexture"]
+    }
+  }
+}

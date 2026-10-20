@@ -13,6 +13,28 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.19.5 (October 19, 2026)
+
+- **Smoother Graph Editor panning and zooming.** Alt+drag and middle-drag pan a 30-node graph
+  several times faster (nodes are drawn once and moved, not redrawn), and Alt+right-drag zooms
+  without lag.
+- **The Select tool redraws on release.** A marquee, a Shift pick and a click on nothing to
+  deselect every guide show in the viewport the moment you let go, without moving the camera.
+- **Opening a scene picks its groom.** After File > Open (and when the Groom Tools open on a scene
+  with grooms) the tools work on the scene's groom, the one you last worked on when the scene has
+  it, instead of showing Start a groom. Selecting another groom still switches to it.
+- **Windows stay where you put them.** The Groom Tools and the Graph Editor reopen where they were
+  after Maya restarts (an update's restart too): floating on another monitor, docked or tabbed,
+  their size. The Reference, Transfer, Card Maps, Updates and Import windows remember their place
+  and size too. (Windows placed before this version open in their default place once.)
+- **The Graph Editor clears with the scene.** File > New empties it, and File > Open shows the
+  opened scene's groom, instead of keeping the closed scene's nodes.
+
+- **Twist is symmetric.** With symmetry on, the Twist brush (and the Shape brush's twist) turns the
+  mirror side the opposite way, so both sides stay mirror images.
+- **Wider scroll bars.** The Groom Tools' and Graph Editor's scroll bars are wider, with a visible
+  track, and light up under the cursor, so they are easy to see and to grab.
+
 ## 0.19.4 (October 19, 2026)
 
 - **Guide colors are automatic.** Guide Color and Theme Guide Colors are gone from the Attribute

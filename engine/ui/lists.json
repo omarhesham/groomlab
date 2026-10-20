@@ -1,0 +1,94 @@
+{
+  "$schema": "./ui.schema.json",
+  "version": 1,
+  "lists": {
+    "groups": {
+      "about": "Place and Draw add to the <b>Group</b> picked at the top; brushes edit it. Guides nodes in the graph read groups by name.",
+      "bar": [
+        {"id": "group.new", "label": "+ New Group"},
+        {"id": "group.rename", "glyph": "rename"},
+        {"id": "group.select", "glyph": "select"},
+        {"id": "group.delete", "glyph": "delete"}
+      ],
+      "context": ["group.new", "group.rename", "group.color", "group.defaultColor", "group.select", "-", "group.delete"],
+      "edits": {
+        "label": "Edit Guides",
+        "tip": "Children, resampling, symmetry, mirroring, reparenting, curves, selection",
+        "items": [
+          "guides.children",
+          "-",
+          "guides.syncPos",
+          "guides.syncNeg",
+          "guides.mirrorSelection",
+          "guides.mirrorGroup",
+          "-",
+          "guides.reparent",
+          "group.promoteDemote",
+          "guides.fromCurves",
+          "guides.clearSelection"
+        ]
+      }
+    },
+    "parts": {
+      "bar": ["parts.fromCurves", "parts.remove", "parts.clear"]
+    },
+    "maps": {
+      "bar": [
+        {"id": "map.new", "label": "+ New Map"},
+        {"id": "map.import", "label": "Import..."},
+        {"id": "map.rename", "glyph": "rename"},
+        {"submenu": "Convert to", "id": "map.convert", "glyph": "convert", "tip": "Convert to another kind: its name, and what reads it, stay the same", "ref": "lists/maps/convert"},
+        {"id": "map.delete", "glyph": "delete"}
+      ],
+      "convert": [{"generator": "choices", "choices": "mapKind", "action": "map.convert", "labelField": "convert"}],
+      "image": [
+        {"id": "map.relink", "needs": ["map", "map.texture"]},
+        {"id": "map.relink", "needs": ["map", "!map.texture"], "tip": "Point the map at another image: a PNG is used in place (painting edits it); a JPEG, TGA, PSD... is copied into the masks folder as a PNG. The map becomes a texture map (what reads it follows)"},
+        "map.reloadImage",
+        "map.showFile"
+      ],
+      "context": [
+        {"id": "map.new", "tip": ""},
+        {"id": "map.import", "tip": ""},
+        {"id": "map.rename", "tip": ""},
+        {"submenu": "Convert to", "id": "map.convert", "needs": ["map"], "ref": "lists/maps/convert"},
+        "map.makeGray",
+        "map.makeColor",
+        "-",
+        {"include": "lists/maps/image"},
+        "-",
+        {"id": "map.delete", "tip": ""},
+        "map.deleteFiles"
+      ],
+      "forTip": "A map for a setting is made white (the setting as it is), linked to it and picked with the Paint brush on it, in one undo step: strokes paint toward the value, Ctrl toward 0 (on Density: no hair). When the setting reads a map already, that map is picked instead."
+    },
+    "correctives": {
+      "about": "Brushes edit the picked row: the <b>Base groom</b>, a corrective on top of it, or a <b>Sculpt node</b>'s guides. <b>Fix Frame</b> keys a corrective in and out around this frame.",
+      "bar": [
+        {"id": "corrective.new", "label": "+ New"},
+        {"id": "corrective.fixFrame", "label": "◆ Fix Frame"},
+        {"id": "corrective.up", "glyph": "up"},
+        {"id": "corrective.down", "glyph": "down"},
+        {"id": "corrective.solo", "glyph": "solo"},
+        {"id": "corrective.delete", "glyph": "delete"}
+      ],
+      "context": ["corrective.goTo", "corrective.keyWeight", "corrective.clearKeys", "corrective.rename", "-", "corrective.solo", "corrective.delete"],
+      "nodeContext": [{"id": "sculpt.clearEdits", "label": "Clear Edits", "needs": []}]
+    },
+    "photos": {
+      "about": "Each photo is a camera. <b>Look Through</b> it, line it up with the mesh (by eye, or <b>Align by Points</b>), then <b>Lock</b> it and groom to it.",
+      "bar": [
+        {"id": "photo.import", "label": "+ Import Photo..."},
+        {"id": "photo.rename", "glyph": "rename"},
+        {"id": "photo.remove", "glyph": "delete"}
+      ],
+      "context": ["photo.import", "photo.lookThrough", "photo.rename", "photo.selectCamera", "-", "photo.remove"],
+      "pairsBar": ["pairs.solve", "pairs.clear", {"id": "pairs.delete", "glyph": "delete"}],
+      "pairsContext": ["pairs.repickPhoto", "pairs.repickMesh", "-", "pairs.delete"],
+      "guidesBar": [
+        {"id": "photos.guides", "label": "Open Guides from Photos...", "tip": "The photo and the mesh side by side: landmarks line the photo's camera up, flow arrows and mask touch-ups on the photo, Generate and the measured look"},
+        "photo.addView"
+      ]
+    }
+  }
+}
