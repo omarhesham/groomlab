@@ -4,7 +4,7 @@
 # Apache-2.0 like the rest of GroomLab (the add-on is GPL-3.0-or-later): it is never loaded into
 # Blender's process.
 
-add_library(groomlab_helper_objs OBJECT src/helper.cpp src/tools.cpp src/authoring.cpp src/shared_memory.cpp)
+add_library(groomlab_helper_objs OBJECT src/helper.cpp src/tools.cpp src/authoring.cpp src/pipeline.cpp src/reference.cpp src/shared_memory.cpp)
 target_link_libraries(groomlab_helper_objs PUBLIC groomlab::core groomlab::warnings nlohmann_json::nlohmann_json)
 if(TARGET groomlab_alembic)
     target_link_libraries(groomlab_helper_objs PUBLIC groomlab::alembic)
@@ -18,6 +18,9 @@ target_compile_definitions(groomlab_helper_objs PRIVATE "GROOMLAB_SHIPPED_PRESET
 # The compound nodes shipped with every host, the same way (bin/nodes when installed).
 groomlab_path_literal(_helper_nodes "${PROJECT_SOURCE_DIR}/hosts/maya/nodes")
 target_compile_definitions(groomlab_helper_objs PRIVATE "GROOMLAB_SHIPPED_NODES=${_helper_nodes}")
+# The sample meshes (Nika, Manny, the wolf: CC BY 4.0) the add-on adds, the same way (bin/meshes when installed).
+groomlab_path_literal(_helper_meshes "${PROJECT_SOURCE_DIR}/hosts/maya/meshes")
+target_compile_definitions(groomlab_helper_objs PRIVATE "GROOMLAB_SHIPPED_MESHES=${_helper_meshes}")
 
 # The shipped helper and the tests' build of it (test hooks) share everything but main's object.
 function(groomlab_helper_executable name)
@@ -42,7 +45,7 @@ if(GROOMLAB_BUILD_TESTS)
 endif()
 
 # The Blender package's helper half: GroomLabBlender/bin with the helper, its runtime DLLs, the
-# shipped presets, the helper's license (Apache-2.0: LICENSE, NOTICE, LICENSE-HELPER.txt) and the
+# shipped presets, nodes and sample meshes, the helper's license (Apache-2.0: LICENSE, NOTICE, LICENSE-HELPER.txt) and the
 # third-party notices. The add-on (GPL) goes beside bin/ in GroomLabBlender/.
 set(GROOMLAB_BLENDER_BIN "GroomLabBlender/bin")
 install(TARGETS groomlab-helper RUNTIME DESTINATION "${GROOMLAB_BLENDER_BIN}" COMPONENT Blender)
@@ -52,5 +55,6 @@ if(WIN32 AND GROOMLAB_TBB_RUNTIME)
 endif()
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/presets/" DESTINATION "${GROOMLAB_BLENDER_BIN}/presets" COMPONENT Blender)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/" DESTINATION "${GROOMLAB_BLENDER_BIN}/nodes" COMPONENT Blender)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/meshes/" DESTINATION "${GROOMLAB_BLENDER_BIN}/meshes" COMPONENT Blender)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE-HELPER.txt" DESTINATION "${GROOMLAB_BLENDER_BIN}" COMPONENT Blender)
 groomlab_install_legal("${GROOMLAB_BLENDER_BIN}" Blender)

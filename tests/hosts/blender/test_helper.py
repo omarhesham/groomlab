@@ -188,7 +188,7 @@ class ProtocolTest(HelperTestCase):
         r = self.h.call("hello", protocol=1)
         self.assertEqual(r["protocol"], 1)
         self.assertEqual(r["groomSpace"], {"upAxis": "Y", "units": "cm"})
-        self.assertEqual(r["features"], {"tools": 1, "state": 1, "cardMaps": 1, "authoring": 1})
+        self.assertEqual(r["features"], {"tools": 1, "state": 1, "cardMaps": 1, "authoring": 1, "pipeline": 1, "photos": 1})
         if CLI:
             out = subprocess.run([CLI, "--version"], capture_output=True, text=True).stdout
             self.assertIn(r["version"], out)
@@ -1021,13 +1021,20 @@ class ToolsTest(HelperTestCase):
         stretched = self.guides()
         lengths = [np.linalg.norm(np.diff(stretched[g], axis=0), axis=1).sum() for g in moved]
         self.assertGreater(max(lengths), 0.0405)  # stretch: longer with the drag
+        # Shift+drag with a brush smooths: the press waits (a Shift+click solos), the drag smooths
+        # (a tester found Blender's Shift held did nothing: its drags were refused, no stroke yet).
+        end = self.stroke("comb", self.comb_events(), shift=True)
+        self.assertEqual(end["released"], "stroke")
+        self.assertTrue(end["committed"])
+        smoothed = self.guides()
+        self.assertTrue(any(np.abs(smoothed[g] - stretched[g]).max() > 1e-5 for g in moved))
         # Draw: a guide shaped like the path from a scalp point.
         a = self.cam.pixel(crown_points(7)[3])
         self.stroke("draw", line(a, (a[0] + 40.0, a[1] + 60.0), 8))
         self.assertEqual(self.call("guides_info")["guides"], 6)
         self.assert_matches_reference()
         u = self.call("undo_state")
-        self.assertEqual(u["undoDepth"], 8)
+        self.assertEqual(u["undoDepth"], 9)
         self.assertEqual(u["undoLabel"], "draw")
 
     def test_brush_pack_curves_symmetry_and_param_brushes(self):
@@ -1444,6 +1451,41 @@ class ToolsTest(HelperTestCase):
             self.call("guides_edit", op="remove_group", group="nope")
         with self.assertRaises(HelperError):
             self.call("guides_edit", op="nope")
+
+    def test_bake_node_to_guides_and_paint_a_param_on_the_guides(self):
+        self.place_guides(4)
+        # Bake Node to Guides: the output's strands as primaries of "baked" (made), one undo step; a
+        # node's again adds to it; a node that is not there, or a child group, is refused.
+        r = self.call("bake_to_guides", density=0.01)
+        self.assertEqual(r["group"], "baked")
+        self.assertGreater(r["guides"], 4)
+        self.assertEqual(len(r["ids"]), r["guides"])
+        info = self.call("guides_info")
+        self.assertEqual([g["name"] for g in info["groups"]], ["primary", "baked"])
+        self.assertEqual(info["guides"], 4 + r["guides"])
+        scatter = [n["name"] for n in self.call("list_nodes")["nodes"] if n["type"] == "Scatter"][0]
+        more = self.call("bake_to_guides", node=scatter, group="baked", density=0.01)
+        self.assertEqual(more["node"], scatter)
+        self.assertGreater(self.call("guides_info")["guides"], info["guides"])
+        self.call("undo")
+        self.call("undo")
+        self.assertEqual(self.call("guides_info")["guides"], 4)
+        with self.assertRaises(HelperError) as e:
+            self.call("bake_to_guides", node="nope")
+        self.assertEqual(e.exception.code, "not_found")
+        # A param painted on the guides (the Graph Editor's Paint > On Guides): a guide layer at 1 on
+        # every primary, linked to the param, the Paint tool on it; one undo step.
+        noise = [n["name"] for n in self.call("list_nodes")["nodes"] if n["type"] == "Noise"][0]
+        r = self.call("map_for_param", node=noise, param="amplitude", kind="guides")
+        self.assertEqual((r["name"], r["kind"]), ("%s_amplitude" % noise, "guides"))
+        self.assertTrue(r["made"] and r["graphChanged"])
+        self.assertEqual((r["tool"]["mode"], r["tool"]["settings"]["paintKind"]), ("paint", "guides"))
+        maps = {m["name"]: m for m in self.call("maps_list")["maps"]}
+        self.assertEqual(maps[r["name"]]["kind"], "guides")
+        self.assertEqual(self.call("map_users", name=r["name"])["users"], [[noise, "amplitude"]])
+        self.assertEqual(self.call("evaluate", density=0.1)["errors"], [])
+        self.call("undo")
+        self.assertNotIn(r["name"], [m["name"] for m in self.call("maps_list")["maps"]])
 
     def test_strand_colors_and_display_while_stroking(self):
         self.place_guides(5)
@@ -2129,6 +2171,494 @@ class AuthoringTest(HelperTestCase):
         self.call("save_preset", name="my look", overwrite=True)
         with self.assertRaises(HelperError):
             self.call("save_preset", name="a/b")
+
+
+# ---- The pipeline (docs/BLENDER.md, "Pipeline") ---------------------------------------------------------
+
+class PipelineTest(HelperTestCase):
+    """Game exports, the scales, strands as a mesh, Simulate Range in steps with the host's scalp
+    frames, bakes, colliders and other scalps, Transfer Groom to Scalp and the sample meshes."""
+
+    def call(self, cmd, **args):
+        return self.h.call(cmd, **args)
+
+    def with_cards(self, s):
+        graph = self.call("get_graph", session=s)["graph"]
+        into = next(c for c in graph["connections"] if c["to"] == graph["output"] and c["input"] == "strands")
+        graph["nodes"].append({"name": "cards", "type": "Cards", "params": {"maxCards": 30}})
+        graph["connections"].append({"from": into["from"], "to": "cards", "input": "strands"})
+        into["from"] = "cards"
+        self.call("set_graph", session=s, graph=graph)
+
+    def compat_session(self):
+        s = self.call("new_session")["session"]
+        self.call("load_groom", session=s, path=COMPAT_GROOM)
+        self.call("set_time", session=s, frame=1)
+        return s
+
+    def mesh(self, ref):
+        return {k: self.h.array(ref[k]) for k in ("points", "faceCounts", "faceIndices")}
+
+    def test_engine_strand_exports(self):
+        s = self.head_session()
+        unreal = os.path.join(self.tmp, "head_unreal.abc")
+        r = self.call("export", session=s, format="unrealGroom", path=unreal, density=0.1, name="head")
+        self.assertGreater(os.path.getsize(unreal), 0)
+        self.assertEqual(r["frames"], 1)
+        self.assertTrue(r["objects"])
+        unity = os.path.join(self.tmp, "head_unity.abc")
+        r = self.call("export", session=s, format="unityStrands", path=unity, density=0.1, pointsPerStrand=16,
+                      frames={"first": 1, "last": 3})
+        self.assertEqual(r["frames"], 3)
+        self.assertEqual({o["pointsPerStrand"] for o in r["objects"]}, {16})
+        self.assertEqual({(o["minPoints"], o["maxPoints"]) for o in r["objects"]}, {(16, 16)})
+        e = self.h.request("export", session=s, format="unityStrands", path=unity, pointsPerStrand=200)
+        self.assertEqual(e["error"]["code"], "bad_request")
+        e = self.h.request("export", session=s, format="unrealGroom", path=unreal, lod="tiny")
+        self.assertEqual(e["error"]["code"], "bad_request")
+        # Frame by frame, the engine's groom too.
+        ex = self.call("export_open", session=s, format="unrealGroom", path=os.path.join(self.tmp, "frames.abc"), lod="mid")["export"]
+        for f in (1, 2):
+            self.call("export_frame", session=s, export=ex, frame=f, density=0.1)
+        self.assertEqual(self.call("export_close", session=s, export=ex)["frames"], 2)
+        self.assertEqual(self.h.request("export", session=s, format="fbx", path=unreal)["error"]["code"], "bad_request")
+
+    def test_card_exports_gltf_unreal_and_unity(self):
+        s = self.head_session()
+        self.with_cards(s)
+        graph = self.call("get_graph", session=s)["graph"]
+        glb = os.path.join(self.tmp, "head_cards.glb")
+        r = self.call("export", session=s, format="gltfCards", path=glb, name="head", resolution=64)
+        self.assertEqual(len(r["files"]), 1)
+        self.assertTrue(os.path.samefile(r["files"][0], glb))
+        self.assertEqual(r["meshes"], ["head_cards", "head_scalpCap"])
+        with open(glb, "rb") as f:
+            self.assertEqual(f.read(4), b"glTF")
+        r = self.call("export", session=s, format="gltfCards", path=os.path.join(self.tmp, "lods.gltf"), name="head",
+                      resolution=32, lods=["mid", "low"], cap=False)
+        self.assertEqual(r["meshes"], ["head_mid", "head_low"])
+        self.assertEqual(len(r["files"]), 2 + 4)  # the .gltf, its .bin, two PNGs a mesh
+        self.assertEqual(self.call("get_graph", session=s)["graph"], graph, "the levels of detail are baked from copies")
+        self.assertEqual(self.h.request("export", session=s, format="gltfCards", path=glb, lods=["huge"])["error"]["code"],
+                         "bad_request")
+
+        out = os.path.join(self.tmp, "unreal")
+        r = self.call("export", session=s, format="unrealCards", directory=out, name="head", resolution=64)
+        self.assertEqual(sorted(os.path.basename(p) for p in r["maps"]),
+                         sorted(["head_%s.tga" % m for m in ("Depth", "Coverage", "Tangent", "Attribute", "Color", "AO",
+                                                              "ScalpColor", "ScalpCoverage")]))
+        with open(r["manifest"]) as f:
+            manifest = json.load(f)
+        self.assertEqual(manifest["mesh"], "head_cards.fbx")
+        self.assertEqual(manifest["scalpCap"], "head_scalpCap.fbx")
+        self.assertGreater(manifest["cards"], 0)
+        self.assertEqual(manifest["maps"]["Color"], "head_Color.tga")
+        cards = r["meshes"]["cards"]
+        m = self.mesh(cards)
+        self.assertTrue((m["faceCounts"] == 4).all())
+        self.assertEqual(cards["corners"], len(m["faceIndices"]))
+        self.assertEqual(self.h.array(cards["uvs"]).shape, (cards["corners"], 2))
+        self.assertEqual(self.h.array(cards["normals"]).shape, (cards["corners"], 3))
+        tint = self.h.array(cards["colors"]["groomLabTint"])
+        self.assertEqual(tint.shape, (cards["corners"], 4))
+        self.assertTrue(np.allclose(tint[:, 3], 1.0))
+        self.assertEqual(cards["triangles"], manifest["triangles"])
+        self.assertEqual(cards["fbx"], r["fbx"])
+        cap = self.mesh(r["meshes"]["scalpCap"])
+        self.assertEqual(len(cap["points"]), len(HEAD[0]))
+        # The cap stands just off the skin (host space: Blender's meters).
+        lift = np.linalg.norm(cap["points"] - to_blender(HEAD[0]), axis=1)
+        self.assertTrue(np.median(lift) > 0 and (lift < 0.01).all())  # (a point no face uses stays)
+
+        out = os.path.join(self.tmp, "unity")
+        r = self.call("export", session=s, format="unityCards", directory=out, name="head", resolution=32)
+        self.assertEqual(sorted(os.path.basename(p) for p in r["maps"]),
+                         sorted(["head_%s.png" % m for m in ("BaseColor", "Mask", "AO", "Tangent", "Depth", "Attribute",
+                                                              "ScalpBaseColor")]))
+        with open(r["manifest"]) as f:
+            manifest = json.load(f)
+        self.assertEqual(manifest["engine"], "Unity")
+        self.assertEqual(manifest["materials"]["HDRP"]["Base Color Map"], "head_BaseColor.png")
+        self.assertEqual(r["meshes"]["cards"]["material"], "head_cards_mat")
+        self.assertEqual(r["fbxSettings"], {"upAxis": "Y", "units": "m"})
+
+        # The groom's strands as one mesh: tubes of 4 sides, at most 40 strands (thinned by ID).
+        r = self.call("strand_mesh", session=s, style="tube", sides=4, maxStrands=40, density=0.2, strandUVs=True)
+        self.assertEqual(r["strands"], 40)
+        self.assertTrue(r["capped"])
+        m = r["meshes"]["strands"]
+        self.assertEqual(sum(self.h.array(m["faceCounts"])), m["corners"])
+        self.assertIn("strandUVs", m["uvSets"])
+        self.assertEqual(self.call("strand_mesh", session=s, nodes=True)["nodes"], [])  # no StrandMesh node
+
+    def test_scales_mesh_maps_and_instancer(self):
+        s = self.head_session(preset="dragon_scales")
+        r = self.call("scale_mesh", session=s)
+        scales = r["meshes"]["scales"]
+        self.assertGreater(scales["scales"], 0)
+        m = self.mesh(scales)
+        self.assertTrue((m["faceCounts"] == 3).all())
+        self.assertEqual(set(scales["uvSets"]), {"scaleUV", "scaleData"})
+        self.assertEqual(set(scales["colors"]), {"scaleColor", "scaleRootColor"})
+        fbx = os.path.join(self.tmp, "head_scales.fbx")
+        r = self.call("export", session=s, format="scalesFbx", path=fbx)
+        self.assertEqual(r["fbx"], fbx)
+        self.assertEqual(r["meshes"]["scales"]["fbx"], fbx)
+        self.assertEqual(self.h.request("export", session=s, format="scalesFbx", path=fbx + ".abc")["error"]["code"], "bad_request")
+        maps = self.call("bake_scale_maps", session=s, directory=self.tmp, name="head", resolution=64)
+        self.assertEqual(sorted(os.path.basename(p) for p in maps["files"]),
+                         sorted(["head_ScaleNormal.png", "head_ScaleHeight.png", "head_ScaleColor.png"]))
+        self.assertGreater(maps["maxHeight"], 0.0)
+        usd = os.path.join(self.tmp, "head_scales.usda")
+        self.call("export", session=s, format="scalesUsd", path=usd, density=0.2)
+        with open(usd) as f:
+            self.assertIn("PointInstancer", f.read())
+        plain = self.head_session()
+        self.assertEqual(self.h.request("scale_mesh", session=plain)["error"]["code"], "state")
+
+    def add_simulate(self, s):
+        self.call("edit_graph", session=s, op="add_node", type="Simulate", name="sim")
+        self.call("edit_graph", session=s, op="insert_on_link", **{"from": "guides"}, to="interpolate", input="guides", node="sim")
+        self.assertEqual(self.call("simulate_status", session=s)["nodes"], ["sim"])
+
+    def test_simulate_range_in_steps_fed_by_the_scalps_frames(self):
+        moved, still = self.compat_session(), self.compat_session()
+        for s in (moved, still):
+            self.add_simulate(s)
+        scalp = self.call("get_scalp", session=moved)
+        rest = self.h.array(scalp["arrays"]["points"])
+        frames = []
+        for f in range(1, 11):  # the head swings 10 cm along X and comes back by frame 10
+            p = rest.copy()
+            p[:, 0] += 0.10 * np.sin(np.pi * (f - 1) / 9.0)
+            frames.append(p)
+        r = self.call("set_scalp_frames", session=moved, first=1, **self.h.put(points=np.concatenate(frames)))
+        self.assertEqual((r["first"], r["last"], r["frames"]), (1, 10, 10))
+        # Steps of at most 1 ms: the range runs over several requests, the protocol answering between.
+        job = self.call("simulate_range", session=moved, last=10, budgetMs=1)
+        polls = 0
+        while job["running"]:
+            self.assertTrue(self.call("ping")["pong"])
+            job = self.call("simulate_poll", session=moved)
+            polls += 1
+            self.assertLess(polls, 200)
+        self.assertTrue(job["done"])
+        self.assertEqual(job["status"][0]["ranges"][-1][-1], 10)
+        self.assertTrue(self.call("simulate_range", session=still, last=10, budgetMs=0)["done"])
+        positions = []
+        for s in (moved, still):
+            self.call("set_time", session=s, frame=10)
+            r = self.call("evaluate", session=s, density=0.2, space="groom")
+            positions.append(self.h.array(r["arrays"]["positions"]))
+        self.assertEqual(positions[0].shape, positions[1].shape)
+        self.assertFalse(np.allclose(positions[0], positions[1], atol=1e-3), "the swing moved the simulated hair")
+        # A job can be stopped; the frames stepped stay.
+        self.call("simulate_clear", session=still)
+        job = self.call("simulate_range", session=still, last=10, budgetMs=1)
+        self.assertTrue(self.call("simulate_cancel", session=still)["cancelled"] or not job["running"])
+        self.assertFalse(self.call("simulate_poll", session=still)["running"])
+
+        # Bake: one undo step; undo reads no bake, redo the bake again.
+        r = self.call("simulate_bake", session=moved, last=10, directory=self.tmp, name="compat")
+        path = r["written"]["sim"]
+        self.assertTrue(os.path.isfile(path))
+        status = self.call("simulate_status", session=moved)
+        self.assertTrue(status["status"][0]["baked"])
+        self.assertIn("sim", status["bakes"])
+        self.assertEqual(r["undo"]["undoLabel"], "bake simulation")
+        saved = os.path.join(self.tmp, "baked.groom")
+        self.call("save_groom", session=moved, path=saved)
+        with open(saved) as f:
+            self.assertIn("sim", json.load(f)["simCaches"])
+        self.call("undo", session=moved)
+        self.assertFalse(self.call("simulate_status", session=moved)["status"][0]["baked"])
+        self.call("redo", session=moved)
+        self.assertTrue(self.call("simulate_status", session=moved)["status"][0]["baked"])
+        # Clear: the frames and the bakes go (the bakes as one undo step).
+        r = self.call("simulate_clear", session=moved)
+        self.assertEqual(r["clearedBakes"], ["sim"])
+        self.assertEqual((r["status"][0]["frames"], r["status"][0]["baked"]), (0, False))
+        self.call("undo", session=moved)
+        self.assertTrue(self.call("simulate_status", session=moved)["status"][0]["baked"])
+        self.assertEqual(self.call("set_scalp_frames", session=moved)["frames"], 0)
+        plain = self.head_session()
+        self.assertEqual(self.h.request("simulate_range", session=plain, last=5)["error"]["code"], "state")
+
+    def test_colliders_prototypes_and_other_scalps(self):
+        s = self.head_session()
+        box = {"points": [[-0.1, -0.1, 0.0], [0.1, -0.1, 0.0], [0.1, 0.1, 0.0], [-0.1, 0.1, 0.0]],
+               "faceCounts": [4], "faceIndices": [0, 1, 2, 3]}
+        r = self.call("set_meshes", session=s, meshes={"collar": box})
+        self.assertEqual([(c["name"], c["points"], c["triangles"]) for c in r["colliders"]], [("collar", 4, 2)])
+        moved = {"points": [[x, y, z - 0.05] for x, y, z in box["points"]]}  # the same mesh, posed
+        r = self.call("set_meshes", session=s, meshes={"collar": moved})
+        self.assertEqual(r["colliders"][0]["points"], 4)
+        self.assertEqual(self.h.request("set_meshes", session=s, meshes={"new": moved})["error"]["code"], "bad_request")
+        self.assertEqual(self.h.request("set_meshes", session=s, meshes={"scalp": box})["error"]["code"], "bad_request")
+        r = self.call("set_meshes", session=s, kind="prototype", meshes={"plate": box})
+        self.assertEqual([(p["name"], p["points"], p["triangles"]) for p in r["prototypes"]], [("plate", 4, 2)])
+        ear = {"name": "ear", "points": [[0.3 + 0.02 * (i % 3), 0.0, 0.02 * (i // 3)] for i in range(9)],
+               "faceCounts": [4] * 4, "faceIndices": [0, 1, 4, 3, 1, 2, 5, 4, 3, 4, 7, 6, 4, 5, 8, 7]}
+        r = self.call("set_scalps", session=s, scalps=[ear])
+        self.assertEqual([(x["name"], x["points"], x["triangles"]) for x in r["scalps"]], [("ear", 9, 8)])
+        self.assertEqual(self.h.request("set_scalps", session=s, scalps=[dict(ear, name="scalp")])["error"]["code"], "bad_request")
+        saved = os.path.join(self.tmp, "inputs.groom")
+        self.call("save_groom", session=s, path=saved)
+        with open(saved) as f:
+            groom = json.load(f)
+        self.assertIn("collar", groom["colliders"])
+        self.assertEqual([x["name"] for x in groom["scalps"]], ["ear"])
+        self.assertIn("plate", groom["prototypes"])
+        r = self.call("set_meshes", session=s, meshes={"collar": None})
+        self.assertEqual(r["colliders"], [])
+        self.assertEqual(self.call("set_scalps", session=s, scalps=[])["scalps"], [])
+
+    def hierarchy_points(self, s):
+        g = self.call("get_guides", session=s, source="hierarchy", space="groom")
+        return self.h.array(g["arrays"]["points"])
+
+    def test_transfer_to_another_scalp_is_one_undo_step(self):
+        s = self.compat_session()
+        scalp = self.call("get_scalp", session=s)
+        a = scalp["arrays"]
+        points = self.h.array(a["points"])
+        counts, indices = self.h.array(a["faceCounts"]), self.h.array(a["faceIndices"])
+        uvs = self.h.array(a["uvs"]) if "uvs" in a else None
+        before = self.hierarchy_points(s)
+        moved = points.copy()
+        moved[:, 0] += 0.05  # 5 cm along X (host space: meters)
+        arrays = dict(points=moved, faceCounts=counts, faceIndices=indices)
+        if uvs is not None:
+            arrays["uvs"] = uvs
+        r = self.call("transfer", session=s, method="bounds", **self.h.put(**arrays))
+        self.assertEqual(r["method"], "bounds")
+        self.assertGreater(r["guides"], 0)
+        self.assertEqual(r["undo"]["undoLabel"], "transfer")
+        after = self.hierarchy_points(s)
+        self.assertEqual(after.shape, before.shape)
+        self.assertTrue(np.allclose(after[:, 0] - before[:, 0], 5.0, atol=0.05))
+        self.assertTrue(np.allclose(after[:, 1:], before[:, 1:], atol=0.05))
+        self.assertEqual(self.call("groom_info", session=s)["scalp"]["points"], len(points))
+        self.assertTrue(np.allclose(self.h.array(self.call("get_scalp", session=s)["arrays"]["points"]), moved, atol=1e-6))
+        u = self.call("undo", session=s)
+        self.assertTrue(u["scalpChanged"])
+        self.assertTrue(np.allclose(self.hierarchy_points(s), before, atol=1e-4))
+        self.assertTrue(self.call("redo", session=s)["scalpChanged"])
+        self.assertTrue(np.allclose(self.hierarchy_points(s), after, atol=1e-4))
+        # Markers: given as host points, snapped onto the two meshes and stored; snapMarkers alone
+        # changes nothing.
+        picks = [0, 60, 120, 200]
+        markers = [{"old": moved[i].tolist(), "new": (moved[i] + [0.0, 0.0, 0.02]).tolist()} for i in picks]
+        lifted = moved.copy()
+        lifted[:, 2] += 0.02
+        arrays["points"] = lifted
+        depth = self.call("undo_state", session=s)["undoDepth"]
+        snapped = self.call("transfer", session=s, method="markersAlign", markers=markers, snapMarkers=True,
+                            **self.h.put(**arrays))["markers"]
+        self.assertEqual(len(snapped), 4)
+        self.assertTrue(all(m["old"]["face"] >= 0 and m["new"]["face"] >= 0 for m in snapped))
+        self.assertEqual(self.call("undo_state", session=s)["undoDepth"], depth)
+        r = self.call("transfer", session=s, method="markersAlign", markers=markers, **self.h.put(**arrays))
+        self.assertEqual(r["method"], "markersAlign")
+        self.assertEqual(len(r["markers"]), 4)
+        self.assertTrue(np.allclose(self.hierarchy_points(s)[:, 1] - after[:, 1], 2.0, atol=0.05))  # host Z is groom Y
+        self.assertEqual(len(self.call("transfer_markers", session=s)["markers"]), 4)
+        self.assertEqual(self.h.request("transfer", session=s, method="markersWarp", markers=markers[:2],
+                                        **self.h.put(**arrays))["error"]["code"], "bad_request")
+        self.assertEqual(self.h.request("transfer", session=s, method="nearest", **self.h.put(**arrays))["error"]["code"],
+                         "bad_request")
+
+    def test_sample_meshes(self):
+        r = self.call("sample_meshes")
+        self.assertEqual([m["id"] for m in r["samples"]], ["nika", "manny", "wolf"])
+        for m in r["samples"]:
+            self.assertTrue(os.path.isfile(m["file"]), m["file"])
+            self.assertEqual(m["license"], "CC BY 4.0")
+        self.assertEqual(r["samples"][2]["part"], "wolf_body")
+        self.assertEqual(self.call("hello")["features"]["pipeline"], 1)
+
+    def test_import_alembic_curves_as_guides(self):
+        # Curves written by an Alembic export (GroomLab's: Y up, cm) become the guides an ImportCurves
+        # node reads; the strands follow them. A file with no curves, or none, is refused.
+        s = self.head_session()
+        abc = os.path.join(self.tmp, "curves.abc")
+        self.call("export", session=s, format="alembic", path=abc, frames={"first": 1, "last": 1}, density=0.02)
+        t = self.head_session(preset=None)
+        r = self.call("import_alembic_curves", session=t, path=abc, samples=12)
+        self.assertGreater(r["curves"], 10)
+        self.assertEqual(r["graphError"], "")
+        graph = self.call("get_graph", session=t)["graph"]
+        node = next(n for n in graph["nodes"] if n["name"] == "guides")
+        self.assertEqual(node["type"], "ImportCurves")
+        self.assertEqual((node["params"]["path"], node["params"]["samples"]), (abc, 12))
+        self.assertIn({"from": "scalp", "to": "guides", "input": "scalp"}, graph["connections"])
+        ev = self.call("evaluate", session=t, density=0.1)
+        self.assertEqual(ev["errors"], [])
+        self.assertGreater(len(self.h.array(ev["arrays"]["pointCounts"])), 0)
+        with self.assertRaises(HelperError) as e:
+            self.call("import_alembic_curves", session=t, path=os.path.join(self.tmp, "none.abc"))
+        self.assertEqual(e.exception.code, "io")
+
+
+def write_tga(path, width, height, pixels):
+    """An uncompressed 24-bit TGA (top-left origin) of `pixels` (rows top to bottom, RGB bytes)."""
+    header = bytes([0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, width & 255, width >> 8, height & 255, height >> 8, 24, 0x20])
+    rgb = np.frombuffer(bytes(pixels), np.uint8).reshape(-1, 3)
+    with open(path, "wb") as f:
+        f.write(header + rgb[:, ::-1].tobytes())  # BGR
+
+
+def make_sphere(rings=16, segments=32, radius=1.0):
+    """A UV sphere (Y up), its triangles flat."""
+    points, tris = [], []
+    for r in range(rings + 1):
+        theta = np.pi * r / rings
+        for s in range(segments + 1):
+            phi = 2.0 * np.pi * s / segments
+            points.append((radius * np.sin(theta) * np.cos(phi), radius * np.cos(theta), radius * np.sin(theta) * np.sin(phi)))
+    at = lambda r, s: r * (segments + 1) + s  # noqa: E731
+    for r in range(rings):
+        for s in range(segments):
+            tris += [(at(r, s), at(r, s + 1), at(r + 1, s)), (at(r, s + 1), at(r + 1, s + 1), at(r + 1, s))]
+    return np.array(points, np.float32), np.array(tris, np.int32)
+
+
+def look_rotation(forward, up=(0.0, 0.0, 1.0)):
+    """A camera's rotation (rows; columns its X right, Y up, Z back axes) looking along `forward`."""
+    fw = np.asarray(forward, np.float64)
+    fw /= np.linalg.norm(fw)
+    x = np.cross(fw, up)
+    x /= np.linalg.norm(x)
+    y = np.cross(x, fw)
+    return np.stack([x, y, -fw], axis=1)
+
+
+def project(rotation, eye, focal, width, height, p):
+    c = np.asarray(rotation).T @ (np.asarray(p, np.float64) - np.asarray(eye, np.float64))
+    return [0.5 * width + focal * c[0] / -c[2], 0.5 * height - focal * c[1] / -c[2]]
+
+
+class PhotosTest(HelperTestCase):
+    """Groom Tools > Photos: the photos kept with the groom (its file's referencePhotos, groom space),
+    the camera solved from point pairs in the host's space, and Guides from Photos."""
+
+    def call(self, cmd, **args):
+        return self.h.call(cmd, **args)
+
+    @unittest.skipIf(HEAD is None, "no test head")
+    def test_photos_kept_with_the_groom_and_the_camera_solve(self):
+        s = self.head_session()
+        pts = to_blender(HEAD[0]).astype(np.float64)
+        center = 0.5 * (pts.min(axis=0) + pts.max(axis=0))
+        width, height, focal = 800, 1000, 1400.0
+        eye = center + np.array([0.12, -0.55, 0.05])
+        rot = look_rotation(center - eye)
+        picks = pts[np.linspace(0, len(pts) - 1, 9).round().astype(int)]
+        pairs = [{"image": project(rot, eye, focal, width, height, p), "mesh": p.tolist()} for p in picks]
+        # A first guess off by a few degrees and centimeters, the focal length unknown.
+        guess = look_rotation(center - eye + np.array([0.03, 0.0, -0.02]))
+        r = self.call("solve_camera", session=s, pairs=pairs, width=width, height=height, focalPx=1000.0,
+                      initial={"rotation": guess.tolist(), "position": (eye + 0.03).tolist()})
+        self.assertLess(r["rms"], 0.05)
+        self.assertTrue(r["focalSolved"])
+        self.assertAlmostEqual(r["focalPx"], focal, delta=1.0)
+        np.testing.assert_allclose(r["position"], eye, atol=1e-4)
+        np.testing.assert_allclose(r["rotation"], rot, atol=1e-4)
+        self.assertEqual(len(r["errors"]), 9)
+        # The focal length kept: 4 pairs line it up; a pending pair is left out (its error null).
+        four = pairs[:4] + [{"image": [10.0, 10.0], "mesh": None}]
+        r = self.call("solve_camera", session=s, pairs=four, width=width, height=height, focalPx=focal, keepFocal=True,
+                      initial={"rotation": guess.tolist(), "position": (eye + 0.03).tolist()})
+        self.assertFalse(r["focalSolved"])
+        self.assertEqual(r["focalPx"], focal)
+        np.testing.assert_allclose(r["position"], eye, atol=1e-3)
+        self.assertIsNone(r["errors"][4])
+        with self.assertRaises(HelperError) as e:  # 3 pairs: too few
+            self.call("solve_camera", session=s, pairs=pairs[:3], width=width, height=height, focalPx=focal)
+        self.assertEqual(e.exception.code, "state")
+        # Kept with the groom in groom space (Y up, cm), as the app's Reference window keeps them; the
+        # flow arrows the app drew stay when the host stores the photo again.
+        photo = {"name": "front", "image": "C:/photos/front.png", "width": width, "height": height,
+                 "camera": {"rotation": rot.tolist(), "position": eye.tolist(), "focalPx": focal},
+                 "pairs": [dict(pairs[0], error=0.5), {"image": [3.0, 4.0], "mesh": None}], "rms": 0.5}
+        self.assertEqual(self.call("set_reference_photos", session=s, photos=[photo])["photos"], 1)
+        path = os.path.join(self.tmp, "photos.groom")
+        self.call("save_groom", session=s, path=path)
+        with open(path) as f:
+            stored = json.load(f)["referencePhotos"]
+        self.assertEqual(stored[0]["name"], "front")
+        np.testing.assert_allclose(stored[0]["camera"]["position"], to_groom(eye[None])[0], atol=1e-3)
+        # Its axes turned as directions are: host (x, y, z) is groom (x, z, -y).
+        np.testing.assert_allclose(np.asarray(stored[0]["camera"]["rotation"])[:, 2], [rot[0, 2], rot[2, 2], -rot[1, 2]], atol=1e-9)
+        self.assertEqual(stored[0]["camera"]["focal_px"], focal)
+        self.assertEqual(stored[0]["state"]["landmarks"][1], {"image": [3.0, 4.0], "mesh": None})
+        stored[0]["state"]["strokes"] = [{"points": [[1, 2], [3, 4]], "directed": True}]
+        t = self.call("new_session")["session"]
+        with open(path) as f:
+            whole = json.load(f)
+        whole["referencePhotos"] = stored
+        with open(path, "w") as f:
+            json.dump(whole, f)
+        self.call("load_groom", session=t, path=path)
+        back = self.call("reference_photos", session=t)["photos"]
+        self.assertEqual(len(back), 1)
+        np.testing.assert_allclose(back[0]["camera"]["position"], eye, atol=1e-6)
+        np.testing.assert_allclose(back[0]["camera"]["rotation"], rot, atol=1e-9)
+        np.testing.assert_allclose(back[0]["pairs"][0]["mesh"], pairs[0]["mesh"], atol=1e-6)
+        self.assertEqual((back[0]["pairs"][0]["error"], back[0]["rms"], back[0]["strokes"]), (0.5, 0.5, 1))
+        self.call("set_reference_photos", session=t, photos=[dict(back[0], pairs=[])])
+        again = self.call("reference_photos", session=t)["photos"][0]
+        self.assertEqual((again["pairs"], again["strokes"]), ([], 1))
+        self.call("set_reference_photos", session=t, photos=[])
+        self.assertEqual(self.call("reference_photos", session=t)["photos"], [])
+        with self.assertRaises(HelperError):
+            self.call("set_reference_photos", session=t, photos=[photo, photo])
+
+    def test_guides_from_photos(self):
+        # The core's own case (test_groomlab_core: vertical strands over a ball on a plain backdrop),
+        # through the helper: the photo kept with the groom, the guides into fromReference, one undo step.
+        s = self.call("new_session", space={"upAxis": "Y", "metersPerUnit": 0.01})["session"]
+        points, tris = make_sphere()
+        self.call("set_scalp", session=s, **self.h.put(points=points, faceCounts=np.full(len(tris), 3, np.int32),
+                                                        faceIndices=tris.ravel()))
+        self.call("new_groom", session=s)
+        size = 160
+        focal = 0.5 * size / np.tan(np.radians(20.0))
+        pixels = bytearray([255] * (size * size * 3))
+        r = focal * 1.1 / 6.0
+        for y in range(size):
+            for x in range(0, size, 3):
+                dx, dy = x - size / 2.0, y - size / 2.0
+                if abs(dx) < r and -r < dy < 1.6 * r:
+                    i = 3 * (y * size + x)
+                    pixels[i:i + 3] = b"\x40\x30\x20"
+        image = os.path.join(self.tmp, "front.tga")
+        write_tga(image, size, size, pixels)
+        cam = {"rotation": np.eye(3).tolist(), "position": [0.0, 0.0, 6.0], "focalPx": focal}
+        self.call("set_reference_photos", session=s, photos=[
+            {"name": "front", "image": image, "width": size, "height": size, "camera": cam},
+            {"name": "side", "image": image, "width": size, "height": size}])  # not lined up: left out
+        r = self.call("guides_from_photos", session=s, guideCount=80, symmetry="none", maxLength=1.2)
+        self.assertEqual((r["group"], r["views"], r["symmetry"]), ("fromReference", 1, "none"))
+        self.assertGreater(r["guides"], 5)
+        self.assertIn("melanin", r["look"])
+        info = self.call("guides_info", session=s)
+        group = next(g for g in info["groups"] if g["name"] == "fromReference")
+        self.assertEqual(group["guides"], r["guides"])
+        g = self.call("get_guides", session=s, source="hierarchy")
+        a = g["arrays"]
+        counts, pts = self.h.array(a["counts"]), self.h.array(a["points"])
+        starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+        down = sum(1 for st, n in zip(starts, counts) if pts[st + n - 1][1] < pts[st][1] - 0.3)
+        self.assertGreater(down, 0.6 * len(counts))
+        # Again: the group replaced, not added to; undo takes it back.
+        again = self.call("guides_from_photos", session=s, guideCount=80, symmetry="none", maxLength=1.2)
+        self.assertEqual(self.call("guides_info", session=s)["guides"], again["guides"])
+        self.call("undo", session=s)
+        self.assertEqual(self.call("guides_info", session=s)["guides"], r["guides"])
+        with self.assertRaises(HelperError) as e:
+            self.call("guides_from_photos", session=s, photos=["side"])
+        self.assertEqual(e.exception.code, "state")
 
 
 if __name__ == "__main__":

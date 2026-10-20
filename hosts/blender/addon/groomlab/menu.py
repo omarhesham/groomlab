@@ -1,23 +1,240 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The GroomLab menu in Blender's top bar, Maya's GroomLab menu (hosts/maya/scripts/groomlab/ui/
-menu.py) in its order with what Blender has: Groom Tools, Graph Editor, Create Groom from
-Selection, Groom Files, Paint, Presets, Export, Keyboard Shortcuts..., Open Download Page (Maya's
-Check for Updates...: the add-on has no update check of its own), Help, Support GroomLab."""
+"""The GroomLab menu in Blender's top bar and every menu the shared UI definitions describe
+(engine/ui/*.json, docs/UI_DEFINITIONS.md): Maya's GroomLab menu (menus.json "main") in its order,
+the Groom Tools' More menu, Output strip menus and empty state, and the lists' right-click menus
+(guide groups and Edit Guides, maps, correctives, Sculpt nodes). An item shows when actions.py binds
+its id (Blender runs it) and its conditions hold; the rest is hidden. Each submenu is a Menu class
+made at registration from the files (GROOMLAB_MT_<menu>_<submenu>)."""
 
 import bpy
 from bpy.props import EnumProperty
 
-from . import icons, process, tool_ops
+from . import actions, definitions, icons, process, tool_ops
 from .ui import _wrap
 
-DOCS_URL = "https://getgroomlab.com/docs/blender"
-UPDATES_URL = "https://getgroomlab.com/download"  # the Download page (Blender's own updates: the remote repository)
-DONATE_URL = "https://ko-fi.com/getgroomlab"  # Support GroomLab: free for any use, funded by donations
+DOCS_URL = actions.DOCS_URL
+UPDATES_URL = actions.UPDATES_URL
+DONATE_URL = actions.DONATE_URL
+DISCORD_URL = actions.DISCORD_URL
 REPO_URL = "https://github.com/thekesslereffect/groomlab"  # the source: open source (Apache-2.0; this add-on GPL)
-DISCORD_URL = "https://discord.gg/sr2rxjRVkm"  # the GroomLab community
 ABOUT = ("Hair, fur and feather grooming in Blender: the Groom Tools for the guides, the Graph Editor for the "
          "look, Cycles and EEVEE renders, and a .groom file Maya and the GroomLab app open as it is.")
+# The Groom Tools' tabs Blender has (palette.json's tabs: all of them).
+TABS = ("tools", "paint", "correctives", "photos")
+# A bar entry's glyph (lists.json) as a Blender icon.
+GLYPHS = {"rename": "GREASEPENCIL", "select": "RESTRICT_SELECT_OFF", "delete": "TRASH", "convert": "FILE_REFRESH",
+          "up": "TRIA_UP", "down": "TRIA_DOWN", "solo": "SOLO_OFF"}
+# Menus built from a container of the files: (class name, key of its submenus' classes, slash path,
+# whether entries' conditions apply; an action bar shows every entry).
+ROOTS = (
+    ("GROOMLAB_MT_main", "main", "menus/main", True),
+    ("GROOMLAB_MT_tools_more", "more", "palette/header/more", True),
+    ("GROOMLAB_MT_guide_edits", "edits", "lists/groups/edits", True),
+    ("GROOMLAB_MT_group_context", "groups", "lists/groups/context", True),
+    ("GROOMLAB_MT_map_context", "maps", "lists/maps/context", True),
+    ("GROOMLAB_MT_corrective_context", "correctives", "lists/correctives/context", True),
+    ("GROOMLAB_MT_sculpt_node_context", "sculptnode", "lists/correctives/nodeContext", True),
+    ("GROOMLAB_MT_photo_context", "photos", "lists/photos/context", True),
+    ("GROOMLAB_MT_pair_context", "pairs", "lists/photos/pairsContext", True),
+)
+# Containers drawn inline in a panel whose submenus still need classes.
+INLINE = (("output", "palette/output"), ("empty", "palette/empty"), ("mapsbar", "lists/maps/bar"))
 
+
+def tab_items():
+    """The Groom Tools' tabs as Blender enum items (palette.json's, those Blender has)."""
+    return [(t["id"].upper(), t["label"], t.get("tip", "")) for t in definitions.tabs() if t["id"] in TABS]
+
+
+# ---- What holds (the definitions' "needs" and "enabled" conditions) ---------------------------------
+
+def state(context):
+    """The conditions that hold now: groom, catalog, group, group.color, map, map.texture,
+    map.color, map.scalp, photo."""
+    from . import photos, tools
+    from .ops import active_groom
+    s = set()
+    scene = getattr(context, "scene", None)
+    if scene is None:
+        return s
+    if active_groom(context) is not None:
+        s.add("groom")
+    if tools.cached_catalog():
+        s.add("catalog")
+    t = scene.groomlab_tools
+    g = next((g for g in t.groups if g.name == t.group), None)
+    if g is not None:
+        s.add("group")
+        if g.has_color:
+            s.add("group.color")
+    m = tools.current_map(scene)
+    if m is not None:
+        s.add("map")
+        if m.kind == "texture":
+            s.add("map.texture")
+        if m.channels > 1:
+            s.add("map.color")
+        if m.kind in ("vertices", "texture"):
+            s.add("map.scalp")
+    if photos.current(scene) is not None:
+        s.add("photo")
+    return s
+
+
+def resolve(entries, context, conditions=True):
+    """`entries` for Blender: bound actions only, conditions met (`conditions`, else every entry
+    as an action bar shows them), the host's generators left out."""
+    return definitions.resolve(entries, state(context) if conditions else None, keep=actions.bound,
+                               drop_generators=True)
+
+
+def _key(text):
+    return "".join(c for c in str(text).lower() if c.isalnum())
+
+
+def submenu_idname(key, item_id):
+    return "GROOMLAB_MT_%s_%s" % (key, _key(item_id))
+
+
+def draw_action(layout, item, context, text=None, icon=None, emboss=True):
+    """One bound action as Blender draws it: its operator (or a setting's checkbox), the
+    definitions' label, the item's value on the binding's property."""
+    idname, props = actions.binding(item["id"])
+    label = item["label"] if text is None else text
+    where = layout
+    if not item.get("enabled", True):
+        where = layout.row()
+        where.enabled = False
+    if idname.startswith("prop:"):
+        data = context.scene
+        path = idname[len("prop:"):].split(".")
+        for part in path[:-1]:
+            data = getattr(data, part)
+        where.prop(data, path[-1], text=label)
+        return None
+    kwargs = {"text": label, "emboss": emboss}
+    stem = item.get("icon")
+    if icon is not None:
+        kwargs["icon"] = icon
+    elif stem:
+        kwargs["icon_value"] = icons.icon(stem)
+    op = where.operator(idname, **kwargs)
+    props = dict(props)
+    value_prop = props.pop("$value", "value")
+    for k, v in props.items():
+        setattr(op, k, v)
+    if item.get("value") is not None:
+        setattr(op, value_prop, item["value"])
+    return op
+
+
+def draw_items(layout, items, key, context):
+    """Resolved items into a Blender menu (or a panel's column): actions, dividers, submenus."""
+    for item in items:
+        kind = item["kind"]
+        if kind == "divider":
+            layout.separator()
+        elif kind == "submenu":
+            layout.menu(submenu_idname(key, item["id"]), text=item["label"])
+        elif kind == "action":
+            draw_action(layout, item, context)
+
+
+def draw_container(layout, path, key, context, conditions=True):
+    node = definitions.get(path)
+    entries = node["items"] if isinstance(node, dict) else node
+    draw_items(layout, resolve(entries, context, conditions), key, context)
+
+
+def draw_root(layout, idname, context):
+    """A root menu's entries drawn into `layout` (a right-click menu appends them)."""
+    for name, key, path, conditions in ROOTS:
+        if name == idname:
+            draw_container(layout, path, key, context, conditions)
+            return
+
+
+# ---- Menu classes from the files -------------------------------------------------------------------
+
+class DefinitionMenu(object):
+    """A menu whose entries are a container of the definitions (`_entries`), its submenus' classes
+    named from `_key`."""
+    _entries = ()
+    _key = ""
+    _conditions = True
+
+    def draw(self, context):
+        draw_items(self.layout, resolve(self._entries, context, self._conditions), self._key, context)
+        extra = EXTRAS.get(self.bl_idname)
+        if extra is not None:
+            extra(self.layout, context)
+
+
+def _guide_edit_extras(layout, context):
+    """Blender's own guide edits after Maya's (the brushes' selection and freeze work without a
+    marking menu here): lock, freeze, delete, select."""
+    layout.separator()
+    for key in ("LOCK", "UNLOCK", "FREEZE", "UNFREEZE", "UNFREEZE_ALL", "DELETE", "SELECT_ALL"):
+        label = next(l for k, l, _t in tool_ops.GUIDE_EXTRAS if k == key)
+        layout.operator("groomlab.guides_edit", text=label).action = key
+
+
+def _more_extras(layout, context):
+    layout.separator()
+    layout.operator("groomlab.tool_exit")
+    layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts...")
+
+
+EXTRAS = {"GROOMLAB_MT_guide_edits": _guide_edit_extras, "GROOMLAB_MT_tools_more": _more_extras}
+
+
+def _menu_class(idname, key, entries, label, tip="", conditions=True):
+    return type(idname, (DefinitionMenu, bpy.types.Menu), {
+        "bl_idname": idname, "bl_label": label, "bl_description": definitions.plain(tip),
+        "_entries": entries, "_key": key, "_conditions": conditions})
+
+
+def _submenus(entries, key, conditions, out):
+    """Classes for every submenu in `entries` (and theirs), for Blender (hosts filtered)."""
+    for entry in entries:
+        if not isinstance(entry, dict) or not definitions._for_host(entry, definitions.HOST):
+            continue
+        if "include" in entry:
+            _submenus(definitions.get(entry["include"]), key, conditions, out)
+        elif "submenu" in entry or "ref" in entry:
+            item_id = entry.get("id", entry.get("ref"))
+            container = definitions._container(entry["ref"]) if "ref" in entry else {}
+            idname = submenu_idname(key, item_id)
+            items = definitions.items_of(entry)
+            if idname not in out:
+                out[idname] = _menu_class(idname, "%s_%s" % (key, _key(item_id)), items,
+                                          entry.get("submenu") or container.get("label", ""),
+                                          entry.get("tip", container.get("tip", "")), conditions)
+            _submenus(items, "%s_%s" % (key, _key(item_id)), conditions, out)
+
+
+def definition_menus():
+    """Every Menu class the definitions make: the roots, then their submenus'."""
+    out = {}
+    for idname, key, path, conditions in ROOTS:
+        node = definitions.get(path)
+        entries = node["items"] if isinstance(node, dict) else node
+        label = node.get("label", "") if isinstance(node, dict) else ""
+        tip = node.get("tip", "") if isinstance(node, dict) else ""
+        if idname == "GROOMLAB_MT_main":
+            label, tip = "GroomLab", "GroomLab: grooming tools, the node graph, grooms and exports"
+        elif idname == "GROOMLAB_MT_tools_more":
+            label, tip = "More", definitions.get("palette/header/more").get("tip", "")
+        out[idname] = _menu_class(idname, key, entries, label or idname.split("_MT_")[1].replace("_", " ").title(), tip,
+                                  conditions)
+        _submenus(entries, key, conditions, out)
+    for key, path in INLINE:
+        node = definitions.get(path)
+        _submenus(node["items"] if isinstance(node, dict) else node, key, True, out)
+    return list(out.values())
+
+
+# ---- Operators -------------------------------------------------------------------------------------
 
 def version():
     h = process.hello() if process.running() else {}
@@ -35,11 +252,11 @@ def version():
 
 
 class GROOMLAB_OT_groom_tools(bpy.types.Operator):
-    """Brushes, guide groups and painted maps: the 3D view sidebar's GroomLab tab"""
+    """Brushes, guide groups, painted maps and sculpt layers: the 3D view sidebar's GroomLab tab"""
     bl_idname = "groomlab.groom_tools"
     bl_label = "Groom Tools"
 
-    tab: EnumProperty(items=[("TOOLS", "Tools", ""), ("PAINT", "Paint", "")], default="TOOLS", options={"SKIP_SAVE"})
+    tab: EnumProperty(items=tab_items(), default="TOOLS", options={"SKIP_SAVE"})
 
     def execute(self, context):
         from . import props
@@ -70,7 +287,7 @@ class _TextPopup(bpy.types.Operator):
 
 
 class GROOMLAB_OT_shortcuts(_TextPopup):
-    """The tool's keys and the Graph Editor's: change the pie menu's key in Preferences > Add-ons > GroomLab"""
+    """The brush and Graph Editor keys: change the pie menu's key in Preferences > Add-ons > GroomLab"""
     bl_idname = "groomlab.shortcuts"
     bl_label = "GroomLab: Keyboard Shortcuts"
 
@@ -88,7 +305,7 @@ class GROOMLAB_OT_shortcuts(_TextPopup):
 
 
 class GROOMLAB_OT_about(_TextPopup):
-    """About GroomLab"""
+    """The version and where the add-on lives"""
     bl_idname = "groomlab.about"
     bl_label = "About GroomLab"
 
@@ -104,73 +321,51 @@ class GROOMLAB_OT_about(_TextPopup):
         layout.operator("wm.url_open", text="Support GroomLab", icon="FUND").url = DONATE_URL
 
 
-class GROOMLAB_MT_files(bpy.types.Menu):
-    """Grooms to and from .groom files: the round trip with Maya and the GroomLab app"""
-    bl_label = "Groom Files"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("groomlab.load_groom", text="Open Groom File...", icon="FILE_FOLDER")
-        layout.operator("groomlab.save_groom", text="Save Groom File...", icon="FILE_TICK")
-
-
-class GROOMLAB_MT_export(bpy.types.Menu):
-    bl_label = "Export"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("groomlab.export_alembic", text="Alembic...")
-        layout.operator("groomlab.export_usd", text="USD...")
-        layout.operator("groomlab.save_groom", text="Groom File (.groom)...")
-
-
-class GROOMLAB_MT_help(bpy.types.Menu):
-    bl_label = "Help"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("wm.url_open", text="Docs", icon="HELP").url = DOCS_URL
-        layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts...")
-        layout.operator("groomlab.about", text="About GroomLab")
-
-
-class GROOMLAB_MT_main(bpy.types.Menu):
-    """GroomLab: grooming tools, the node graph, grooms and exports"""
-    bl_label = "GroomLab"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("groomlab.groom_tools", text="Groom Tools", icon_value=icons.icon("palette"))
-        layout.operator("groomlab.graph_open", text="Graph Editor", icon_value=icons.icon("graph"))
-        layout.separator()
-        layout.operator("groomlab.add_groom", text="Create Groom from Selection")
-        layout.menu("GROOMLAB_MT_files")
-        op = layout.operator("groomlab.groom_tools", text="Paint", icon_value=icons.icon("paint"))
-        op.tab = "PAINT"
-        layout.menu("GROOMLAB_MT_graph_presets", text="Presets")
-        layout.menu("GROOMLAB_MT_export")
-        layout.separator()
-        layout.operator("groomlab.shortcuts", text="Keyboard Shortcuts...")
-        layout.operator("wm.url_open", text="Open Download Page", icon="URL").url = UPDATES_URL
-        layout.menu("GROOMLAB_MT_help")
-        layout.operator("wm.url_open", text="Support GroomLab", icon="FUND").url = DONATE_URL
-
-
 def draw_topbar(self, context):
     self.layout.menu("GROOMLAB_MT_main")
 
 
-classes = (GROOMLAB_OT_groom_tools, GROOMLAB_OT_shortcuts, GROOMLAB_OT_about,
-           GROOMLAB_MT_files, GROOMLAB_MT_export, GROOMLAB_MT_help, GROOMLAB_MT_main)
+# The lists' right-click menus (Blender's list item context menu): the definitions' for our lists.
+LIST_MENUS = {"GROOMLAB_UL_groups": "GROOMLAB_MT_group_context", "GROOMLAB_UL_maps": "GROOMLAB_MT_map_context",
+              "GROOMLAB_UL_photos": "GROOMLAB_MT_photo_context", "GROOMLAB_UL_photo_pairs": "GROOMLAB_MT_pair_context"}
+
+
+def draw_list_context(self, context):
+    ui_list = getattr(context, "ui_list", None)
+    name = getattr(ui_list, "bl_idname", "") if ui_list is not None else ""
+    if name == "GROOMLAB_UL_correctives":
+        name = correctives_menu(context)
+    else:
+        name = LIST_MENUS.get(name)
+    if name:
+        self.layout.separator()
+        draw_root(self.layout, name, context)
+
+
+def correctives_menu(context):
+    """The Correctives list's right-click menu for the picked row: a corrective's, a Sculpt node's,
+    none for the base groom."""
+    t = context.scene.groomlab_tools
+    if 0 <= t.corrective_index < len(t.correctives):
+        kind = t.correctives[t.corrective_index].kind
+        return {"layer": "GROOMLAB_MT_corrective_context", "node": "GROOMLAB_MT_sculpt_node_context"}.get(kind)
+    return None
+
+
+_classes = []
 
 
 def register():
-    for c in classes:
+    _classes[:] = [GROOMLAB_OT_groom_tools, GROOMLAB_OT_shortcuts, GROOMLAB_OT_about] + definition_menus()
+    for c in _classes:
         bpy.utils.register_class(c)
     bpy.types.TOPBAR_MT_editor_menus.append(draw_topbar)
+    bpy.types.UI_MT_list_item_context_menu.append(draw_list_context)
 
 
 def unregister():
+    bpy.types.UI_MT_list_item_context_menu.remove(draw_list_context)
     bpy.types.TOPBAR_MT_editor_menus.remove(draw_topbar)
-    for c in reversed(classes):
+    for c in reversed(_classes):
         bpy.utils.unregister_class(c)
+    _classes[:] = []

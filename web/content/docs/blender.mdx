@@ -67,14 +67,15 @@ with the Groom Tools.
 ## Groom Tools
 
 The **GroomLab** tab of the 3D viewport's sidebar (**N**) opens on **Groom Tools**, the equivalent
-of Maya's Groom Tools panel:
+of Maya's Groom Tools panel, with the same sections, names and order (Maya, Blender and the app
+build their menus and panels from one set of definitions):
 
 - At the top: the **groom** the tools work on, its eye (show or hide the strands), the **Graph
   Editor** and a **More** menu.
 - **Your first groom** walks you through placing guides and giving the groom a look.
 - **Group**: the guide group the brushes edit and new guides go into (**All groups**: every
   guide); **Isolate** dims the other levels.
-- **Tools** and **Paint** tabs. The tools come by category, with Maya's icons:
+- **Tools**, **Paint**, **Correctives** and **Photos** tabs. The tools come by category, with Maya's icons:
   **Create** (Place, Draw, Part, Flow), **Shape** (Comb, Slide, Smooth, Straighten, Lift, Twist,
   Curl, Attract, Direction, Noise, Tube), **Trim** (Cut, Length, Erase), **Paint** (Paint) and
   **Guides** (Select, Freeze, and Unfreeze All beside them). Shift+click a guide with
@@ -83,14 +84,51 @@ of Maya's Groom Tools panel:
   **Radius** (pixels), **Strength** (±: tools that work both ways go negative), **Falloff**,
   **Falloff curve**, **Root to tip**, **Symmetry** (World X or Topology), **Selected only**, **Pen
   pressure**, **Keep off scalp**, **Front facing only**; Place and Draw's **New guides** (Match
-  nearby guides, Solo new guides, Length, Segments, Spacing), Paint's map, Comb's
-  **Stretch**, what shaping brushes act on (Guides, Parts, Flow), what Erase erases, the next
-  part's name, Flow's arrows or sinks (Whorl, Gather, Part out), the Select tool's lasso or box
-  and soft radius, the freeze mask. Each tool keeps its own strength.
+  nearby guides, Length, Segments, Spacing, Solo new guides), Paint's map, Comb's
+  **Stretch**, what the Shape brush **Paints** on the tubes (Width, Flatness or Twist), what
+  shaping brushes act on (Guides, Parts, Flow), what Erase erases, the Part tool's next part name
+  and its list of parts (**Remove**, **Clear All**), Flow's arrows or sinks (Whorl, Gather, Part
+  out) and **Clear All**, the Select tool's lasso or box and soft radius, the freeze mask. Each
+  tool keeps its own strength.
 - **Undo** / **Redo** name the groom's last edit.
-- Folded below: **While sculpting** (guides only while a stroke is live; full density), **Guide
-  groups & edits** (new group, rename, select, show/hide, delete; **Edit Guides**: Children, Sync
-  ±X, Mirror Group, Lock, Freeze, Delete Selected, Promote/Demote...) and **Display**.
+- Folded below, in Maya's order: **Tubes**, **While sculpting** (guides only while a stroke is
+  live; full density), **Guide groups & edits**, **Output** (open: **Export** and **Import**
+  menus) and **Display** (Blender's own).
+
+The lists (guide groups, maps, correctives, photos) have Maya's action bar above them and Maya's
+right-click menu, both on a right-click over an item and behind the arrow button beside the list.
+
+### Guide groups & edits
+
+**+ New Group**, then **Rename**, **Select** and **Delete** for the group picked in the list. The
+list shows each group's guides, level, eye and, when it has one, its own color. Right-click a group
+for **New Group...**, **Rename**, **Color...** (the group's viewport color), **Default Color** (back
+to its level's), **Select Guides** and **Delete**.
+
+**Edit Guides** has **Children** (the count beside it), **Sync +X → -X**, **Sync -X → +X**,
+**Mirror Selection** (select the mirror images of the selected guides), **Mirror Group...** (a root
+group to the other side), **Reparent...** (the selected children under another parent, by its
+guide ID), **Promote / Demote...** and **Clear Selection**; then Blender's own Lock, Unlock, Freeze,
+Unfreeze, Unfreeze All, Delete Selected and Select All. **Segments** resamples the selected guides
+(every guide with none selected) along their smooth curve: the viewport shows it as you drag, and
+it is applied as one undo step when you stop.
+
+### Tubes
+
+The **Tubes** section edits the tubes of the selected guides (else the guides you soloed with
+Shift+click), and sets the tube Place and Draw give new guides:
+
+- **Shape**: Round, Ribbon, Teardrop, Blade, then the groom's library of custom shapes (**Mixed**
+  while the targets differ). Picking one gives it to the targets.
+- **Edit as Custom** copies a built-in into the library. The library list adds (**+**), duplicates,
+  renames and deletes shapes (deleted: its guides go round). **Apply to Selected** gives the
+  targets the shape picked. (The outline editor is in Maya and the app.)
+- **Width**, **Flatness** and **Twist**: the targets' tube, applied as one undo step when you stop
+  dragging (Width scales the tube, its taper kept).
+- **Smooth** evens out what the brush painted along each guide: the channel the Shape brush paints,
+  or all three.
+- **Fill Tubes** and **Tube Blend**: strands rooted in a guide's tube ride it to the tip (the
+  graph's Interpolate nodes).
 
 Pick a tool and drag over the groom in the viewport. The brush ring follows the cursor on the
 scalp in Maya's colors (yellow; red for Part and Erase, orange for Flow, green for Place and Draw)
@@ -125,10 +163,18 @@ GroomLab**.
 
 The **Paint** tab lists the groom's maps: 0-1 values (or colors) painted on the scalp that any
 param can read through a Map node. **New Map** makes one on the guides, on the scalp's vertices,
-or as a texture. Pick it, take the **Paint** tool and paint toward the **Value** (a color map: the
-**Color**, in the channels ticked); Ctrl paints toward 0 (a color map: toward the inverse),
-Shift+drag smooths. **Fill** sets a guide map everywhere (or on the selected guides). **Show on**
-colors the guides by a guide map, or shows the map on the scalp while painting.
+or as a texture; **Import...** makes a texture map from an image. Pick it, take the **Paint** tool
+and paint toward the **Value** (a color map: the **Color**, in the channels ticked); Ctrl paints
+toward 0 (a color map: toward the inverse), Shift+drag smooths. **Fill** sets the map to the value
+or the color everywhere (a guide map: on the selected guides when some are). **Show on** colors the
+guides by a guide map, or shows the map on the scalp while painting. **Read by** lists the params
+the map feeds.
+
+The bar's icons rename, convert and delete the picked map. Right-click it for the whole menu:
+**Rename...** (what reads it follows), **Convert to** (on the guides, on the scalp's vertices, or a
+texture at a resolution you pick), **Make Gray** / **Make Color**, **Relink Image...**, **Reload
+Image** (after editing it outside Blender), **Show in Explorer**, **Delete** and **Delete Its File
+Too** (on by default: deleting a texture map deletes the image GroomLab made for it).
 
 To paint a setting, set **New Map**'s **For** to **Density**, **Width**, **Length**, **Clump
 strength**, **Curl**, **Noise amplitude**, **Flyaways** (the ones the graph has a node for), or
@@ -137,6 +183,47 @@ is created, connected to the setting, selected and painted with the **Paint** to
 step; if the setting already reads a map, that map is picked instead. Strokes paint toward the
 **Value** (1: the setting's full value); **Ctrl** paints toward 0, so Ctrl on the density map
 removes hair.
+
+## Correctives
+
+The **Correctives** tab is Maya's stack of sculpt layers: the correctives (top of the stack
+first), the graph's **Sculpt** nodes and the **Base groom**. The row you pick is what the brushes
+edit: the base groom's guides, a corrective on top of it, or a Sculpt node's guides.
+
+- **+ New** adds a corrective on every frame; **◆ Fix Frame** adds one on this frame, keyed in
+  over the 6 frames before and out over the 6 after. The bar also moves the picked corrective up
+  or down, solos it and deletes it.
+- **Weight** is the picked corrective's weight on this frame. Its keys are Blender keyframes: **◆**
+  keys it here, changing a keyed weight keys it on the current frame, and you can move or edit the
+  keys in the Timeline, Dope Sheet or Graph Editor. GroomLab samples the curve on every frame.
+- Right-click a corrective for **Go to Its Frame**, **Key Weight Here**, **Clear Keys (every
+  frame)**, **Rename**, **Solo** and **Delete**; right-click a Sculpt node for **Clear Edits**.
+
+## Photos
+
+The **Photos** tab grooms to reference photos, as Maya's does. Each photo is a Blender camera with
+the photo as its background image, in a **GroomLab References** collection.
+
+- **+ Import Photo...** makes the camera, in front of the groom and aimed at it. Rename and Remove
+  are beside it (the photo file stays on disk); right-click the list for the same.
+- **Look Through** shows the photo's camera in the viewport and sets the scene's render size to the
+  photo's, so the camera frame has the photo's shape. Click it again to go back to your view.
+  **Lock** keeps the camera where it is. **Opacity**, **Front** / **Back** (the photo over the mesh
+  or behind it) and the eye set how the photo shows.
+- **Align by Points** lines the camera up with the mesh. Turn on **Pick Points**, then click a
+  feature on the photo while looking through its camera, and the same feature on the mesh in
+  another view (the pairs fill in turn and draw numbered; **Esc** when done). **Solve** finds the
+  camera's position, rotation and focal length from 6 pairs, or from 4 with **Keep focal length**.
+  Each pair shows its error in pixels, and pairs that stand out are named so you can pick them
+  again. Right-click a pair to pick its photo or mesh point again, or delete it.
+- **Open Guides from Photos...** (also **GroomLab > Guides from Photos (experimental)...**) grows
+  guides from every photo camera into a **fromReference** guide group, replaced each time. Brush
+  them like any guides; GroomLab's **Undo** takes them back.
+
+The photos are saved with the groom: a `.groom` file saved in Blender opens with its photos in the
+GroomLab app, and a groom file with photos opened in Blender gets its cameras back. The flow arrows
+and mask touch-ups drawn in Maya's or the app's Guides from Photos window are kept and used; drawing
+them is Maya's and the app's.
 
 ## Viewport display
 
@@ -191,18 +278,52 @@ editor's header (or the GroomLab tab) shows that groom's graph.
   renders keep the output. On a Clump it shows its clump centers as dots on the scalp too. **Set as Output** makes a node the groom's output. **F** frames the
   selection, or everything.
 - Every edit goes to the groom at once and the hair follows; **Ctrl+Z** undoes it, the graph too.
+- The menus are Maya's, item for item: right-click a node for **Set as Output**, **Focus**,
+  **Bypass**, **Evaluate** (Always, Viewport Only, Render Only), **Rename**, **Duplicate**,
+  **Expose Param as Input**, a compound's **Ungroup**, **Show Inner Param**, **Save as Node...**
+  and **Save to Library**, a script node's **Edit Node...**, **Group Selection into Compound**,
+  **Add Backdrop Around Selection** and **Delete**. The header's **Edit** menu has Undo, Redo,
+  Frame Selection, Frame All, Tidy Layout, Group into Compound, Ungroup Compound, Delete, Copy
+  Graph, Paste Graph and Reload from Groom; **Presets** lists the presets (each **Apply** or
+  **Insert After Selected Node**), **Save as Preset...**, **Copy Graph** and **Paste Graph**.
+- **Ctrl+G** groups the selected nodes into one **Compound** node, **Ctrl+Shift+G** ungroups it so
+  you can see and edit its nodes (Ctrl+Z groups them again), as in Maya. A compound is one node in
+  Blender too, not a Blender node group: ungroup it to change what's inside, and pick which of its
+  inner params show on it from **Show Inner Param**.
+- Drop a node on a wire to insert it: GroomLab wires it in the way Maya does.
+- **Tab** search lists your painted maps too: type a map's name (or "map") and pick it to add a
+  Map node already reading it.
+- **Backdrops** are Blender frames: **Add Backdrop Around Selection** (or Blender's **Ctrl+J**)
+  frames nodes, and the frame's title, color (Blue, Green, Purple, Amber, Gray, as in Maya), place
+  and size are saved with the graph, so Maya and the app show the same backdrop. Moving a backdrop
+  moves the nodes in it.
+- **Copy Graph** puts the whole graph on the clipboard as text (a preset with its control values);
+  **Paste Graph** on another groom, in Blender, Maya or the app, fits it to that scalp.
 - The **Node** tab of the editor's sidebar (**N**), the Node Settings, edits the selected node as
   Maya's param panel does: its name, type and what it does; its params by group (click a group's title to fold it,
   for every node of that type), **Advanced** folded; sliders over each param's usual range, which
   you can type past; lengths in scene units. **Ramps** are edited with Blender's curve widget. A
-  param set by a painted map or a texture shows the map's name. A node saved with an older
-  behaviour offers **Upgrade**; a note (ⓘ) says when a node does nothing as set, errors show in
-  red.
-- **Presets** in the header (and the sidebar's GroomLab tab) lists the presets by category: each
-  one can be applied (the graph replaced, fitted to your scalp) or inserted after the selected
-  node as one Compound node, its key params on the Compound itself.
-- The editor's **⋯** menu has **Tidy Layout** (columns from the sources to the output) and
-  **Reload from Groom**.
+  node saved with an older behaviour offers **Upgrade**; a note (ⓘ) says when a node does nothing
+  as set, errors show in red.
+- Each param's **⌄** button opens its menu: **Set Key**, **Delete Key** and **Remove Animation**,
+  **Expose as Input**, **Paint** (on the guides, the scalp's vertices or as a texture) and **Drive
+  with Slider**. A keyed param reads a property of the groom's scalp object named `ctl_<node>_<param>`
+  (a slider's is `ctl_<name>`): key it like any Blender property (**I** over it, or Set Key) and
+  see its curve in Blender's Graph Editor and Dope Sheet; GroomLab reads it on every frame. Its
+  values are in GroomLab's units (centimeters for lengths).
+- The image button beside a mappable param feeds it from a **map**: a texture, a color set, an
+  attribute, a painted map or an **expression**, over the range you give the map's black and
+  white. An expression is edited in a text block (`GroomLab <node>.<param>.expr`, shown in an open
+  Text Editor): it is checked as you type, the sidebar shows what's wrong, and the param takes it
+  when it checks.
+- **Script nodes**: **Add > New Script Node** adds one after the selected node and opens its script
+  and header in two text blocks. Each change is checked (errors with their line in the sidebar) and
+  taken by the node when it checks. **Save to Library** (or **Save as New**) shares it with every
+  groom, Maya and the app.
+- The **node library**: **Save as Node...** saves a compound to your node library
+  (Documents/GroomLab/nodes, shared with Maya and the app), **Import Node...** copies a `.glnode`
+  someone shared into it and adds it, **Open Nodes Folder** opens the folder. A library node whose
+  file is newer than the copy in the groom shows **↑** on its corner: **Update Node** takes it.
 
 Node positions are saved with the groom, where Maya's and the app's editors keep them: a groom laid
 out in Blender opens laid out the same in Maya, and the other way round.
@@ -279,21 +400,117 @@ What's approximate:
 
 ## Files
 
-- **Save Groom File...** writes the groom in GroomLab's file conventions (Y up, centimeters). Maya
-  and the GroomLab app open it as evaluated in Blender, with the same guides.
-- **Open Groom File...** opens a groom from Maya, the app or Blender on the selected mesh, or with the
-  scalp stored in the file (**Use the File's Scalp**) when you don't have the head in Blender.
+- **Save Groom File As...** writes the groom in GroomLab's file conventions (Y up, centimeters).
+  Maya and the GroomLab app open it as evaluated in Blender, with the same guides.
+- **Import Groom File...** opens a groom from Maya, the app or Blender on the selected mesh, or with
+  the scalp stored in the file (**Use the File's Scalp**) when you don't have the head in Blender.
+- **Import > Alembic Curves...** takes the selected groom's guides from an Alembic file's curves (an
+  **ImportCurves** node rooted on the scalp; with a mesh selected and no groom, a groom is made on
+  it first). The curves are read as GroomLab's and Maya's Alembic files have them: Y up,
+  centimeters. **Utilities > Bake Node to Guides...** makes them guides you can brush.
+- The groom remembers the file it was opened from or saved to: **Save to Groom File** writes it
+  again, and **Reload from Groom File** reads it back (after editing it in the GroomLab app),
+  keeping the mesh.
 - A **.blend** file stores the whole groom (guides, groups, maps, the selection), so reopening it
   restores the hair and the Groom Tools state.
 
 ## The GroomLab menu
 
-The top bar's **GroomLab** menu has Maya's GroomLab menu items: **Groom Tools**, **Graph Editor**,
-**Create Groom from Selection**, **Groom Files** (open and save `.groom`), **Paint**, **Presets**,
-**Export** (Alembic, USD, Groom File (.groom)), **Keyboard Shortcuts...**, **Open Download Page**
-(updates come through Blender's extensions), **Help** (Docs, Keyboard Shortcuts..., About
-GroomLab) and **Support GroomLab**. Blender's **File > Import** and **File > Export** have
-**GroomLab Groom File (.groom)** too.
+The top bar's **GroomLab** menu is Maya's GroomLab menu, in its order, with what Blender runs:
+**Groom Tools**, **Graph Editor**, **Create Groom from Selection**, **Add Sample Mesh**, **Guides
+from Photos (experimental)...**, **Groom Files** (Import Groom File..., Reload from Groom File, Save
+to Groom File, Save Groom File As...), **Import** (Alembic Curves...), **Add**, **Simulate**, **Review**, **Export**, **Utilities** and **Help** (Docs, Keyboard Shortcuts,
+Check for Updates... (the Download page: updates come through Blender's extensions), Discord,
+Support GroomLab, About GroomLab). Items Blender doesn't run yet are left out. Blender's **File >
+Import** and **File > Export** have **GroomLab Groom File (.groom)** too.
+
+The Groom Tools' **Output** section has **Simulate Range**, the **Export** and **Import** menus and
+**Transfer...**.
+
+### Sample meshes
+
+**Add Sample Mesh** brings in **Nika** (a head and shoulders), **Manny** (a head) or the **Wolf**
+at the origin, at their real size in the scene's units, facing Blender's front, with the part to
+groom selected: then **Create Groom from Selection**.
+
+## Add
+
+**Add** puts the graph's building blocks in for you, as Maya's Add menu does:
+
+- **Feathers...**: a feather design (contour, down, flight, afterfeather, barred, or a
+  `feathers_<name>` preset of yours), or several separated by commas with their shares in
+  **Weights**. **Shafts From: Scatter** scatters the shafts over the scalp, shaped by the guides;
+  **Guides** makes one feather per curve of the selected curve objects (drawn from the scalp, the
+  first point the root), which join the **feathers** guide group. The feathers merge with the hair
+  before the output.
+- **Braid on Curves...**: the selected curve objects become the **braids** guide group (without
+  any, the group's guides are the paths: draw them with **Draw**), and a **Braid** node after the
+  Interpolate braids the strands along them, in the style you pick (three, fishtail, rope,
+  cornrow).
+- **Cards > Hero / Mid / Low**: a **Cards** node before the output (one is made when the graph has
+  none), set for that level of detail: hero 6 x 2 cards a clump with flyaways, mid 2 x 1, low one
+  flat card a clump.
+- **Collider**: each selected mesh (besides the groom) keeps the strands off it: a **ColliderMesh**
+  and a **Collide** node before the output. The mesh follows its animation and edits: GroomLab
+  sends it again whenever it moves or changes.
+- **Wind**, **Jiggle**: a node before the output.
+
+## Simulate
+
+GroomLab's own hair simulation runs in Blender as in Maya and the app:
+
+- **Add Simulate Node** puts a **Simulate** node between the guides and the Interpolate: play the
+  timeline to see it.
+- **Simulate Range** steps the Simulate nodes over the playback range (the preview range when it
+  is on) into their cache, so scrubbing reads it. The status bar counts the frames; **Esc** stops,
+  keeping the frames made. The scalp's animation over the range (armature, shape keys) is handed
+  to the simulation first.
+- **Bake Simulation** simulates the range and writes each Simulate node's frames as an Alembic
+  guide cache in the `.blend`'s `groomlab/caches` folder (the temp folder for an unsaved file):
+  renders, exports and groom files read the bake.
+- **Clear Simulation** drops the frames and the bakes: the next frame shown simulates again.
+
+## Transfer Groom to Scalp
+
+**Utilities > Transfer Groom to Scalp...** (or **Transfer...** in the Output section) moves the
+groom onto another mesh: a new sculpt, a retopologized head, another character. Pick the **New
+Scalp** (the selected mesh by default) and the **Method**:
+
+- **Closest point**: where the new scalp is nearest (the same place and size).
+- **Fit bounding boxes**: the old scalp's bounds moved and scaled onto the new one's first.
+- **Markers: align** and **Markers: warp**: the marker pairs stored in the groom (picked in Maya
+  or the GroomLab app) give the move, turn and scale, or bend space onto other proportions.
+- **Matching UVs**: both meshes laid out alike in UV; each root at its UV.
+
+**Keep guide lengths**, **Fit groom to the new scalp's size** and **Project painted maps** work as
+in Maya. With **The new scalp owns the groom** (on by default) the new mesh is the groom from then
+on: its hair and guides objects, graph, sliders and correctives move to it, and the old mesh is a
+plain mesh again. The two meshes are compared in their own object space, so a new head placed
+elsewhere in the scene takes the groom as it sits on the old one. **Ctrl+Z** in Blender, or
+GroomLab's own **Undo**, puts the groom back on the old mesh.
+
+## Review and utilities
+
+- **Review > Density Heatmap** colors the strands by root density; **Strand Count HUD** shows the
+  active groom's strand count (and at render), guide count and evaluation time in the viewport's
+  corner; **Turntable** makes a camera orbiting the groom over 120 frames with a key, fill and rim
+  light, and the viewport looks through it.
+- **Utilities > Strands to Mesh...** makes the strands one mesh object under the scalp: tubes (of
+  the sides you pick) or ribbons along the scalp, UVs root to tip, at most the strands you set
+  (thinned by strand ID).
+- **Utilities > Bake Node to Guides...** turns a graph node's strands or guides (the groom's output,
+  a Scatter, a ToGuides...) as they are now into guides you can brush, in a root group (**baked**
+  by default: made when new, added to otherwise), at the density you pick. The Graph Editor's node
+  menu has it too.
+- **Utilities > Bake Scale Maps** bakes a scales groom into its skin's UVs as normal, height and
+  color maps (PNG, UDIM tiles too), in the `.blend`'s `groomlab/bakes` folder.
+- **Utilities > Copy Graph to Other Grooms...** gives the other selected grooms the active groom's
+  graph and slider values; their guides stay. Painted maps the graph reads that a groom lacks are
+  listed: paint or import them there.
+- **Utilities > Find Missing Files...** relinks the selected grooms' (else every groom's) missing
+  texture maps, image and Alembic files and linked groom files to files of the same name in a
+  folder you pick and its subfolders. When nothing is missing it says so, without asking for a
+  folder.
 
 ## Export
 
@@ -302,6 +519,21 @@ by default) in GroomLab's space: Y up, centimeters for Alembic, `metersPerUnit =
 Blender's importers convert both. The files carry the same attributes as Maya's exports
 ([Strand attributes](/docs/rendering#strand-attributes)).
 
+The engine exports write what Maya's write ([Game export](/docs/game-export)), at the current frame:
+
+- **Unreal Groom...**: Alembic in Unreal's groom format, strands plus the primary guides.
+- **Unreal Cards...**: the cards as FBX with TGA maps in Unreal's hair card layout and a manifest,
+  into a folder.
+- **Unity Strands (.abc)...**: Alembic curves for Unity's hair package.
+- **Unity Feathers...**: the barbs as strand groups, the rachis FBX and the Hair Asset manifest,
+  into a folder.
+- **Unity Cards...**: the cards as FBX (meters, Y up) with PNG maps and a manifest, into a folder.
+- **glTF Cards...**: a `.glb` with the maps inside, or a `.gltf` beside its files.
+- **Scales Mesh (FBX)...** and **Scales Instancer (USD)...**: a scales groom's scales bent onto the
+  skin as one mesh, or a USD PointInstancer of their plates.
+
+The FBX files are written with Blender's own FBX exporter from the meshes GroomLab makes.
+
 **Card Maps...** bakes the groom's cards (add a **Cards** node to the graph first) and writes
 their texture maps as a preset packs them: pick the preset (the ones Maya and the app list,
 your own included), the resolution, format, bit depth, padding and supersampling
@@ -309,14 +541,14 @@ your own included), the resolution, format, bit depth, padding and supersampling
 
 ## Not in Blender yet
 
-- **Jiggle** and **Simulate** nodes: the panel marks them. Jiggle passes the strands through in
-  Blender, and Simulate isn't fed the scalp's motion frame by frame, so don't rely on either in a
-  Blender render yet.
-- The Groom Tools' **Correctives** and **Photos** tabs, and **Guides from Photos
-  (experimental)...**: use Maya or the GroomLab app; grooms carrying correctives evaluate in
-  Blender as made.
-- **Transfer Groom to Scalp...** (Maya and the app) and the **XGen** and **Yeti** importers (Maya):
-  transfer or import there, save a `.groom` file and open it in Blender.
+- **Jiggle** nodes: the panel marks them. Jiggle passes the strands through in Blender (it isn't
+  fed the scalp's earlier frames yet), so don't rely on it in a Blender render yet.
+- The tube **outline editor**, and the **Guides from Photos window** (flow arrows and mask touch-ups
+  drawn on the photo, the measured look): use Maya or the GroomLab app. Picking transfer **marker**
+  points is Maya's and the app's too; Blender's transfer uses the markers stored in the groom.
+- The Graph Editor's **GPU preview** (Maya's viewport).
+- The **XGen** and **Yeti** importers (Maya): import there, save a `.groom` file and open it in
+  Blender.
 - Grooms made with earlier previews keep their guides as a Blender Curves object you sculpt with
   Blender's Curves Sculpt brushes (**Sculpt Guides**); make a new groom for the Groom Tools.
 - macOS and Linux builds.

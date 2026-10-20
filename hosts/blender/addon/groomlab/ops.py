@@ -295,11 +295,105 @@ class GROOMLAB_OT_save_groom(GroomOperator, ExportHelper):
                           default="Y")
 
     def execute(self, context):
+        scalp = active_groom(context)
         try:
-            r = groom.save_groom(active_groom(context), self.filepath, up_axis=self.up_axis)
+            r = groom.save_groom(scalp, self.filepath, up_axis=self.up_axis)
+        except HelperError as e:
+            return _fail(self, e)
+        scalp.groomlab.groom_file = r.get("path") or self.filepath  # Save to / Reload from Groom File
+        self.report({"INFO"}, "Saved %s" % r["path"])
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_save_groom_linked(GroomOperator):
+    """Write the groom to the groom file it is linked to (asked for when none), for the standalone app to open"""
+    bl_idname = "groomlab.save_groom_linked"
+    bl_label = "Save to Groom File"
+
+    def invoke(self, context, event):
+        if not active_groom(context).groomlab.groom_file:
+            return bpy.ops.groomlab.save_groom("INVOKE_DEFAULT")
+        return self.execute(context)
+
+    def execute(self, context):
+        scalp = active_groom(context)
+        path = bpy.path.abspath(scalp.groomlab.groom_file)
+        if not path:
+            self.report({"ERROR"}, "This groom has no groom file yet: Save Groom File As... first")
+            return {"CANCELLED"}
+        try:
+            r = groom.save_groom(scalp, path)
         except HelperError as e:
             return _fail(self, e)
         self.report({"INFO"}, "Saved %s" % r["path"])
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_reload_groom(GroomOperator):
+    """Replace the groom's graph, guides, correctives and maps with its groom file's (the standalone app's edits),
+    keeping the scalp"""
+    bl_idname = "groomlab.reload_groom"
+    bl_label = "Reload from Groom File"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        scalp = active_groom(context)
+        return scalp is not None and bool(scalp.groomlab.groom_file)
+
+    def execute(self, context):
+        scalp = active_groom(context)
+        path = bpy.path.abspath(scalp.groomlab.groom_file)
+        try:
+            scalp, info, _ = groom.load_groom(context, path, scalp)
+            graph_tree.mark_replaced(scalp)
+            graph.refresh(scalp)
+        except HelperError as e:
+            return _fail(self, e)
+        for n in list(info.get("notes") or []) + list(info.get("inputErrors") or []):
+            self.report({"WARNING"}, sentence(n))
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_add_node_before_output(GroomOperator):
+    """A node of this type just before the groom's output"""
+    bl_idname = "groomlab.add_node_before_output"
+    bl_label = "Add Node"
+    bl_options = {"REGISTER", "UNDO"}
+
+    type: StringProperty(name="Type")
+
+    @classmethod
+    def description(cls, context, properties):
+        from . import actions
+        return actions.tip_for(cls.bl_idname, properties, "A node of this type just before the groom's output")
+
+    def execute(self, context):
+        scalp = active_groom(context)
+        try:
+            made, error = graph.add_node(scalp, self.type)
+            if self.type == "Wind":
+                graph.set_param(scalp, made, "strength", 0.3)  # Maya's add_wind
+        except HelperError as e:
+            return _fail(self, e)
+        graph_tree.graph_changed(scalp)
+        if error:
+            self.report({"WARNING"}, sentence(error))
+        self.report({"INFO"}, "Added %s: play the timeline" % made)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_review_heatmap(GroomOperator):
+    """Color strands by root density: blue sparse, green typical, red bunched"""
+    bl_idname = "groomlab.review_heatmap"
+    bl_label = "Density Heatmap"
+
+    def execute(self, context):
+        from . import display
+        d = active_groom(context).groomlab_tools
+        d.strand_color = "solid" if d.strand_color == "density" else "density"
+        if d.strand_color == "density":
+            display.show_attribute_colors(context)
         return {"FINISHED"}
 
 
@@ -329,12 +423,20 @@ class GROOMLAB_OT_load_groom(bpy.types.Operator, ImportHelper):
             bpy.ops.object.mode_set(mode="OBJECT")
         try:
             scalp, info, _ = groom.load_groom(context, self.filepath, target)
+            scalp.groomlab.groom_file = self.filepath  # Save to / Reload from Groom File
             context.scene.groomlab.groom = scalp
             graph_tree.mark_replaced(scalp)  # the file's layout in the Graph Editor
             graph.refresh(scalp)
         except HelperError as e:
             return _fail(self, e)
         notes = list(info.get("notes") or []) + list(info.get("inputErrors") or [])
+        try:  # the file's reference photos (the app's Reference window, or saved here) as cameras
+            from . import photos
+            made = photos.restore_from_groom(scalp, context.scene)
+            if made:
+                notes.append("%d reference photo%s as cameras (Groom Tools > Photos)" % (len(made), "" if len(made) == 1 else "s"))
+        except (HelperError, RuntimeError, ValueError) as e:
+            notes.append("the file's reference photos did not come in: %s" % e)
         for n in notes:
             self.report({"WARNING"}, sentence(n))
         return {"FINISHED"}
@@ -434,7 +536,9 @@ class GROOMLAB_OT_bake_card_maps(GroomOperator):
 classes = (GROOMLAB_OT_add_groom, GROOMLAB_OT_remove_groom, GROOMLAB_OT_sculpt_guides, GROOMLAB_OT_update,
            GROOMLAB_OT_refresh_presets, GROOMLAB_OT_apply_preset, GROOMLAB_OT_insert_preset, GROOMLAB_OT_node_add,
            GROOMLAB_OT_node_remove, GROOMLAB_OT_node_move, GROOMLAB_OT_toggle_group, GROOMLAB_OT_save_groom,
-           GROOMLAB_OT_load_groom, GROOMLAB_OT_export_alembic, GROOMLAB_OT_export_usd, GROOMLAB_OT_bake_card_maps)
+           GROOMLAB_OT_load_groom, GROOMLAB_OT_save_groom_linked, GROOMLAB_OT_reload_groom,
+           GROOMLAB_OT_add_node_before_output, GROOMLAB_OT_review_heatmap, GROOMLAB_OT_export_alembic,
+           GROOMLAB_OT_export_usd, GROOMLAB_OT_bake_card_maps)
 
 
 GROOM_FILE_TEXT = "GroomLab Groom File (.groom)"  # File > Import and File > Export, named as Blender names formats

@@ -13,6 +13,81 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.20.0 (October 20, 2026)
+
+- **Photos in Blender.** The Groom Tools' Photos tab: reference photos as cameras, Look Through,
+  point pairs picked on the photo and the mesh, and Solve to line the camera up. The photos are
+  saved with the groom, so the GroomLab app opens them too.
+- **Guides from Photos in Blender.** GroomLab > Guides from Photos (experimental)... grows guides
+  from the photo cameras into a guide group of their own.
+- **Alembic curves as guides in Blender.** Import > Alembic Curves... takes a groom's guides from an
+  Alembic file, as in Maya.
+- **Bake Node to Guides in Blender.** Utilities and the Graph Editor's node menu turn a node's
+  strands or guides into guides you can brush.
+- **Paint a param on the guides in Blender.** The Graph Editor's Paint > On Guides paints a param
+  on the guides (children inherit it, strands blend it), besides the scalp's vertices or a texture.
+- **Engine exports in Blender.** GroomLab > Export has Maya's Unreal Groom, Unreal Cards, Unity
+  Strands, Unity Feathers, Unity Cards, glTF Cards, Scales Mesh (FBX) and Scales Instancer (USD);
+  the FBX files are written with Blender's own exporter. Utilities has Strands to Mesh and Bake
+  Scale Maps.
+- **Simulate in Blender.** GroomLab > Simulate adds a Simulate node, steps it over the playback
+  range with the frames counted in the status bar (Esc stops), bakes it to Alembic guide caches and
+  clears it. The scalp's animation is handed to the simulation.
+- **Add in Blender.** Feathers (one design or an assortment, scattered or on selected curves),
+  Braid on Curves (selected curve objects as the paths), Cards at hero, mid or low detail, and
+  Collider (selected meshes, followed as they move), as in Maya.
+- **Transfer Groom to Scalp in Blender.** Moves the groom onto another mesh by closest point,
+  bounding boxes, stored markers or UVs; the new mesh then owns the groom (its hair, guides, graph
+  and sliders), and undo puts it back.
+- **Sample meshes in Blender.** Add Sample Mesh brings in Nika, Manny or the wolf at their real
+  size, ready for Create Groom from Selection.
+- **Review and utilities in Blender.** A Strand Count HUD in the viewport, a Turntable camera and
+  lights, Copy Graph to Other Grooms, and Find Missing Files to relink moved textures and files.
+- **Shift+drag smooths in Blender.** Holding Shift with a brush smooths under it, as in Maya (its
+  drags were refused while the Shift press waited to see whether it was a click).
+- **Blender's Groom Tools match Maya's.** The GroomLab menu, the Groom Tools' tabs and sections,
+  the lists' bars and right-click menus, the option lists and the pie menu are built from the same
+  definitions as Maya's, so they have the same items, names and order. Items Blender doesn't run
+  yet are left out.
+- **Tubes in Blender.** A Tubes section edits the selected guides' tube shape (the built-ins and the
+  groom's library of custom shapes), width, flatness and twist, smooths them and turns on Fill
+  Tubes; the Shape brush paints Width, Flatness or Twist; Place and Draw give new guides the tube
+  shown.
+- **Maps, groups and guides in Blender.** The maps' right-click menu renames, converts, makes gray
+  or color, imports, relinks and reloads images, and deletes a texture map with its file; Fill
+  works on every kind of map, and Read by lists what a map feeds. Guide groups get their own
+  colors and a right-click menu, and Edit Guides gains Mirror Selection, Mirror Group..., Reparent...
+  and a Segments slider. The Part tool lists its parts (Remove, Clear All) and Flow has Clear All.
+- **Correctives in Blender.** The Correctives tab adds, fixes a frame, solos, reorders, renames and
+  deletes correctives and brushes Sculpt nodes; a corrective's weight is keyed with Blender
+  keyframes you can edit in the Timeline or Graph Editor.
+- **Save to and Reload from Groom File in Blender**, and GroomLab > Add > Wind and Jiggle.
+- **Blender's Graph Editor authors like Maya's.** Its node, Edit, Add and Presets menus are Maya's,
+  item for item. **Ctrl+G** groups nodes into a Compound and **Ctrl+Shift+G** ungroups it; a
+  compound shows the inner params you pick. Params can be exposed as inputs, driven by a slider or
+  keyed (Blender keys on the groom's `ctl_` properties, read on every frame), and fed from a
+  texture, color set, attribute, painted map or expression (edited in a text block, checked as you
+  type).
+- **Backdrops in Blender.** Blender frames are GroomLab backdrops: their title, color, place and
+  size are saved with the graph, so Maya and the app show them too, and Maya's backdrops show as
+  frames in Blender.
+- **The node library in Blender.** Save as Node, Save to Library, Update Node (a ↑ on nodes whose
+  library file is newer), Import Node, Open Nodes Folder and Save as Preset; New Script Node opens
+  the script in Blender's text editor with live errors.
+- **Copy Graph and Paste Graph in Blender**, a node dropped on a wire inserted the way Maya inserts
+  it, and Tab search listing your painted maps as Map nodes.
+- **Leaving the Paint tab ends painting in Blender.** Going back to the Tools tab stops the Paint
+  brush and takes the map off the strands and scalp, as picking another tool does.
+- **Tubes show in Blender.** Display > Tubes draws the tubes lighter and through the strands round
+  them, and the Shape brush draws every tube it can shape as a wire, the selected guides' tubes
+  highlighted, as in Maya.
+- **Presets and the graph live in Blender's Graph Editor.** The Presets and Graph panels are gone
+  from the 3D view's GroomLab tab; the Graph Editor's Presets menu and sidebar have them, as Maya
+  keeps them out of Groom Tools.
+- **Hair shows its color in Blender's Solid view.** The hair's material carries the groom's look
+  as its viewport color, so Solid shading shows the hair's color (as Maya's viewport does) instead of
+  plain gray.
+
 ## 0.19.6 (October 20, 2026)
 
 - **Graph Editor zoom draws cleanly.** Alt+right-drag zoom no longer leaves larger copies of the nodes

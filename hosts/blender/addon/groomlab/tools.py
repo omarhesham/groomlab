@@ -15,6 +15,7 @@ import time
 import bpy
 import numpy as np
 
+from . import definitions as defs
 from . import groom, process, props, tool_props
 from .helper_client import HelperError
 
@@ -24,12 +25,7 @@ LIVE_DENSITY = 0.35             # strands while a stroke is live (Maya's sculptD
 LIVE_INTERVAL = 0.04            # seconds between live evaluations during a stroke, at least,
 LIVE_PER_COST = 1.5             # and this many times the last one's own time (the drags keep coming in between)
 STATE_DELAY = 1.0               # seconds after the last edit before the groom's state is kept (get_state)
-# Maya's palette defaults (palette.py) where the scene's own settings start.
-FLOW_SINKS = [("", "Arrows", "Drag to lay arrows; drag over arrows to comb them"),
-              ("whorl", "Whorl", "Hair spirals out counter-clockwise around the click (a crown)"),
-              ("whorlcw", "Whorl (clockwise)", "Hair spirals out clockwise around the click"),
-              ("converge", "Gather", "Hair points in toward the click"),
-              ("part", "Part out", "Hair points away from the click (a cowlick)")]
+DEFER = 0.35                    # seconds after a slider's last change before its edit commits (one undo step)
 # The Playful theme's viewport colors (hosts/maya/themes/playful.json "viewport"), as Maya hands
 # them to its display (groomLabDisplayTheme). Blender's overlays are not color managed: sRGB as is.
 THEME_HEX = {"levels": ["#2F7BF6", "#2ECC8F", "#FFC53D", "#FF4D4F", "#F5F5F7"], "selected": "#F5F5F7",
@@ -123,6 +119,9 @@ class GroomTools(object):
         self.live_cost = 0.0      # seconds the last live evaluation took (the hair written)
         self.state_dirty = False
         self.last_end = {}
+        self.tube_guides = []     # the guides the Tubes section edits (the selection, else the soloed ones)
+        self.tube_key = None      # (targets, their shapes) as last read
+        self.pushed_keys = {}     # corrective -> the keys last sent from its Blender fcurve
 
 
 _groom_tools = {}
@@ -219,7 +218,7 @@ def settings_of(scene, tool=None):
     level, group = group_target(scene)
     targets = [n for n, on in (("guides", t.target_guides), ("parts", t.target_parts), ("flow", t.target_flow)) if on]
     s = {"radius": float(t.radius), "strength": strength, "falloff": float(t.falloff),
-         "symmetry": ("topology" if t.symmetry_mode == "TOPOLOGY" else "x") if t.symmetry else "none",
+         "symmetry": t.symmetry_mode if t.symmetry else "none",
          "selectedOnly": bool(t.selected_only),
          "pressure": bool(t.pressure), "collide": bool(t.collide), "frontFacingOnly": bool(t.front_facing),
          "stretch": bool(t.stretch), "targets": ",".join(targets) or "none",
@@ -229,7 +228,8 @@ def settings_of(scene, tool=None):
          "spacing": float(t.spacing), "partName": t.part_name or "part", "flowSink": t.flow_sink,
          "smoothStrength": float(t.smooth_strength), "level": level, "group": group,
          "falloffProfile": tool_props.curve_of(tool_props.FALLOFF_CURVES, t.falloff_curve),
-         "strengthProfile": tool_props.curve_of(tool_props.STRENGTH_PROFILES, t.strength_profile)}
+         "strengthProfile": tool_props.curve_of(tool_props.STRENGTH_PROFILES, t.strength_profile),
+         "tubeChannel": t.tube_channel, "tube": placement_tube(scene)}
     if tool == "paint":
         m = current_map(scene)
         channels = "".join(c for c, on in zip("rgba", (t.channel_r, t.channel_g, t.channel_b, t.channel_a)) if on)
@@ -239,6 +239,14 @@ def settings_of(scene, tool=None):
             if m.kind == "texture" and m.texture:
                 s["paintTexture"] = m.texture
     return s
+
+
+def placement_tube(scene):
+    """The tube Place and Draw give new guides (the Tubes section's shape, Width, Flatness and
+    Twist as shown: Maya's placement tube)."""
+    t = scene.groomlab_tools
+    return {"shape": t.tube_choice or "round", "width": float(t.tube_width),
+            "aspect": max(1.0 - float(t.tube_flatness), 0.01), "twist": float(t.tube_twist)}
 
 
 def push(scalp, scene=None, **only):
@@ -456,6 +464,12 @@ def selection_set(scalp, **args):
     return r
 
 
+def selected_guides(scalp):
+    """The selected guides' IDs (as guides_info last said)."""
+    info = groom_tools(scalp).info or call(scalp, "guides_info")
+    return [int(g) for g in (info.get("selection") or {}).get("selection") or []]
+
+
 def pick_level(scalp, view, x, y):
     return call(scalp, "pick_level", view=view, x=float(x), y=float(y))
 
@@ -464,6 +478,11 @@ def pick_level(scalp, view, x, y):
 
 def undo(scalp, redo=False):
     r = call(scalp, "redo" if redo else "undo")
+    # A transfer taken back or done again (the step undone is now the one to redo, and the other way
+    # round; scalpChanged misses a scalp of the same shape): its owner follows (pipeline.py).
+    if r.get("done") and (r.get("scalpChanged") or r.get("undoLabel" if redo else "redoLabel") == "transfer"):
+        from . import pipeline
+        scalp = pipeline.follow_helper_undo(scalp, redo)
     follow_graph(scalp, r)
     after_edit(scalp, groom.scene_of(scalp), r, refresh=bool(r.get("done")))
     return r
@@ -935,6 +954,10 @@ def _fill_groups(scene, info, gt):
             item.guides = int(g.get("guides", 0))
             item.hidden = bool(g.get("hidden"))
             item.depth = depth
+            color = g.get("color")
+            item.has_color = bool(color)
+            if color:
+                item.color = _rgb(color)
         if t.group not in names and t.group != ALL_GROUPS:
             t.group = names[0] if names else FIRST_GROUP
         t.group_index = next((i for i, item in enumerate(t.groups) if item.name == t.group), -1)
@@ -973,6 +996,468 @@ def refresh_info(scalp, scene=None):
         if t.paint_map not in names:
             t.paint_map = names[0] if names else ""
         t.map_index = names.index(t.paint_map) if t.paint_map in names else -1
+    try:
+        refresh_map_users(scalp, scene)
+        refresh_parts(scalp, scene)
+        refresh_segments(scalp, scene)
+        refresh_tubes(scalp, scene)
+        refresh_correctives(scalp, scene)
+    except HelperError as e:
+        status(scene, e.message)
+
+
+def refresh_map_users(scalp, scene=None):
+    """The picked map's "Read by" line (Maya's map_users: node.param it feeds)."""
+    scene = scene or groom.scene_of(scalp)
+    t = scene.groomlab_tools
+    users = map_users(scalp, t.paint_map) if t.paint_map else []
+    with props.quiet():
+        t.map_read_by = ", ".join("%s.%s" % (n, p) for n, p in users)
+
+
+def refresh_parts(scalp, scene=None):
+    scene = scene or groom.scene_of(scalp)
+    t = scene.groomlab_tools
+    parts = parts_list(scalp)
+    with props.quiet():
+        picked = t.parts[t.part_index].name if 0 <= t.part_index < len(t.parts) else ""
+        t.parts.clear()
+        for part in parts:
+            item = t.parts.add()
+            item.name = part["name"]
+            item.points = int(part.get("points") or 0)
+        names = [p["name"] for p in parts]
+        t.part_index = names.index(picked) if picked in names else (0 if names else -1)
+
+
+def refresh_segments(scalp, scene=None):
+    """Edit Guides' Segments: the targets' count (the most common; the label says when they differ)."""
+    scene = scene or groom.scene_of(scalp)
+    t = scene.groomlab_tools
+    if _deferred.get("segments") is not None:
+        return  # a drag's commit pending: the slider stays as dragged
+    counts = [int(c) for c in guide_segments(scalp).get("segments") or []]
+    with props.quiet():
+        if counts:
+            t.resample_segments = max(set(counts), key=counts.count)
+            scope = "%d selected" % len(counts) if t.selected_count else "all %d" % len(counts)
+            t.segments_scope = scope + (", mixed" if min(counts) != max(counts) else "")
+        else:
+            t.segments_scope = ""
+
+
+# ---- Sliders that commit after the drag (Maya's release) ------------------------------------------
+
+_deferred = {}
+
+
+def defer(key, fn, delay=DEFER):
+    """Run fn() once the slider `key` stops changing for `delay` seconds (Blender has no release
+    event for a dragged property: each drag step would be an undo step). Headless: at once."""
+    if bpy.app.background:
+        _deferred.pop(key, None)
+        fn()
+        return
+
+    def run():
+        if _deferred.get(key) is not run:
+            return None
+        _deferred.pop(key, None)
+        from . import tool_ops
+        if tool_ops.stroking():
+            _deferred[key] = run
+            return delay
+        try:
+            fn()
+        except HelperError as e:
+            status(bpy.context.scene, e.message)
+        groom._redraw()
+        return None
+    _deferred[key] = run
+    bpy.app.timers.register(run, first_interval=delay)
+
+
+def segments_changed(context, segments):
+    """The Segments slider: the guides shown resampled at once (a preview, no undo step), committed
+    as one undo step when the drag stops (Maya's segments_dragged / segments_committed)."""
+    scalp = active(context)
+    if scalp is None or not is_hierarchy(scalp):
+        return
+    scene = context.scene
+
+    def commit():
+        counts = [int(c) for c in guide_segments(scalp).get("segments") or []]
+        if counts and any(c != segments for c in counts):
+            r = resample_guides(scalp, segments)
+            status(scene, "Resampled %d guides to %d segments." % (int(r.get("resampled") or len(counts)), segments))
+        end_preview(scalp)
+        refresh_segments(scalp, scene)
+    try:
+        if not bpy.app.background:
+            preview_resample(scalp, segments)
+        defer("segments", commit)
+    except HelperError as e:
+        status(scene, e.message)
+
+
+# ---- The Tubes section --------------------------------------------------------------------------
+
+def refresh_tubes(scalp, scene=None):
+    """The Tubes section from the groom: its targets (the selection, else the soloed guides) and
+    their tube (the shape shown is theirs, Mixed when they differ; width, flatness and twist the
+    first one's), the shape library, Fill Tubes (the Interpolate nodes')."""
+    scene = scene or groom.scene_of(scalp)
+    t = scene.groomlab_tools
+    gt = groom_tools(scalp)
+    info = tube_targets(scalp)
+    library = [x for x in tube_shapes(scalp) if not x.get("builtin")]
+    gt.tube_guides = [int(g) for g in info.get("guides") or []]
+    tube, shapes = info.get("tube"), list(info.get("shapes") or [])
+    with props.quiet():
+        picked = t.tube_shapes[t.tube_shape_index].name if 0 <= t.tube_shape_index < len(t.tube_shapes) else ""
+        t.tube_shapes.clear()
+        for x in library:
+            item = t.tube_shapes.add()
+            item.name = x["name"]
+            item.users = int(x.get("users") or 0)
+            item.smooth = bool(x.get("smooth", True))
+        names = [x["name"] for x in library]
+        t.tube_shape_index = names.index(picked) if picked in names else (0 if names else -1)
+        t.tube_source = info.get("source") or "none"
+        t.tube_targets = len(gt.tube_guides)
+        builtin = [c["value"] for c in defs.choices("tubeShape")]
+        if t.tube_choice not in builtin and t.tube_choice not in names:
+            t.tube_choice = "round"  # a library shape gone (renamed, deleted, another groom)
+        t.tube_mixed = tube is not None and len(shapes) > 1
+        if tube is not None and not any(k in _deferred for k in ("tube.width", "tube.flatness", "tube.twist")):
+            key = (tuple(gt.tube_guides), tuple(shapes))
+            if len(shapes) == 1 and key != gt.tube_key:
+                t.tube_choice = shapes[0]
+            gt.tube_key = key
+            widths = tube.get("width") or [0.1]
+            aspects = tube.get("aspect") or [1.0]
+            twists = tube.get("twist") or [0.0]
+            t.tube_reference = max(widths)
+            t.tube_width = max(widths)
+            t.tube_flatness = min(max(1.0 - sum(aspects) / len(aspects), 0.0), 0.99)
+            t.tube_twist = min(max(sum(twists) / len(twists), -3.14159265), 3.14159265)
+        if t.tube_choice in names:  # the library list follows the shape picked
+            t.tube_shape_index = names.index(t.tube_choice)
+        try:
+            t.tube_shape = tool_props.MIXED if t.tube_mixed else t.tube_choice
+        except TypeError:
+            pass
+    fill = fill_tubes(scalp)
+    with props.quiet():
+        t.tube_has_fill = fill is not None
+        if fill is not None:
+            t.tube_fill = bool(fill["fillTubes"])
+            t.tube_blend = float(fill["tubeBlend"])
+
+
+def _interpolate_nodes(scalp):
+    return [n.name for n in scalp.groomlab.nodes if n.type == "Interpolate"]
+
+
+def fill_tubes(scalp):
+    """{"fillTubes", "tubeBlend"} of the graph's first Interpolate node, None without one."""
+    nodes = _interpolate_nodes(scalp)
+    if not nodes:
+        return None
+    rt = groom.ensure(scalp)
+    on = process.call("get_param", session=rt.session, node=nodes[0], param="fillTubes").get("value")
+    blend = process.call("get_param", session=rt.session, node=nodes[0], param="tubeBlend").get("value")
+    return {"fillTubes": bool(on), "tubeBlend": 0.25 if blend is None else float(blend)}
+
+
+def set_fill_tubes(scalp, on=None, blend=None):
+    """Fill Tubes and Tube Blend on every Interpolate node of the graph (Maya's set_fill_tubes)."""
+    from . import graph
+    for node in _interpolate_nodes(scalp):
+        if on is not None:
+            graph.set_param(scalp, node, "fillTubes", bool(on))
+        if blend is not None:
+            graph.set_param(scalp, node, "tubeBlend", min(max(float(blend), 0.0), 1.0))
+
+
+def tube_fill_changed(context):
+    scalp = active(context)
+    if scalp is None or not is_hierarchy(scalp):
+        return
+    t = context.scene.groomlab_tools
+    try:
+        set_fill_tubes(scalp, on=t.tube_fill, blend=t.tube_blend)
+    except HelperError as e:
+        status(context.scene, e.message)
+
+
+def tube_changed(context, key):
+    """A change in the Tubes section: the shape given to the targets at once; Width, Flatness and
+    Twist once the drag stops (one undo step each, Maya's on release). Every change also goes to
+    the guides Place and Draw make (the placement tube)."""
+    scalp = active(context)
+    if scalp is None or not is_hierarchy(scalp):
+        return
+    scene = context.scene
+    t = scene.groomlab_tools
+    gt = groom_tools(scalp)
+    try:
+        if key == "shape":
+            name = t.tube_shape
+            if name == tool_props.MIXED:
+                return
+            with props.quiet():
+                t.tube_choice = name
+            if gt.tube_guides:
+                set_tube(scalp, guides=gt.tube_guides, shape=name)
+        else:
+            def commit():
+                if not gt.tube_guides:
+                    return
+                if key == "width":
+                    if t.tube_reference > 0.0:
+                        scale_tube(scalp, float(t.tube_width) / t.tube_reference, guides=gt.tube_guides)
+                    else:
+                        set_tube(scalp, guides=gt.tube_guides, width=float(t.tube_width))
+                elif key == "flatness":
+                    set_tube(scalp, guides=gt.tube_guides, aspect=max(1.0 - float(t.tube_flatness), 0.01))
+                elif key == "twist":
+                    set_tube(scalp, guides=gt.tube_guides, twist=float(t.tube_twist))
+            defer("tube." + key, commit)
+        push_safely(context)
+    except HelperError as e:
+        status(scene, e.message)
+
+
+def unique_shape_name(scene, base):
+    """`base 1`, `base 2`...: a name no built-in or library shape has."""
+    t = scene.groomlab_tools
+    taken = set(c["value"] for c in defs.choices("tubeShape")) | set(x.name for x in t.tube_shapes)
+    k = 1
+    while "%s %d" % (base, k) in taken:
+        k += 1
+    return "%s %d" % (base, k)
+
+
+def shape_points(scalp, name):
+    """(points, smooth) of a shape (a built-in's from the helper's list)."""
+    for x in tube_shapes(scalp):
+        if x["name"] == name:
+            return [list(p) for p in x["points"]], bool(x.get("smooth", True))
+    raise HelperError("not_found", "no tube shape %r" % name)
+
+
+# ---- The Correctives tab: the stack, its weights keyed with Blender's keyframes --------------------
+
+def weight_path(name):
+    """The data path of corrective `name`'s weight on its groom (the scalp object), by its name (an
+    fcurve keeps to its corrective as others come and go)."""
+    return 'groomlab_tools.corrective_weights["%s"].weight' % name
+
+
+def insert_weight_key(scalp, name, frame, value):
+    """A key on corrective `name`'s weight fcurve (made when it has none: Blender's keyframe_insert
+    makes the action and its slot, its path then named instead of numbered)."""
+    weights = scalp.groomlab_tools.corrective_weights
+    fc = weight_fcurve(scalp, name)
+    if fc is None:
+        with props.quiet():
+            weights[name].weight = float(value)
+        path = "groomlab_tools.corrective_weights[%d].weight" % weights.find(name)
+        scalp.keyframe_insert(data_path=path, frame=float(frame))
+        bag = _channelbag(scalp)
+        fc = bag.fcurves.find(path) if bag is not None else None
+        if fc is None:
+            raise HelperError("state", "the weight of %s could not be keyed" % name)
+        fc.data_path = weight_path(name)
+    else:
+        fc.keyframe_points.insert(float(frame), float(value))
+        fc.update()
+    return fc
+
+
+def _channelbag(obj):
+    ad = obj.animation_data
+    if ad is None or ad.action is None:
+        return None
+    try:
+        from bpy_extras import anim_utils
+        return anim_utils.action_get_channelbag_for_slot(ad.action, ad.action_slot)
+    except (ImportError, AttributeError):
+        return ad.action  # before slotted actions: the action holds the fcurves
+
+
+def weight_fcurve(scalp, name):
+    bag = _channelbag(scalp)
+    return bag.fcurves.find(weight_path(name)) if bag is not None else None
+
+
+def remove_weight_fcurve(scalp, name):
+    bag = _channelbag(scalp)
+    fc = bag.fcurves.find(weight_path(name)) if bag is not None else None
+    if fc is not None:
+        bag.fcurves.remove(fc)
+    groom_tools(scalp).pushed_keys.pop(name, None)
+
+
+def sampled_keys(fc):
+    """A weight fcurve as the helper's keys: [frame, weight] on every frame from its first key to
+    its last (Maya writes keyed weights into files the same way)."""
+    frames = sorted(k.co[0] for k in fc.keyframe_points)
+    if not frames:
+        return []
+    first, last = int(round(frames[0])), int(round(frames[-1]))
+    if first == last:
+        return [[float(first), float(fc.evaluate(first))]]
+    return [[float(f), round(float(fc.evaluate(f)), 6)] for f in range(first, last + 1)]
+
+
+def push_corrective_keys(scalp, name, force=False):
+    """Corrective `name`'s Blender fcurve sampled into the helper's keys (none: its keys dropped)."""
+    fc = weight_fcurve(scalp, name)
+    keys = sampled_keys(fc) if fc is not None else []
+    gt = groom_tools(scalp)
+    if not force and gt.pushed_keys.get(name) == keys:
+        return None
+    gt.pushed_keys[name] = keys
+    if keys:
+        return corrective_set(scalp, name, keys=keys)
+    return corrective_clear_keys(scalp, name)
+
+
+def key_corrective(scalp, name, frame=None, weight=None):
+    """Key corrective `name`'s weight on `frame` (the current one) with Blender's keyframes, the
+    fcurve sent to the helper."""
+    scene = groom.scene_of(scalp)
+    w = scalp.groomlab_tools.corrective_weights.get(name)
+    if w is None:
+        raise HelperError("not_found", "no corrective %r" % name)
+    insert_weight_key(scalp, name, scene.frame_current if frame is None else frame,
+                      w.weight if weight is None else weight)
+    return push_corrective_keys(scalp, name, force=True)
+
+
+def corrective_weight_changed(scalp, name, weight):
+    """The weight slider: keyed here when the weight has keys (Maya: a keyed weight is keyed as you
+    change it), else the corrective's weight on every frame."""
+    try:
+        if weight_fcurve(scalp, name) is not None:
+            key_corrective(scalp, name)
+        else:
+            corrective_set(scalp, name, weight=float(weight))
+    except HelperError as e:
+        status(groom.scene_of(scalp), e.message)
+
+
+def _keys_from_layer(scalp, layer):
+    """A layer keyed (or faded as a fix) in the helper but with no Blender fcurve yet (Fix Frame, a
+    .groom opened): its keys as Blender keyframes, linear, then sent back as the fcurve says."""
+    name = layer["name"]
+    keys = [list(k) for k in layer.get("keys") or []]
+    if not keys and layer.get("frame") is not None and (layer.get("fadeIn") or layer.get("fadeOut")):
+        f = float(layer["frame"])
+        keys = [[f - float(layer.get("fadeIn") or 0.0), 0.0], [f, float(layer.get("weight", 1.0))],
+                [f + float(layer.get("fadeOut") or 0.0), 0.0]]
+    if not keys:
+        return False
+    fc = None
+    for frame, weight in keys:
+        fc = insert_weight_key(scalp, name, frame, weight)
+    for k in fc.keyframe_points:
+        k.interpolation = "LINEAR"
+    return True
+
+
+def refresh_correctives(scalp, scene=None):
+    """The Correctives list: the stack top first, the Sculpt nodes, the base groom; the row brushes
+    edit picked. Each corrective's weight lives on the groom as a Blender property (keyed with
+    Blender's keyframes): a layer the helper keys that has no fcurve gets one."""
+    scene = scene or groom.scene_of(scalp)
+    t = scene.groomlab_tools
+    r = correctives(scalp)
+    layers = r.get("layers") or []
+    target = r.get("target") or {"kind": "base"}
+    weights = scalp.groomlab_tools.corrective_weights
+    names = [l["name"] for l in layers]
+    made_keys = []
+    with props.quiet():
+        for gone in [w.name for w in weights if w.name not in names]:
+            remove_weight_fcurve(scalp, gone)
+            weights.remove(weights.find(gone))
+        for l in layers:
+            w = weights.get(l["name"])
+            if w is None:
+                w = weights.add()
+                w.name = l["name"]
+            if weight_fcurve(scalp, l["name"]) is None:
+                if (l.get("keyed") or l.get("fadeIn") or l.get("fadeOut")) and _keys_from_layer(scalp, l):
+                    made_keys.append(l["name"])
+                else:
+                    w.weight = float(l.get("weight", 1.0))
+        t.correctives.clear()
+        picked = 0
+        for l in reversed(layers):  # the top of the stack first
+            item = t.correctives.add()
+            item.name, item.kind = l["name"], "layer"
+            item.enabled = bool(l.get("enabled", True))
+            item.weight_now = float(l.get("weightNow", 0.0))
+            item.keyed = bool(l.get("keyed")) or weight_fcurve(scalp, l["name"]) is not None
+            item.keys = len(l.get("keys") or [])
+            item.has_frame = l.get("frame") is not None
+            item.frame = float(l.get("frame") or 0.0)
+            item.guides = int(l.get("guides") or 0)
+            if target.get("kind") == "corrective" and target.get("name") == l["name"]:
+                picked = len(t.correctives) - 1
+        for n in r.get("sculptNodes") or []:
+            item = t.correctives.add()
+            item.name, item.kind = n["name"], "node"
+            item.guides = int(n.get("editedGuides") or 0)
+            if target.get("kind") == "node" and target.get("name") == n["name"]:
+                picked = len(t.correctives) - 1
+        item = t.correctives.add()
+        item.name, item.kind = "Base groom", "base"
+        if target.get("kind") not in ("corrective", "node"):
+            picked = len(t.correctives) - 1
+        t.corrective_index = picked
+    for name in made_keys:
+        push_corrective_keys(scalp, name, force=True)
+    for name in names:  # Blender's keys are the weights' (after Blender's undo, a .blend opened): sent when they differ
+        if name not in made_keys and weight_fcurve(scalp, name) is not None:
+            push_corrective_keys(scalp, name)
+
+
+def picked_corrective(scene):
+    """The picked row of the Correctives list: (kind, name), or (None, "")."""
+    t = scene.groomlab_tools
+    if 0 <= t.corrective_index < len(t.correctives):
+        row = t.correctives[t.corrective_index]
+        return row.kind, row.name
+    return None, ""
+
+
+@bpy.app.handlers.persistent
+def _on_depsgraph(scene, depsgraph):
+    """A weight's keys edited in Blender's timeline or Graph Editor: sent to the helper (the
+    fcurve sampled again; nothing when it is as last sent)."""
+    actions = set()
+    for u in depsgraph.updates:
+        if isinstance(u.id, bpy.types.Action):
+            actions.add(u.id.original if hasattr(u.id, "original") else u.id)
+    if not actions:
+        return
+    for scalp in groom.scalps():
+        ad = scalp.animation_data
+        if ad is None or ad.action not in actions or not is_hierarchy(scalp):
+            continue
+        rt = groom.runtime_if_any(scalp)
+        if rt is None or rt.session is None or not process.running():
+            continue
+        for w in scalp.groomlab_tools.corrective_weights:
+            try:
+                if weight_fcurve(scalp, w.name) is not None or w.name in groom_tools(scalp).pushed_keys:
+                    push_corrective_keys(scalp, w.name)
+            except HelperError as e:
+                print("GroomLab: %s's keys were not sent: %s" % (w.name, e.message))
 
 
 def undo_label(scalp, redo=False):
@@ -1131,6 +1616,8 @@ def register():
     for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
         if _on_undo not in handlers:
             handlers.append(_on_undo)
+    if _on_depsgraph not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_on_depsgraph)
 
 
 def unregister():
@@ -1143,6 +1630,9 @@ def unregister():
     for handlers in (bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
         if _on_undo in handlers:
             handlers.remove(_on_undo)
+    if _on_depsgraph in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_on_depsgraph)
+    _deferred.clear()
     if bpy.app.timers.is_registered(_wake):
         bpy.app.timers.unregister(_wake)
     if bpy.app.timers.is_registered(_keep_dirty):

@@ -40,12 +40,11 @@ HAIR_ATTRIBUTES = {"color": (COLOR, "FLOAT_COLOR"), "pointColor": (POINT_COLOR, 
                    "specular": ("specular", "FLOAT")}
 ATTRIBUTES = list(HAIR_ATTRIBUTES)
 OWN_ATTRIBUTES = {STRAND_ID} | {name for name, _ in HAIR_ATTRIBUTES.values()}
-# Graph nodes Blender cannot feed yet (they need the scalp's earlier frames or a solver stepping
-# frames): the panel says so; the groom evaluates as the core does without that input.
+# Graph nodes Blender cannot feed yet (they need the scalp's earlier frames): the panel says so; the
+# groom evaluates as the core does without that input. (Simulate steps frame by frame as the timeline
+# plays, and Simulate Range hands it the scalp's frames: pipeline.py.)
 UNSUPPORTED = {"Jiggle": "Jiggle is not supported in Blender yet: the strands pass through it (Blender does not "
-                         "hand GroomLab the scalp's earlier frames)",
-               "Simulate": "Simulate is not supported in Blender yet: it is not fed the scalp's motion frame by "
-                           "frame, so its result is not final"}
+                         "hand GroomLab the scalp's earlier frames)"}
 DEBOUNCE = 0.04   # seconds after the last change before evaluating
 MIN_WAIT = 0.06   # while changes keep coming (a slider drag): an evaluation at least this far apart,
 WAIT_PER_COST = 1.5  # and this many times the last one's own time apart (Blender stays responsive between)
@@ -95,6 +94,9 @@ before_save = []  # callables run before a groom is written (.groom, the .blend'
 # callables (scalp, rt, scene) run when a session is (re)built: True when one gave it the groom (GroomLab's tools:
 # the groom's state kept in the .blend), else B2's snapshot is loaded
 build_hooks = []
+# callables (scalp, rt, depsgraph, force, read_pose) run by sync() after the scalp and guides: the groom's other
+# inputs (pipeline.py: its colliders as they are posed now); True when one sent something
+input_hooks = []
 
 
 # ---- Grooms -----------------------------------------------------------------------------------
@@ -538,6 +540,7 @@ def write_hair(scalp, r):
             radius = client.view(a["widths"]) * np.float32(0.5)
             _attribute(curves, "radius", "FLOAT", "POINT").data.foreach_set("value", radius)
     present = set()
+    base = None  # the strands' base colors (the look's RGB, or its pigment's): the viewport color
     if s:
         ids = np.ascontiguousarray(client.view(a["ids"])).view(np.int32)
         _attribute(curves, STRAND_ID, "INT32_2D", "CURVE").data.foreach_set("value", ids)
@@ -554,6 +557,8 @@ def write_hair(scalp, r):
                 rgba = np.ones((n, 4), np.float32)
                 rgba[:, :3] = values[:, :3]
                 attr.data.foreach_set("color", rgba.ravel())
+                if target == COLOR:
+                    base = values[:, :3]
             elif kind == "FLOAT":
                 attr.data.foreach_set("value", values.ravel())
             else:
@@ -568,7 +573,8 @@ def write_hair(scalp, r):
         except Exception:
             pass
     curves.update_tag()
-    shading.ensure_material(scalp, hair, present, r.get("look") or {})
+    mat = shading.ensure_material(scalp, hair, present, r.get("look") or {})
+    shading.set_viewport_color(mat, base)  # Solid shading: the hair's look, not the default gray
 
 
 # ---- Objects ----------------------------------------------------------------------------------
@@ -690,6 +696,8 @@ def sync(scalp, scene=None, depsgraph=None, mode=None, force_eval=False, evaluat
     changed |= sync_scalp(scalp, rt, depsgraph, force=force_inputs or "topology" not in rt.keys, read_pose=read_pose,
                           topology=topology)
     changed |= sync_guides(scalp, rt, force=force_inputs or "guides" not in rt.keys)
+    for fn in input_hooks:
+        changed |= bool(fn(scalp, rt, depsgraph, force_inputs, read_pose))
     rt.error = ""
     mode = mode or ("render" if _rendering else "preview")
     if evaluate_now and (changed or force_eval or fresh or mode != rt.mode):
@@ -1069,17 +1077,18 @@ def bake_card_maps(scalp, scene, preset, directory, name, resolution=0, fmt="", 
                  supersample=int(supersample), nameTemplate=name_template)
 
 
-def export(scalp, scene, fmt, path, first, last, step=1, density=1.0):
-    """Alembic or USD of the groom over frames."""
+def export(scalp, scene, fmt, path, first, last, step=1, density=1.0, **options):
+    """The groom's strands over frames: Alembic, USD, scalesUsd, unrealGroom or unityStrands, with the
+    format's options (scales, groups, lod, pointsPerStrand...: docs/BLENDER.md "Pipeline")."""
     global _exporting
     rt = ensure(scalp, scene)
     sync(scalp, scene=scene, evaluate_now=False)
     if not deforms(scalp):
         # The helper steps the frames itself (time-driven nodes such as Wind need nothing from Blender).
         return _call("export", session=rt.session, format=fmt, path=path, density=density,
-                     frames={"first": first, "last": last, "step": step})
+                     frames={"first": first, "last": last, "step": step}, **options)
     # A deforming scalp: Blender plays each frame and hands the helper the scalp's pose.
-    e = _call("export_open", session=rt.session, format=fmt, path=path, startFrame=first, step=step)["export"]
+    e = _call("export_open", session=rt.session, format=fmt, path=path, startFrame=first, step=step, **options)["export"]
     current = scene.frame_current
     _exporting = True
     done = False

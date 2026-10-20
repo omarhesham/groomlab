@@ -566,6 +566,8 @@ public:
                 float pressure = 1.0f, unsigned modifiers = 0, const std::function<void()>& afterDab = {});
 
     bool stroking() const { return stroking_; }
+    // A Shift press waiting for a drag (smoothing) or a release (a Shift+click): drags go on.
+    bool shiftPending() const { return shiftPending_; }
     bool changed() const { return changed_ || mapChanged_; }
     // Part and Flow: the path drawn so far on the scalp (the host draws it until it is committed).
     const std::vector<Vec3f>& drawnPath() const { return drawPath_; }

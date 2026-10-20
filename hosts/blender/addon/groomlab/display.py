@@ -2,8 +2,9 @@
 """The groom in the 3D viewport as Maya draws it: the helper's display buffers (docs/BLENDER.md,
 "Display buffers": Maya's Viewport 2.0 geometry from the core's DisplayBuilder) drawn with Blender's
 gpu module. Guides colored by level (frozen ones blue), the selection white and the soft selection
-orange, tubes, part lines, flow arrows and field, a painted map on the scalp, root and tip dots,
-and the brush's ring with the guides it would touch. Strand color modes (random, clump, density,
+orange, tubes (shaded, and as wires while the Shape brush is on, the selected ones warm), part
+lines, flow arrows and field, a painted map on the scalp, root and tip dots, and the brush's ring
+with the guides it would touch. Strand color modes (random, clump, density,
 a color set or channel) go to the hair object as a color attribute the viewport shows.
 
 Each item comes only when its version changed (`have`); its arrays are copied out of the shared
@@ -19,8 +20,12 @@ import numpy as np
 from . import groom, process
 from .helper_client import HelperError
 
-ORDER = ("scalpMap", "tubes", "guides", "flowField", "selectedGuides", "softSelectedGuides", "parts", "flowArrows")
-PULLED = {"guides", "flowField", "selectedGuides", "softSelectedGuides", "parts", "flowArrows"}
+ORDER = ("scalpMap", "tubes", "guides", "tubeWires", "flowField", "selectedGuides", "softSelectedGuides",
+         "selectedTubeWires", "parts", "flowArrows")
+# Pulled toward the camera by the hair's depth, so they show through the strands round them (the
+# tubes too: a guide's tube sits inside its clump).
+PULLED = {"tubes", "guides", "tubeWires", "flowField", "selectedGuides", "softSelectedGuides", "selectedTubeWires", "parts",
+          "flowArrows"}
 DISPLAY_COLORS = "groomlab_display"   # the hair's color attribute for the strand color modes
 LIGHT = np.array([0.35, -0.55, 0.75], np.float32) / np.linalg.norm([0.35, -0.55, 0.75])
 
@@ -125,6 +130,8 @@ def settings_for(scalp, scene):
     if painting and t.show_on_guides and m is not None and m.kind == "guides":
         s["guideColorMode"] = "layer"
         s["guideColorLayer"] = m.name
+    if t.tool == "shape":
+        s["tubeWires"] = True  # while the Shape brush is on: every tube it can shape as a wire (Maya's)
     if t.isolate:
         level, _group = tools.group_target(scene)
         s["displayLevel"] = level if level >= 0 else -1
@@ -329,7 +336,7 @@ def apply_strand_visibility(scalp, stroking=False):
     if hair is None:
         return
     hide = not scalp.groomlab_tools.show_strands
-    if stroking and groom.scene_of(scalp).groomlab_tools.sculpt_display == "GUIDES_ONLY":
+    if stroking and groom.scene_of(scalp).groomlab_tools.sculpt_display == "guidesOnly":
         hide = True
     if hair.hide_viewport != hide:
         hair.hide_viewport = hide
@@ -353,7 +360,7 @@ def lit_colors(item):
     n = item.normals
     if n is None or len(n) != len(item.positions):
         return np.tile(base, (len(item.positions), 1))
-    shade = 0.45 + 0.55 * np.abs(n @ LIGHT)
+    shade = 0.6 + 0.4 * np.abs(n @ LIGHT)  # light, as Maya's headlight shows them (never near black)
     out = np.empty((len(n), 4), np.float32)
     out[:, :3] = base[:3] * shade[:, None]
     out[:, 3] = base[3]

@@ -19,6 +19,7 @@
 
 #if GROOMLAB_HAS_ALEMBIC
 #include "groomlab/alembic_io.h"
+#include "groomlab/engine_export.h"
 #endif
 
 #include "host_space.h"
@@ -33,11 +34,26 @@ struct ExportJob {
     double fps = 24.0;
 #if GROOMLAB_HAS_ALEMBIC
     std::unique_ptr<AlembicCurvesWriter> abc;
+    // unrealGroom, unityStrands (engine_export.h): the strands as each engine's importer reads them.
+    std::unique_ptr<EngineGroomWriter> engine;
 #endif
+    bool unreal = false;  // the engine writer's: Unreal (the primary guides go too) or Unity
     std::unique_ptr<UsdCurvesWriter> usd;
+    bool withScales = true;  // an Alembic export writes the scales' mesh (scales "mesh")
     ScaleMeshBuilder scales;
     std::size_t frames = 0;
     double lastFrame = -std::numeric_limits<double>::infinity();
+};
+
+// Simulate Range in steps (pipeline.cpp: simulate_range, simulate_poll): each request steps the
+// Simulate nodes on for at most `budgetMs`, so the protocol keeps answering between steps.
+struct SimJob {
+    int target = 1;           // the frame every node is stepped on to
+    int from = 1;             // the earliest frame a node had left to step when the job began
+    double budgetMs = 200.0;  // per request
+    std::size_t frames = 0;   // frames stepped so far (every node's)
+    double milliseconds = 0.0;
+    std::vector<std::string> errors;
 };
 
 struct Session {
@@ -67,6 +83,13 @@ struct Session {
     // The interactive tools (tools.cpp): the brush, the selection, the undo stack, the display
     // buffers. Made on first use for the session's groom; dropped when the groom is replaced.
     std::unique_ptr<ToolState> tools;
+    // The host's scalp at other frames (set_scalp_frames: the add-on samples a deforming scalp over
+    // a range), what Simulate steps through to a frame: frame scalpFramesFirst + i holds
+    // scalpFrames[i] (points, and rest points when given), the scalp's topology.
+    int scalpFramesFirst = 1;
+    std::vector<std::vector<Vec3f>> scalpFrames, scalpFramesRest;
+    std::unique_ptr<SimJob> simJob;
+    Arena meshes{"meshes"};  // meshes answered to the host (cards, scales, strands as a mesh, rachis)
     // Where new texture maps' images go ("" a folder in the temp folder, made when needed).
     std::string mapsDir;
     // The painted maps: owned by the session as its scalp maps (a file's, or made here) once

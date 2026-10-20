@@ -23,6 +23,7 @@ pkg, m = bu.enable()
 groom, graph, process, units = m["groom"], m["graph"], m["process"], m["units"]
 gt = importlib.import_module(bu.MODULE + ".graph_tree")
 ge = importlib.import_module(bu.MODULE + ".graph_editor")
+gu = importlib.import_module(bu.MODULE + ".graph_ui")
 
 
 class PanelLayout(bu.FakeLayout):
@@ -43,6 +44,14 @@ class PanelLayout(bu.FakeLayout):
 
     def menu(self, idname, **kwargs):
         self.log.append(("menu", idname))
+
+    def prop(self, data, name, **kwargs):
+        if name.startswith('["'):  # a custom property (the groom's ctl_ controls)
+            if name[2:-2] not in data.keys():
+                raise AttributeError("%s has no custom property %s" % (data, name))
+            self.log.append(("prop", name))
+            return
+        bu.FakeLayout.prop(self, data, name, **kwargs)
 
 
 def helper_graph(scalp):
@@ -362,7 +371,14 @@ class GraphEditorTest(unittest.TestCase):
         self.assertIn("Hair", ge.preset_categories())
         log = []
         ge.GROOMLAB_MT_graph_presets.draw(type("M", (), {"layout": PanelLayout(log)}), bpy.context)
-        self.assertIn(("menu", "GROOMLAB_MT_graph_preset_category"), log)
+        self.assertIn(("menu", "GROOMLAB_MT_graph_submenu"), log)  # a submenu per category (graph_ui.json's presetMenu)
+        self.assertIn(("operator", "groomlab.graph_save_preset"), log)
+        hair = next(k for k, (label, _) in gu._submenus.items() if label == "Hair")
+        first = gu._submenus[hair][1][0]  # a preset: Apply, Insert After Selected Node
+        self.assertEqual(first[0], "menu")
+        self.assertEqual([(e[1], e[2], e[3]["mode"]) for e in gu._submenus[first[2]][1]],
+                         [("Apply", "groomlab.graph_preset", "APPLY"),
+                          ("Insert After Selected Node", "groomlab.graph_preset", "INSERT")])
         tip = ge.GROOMLAB_OT_graph_preset.description(bpy.context, type("P", (), {"name": "frizz", "mode": "INSERT"}))
         self.assertIn("Compound", tip)
         self.assertTrue(tip.startswith((ge.preset_info("frizz").get("description") or "frizz").rstrip(".")))
@@ -554,19 +570,30 @@ class GraphEditorTest(unittest.TestCase):
             return type("Holder", (), {"layout": PanelLayout(log)})()
         ge.draw_header(holder(), ctx)
         ge.draw_context_menu(holder(), ctx)
-        for cls in (ge.GROOMLAB_MT_graph_more, ge.GROOMLAB_MT_graph_presets, ge.GROOMLAB_MT_graph_preset_actions,
+        for cls in (ge.GROOMLAB_MT_graph_edit, ge.GROOMLAB_MT_graph_presets,
                     ge.GROOMLAB_PT_graph_node, ge.GROOMLAB_PT_graph_groom, ge.GROOMLAB_PT_graph_presets):
             if hasattr(cls, "poll"):
                 self.assertTrue(cls.poll(ctx), cls)
             cls.draw(holder(), ctx)
+        for key in [k for k in gu._submenus if k.startswith(("node/", "presets/"))]:  # the submenus (Evaluate, presets)
+            gu.draw_prepared(PanelLayout(log), gu._submenus[key][1])
         ops = {entry[1] for entry in log if entry[0] == "operator"}
         for op in ("groomlab.graph_set_output", "groomlab.graph_view_node", "groomlab.graph_bypass",
-                   "groomlab.graph_evaluation", "groomlab.graph_duplicate", "groomlab.graph_tidy", "groomlab.graph_reload", "groomlab.graph_preset"):
+                   "groomlab.graph_evaluation", "groomlab.graph_duplicate", "groomlab.graph_tidy", "groomlab.graph_reload",
+                   "groomlab.graph_preset", "groomlab.graph_group", "groomlab.graph_copy", "groomlab.graph_paste"):
             self.assertIn(op, ops)
         self.assertIn(("menu", "GROOMLAB_MT_graph_presets"), log)
+        self.assertIn(("menu", "GROOMLAB_MT_graph_edit"), log)
         self.assertIn("p_strength", {entry[1] for entry in log if entry[0] == "prop"})
-        # The 3D view's GroomLab tab still draws (its compact list), with the editor's button.
-        self.assertIn(("operator", "groomlab.graph_open"), bu.draw_panels())
+        # The 3D view's GroomLab tab still draws; presets and the graph are the editor's alone (no
+        # Presets or Graph panel in the 3D view's sidebar, as Maya keeps them out of Groom Tools).
+        self.assertIn(("operator", "groomlab.update"), bu.draw_panels())
+        view3d = [c for c in bpy.types.Panel.__subclasses__()
+                  if getattr(c, "bl_space_type", "") == "VIEW_3D" and getattr(c, "bl_category", "") == "GroomLab"]
+        self.assertTrue(view3d)
+        for c in view3d:
+            self.assertNotIn(c.bl_label, ("Presets", "Graph"), c)
+        self.assertFalse(hasattr(bpy.types, "VIEW3D_PT_groomlab_presets") or hasattr(bpy.types, "VIEW3D_PT_groomlab_graph"))
         self.assertEqual(bpy.ops.groomlab.graph_open(), {"FINISHED"})  # no interface here: the tree is made
 
     def test_9_remove_groom(self):

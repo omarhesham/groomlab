@@ -58,11 +58,11 @@ bad request never ends the helper.
 
 **Handshake.** `hello {"protocol": 1}` answers `{"protocol": 1, "version": "0.1.0", "versionNumbers",
 "platform", "sharedMemory": "windows"|"posix", "alembic", "groomSpace": {"upAxis": "Y", "units":
-"cm"}, "features": {"tools": 1, "state": 1}}`; another protocol number is a
+"cm"}, "features": {"tools": 1, "state": 1, "cardMaps": 1, "authoring": 1, "pipeline": 1, "photos": 1}}`; another protocol number is a
 `protocol` error (the add-on and helper ship together; the add-on refuses a helper of another
 protocol). `kProtocolVersion` (helper.h) rises only for a change an older add-on would misread; new
 commands and fields keep it. `features` versions what came after protocol 1's first commands
-(`kToolsVersion`: GroomLab's own tools, section "Tools"; `state`: get_state/set_state; `authoring`: section "Authoring"): an add-on
+(`kToolsVersion`: GroomLab's own tools, section "Tools"; `state`: get_state/set_state; `authoring`: section "Authoring"; `pipeline`: section "Pipeline"; `photos`: section "Photos"): an add-on
 checks the one it draws.
 
 ### Arrays
@@ -151,7 +151,7 @@ All but the process ones take `"session": <id>`.
 | `update_scalp` | `points`, `restPoints` | the scalp's points at this frame on its topology (a deforming scalp) |
 | `get_scalp` | `space` | `points`, `faceCounts`, `faceIndices`, `uvs`, `restPoints` arrays; `facesExact` (every polygon came back as one face) |
 | `get_guides` | `source` ("auto", "flat", "hierarchy"), `space`, `pose` ("now", "rest") | `points` (n,3), `counts`, `ids` (<u8); `pose` answered |
-| `set_guides` | `points`, `counts`, `ids` (0: new), `target` ("auto", "flat", "hierarchy"), `keepMissing`, `pose` ("now", "rest") | `{"pose", "target", "guides", "changed", "added": [{"index", "id"}], "removed", "updated"}` |
+| `set_guides` | `points`, `counts`, `ids` (0: new), `target` ("auto", "flat", "hierarchy"), `keepMissing`, `pose` ("now", "rest"), `group` (hierarchy: the group new guides join, "Pipeline") | `{"pose", "target", "guides", "changed", "added": [{"index", "id"}], "removed", "updated"}` |
 | `set_time` | `frame` or `seconds`, `fps` | `{"seconds", "frame", "fps"}` (frame_time.h's rule) |
 | `evaluate` | `mode` ("preview": the viewport's, renderOnly nodes off; "render": viewportOnly nodes off), `density`, `pointBudget`, `viewNode`, `sculptDensity` (1; while a stroke is live the strands step back to this fraction, the app's 0.35), `attributes` (names or "all"), `space`, `bounds` | strand arrays (below), `errors`, `messages`, `notes` {node: note}, incremental hints, `milliseconds`, `following`, `look` (below) |
 | `stats` / `node_status` | | GroomStats JSON / notes, times, errors, inputErrors, graphError |
@@ -165,8 +165,8 @@ All but the process ones take `"session": <id>`.
 | `list_presets` | | presets with title, description, category; the folders searched |
 | `apply_preset` | `name` or `path` | the graph replaced, fitted to the scalp (`fitFactor`), controls applied; `missingMaps` the preset reads |
 | `insert_preset` | `name` or `path`, `after`, `nodeName` | the preset's look as a Compound after `after`; `node` |
-| `export` | `format` ("alembic", "usd"), `path`, `frames` {first, last, step}, `density`, `name` | the current inputs at each frame |
-| `export_open` / `export_frame` / `export_close` | `format`, `path`, `startFrame`, `step` / `export`, `frame` | the same frame by frame, the add-on feeding a deforming scalp between frames |
+| `export` | `format` ("alembic", "usd", "scalesUsd", "unrealGroom", "unityStrands"; the game formats in "Pipeline"), `path`, `frames` {first, last, step}, `density`, `name`, `scales`, the engine options ("Pipeline") | the current inputs at each frame: `{"path", "frames", "strands"}`, and `objects` for an engine's groom |
+| `export_open` / `export_frame` / `export_close` | `format`, `path`, `startFrame`, `step`, its options / `export`, `frame` | the same frame by frame, the add-on feeding a deforming scalp between frames |
 | `card_map_presets` | | `presets` (cardMapPresetsJson: built in, then the user's Documents/GroomLab/card_presets), `sources` (the maps, channel names, formats), `userDir` |
 | `bake_card_maps` | `preset` (a name or a preset object), `directory`, `name`, `resolution`, `format`, `bitDepth`, `padding`, `supersample`, `nameTemplate`, `occlusion` | the Cards nodes' cards baked at the session's time and written as the preset packs them (card_maps.h): `paths`, `cards`, `size` |
 | `save_card_map_preset` / `delete_card_map_preset` | `preset` / `name` | `path` / `deleted`: the user's presets, shared with Maya and the app |
@@ -332,7 +332,7 @@ the symmetry in the **host's axes**; strengths, values and pixels are as in Maya
 | `map_relink` | `name`, `path`, `copy`? | `{"name", "file", "undo"}`: Maya's `set_map_texture`, the map (any kind) reading the image as a texture map, its channels kept |
 | `map_reload` | `name`? (else every texture map) | `{"files"}`: read again at the next evaluation after an edit outside (not an undo step) |
 | `map_users` | `name` | `{"name", "nodes" (its Map nodes), "users" [[node, param]...]}` (Maya's `map_users`) |
-| `map_for_param` | `node`, `param`, `kind` (vertices, texture), `resolution` (1024) | `{"name", "kind", "made", "graphChanged", "tool", "undo"}`: New Map > For a setting. The map node.param reads, else a white map `<node>_<param>` made and linked to it (the graph's map param) as one undo step; the Paint tool on it toward 1 (Ctrl: toward 0; on Scatter's density, no hair). The Width and Density brushes it replaced answer `tool_set` with an error naming it |
+| `map_for_param` | `node`, `param`, `kind` (vertices, texture, guides), `resolution` (1024) | `{"name", "kind", "made", "graphChanged", "tool", "undo"}`: New Map > For a setting, and the Graph Editor's Paint (On Guides, On Scalp Vertices, As Texture). The map node.param reads, else a white map `<node>_<param>` made and linked to it (the graph's map param; `guides`: a guide layer at 1 on every primary guide, children inheriting it) as one undo step; the Paint tool on it toward 1 (Ctrl: toward 0; on Scatter's density, no hair). The Width and Density brushes it replaced answer `tool_set` with an error naming it |
 | `undo` / `redo` | | `undo_state` + `"done"` |
 | `undo_state` | | `{"canUndo", "canRedo", "undoLabel" ("comb", "place", "generate children", "create map mask"...), "redoLabel", "undoDepth", "redoDepth"}` |
 | `display` | `settings`, `have` {item: version}, `generation`, `map` (name or {name, channel}), `strandColors` {mode, source, min, max, perPoint} | the display buffers (below) |
@@ -374,7 +374,7 @@ Blender's stand-in for Maya's masks folder: what `map_remove deleteFile` may del
 **Display buffers.** `display` runs a `DisplayBuilder` (one per session) on the guides as they
 are now (`GroomSession::hierarchy()`: a live stroke's preview included), the last evaluation's
 parts and flow, the session's scalp, the selection and the map shown, with Maya's display settings
-(`settings`: `guides`, `tubes`, `flow`, `guideWidth`,
+(`settings`: `guides`, `tubes`, `tubeWires`, `flow`, `guideWidth`,
 `guideColorMode` (level, layer, group), `guideColorLayer`, `displayLevel`, `guidePoints` (off,
 ends, all), `guideSmoothing` (4), `guideDisplaySegments`, `hiddenGuideGroups` (default: the
 session's), `guideGroupColors`, `theme` {levels, pointSize, selected, softSelected, frozen, parts,
@@ -384,7 +384,8 @@ the next `display`):
 ```json
 {"generation": "groomlab_<pid>_s1display_1",
  "items": {
-   "guides" | "tubes" | "selectedGuides" | "softSelectedGuides" | "parts" | "flowArrows" | "flowField" | "scalpMap": {
+   "guides" | "tubes" | "selectedGuides" | "softSelectedGuides" | "parts" | "flowArrows" | "flowField" | "scalpMap"
+   | "tubeWires" | "selectedTubeWires": {
      "version", "changed", "shown", "vertexCount", "primitive": "lines"|"triangles",
      "perVertexColors", "surface", "color": [r,g,b,a], "lineWidth", "layer",
      "arrays"?: {"positions" <f4 (n,3) host space, "indices" <u4 (m,2) lines | (m,3) triangles,
@@ -404,6 +405,11 @@ the next `display`):
   and streamlines), `flowField` (the field over the scalp), `tubes` (shaded triangles with normals),
   `scalpMap` (the map shown, the scalp lifted a hair off its surface with per-vertex colors; a
   texture map sampled at its vertices; a live stroke's values while painting).
+- `tubeWires` / `selectedTubeWires`: with `tubeWires` true (the host sends it while the Shape brush
+  is on, as Maya draws them), every guide's tube the brush can shape (shown, not frozen:
+  `activeTubeGuides`) as wire lines (`appendTubeWire`), the selected guides' apart (warm, opaque,
+  `lineWidth` 2; the rest a light blue at 0.6 alpha), as Maya's draw override builds them. Empty
+  (not `shown`) with `tubeWires` off.
 - `brush`: the overlay `hover` and the strokes build: the ring (`brushRingColor`: yellow, red for
   Part and Erase, orange for Flow, green for Place and Draw, which show a 6-pixel dot), the guides
   the brush would touch (`brushHoverColor`, while hovering) and a Part or Flow stroke's path,
@@ -473,6 +479,138 @@ not a keyable attribute driving a slot: the add-on samples a Blender fcurve into
 are given values (`set_controls`) rather than read from attributes. Saving a node or preset writes
 the file at once (Maya's too); only the graph part of Save as Node is undone.
 
+### Pipeline (exports, simulation, colliders and other scalps, transfer, samples)
+
+What Maya's `groomlab.game`, `exports`, `cards`, `sim`, `collision`, `extra_scalps` and `transfer`
+modules do, over the helper (`hosts/blender/helper/src/pipeline.cpp`; the add-on's client is
+`groomlab/pipeline.py`). The helper writes every file but FBX: Maya writes its FBX through Maya's
+exporter, the add-on through Blender's, so the formats that need one answer **meshes** (below) with
+the path to write each to. Exports evaluate at the session's time (`frame` sets it) at full density,
+renderOnly nodes on, as Maya's exports do.
+
+| Command | Arguments | Result |
+|---|---|---|
+| `export` `format=unrealGroom` / `unityStrands` | as alembic, plus `groups` ("auto": a curves object per groom group, a channel's name, "" one object), `shafts` (true/false; null: left out when the feathers have a rachis), `lod` (high, mid, low: the barbs thinned to 100/50/25% and widened by 1/sqrt), `barbDensity`, `barbWidthScale`; Unreal: `featherGuides`, `iridescenceAo`; Unity: `scale` (1), `pointsPerStrand` (0 or 3-128), `barbPoints`, `maxStrandsPerGroup` (64000; 0 none) | engine_export.h's EngineGroomWriter (Maya's `-unreal` / `-unity`): Unreal also writes the primary guides (the hierarchy's level 0); `objects` [{object, group, groupId, feathers, strands, pointsPerStrand, minPoints, maxPoints}] (Maya's `-report`) |
+| `export` `format=usd` / `scalesUsd` | `scales`: mesh (usd's default), instancer (scalesUsd's), both, none; alembic takes mesh or none | Maya's export_usd `scales`: the scales bent as a mesh, or a PointInstancer of their plates |
+| `export` `format=gltfCards` | `path` (.glb, or .gltf with its .bin and PNGs: `binary`), `name` (the file's stem), `lods` ([hero, mid, low]: each a mesh `<name>_<lod>` baked from a copy of the graph, Maya's cards_preset), `resolution`, `cap` (true), `capResolution`, `scale` (0.01: groom centimeters to meters), `alphaMode` (mask, blend, opaque), `alphaCutoff`, `occlusion`, `rootToTip`, `tangents` | `{"files", "meshes": [names], "warnings"}` (gltf_writer.h, groomLabExportGltf); the graph is left as it was |
+| `export` `format=unrealCards` / `unityCards` | `directory`, `name` ("groom", `_<lod>` with `lod`), `resolution`, `occlusion`, `scalp` (true: the hair cap's maps) | the maps (Unreal: `<name>_Depth|Coverage|Tangent|Attribute|Color|AO.tga` and `_ScalpColor|_ScalpCoverage.tga`, plus the atlas; Unity: `_BaseColor|Mask|AO|Tangent|Depth|Attribute.png` and `_ScalpBaseColor.png`), the manifest (`<name>_cards.json` / `<name>_unity.json`, Maya's text), `fbx` and `scalpCap` paths, `fbxSettings` (Unity: meters, Y up), `meshes` {cards, scalpCap} for the host to write: the cards (quads, the atlas UVs, the strands' normals, color `groomLabTint` at half the tint) and the hair cap (the scalp lifted 0.4% of its size along its normals) |
+| `export` `format=scalesFbx` | `path` (.fbx), `unity` | `meshes` {scales}: the scales bent onto the skin (Maya's groomLabScaleMesh: UVs, uv sets scaleUV and scaleData, colors scaleColor and scaleRootColor, the scales' normals) |
+| `export` `format=unityFeathers` | `directory`, `name`, `lod`, `points` (16), `barbPoints` (6), `density`, `shafts`, `rachis` (true), `maxStrandsPerGroup` | Maya's export_unity_feathers: `<name>_strands.abc` (a curves object per groom group), `<name>_unity_feathers.json`, `groups`, and `meshes` {rachis} (`<name>_rachis.fbx`) when the feathers have a rachis |
+| `bake_scale_maps` | `directory`, `name`, `resolution` (2048), `maxHeight` (0: measured), `padding` (8) | `{"files", "maps" {ScaleNormal, ScaleHeight, ScaleColor: [paths]}, "pattern", "maxHeight", "udim", "tiles", "covered"}` (scale_maps.h) |
+| `scale_mesh` | `space` | `meshes` {scales} as scalesFbx's, nothing written |
+| `strand_mesh` | `style` (tube, ribbon), `sides` (4), `widthScale`, `minWidth`, `strandUVs`, `density`, `maxStrands` (100000, thinned by ID); or `nodes`: true | Strands to Mesh (strand_geometry.h buildStrandMesh): `meshes` {strands} with UVs root to tip (and uv set strandUVs), `strands`, `total`, `capped`; with `nodes` each StrandMesh node's mesh by its own options |
+| `set_scalp_frames` | `first`, `points` (frames x the scalp's points, 3), `restPoints`; none: dropped | `{"first", "last", "frames"}`: the scalp at other frames, the Simulate nodes' feed (GroomSession::setSimulationFeed): a frame they step through (Simulate Range, a jump forward) reads the scalp of that frame. Not an undo step |
+| `simulate_status` | | `nodes` (the Simulate nodes making the output), `status` [{node, startFrame, ranges, frames, live, baked, bakeStale, bakedFirst, bakedLast, bakedFile, stepMs, bytes, stamp}], `bakes` (the file's simCaches), `scalpFrames`, `running` |
+| `simulate_range` | `last`, `budgetMs` (200; 0: to the end in one request) | Simulate Range in steps (GroomSession::simulateTo, stopped by its progress callback when the budget is spent, a frame at least): `{"running", "done", "frame", "target", "progress" 0-1, "frames", "milliseconds", "errors", "status"}`; the protocol answers anything between steps |
+| `simulate_poll` / `simulate_cancel` | `budgetMs` / | the next step, as simulate_range answers / the job dropped (the frames stepped stay) |
+| `simulate_bake` | `last`, `first` (each node's start frame), `node`, `path` (one node), `directory` (beside the groom file, else the temp folder), `name` | Bake Simulation (Maya's bake_simulation): simulated to `last`, each node's frames written as `<name>_<node>_sim.abc` (sim_cache.h) and read back as its bake, named in the file's simCaches; one undo step (the files stay): `written` {node: path}, `status`, `undo` |
+| `simulate_clear` | `node`, `bakes` (true) | Clear Simulation: the frames dropped (GroomSession::invalidateSimulation) and the bakes, one undo step: `clearedBakes`, `status`, `undo` |
+| `set_meshes` | `kind` (collider, prototype), `meshes` {name: mesh or null}, `replace` | colliders: the meshes ColliderMesh nodes read by name (GroomSession::setMeshes; a mesh as set_scalp takes it, with `restPoints`; an entry with `points` alone poses the one there), saved in the .groom's `colliders`; prototypes: the Instance nodes' meshes (InstancePrototype per face corner, `normals` and `uvs` per corner, turned into groom space: the host's up is the prototype's +Y), saved as `prototypes`. Answers meshes_info. Not an undo step (the host's inputs) |
+| `set_scalps` | `scalps` [{name, mesh}] in the order they join | the groom's other scalps (GroomSession::setScalps; names letters, digits and _, not "scalp"), saved as `scalps`; answers meshes_info |
+| `meshes_info` | | `colliders`, `prototypes`, `scalps`: [{name, points, triangles, rest}] |
+| `transfer` | the new scalp as set_scalp takes it, `method` (closest, bounds, markersAlign, markersWarp, uv; `fit`: bounds), `markers` ([{old, new}] or [[old, new]], a side a host point or {point, face, u, v}; none: the stored ones), `keepLengths`, `fitSize`, `maps` (true), `snapMarkers` | Transfer Groom to Scalp (transfer.h, Maya's groomLabTransfer): guides, parts and flow re-rooted, painted maps projected (texture maps into new images in the maps folder; without `maps` vertex maps go, `missing`), the new scalp the session's with its topology, the groom's scale kept (or fitted: `fitSize`), the caches and bakes made on the old scalp dropped, flat guides rooted on it by position, the markers snapped and stored. One undo step: undo and redo answer `scalpChanged`. `{"method" (the one used), "guides", "projected", "missing", "warnings", "markers", "scalp", "undo"}`; `snapMarkers` answers the snapped `markers` alone, nothing changed |
+| `transfer_markers` | `markers` | the stored pairs (points in the host's space); given, they are replaced (one undo step) |
+| `sample_meshes` | | `{"dir", "samples": [{id, label, file, extentCm, name, part, license "CC BY 4.0", author, units "cm", upAxis "Y", facing "+Z"}]}`: Nika, Manny and the wolf (bin/meshes), the add-on imports them with Blender's OBJ importer |
+
+**Meshes answered** (`result.meshes`, `{key: mesh}`): `points` (n,3) in the host's space (`space`:
+"groom" for groom space), `faceCounts`, `faceIndices`, `corners`, and per face corner `uvs` (corners,2),
+`normals` (corners,3, host axes), `uvSets` {name: (corners,2)}, `colors` {name: (corners,4) linear};
+with the mesh's own fields (`fbx`, `material`, `cards`, `triangles`...). They lie in the session's meshes
+arena (valid until its next answer). The add-on's `pipeline.write_fbx` makes each a temporary object
+and writes it with `bpy.ops.export_scene.fbx` (Unity's in meters, Y up).
+
+**Simulate in Blender.** As the timeline plays, each frame's `update_scalp` and `evaluate` step a live
+Simulate node one frame (the core's own stepping). Simulate Range and a jump forward step several
+frames in one request; `set_scalp_frames` gives the scalp at those frames (the add-on's
+`pipeline.send_scalp_frames` plays them in Blender), without it they step toward the scalp as it is
+now. Jiggle is still not fed (it needs the scalp's earlier frames as a history: GroomScene's
+ScalpHistorySampler, not wired yet).
+
+Differences from Maya: the FBX files are written by the host from the meshes answered (Maya's own
+FBX exporter writes its scene meshes); the manifests are Maya's, word for word, except the Unity
+one's units line. unrealGroom does not write the scales' FBX beside the .abc by itself (Maya's
+`scales="auto"`): the add-on writes scalesFbx. A transfer leaves the session on the new mesh; the
+add-on's Transfer Groom to Scalp then makes the target object own the groom (below). Other scalps
+are only the meshes: the Scalp/Scatter/Merge wiring Maya's add_scalp does is a Graph Editor edit,
+and set_scalps does not resize painted vertex maps for the added vertices (Maya's
+_resize_vertex_maps). Bakes go to `directory` (the add-on: the .blend's groomlab/caches), not Maya's
+scene caches folder.
+
+**The add-on's menus over these** (`groomlab/pipeline_ops.py`, the work in `pipeline.py`): the
+GroomLab menu's Export, Simulate, Add, Review and Utilities items, bound in `actions.py`.
+
+- Graph inserts (Maya's add_simulate, add_collider, create_cards, add_feathers, add_braid) are made
+  as Maya's GraphModel makes them, with `edit_graph` ops (`pipeline.GraphEdits`: add_node fits each
+  node's defaults to the scalp), then the graph is kept on the scalp object, so Blender's undo takes
+  them back (graph_tree's after_undo). Two commands back them: `cards_preset` and `preset_graph`
+  (below). Curve objects become guides of a group with set_guides' `group`.
+- Add > Collider keeps the colliders on the scalp object (`groomlab.colliders`: name, object) and
+  `groom.sync` sends them again (set_meshes, in the scalp's space) whenever their pose changes
+  (`groom.input_hooks`: a frame, an edit).
+- Simulate Range is a modal operator: `send_scalp_frames` over the playback range, then
+  simulate_range and simulate_poll in 100 ms steps on a timer, the progress in the status bar, Esc
+  sends simulate_cancel. Bake Simulation is the same operator with `bake` (simulate_bake after).
+- Transfer Groom to Scalp with `own` (the default) reads the target in its own object space and
+  then moves the groom to it (`pipeline.move_groom`: the GroomLab properties, the Graph Editor's
+  tree, the hair and guides objects parented to it, the ctl_ sliders and the correctives' and
+  sliders' keys); the session and its uid stay. Undo keeps both sides together: Blender's undo
+  restores the objects and an undo_post handler undoes the helper's transfer to match
+  (`undo_moves`, by the transfer's place on the helper's stack); GroomLab's own Undo of the transfer
+  moves the groom back (`follow_helper_undo`), Redo moves it again.
+
+| Command | Arguments | Result |
+|---|---|---|
+| `cards_preset` | `lod` (hero, mid, low), `node` (one Cards node; default every one), `triangles` | Maya's cards_preset: each Cards node of the graph set for that level of detail by what it cards (card_presets.h: hair, feathers or both). Not an undo step (the host keeps the graph). `{"nodes", "params"}` |
+| `preset_graph` | `name` or `path` | a preset's graph fitted to the session's scalp (presetGraphJson), nothing changed: `{"preset", "graph"}` (the add-on takes a feather design's Compound and its shafts' Scatter params from it) |
+| `set_guides` `group` | `target` "hierarchy" | new guides (ids 0) join this guide group, a root group made when missing (Maya's guides_from_curves group=); with `keepMissing` the others stay |
+| `bake_to_guides` | `node` ("" the output), `group` ("baked"), `density` (1) | Bake Node to Guides (Maya's groomLabGuides -fromNode): the node evaluated with the inputs as they are now, each of its strands (or guides) a primary guide of root group `group` (made when new, added to otherwise; a child group is refused), one undo step: `{"node", "group", "guides", "ids", "undo"}` |
+| `import_alembic_curves` | `path`, `object` (only the curves under it), `samples` (24) | Import > Alembic Curves (Maya's import_guides_from_alembic): the graph's `guides` node replaced by an ImportCurves node reading the file, rooted on the scalp; the curves read as GroomLab's and Maya's Alembic files have them (Y up, centimeters). The file is read first (no curves: refused). Not an undo step (the host keeps the graph): `{"node", "curves", "path", "graphError"}` |
+
+### Photos (reference cameras, the camera solve, Guides from Photos)
+
+Maya's Groom Tools > Photos (`groomlab.reference`: a photo as a camera lined up with the mesh by
+pairs of points) and Guides from Photos (`groomlab.from_reference`), over the helper
+(`hosts/blender/helper/src/reference.cpp`; the add-on's side is `groomlab/photos.py`). The photos
+are kept with the groom: its file's `referencePhotos`, in the standalone app's Reference window's
+form (groom_file.h: each photo's name, image, size, mask, `camera` {rotation, position, focal_px},
+`state` {landmarks, strokes, mask_strokes}), groom space, so a groom saved from Blender opens with its
+photos in the app and the other way round. The host speaks its own space: a camera is `{"rotation"
+(3x3 rows; its columns the camera's X right, Y up and Z back axes: it looks down -Z, as Maya's and
+Blender's cameras), "position", "focalPx" (the photo's pixels)}`; the axes turn as directions, the eye
+as a point, pixels stay pixels. Image points are pixels from the photo's top-left, v down.
+
+| Command | Arguments | Result |
+|---|---|---|
+| `reference_photos` | | `photos`: [{name, image, width, height, mask, camera (host) or null, pairs [{image [u, v] or null, mesh [x, y, z] (host) or null, error?}], rms, strokes, maskStrokes (counts)}] |
+| `set_reference_photos` | `photos` (as reference_photos answers; names unique) | the groom's photos replaced, each keeping the flow arrows, mask touch-ups and mask the stored one of its name has (the app draws them; the host does not). No undo step (the app's window stores the same way): `{"photos"}` |
+| `solve_camera` | `pairs` (as above; a pair missing a side is left out), `width`, `height`, `focalPx` (the guess, or kept), `keepFocal`, `initial` (a camera: where it is now) | reference_edit.h's solveReferenceLandmarks: 4 complete pairs with the focal length kept (or fewer than 6), 6 or more solve it too. `{"rotation", "position", "focalPx", "focalSolved", "pairs", "rms", "errors" (per given pair, null for one left out), "bad" (pairs far worse than the rest)}`; too few pairs or a failed solve: `state` |
+| `guides_from_photos` | `photos` (names; default every photo with a camera), `guideCount` (300), `symmetry` (auto, x, topology, none), `maxLength` (host units; 0 automatic; below 0 times the rim the photos show), `group` ("fromReference"), `replace` (true) | reference_guides.h's guidesFromReference on the session's scalp with each photo's image, mask, flow arrows and mask touch-ups (Maya's from_reference.generate): the guides into the guide group (replaced), one undo step. `{"guides", "group", "views", "symmetry", "rootsTried", "rootsUnseen", "rootsBald", "rootsShort", "maxLength", "look" {ok, melanin, redness, baseColor, rootAppearance, tipAppearance, curly, clumped, clumpSize, coverage}, "undo"}` |
+
+**The add-on.** Each photo is a Blender camera (`Object.groomlab_photo`: the image path, size, the
+point pairs, the last solve's error, Lock) with the photo as its background image (`FIT`, 60%
+opaque, in front of the mesh), under the "GroomLab References" collection, its sensor fit
+horizontal (36 mm), so its focal length in pixels is lens / 36 mm x the photo's width. Import Photo
+aims it at the groom from the front (-Y). Look Through makes it the scene's camera and the 3D view's
+(the render size set to the photo's, so the camera frame has the photo's shape; again: back to the
+view and the camera before). Pick Points is a modal operator: a click in a 3D view looking through
+the photo's camera marks a photo pixel (the photo's place in the camera frame, as the background
+image fits it), a click in any other view marks the point on the scalp under it (a ray cast, kept in
+the scalp object's space); pairs fill in turn (Maya's rule: the first pair missing that side) and
+draw numbered. Solve sends the pairs and the camera (in the scalp object's space) to `solve_camera`
+and takes the answer (its scale kept at 1). After every change the scene's photos go to
+`set_reference_photos`; a groom file opened with photos and no cameras of their names gets them
+(`photos.restore_from_groom`, from `reference_photos`). Guides from Photos (`groomlab.photos_guides`:
+the GroomLab menu's item and the tab's button) sends the photos and runs `guides_from_photos` on
+every photo camera (one placed by eye counts as lined up, as in Maya).
+
+Differences from Maya: Maya's Reference window (the photo and the mesh side by side, flow arrows and
+mask touch-ups drawn on the photo, the measured look applied to the graph) is not in Blender: the
+arrows and touch-ups the app or Maya drew are kept and used, not drawn; the photo stays where it is
+(Maya copies it into the scene's references folder); Add Camera (a camera that already shows a photo
+on an image plane) and Select Camera are Maya's. A landmark pair with a side cleared to pick again
+is written with a null there; the app reads each side's points in order, so such a pair's partners
+shift there until it is picked again.
+
 ## 4. Install layout
 
 `cmake --install <build> --component Blender --prefix <dir>` lays out the whole Blender extension,
@@ -487,6 +625,8 @@ GroomLabBlender/              the extension folder (Blender installs it as exten
     groomlab-helper(.exe)     the helper
     tbb.dll                   its runtime DLLs (Windows)
     presets/                  the shipped graph presets (the helper looks beside itself, then ../presets)
+    nodes/                    the shipped compound nodes (the same)
+    meshes/                   the sample meshes (Nika, Manny, the wolf; CC BY 4.0): sample_meshes lists them
     LICENSE-HELPER.txt        the helper's terms: Apache-2.0, a separate program
     THIRD_PARTY_NOTICES.txt   Alembic, Imath, JSON for Modern C++, TBB...
 ```
@@ -517,7 +657,13 @@ incrementally, removed and redrawn, re-rooted on a remeshed scalp) and a groom f
 guides edited by ID, each again against the CLI; params, graph edits, inserted and fitted presets;
 the Z-up meters round trip through a Y-up centimeter file and a Z-up one; malformed requests answered while the helper carries on; the helper
 ending with its stdin; guides kept at rest following a turned scalp (with and without
-`followScalp`) and back at rest bit for bit.
+`followScalp`) and back at rest bit for bit. The pipeline (`PipelineTest`): unrealGroom and
+unityStrands (resampled, frame by frame too), glTF cards with levels of detail from copies of the
+graph, Unreal and Unity cards (maps, manifests, the meshes for FBX), the scales' mesh, maps and
+instancer, Strands to Mesh; Simulate Range in 1 ms steps answering pings between them, fed a
+swinging scalp's frames (its hair ends elsewhere than a still one's), bake and clear undone and
+redone; colliders, prototypes and another scalp saved in the `.groom`; a transfer by bounds and by
+markers undone and redone (`scalpChanged`); the sample meshes.
 
 The tools (`ToolsTest`) are driven headlessly with a synthetic Blender camera (Z up, meters) over
 the test head, and every stroke sequence is replayed by the core itself:
@@ -579,6 +725,27 @@ extension zip installed by `blender --command extension install-file` into a thr
   back from it; View and Set as Output; an outdated node (TestCApiLift at version 1, in
   `groomlab-helper-testhooks` only: tests/engine/capi/capi_versioned_op.cpp) upgraded; the header,
   menus and panels drawn; the tree removed with the groom.
+- `blender.addon_graph_authoring`: the Graph Editor's authoring (section 7, "Authoring"), with its
+  own node library and preset folders. Every action the graph menus list bound (or Blender has
+  none), labels, tips and colors graph_ui.json's, the node, Edit and Add menus in Maya's order,
+  Ctrl+G / Ctrl+Shift+G only in GroomLab graphs; group, show an inner param, the helper's undo and
+  redo rebuilding the tree, ungroup; expose a param; a node dropped on a link inserted with
+  `insert_on_link`; a slider's ctl_ property given to `set_controls`; a param keyed at two frames,
+  Blender's value between them reaching the control, Remove Animation keeping it; a count refused;
+  a painted map in Tab search added as a Map node; map sources (color set, attribute, painted map,
+  cleared) and an expression's text block (an error shown and refused, a fix taken); backdrops
+  added around nodes (their parent), recolored, renamed, moved with their nodes, a graph's backdrop
+  made a frame, deleted, saved in the `.groom`; Copy Graph and Paste Graph (fenced text, bad text
+  refused); Save as Node, Save to Library, a newer library file's Update Node, Import Node, Save as
+  Preset (exists, Replace); a script node made, an error shown and refused, a fix and new label
+  taken live, saved to the library.
+- `blender.addon_pipeline`: the pipeline's client (section 3, "Pipeline"): Unreal and Unity cards
+  and the scales written as FBX by Blender's exporter from the meshes the helper answers (the
+  temporary objects gone after; the cards read back: quads with their tint), glTF cards, Strands to
+  Mesh as an object under the scalp, unrealGroom and scalesUsd, the scales' mesh and baked maps;
+  colliders and another scalp from Blender objects; a transfer onto a moved copy of the head (the
+  roots 5 cm over) undone, markers snapped and stored; the sample meshes listed and Manny added at
+  its real size, Z up.
 - `blender.addon_tools`: the Groom Tools (section 8). The operators, the top bar
   menu in Maya's order, the pie menu on Y in the add-on keymap, the icons as previews; Create Groom
   making a hierarchy groom (no Blender guides object, the state kept at once); the palette drawn
@@ -627,6 +794,7 @@ LTS), platforms windows-x64 for now, permissions files. Distributed from our sit
 | `props.py`, `ops.py`, `ui.py` | properties (a groom's settings and its graph JSON on the scalp object, saved in the .blend), operators, the sidebar tab "GroomLab" (groom, presets, graph) |
 | `handlers.py` | `depsgraph_update_post` (guides or scalp edited: debounced, evaluated 0.04 s after the last change, or while changes keep coming (a slider drag, a stroke) every 1.5 x the last evaluation's own time, 0.06-0.3 s, from a timer; a Mesh update reads the scalp's faces and UVs again, the scalp object's geometry (a pose) its points alone), `frame_change_post`, `render_pre`/`render_complete`/`render_cancel`, `save_pre` (each groom kept as a `.groom` text in its scalp object), `load_post`, `undo_post`/`redo_post`, `exit_pre` |
 | `starter.py` | starter guides for a new groom: farthest-point picks among area-weighted samples (seeded), each along the normal bending toward the ground, as long as the preset's Scatter length |
+| `pipeline.py` | the pipeline's client (section 3, "Pipeline"): exports (FBX written from the meshes the helper answers), the scales, strands to mesh, Simulate Range and bakes with the scalp's frames, colliders, prototypes and other scalps from Blender objects, transfer and its markers, the sample meshes |
 | `tools.py`, `tool_props.py`, `tool_ops.py`, `display.py`, `palette.py`, `menu.py`, `icons.py`, `icons/` | the Groom Tools (B3b, section 8): settings, the modal tool and pie menu, Maya's viewport display, the palette, the top bar menu, Maya's icons |
 
 Decisions (the open questions of B1):
@@ -637,8 +805,9 @@ Decisions (the open questions of B1):
    `metersPerUnit` is the scene's unit scale), per-length rates per scene unit, densities per cm²
    (what hair density is quoted in), fractions as factor sliders. Presets and grooms stay in
    centimeters.
-3. **Jiggle and Simulate**: not fed yet (no scalp history from Blender): the panel marks the
-   nodes, the groom evaluates (Jiggle passes the strands through).
+3. **Jiggle and Simulate**: Simulate steps frame by frame as the timeline plays, and Simulate Range
+   (section 3, "Pipeline") is fed the scalp's frames; Jiggle is not fed yet (no scalp history from
+   Blender): the panel marks it, the groom evaluates (Jiggle passes the strands through).
 4. **Scalp caches**: the add-on plays Blender's own mesh; a file's scalp cache is not read.
 5. **Painting, parts and flow**: B3a brings them (and every brush) to the helper (section 3,
    "Tools"); B3b's Groom Tools drive them (section 8).
@@ -779,27 +948,89 @@ layout (an old file) is laid out in Maya's columns (`auto_layout`) and the layou
 
 **The sidebar** (N): the **Node** tab is Maya's param panel for the active node: its name (edit to
 rename), type and description, **Upgrade** when the node is outdated (node_spec's version below
-the operator's), its note and error, then the params by section (`param_sections`: the main ones,
-each group when there are two or more, Advanced last), folded per operator type for the session
-(Advanced folded by default), `showWhen`, plumbing params hidden unless changed, a map-driven
-param's map named (Paint: `groomlab.paint_param`, the helper's `map_for_param`), an exposed param
-linked to a field shown with its driver. The **GroomLab** tab has the groom, its status and the
-presets browser. The header: the groom, **Presets** (by category, each preset Apply or Insert
-after selected node, its description the tooltip), a **View** chip while a node is viewed, and the
-**⋯** menu (Frame, Tidy Layout, the node's Set as Output / View / Bypass / Duplicate / Delete,
-Reload from Groom). The node context menu has the node's actions too.
+the operator's), **Update** when the library has a newer copy of a library node, its note and
+error, then the params by section (`param_sections`: the main ones, each group when there are two
+or more, Advanced last), folded per operator type for the session (Advanced folded by default),
+`showWhen`, plumbing params hidden unless changed, an exposed param linked to a field shown with
+its driver, and at the bottom the node menu. Each param row ends with its **param menu** (the ⌄
+button: `graph/paramMenu`) and, for a mappable param, the map source button. A selected frame
+shows the backdrop's title, colors and menu. The **GroomLab** tab has the groom, its status and the
+presets browser. The header: the groom, **Edit** (`graph/editMenu`), **Presets**
+(`graph/presetMenu`: the presets by category, each Apply or Insert After Selected Node; Save as
+Preset...; Copy Graph; Paste Graph) and a **View** chip while a node is viewed.
 
-**Keys**, in GroomLab graphs only (each operator's poll; elsewhere Blender's own): Tab add
-(search; the Add menu is the core's categories, each node's description its tooltip), F frame the
-selection or all, V View (Focus), B Bypass, Ctrl+D duplicate; Blender's
-Shift+A, X/Delete, Shift+D, M, F2 and Home work as ever.
+**Menus from the UI definitions** (`graph_ui.py`): the node menu (right-click, and the sidebar),
+the backdrop menu, Edit, Add, Presets and the param menu are drawn from `engine/ui/graph_ui.json`
+as Maya's are (the extension's `ui/` folder; a source tree's `engine/ui`), resolved for the host
+`blender` (`hosts`, `needs`, `enabled`, generators: `choices`, `backdropColors`, `exposeParams`,
+`innerParams`, `presets`; `units`, `themeMenu` and `nodeCategories` give nothing here). Each action
+id is bound to an operator (`graph_ui.bind`, in graph_editor.py and graph_authoring.py), whose
+tooltip is the action's tip (`ActionTip`); submenus go through one generic menu
+(`GROOMLAB_MT_graph_submenu`, the entries prepared when the parent draws). Ids with no Blender
+counterpart are left out (`NOT_IN_BLENDER`: the GPU preview, Bake Node to Guides, painting a param
+on the guides); the test checks every other id has a binding. The category, port and backdrop
+colors and the plumbing params come from the same file; the Add menu shows each category with a
+swatch of its color, then New Script Node, Import Node..., Open Nodes Folder (`graph/addMenu`).
 
-What differs from Maya's editor (Blender's node editor or not done yet): the header color is the
-theme's (the category is the body tint and the accent bar); a "strands or guides" port is grey,
-not half and half; group into / ungroup Compound, backdrops, copy/paste graph text, expose a param
-as an input, keyed params and the Expression code editor are Maya's (a Compound from a preset
-works fully); the A key keeps Blender's select-all (Home frames all); no Live/Apply switch (every
-edit applies).
+**Authoring** (graph_authoring.py, over the helper's "Authoring" commands above):
+- **Compounds**: Group into Compound (Ctrl+G, `edit_graph group`), Ungroup (Ctrl+Shift+G), Show
+  Inner Param (`compound_expose` / `compound_unexpose`, named as Maya names it). Blender's own node
+  groups are not used: a compound is one node, as in Maya's editor, which does not enter compounds
+  either; ungroup to edit its nodes (Ctrl+Z groups them again).
+- **Exposed params** (`expose_param` / `unexpose_param`), **Drive with Slider** (`add_control`) and
+  **keyed params** (`link_control` / `unlink_control`). A control's value lives on the groom's
+  scalp object as a custom property `ctl_<control>` (Maya's `ctl_` attributes on the groom node):
+  Set Key links the param and keys the property(ies) at the current frame (`ctl_<node>_<param>`,
+  three for a vector), Delete Key removes the key, Remove Animation removes the curve and unlinks
+  (the value now goes back into the param). Blender evaluates the keys; a `frame_change_post` and
+  `depsgraph_update_post` handler gives the properties that changed to `set_controls`. A keyed
+  param's row shows its property (key it with I like any property); a Control node's panel shows
+  its slider.
+- **Map sources**: Map Source (texture, color set, attribute, painted map, expression; channel,
+  min, max) is a `set_param` with a map value (checked by the helper), Clear sets the default back.
+  An expression is edited in a text block `GroomLab <node>.<param>.expr`; a timer (while such text
+  blocks exist) applies it when it changed, the helper's error kept and shown under the param.
+- **Backdrops**: Blender frames (`NodeFrame`). A frame's label, custom color (sRGB 0-255),
+  absolute location and width/height are a backdrop `{title, x, y, w, h, color}` (y down, as the
+  nodes). They go with the positions (`push_positions`: frames made, deleted, moved, resized,
+  renamed or recolored since the tree last had them, `tree["gl_backdrops"]`, all of them via
+  `set_positions backdrops`); a rebuild makes one frame per graph backdrop (`shrink` off) and
+  parents the nodes inside each, so moving it moves them. Node positions use `location_absolute`.
+- **Node library**: Save as Node... (`save_node`), Save to Library (the same id, one version past
+  the node's and the library's), Update Node (`edit_graph update_library_node`), Import Node...
+  (`import_node`, then the node added), Open Nodes Folder (`nodes_folder`), Save as Preset...
+  (`save_preset`). A library node's `node_spec` "library" is kept on the node (`gl_library_info`):
+  the overlay draws Maya's ↑ mark on its left corner when `updateAvailable`.
+- **Script nodes**: New Script Node (`new_script_node`, after the selected node), Edit Node...:
+  the file in two text blocks, `GroomLab <node>.glscript` (the script) and `GroomLab
+  <node>.header.json` (the rest); checked when they change (`script_errors`) and taken by the node
+  when they check (`set_script`), the errors with their line in the sidebar; Save to Library / Save
+  as New (`save_script_node`); Done removes the text blocks.
+- **Copy Graph / Paste Graph**: the text is Maya's `copy_graph_text` (the preset Save as Preset
+  writes, from `get_graph`, with the scalp's `size` from `get_scalp` in groom space, `about`, the
+  backdrops and the set control values); on Blender's clipboard. Paste reads a preset's JSON (a
+  chat's code fence taken off, a `.groom`'s graph too) and applies it as a preset from a temporary
+  file (`apply_preset path`: fitted to this scalp, its controls), then its backdrops.
+- **A node dropped on a link**: Blender splices it in; `sync_from_tree` sees the link a -> b.input
+  replaced by a -> node -> b.input (`insertions`) and sends `insert_on_link` instead (one step on
+  the helper's stack, the node's input picked as Maya picks it).
+- **Tab search's painted maps**: the Add menu's **Painted Maps** category (`maps_list`) has a
+  `Map: <name>` entry per map, a Map node whose `gl_init` gives its name and params, so Tab's
+  search lists them as Maya's MAP_ENTRY does.
+- After the helper's undo or redo (Groom Tools' Ctrl+Z) an answer with `graphChanged` refreshes
+  the node list and rebuilds the tree (`tools.follow_graph`); Blender's own undo in the node editor
+  restores the graph text as before (`after_undo`).
+
+**Keys**, in GroomLab graphs only (each operator's poll; in another kind of node editor Blender's
+own): Tab add (search; the Add menu is the core's categories, each node's description its
+tooltip), F frame the selection or all, V View (Focus), B Bypass, Ctrl+D duplicate, Ctrl+G group,
+Ctrl+Shift+G ungroup; Blender's Shift+A, X/Delete, Shift+D, M, F2, Ctrl+J and Home work as ever.
+
+What differs from Maya's editor (Blender's node editor): the header color is the theme's (the
+category is the body tint and the accent bar); a "strands or guides" port is grey, not half and
+half; compounds are not entered (as in Maya); Tab over a wire does not insert (drop the node on
+it); keys are Blender's (I over a property), not S; the GPU drag preview is not in Blender; the A key keeps Blender's select-all (Home
+frames all); no Live/Apply switch (every edit applies).
 
 ## 8. B3b: the Groom Tools
 
@@ -813,8 +1044,9 @@ display, menu and keys.
 | `tool_props.py` | `Scene.groomlab_tools` (the palette's settings by the catalog's labels and hints; saved with the .blend as Maya keeps them in optionVars), `Object.groomlab_tools` (the groom's display, Maya's groom attributes; its kept state), the add-on preferences (the pie's key) |
 | `tool_ops.py` | the tool (`groomlab.tool` picks one, `groomlab.tool_modal` runs it in the viewport: `ToolSession` turns events into the helper's commands), undo, groups, guide edits, maps, the pie menu `GROOMLAB_MT_pie` and its keymap item (hotkeys.py, tool_tabs.py) |
 | `display.py` | `display` into draw lists (numpy) and gpu batches, a POST_VIEW handler; strand color modes as the hair's `groomlab_display` color attribute (groom_draw_override.cpp) |
-| `palette.py` | the sidebar's **Groom Tools** panel and its folded subpanels (palette.py, tool_tabs.py) |
-| `menu.py` | the top bar's **GroomLab** menu, the shortcuts, the About popup, Support GroomLab (opens https://ko-fi.com/getgroomlab) (menu.py) |
+| `palette.py` | the sidebar's **Groom Tools** panel (Tools, Paint, Correctives and Photos tabs; Photos is `photos.py`'s, section 3 "Photos") and its folded subpanels in palette.json's order: Tubes, While sculpting, Guide groups & edits, Output, then Display (palette.py, tool_tabs.py) |
+| `menu.py` | every menu the UI definitions describe, built from them: the top bar's **GroomLab** menu (menus.json "main"), the Groom Tools' More menu, Output and empty-state submenus, the lists' right-click menus (Blender's list item context menu, and a button beside each list); the shortcuts, the About popup (menu.py) |
+| `definitions.py`, `actions.py` | the shared UI definitions (`engine/ui/*.json`, docs/UI_DEFINITIONS.md) read with no helper running, as Maya's definitions.py (host "blender"); `actions.BINDINGS` maps each action id to an operator and its properties. An id without a binding is hidden; `blender.addon_ui` lists the ones left (its ALLOWED_MISSING: the parity checklist) |
 | `icons.py`, `icons/*.png` | Maya's icons (hosts/maya/icons/*.svg) as previews; the PNGs are rendered by `tools/make_blender_icons.py` (Pillow, the Playful theme's colors as widgets.icon gives them) and committed |
 
 **Grooms.** Create Groom (`groomlab.add_groom`) makes the groom Maya's `create_groom` makes:
@@ -865,7 +1097,7 @@ Deviations Blender forces:
 - No middle-drag radius/strength (Blender's view rotation): B / M + drag only, as Maya's hotkeys.
 - Blender postpones its autosave while a modal operator runs: the tool's does too; leave the tool
   (Esc) now and then in long sessions, or save.
-- The Correctives and Photos tabs are not here (the helper does not run them); nor the
+- Not here: the
   Segments resample slider, the parts list (Part's Remove / From Curves) and Flow's Clear All
   (no helper command yet); Fill works on guide maps only.
 - "Strands dimmed" while sculpting is not offered (Blender has no per-object viewport dimming);

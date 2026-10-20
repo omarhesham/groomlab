@@ -10,15 +10,19 @@ layout, the rest of the catalog below it).
 The modal operator only translates Blender's events: ToolSession does the work, over plain
 values, so the tests drive it with synthetic events and a synthetic view."""
 
-import bpy
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
+import os
 
-from . import display, groom, icons, process, props, tools
+import bpy
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, StringProperty
+from bpy_extras.io_utils import ImportHelper
+
+from . import actions, display, groom, icons, props, tools
+from . import definitions as defs
 from .helper_client import HelperError, sentence
 
-# hosts/maya/scripts/groomlab/ui/hotkeys.py's marking menu: the brushes reached for most around it.
-RADIAL = [("N", "comb"), ("NE", "slide"), ("E", "smooth"), ("SE", "cut"),
-          ("S", "place"), ("SW", "draw"), ("W", "length"), ("NW", "lift")]
+# The marking menu (engine/ui/marking_menu.json, Maya's hotkeys.py): the brushes reached for most
+# around it, the rest of the catalog after them, then its tail.
+RADIAL = [(r["position"], r["tool"]) for r in defs.get("markingMenu/radial")]
 # Blender lays a pie's items out in this order of directions.
 PIE_ORDER = ("W", "E", "S", "N", "NW", "NE", "SW", "SE")
 PIE_KEY = "Y"
@@ -369,6 +373,7 @@ class ToolSession(object):
         if clear_tool:
             with props.quiet():
                 context.scene.groomlab_tools.tool = ""
+            display.mark(active(context))  # the views without the tool (no paint view, no tube wires)
         display.redraw()
 
 
@@ -471,6 +476,17 @@ class GROOMLAB_OT_tool_modal(bpy.types.Operator):
         _session[0] = None
 
 
+def stop_tool(context):
+    """Leaves the GroomLab tool (Maya's palette stop_tool): no tool, the viewport's tool ended, and
+    the views as they are without it (the paint view and the Shape brush's tube wires gone)."""
+    with props.quiet():
+        context.scene.groomlab_tools.tool = ""
+    if _session[0] is not None:
+        _session[0].leave(context)
+    display.mark(active(context))
+    display.redraw()
+
+
 def start_modal(context):
     """The tool in the viewport (from a tile, the pie or the menu), once."""
     if running() or bpy.app.background or context.window is None:
@@ -526,11 +542,7 @@ class GROOMLAB_OT_tool_exit(bpy.types.Operator):
     bl_label = "Leave Tool"
 
     def execute(self, context):
-        with props.quiet():
-            context.scene.groomlab_tools.tool = ""
-        if _session[0] is not None:
-            _session[0].leave(context)
-        display.redraw()
+        stop_tool(context)
         return {"FINISHED"}
 
 
@@ -592,28 +604,34 @@ class GROOMLAB_OT_group_new(GroomToolOperator):
         return {"FINISHED"}
 
 
+GROUP_ACTIONS = [("RENAME", defs.label("group.rename"), defs.tip("group.rename")),
+                 ("SELECT", defs.label("group.select"), defs.tip("group.select")),
+                 ("DELETE", defs.label("group.delete"), defs.tip("group.delete")),
+                 ("DEFAULT_COLOR", defs.label("group.defaultColor"), defs.tip("group.defaultColor")),
+                 ("HIDE", "Show / Hide", "Show or hide the group in the viewport"),
+                 ("PROMOTE", "Promote", "Move the group one level up"),
+                 ("DEMOTE", "Demote", "Move the group one level down, under a sibling group")]
+
+
+def _description(cls, properties, fallback=""):
+    """An operator's tooltip: the definitions' tip of the action the call stands for."""
+    return actions.tip_for(cls.bl_idname, properties, fallback)
+
+
 class GROOMLAB_OT_group_edit(GroomToolOperator):
     """Edit the picked guide group"""
     bl_idname = "groomlab.group_edit"
     bl_label = "Edit Group"
     bl_options = {"REGISTER", "UNDO"}
 
-    action: EnumProperty(items=[("RENAME", "Rename", "Rename the group; graph params naming it follow"),
-                                ("SELECT", "Select", "Select the group's guides"),
-                                ("DELETE", "Delete", "Delete the group, its child groups and their guides"),
-                                ("HIDE", "Show / Hide", "Show or hide the group in the viewport"),
-                                ("PROMOTE", "Promote", "Move the group one level up"),
-                                ("DEMOTE", "Demote", "Move the group one level down, under a sibling group")])
+    action: EnumProperty(items=GROUP_ACTIONS)
     group: StringProperty(name="Group", options={"SKIP_SAVE"})
     name: StringProperty(name="New Name", options={"SKIP_SAVE"})
     parent: StringProperty(name="New Parent", options={"SKIP_SAVE"})
 
     @classmethod
     def description(cls, context, properties):
-        return {"RENAME": "Rename the group; graph params naming it follow", "SELECT": "Select the group's guides",
-                "DELETE": "Delete the group, its child groups and their guides",
-                "HIDE": "Show or hide the group in the viewport", "PROMOTE": "Move the group one level up",
-                "DEMOTE": "Move the group one level down, under a sibling group"}.get(properties.action, "")
+        return _description(cls, properties, next((tip for k, _l, tip in GROUP_ACTIONS if k == properties.action), ""))
 
     def invoke(self, context, event):
         if not self.group:
@@ -641,6 +659,8 @@ class GROOMLAB_OT_group_edit(GroomToolOperator):
                 tools.selection_set(scalp, group=group, mode="replace")
             elif self.action == "DELETE":
                 tools.guides_edit(scalp, "remove_group", group=group)
+            elif self.action == "DEFAULT_COLOR":
+                tools.set_group_color(scalp, group, None)
             elif self.action == "HIDE":
                 hidden = set(g.name for g in context.scene.groomlab_tools.groups if g.hidden)
                 hidden ^= {group}
@@ -654,11 +674,10 @@ class GROOMLAB_OT_group_edit(GroomToolOperator):
         return {"FINISHED"}
 
 
-GUIDE_EDITS = [
-    ("CHILDREN", "Children", "Generate children for the selected guides (or the picked group): the count beside"),
-    ("SYNC_POS", "Sync +X → -X", "Copy every guide on the +X side, children and edits included, over the -X side"),
-    ("SYNC_NEG", "Sync -X → +X", "Copy every guide on the -X side over the +X side"),
-    ("MIRROR_GROUP", "Mirror Group", "Copy the picked root group from one side to the other"),
+# Edit Guides' entries this operator runs (lists.json's groups/edits, by action id), then Blender's own.
+GUIDE_EDIT_IDS = (("CHILDREN", "guides.children"), ("SYNC_POS", "guides.syncPos"), ("SYNC_NEG", "guides.syncNeg"),
+                  ("MIRROR_SELECTION", "guides.mirrorSelection"), ("CLEAR", "guides.clearSelection"))
+GUIDE_EXTRAS = [
     ("LOCK", "Lock", "Lock the selected guides: their children stop following them"),
     ("UNLOCK", "Unlock", "Unlock the selected guides"),
     ("FREEZE", "Freeze", "Freeze the selected guides: brushes leave them alone (they draw blue)"),
@@ -666,8 +685,8 @@ GUIDE_EDITS = [
     ("UNFREEZE_ALL", "Unfreeze All", "Clear the freeze mask: every guide can be brushed again"),
     ("DELETE", "Delete Selected", "Delete the selected guides (and their children)"),
     ("SELECT_ALL", "Select All", "Select every guide of the picked group"),
-    ("CLEAR", "Clear Selection", "Deselect every guide"),
 ]
+GUIDE_EDITS = [(k, defs.label(a), defs.tip(a)) for k, a in GUIDE_EDIT_IDS] + GUIDE_EXTRAS
 
 
 class GROOMLAB_OT_guides_edit(GroomToolOperator):
@@ -680,7 +699,7 @@ class GROOMLAB_OT_guides_edit(GroomToolOperator):
 
     @classmethod
     def description(cls, context, properties):
-        return next((tip for k, _l, tip in GUIDE_EDITS if k == properties.action), "")
+        return _description(cls, properties, next((tip for k, _l, tip in GUIDE_EDITS if k == properties.action), ""))
 
     def execute(self, context):
         scalp = active(context)
@@ -697,11 +716,11 @@ class GROOMLAB_OT_guides_edit(GroomToolOperator):
                 tools.guides_edit(scalp, "generate_children", **args)
             elif a in ("SYNC_POS", "SYNC_NEG"):
                 tools.guides_edit(scalp, "mirror_all", axis="x", center=0.0, fromPositive=a == "SYNC_POS")
-            elif a == "MIRROR_GROUP":
-                if not group:
-                    self.report({"ERROR"}, "No group picked: pick a root group to mirror")
+            elif a == "MIRROR_SELECTION":
+                if not t.selected_count:
+                    self.report({"ERROR"}, "No guides selected: select some first (the Select tool, or a group's Select)")
                     return {"CANCELLED"}
-                tools.guides_edit(scalp, "mirror_group", group=group, axis="x", center=0.0, fromPositive=True)
+                tools.mirror_selection(scalp)
             elif a in ("LOCK", "UNLOCK", "FREEZE", "UNFREEZE", "DELETE"):
                 if not t.selected_count:
                     self.report({"ERROR"}, "No guides selected: select some first (the Select tool, or a group's Select)")
@@ -727,9 +746,7 @@ class GROOMLAB_OT_guides_edit(GroomToolOperator):
 
 _TARGET_ITEMS = []  # Blender keeps no reference to a dynamic enum's items: these are held here
 _OTHER_ITEMS = []
-FOR_TIP = ("A map for a setting is made white (the setting as it is), linked to it and painted at once, one undo "
-           "step: strokes paint toward the value, Ctrl toward 0 (on Density: no hair). When the setting reads a map "
-           "already, that map is picked instead")
+FOR_TIP = defs.get("lists/maps/forTip")
 
 
 def _target_items(self, context):
@@ -770,13 +787,12 @@ class GROOMLAB_OT_map_new(GroomToolOperator):
     target: EnumProperty(name="For", items=_target_items, description=FOR_TIP)
     other: EnumProperty(name="Setting", items=_other_items, description="Every mappable param of the graph")
     name: StringProperty(name="Name", default="mask", description="Letters, digits and _ (not starting with a digit)")
-    kind: EnumProperty(name="Kind", items=[("guides", "On the guides", "A layer on the guides (children follow their parents)"),
-                                           ("vertices", "On the scalp's vertices", "A value per scalp vertex"),
-                                           ("texture", "A texture", "An image at the scalp's UVs")], default="vertices")
-    color: BoolProperty(name="Color (r g b a)", default=False, description="Four channels instead of one gray value")
+    kind: EnumProperty(name=defs.get("choices/mapKind")["label"], items=defs.enum_items("mapKind"), default="vertices")
+    color: BoolProperty(name=defs.choice_label("mapValues", "color"), default=False,
+                        description=defs.choice("mapValues", "color")["tip"])
     value: FloatProperty(name="Fill", default=0.0, min=0.0, max=1.0, subtype="FACTOR")
-    resolution: EnumProperty(name="Resolution", items=[(str(r), "%d x %d" % (r, r), "") for r in (256, 512, 1024, 2048, 4096)],
-                             default="1024")
+    resolution: EnumProperty(name=defs.get("choices/mapResolution")["label"], items=defs.enum_items("mapResolution"),
+                             default=defs.enum_default("mapResolution"))
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -847,49 +863,809 @@ class GROOMLAB_OT_paint_param(GroomToolOperator):
         return {"FINISHED"}
 
 
-class GROOMLAB_OT_map_remove(GroomToolOperator):
-    """Delete the map (a texture map's file stays on disk)"""
+class MapOperator(GroomToolOperator):
+    """An edit of the picked map (the Paint tab's list)."""
+
+    @classmethod
+    def poll(cls, context):
+        return GroomToolOperator.poll(context) and tools.current_map(context.scene) is not None
+
+    @classmethod
+    def description(cls, context, properties):
+        return _description(cls, properties, cls.__doc__ or "")
+
+
+class GROOMLAB_OT_map_remove(MapOperator):
+    """Delete the map (a texture map's file too, unless Delete Its File is off in the list's right-click menu)"""
     bl_idname = "groomlab.map_remove"
     bl_label = "Delete Map"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        name = context.scene.groomlab_tools.paint_map
+        t = context.scene.groomlab_tools
+        name = t.paint_map
         if not name:
             return {"CANCELLED"}
         try:
-            tools.map_remove(active(context), name)
+            r = tools.map_remove(active(context), name, delete_file=t.map_delete_files)
         except HelperError as e:
             return _fail(self, e)
+        if r.get("fileDeleted"):
+            tools.status(context.scene, "Deleted %s and its file." % name)
         return {"FINISHED"}
 
 
-class GROOMLAB_OT_map_fill(GroomToolOperator):
-    """Set the guide map to the value: on the selected guides when some are, else every guide"""
+class GROOMLAB_OT_map_fill(MapOperator):
+    """Set the map to the value (a color map: to the color, in the channels ticked): a guide map on the selected
+    guides when some are, else everywhere"""
     bl_idname = "groomlab.map_fill"
     bl_label = "Fill"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        scene = context.scene
-        m = tools.current_map(scene)
-        if m is None or m.kind != "guides":
-            self.report({"ERROR"}, "Fill works on guide maps only: paint scalp and texture maps with the brush")
-            return {"CANCELLED"}
-        scalp = active(context)
+        t = context.scene.groomlab_tools
+        m = tools.current_map(context.scene)
         try:
-            args = {"name": m.name, "value": float(scene.groomlab_tools.value)}
-            if not scene.groomlab_tools.selected_count:
-                args["ids"] = _all_guide_ids(scalp)
-            tools.guides_edit(scalp, "set_attribute", **args)
+            if m.channels > 1:
+                channels = "".join(c for c, on in zip("rgba", (t.channel_r, t.channel_g, t.channel_b, t.channel_a)) if on)
+                tools.map_fill(active(context), m.name, color=list(t.paint_color), channels=channels or "rgba")
+            else:
+                tools.map_fill(active(context), m.name, value=float(t.value),
+                               selected=m.kind == "guides" and t.selected_count > 0)
         except HelperError as e:
             return _fail(self, e)
         return {"FINISHED"}
 
 
-def _all_guide_ids(scalp):
-    g = tools.call(scalp, "get_guides", source="hierarchy")
-    return [int(i) for i in process.client().array(g["arrays"]["ids"]).tolist()]
+IMAGE_GLOB = "*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.psd;*.gif;*.hdr;*.tif;*.tiff;*.exr"
+
+
+class GROOMLAB_OT_map_import(GroomToolOperator, ImportHelper):
+    """A new texture map from an image (named after the file; a JPEG, TGA, PSD... is copied into the masks folder
+    as a PNG; color or gray as the image is)"""
+    bl_idname = "groomlab.map_import"
+    bl_label = "Import Image as Map"
+    bl_options = {"REGISTER", "UNDO"}
+    filter_glob: StringProperty(default=IMAGE_GLOB, options={"HIDDEN"})
+
+    def execute(self, context):
+        try:
+            r = tools.map_import(active(context), self.filepath)
+        except HelperError as e:
+            return _fail(self, e)
+        with props.quiet():
+            context.scene.groomlab_tools.paint_map = r["name"]
+        tools.refresh_info(active(context), context.scene)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_map_relink(MapOperator, ImportHelper):
+    """Point the map at another image: a PNG is used in place (painting edits it); a JPEG, TGA, PSD... is copied
+    into the masks folder as a PNG"""
+    bl_idname = "groomlab.map_relink"
+    bl_label = "Relink Image"
+    bl_options = {"REGISTER", "UNDO"}
+    filter_glob: StringProperty(default=IMAGE_GLOB, options={"HIDDEN"})
+
+    def execute(self, context):
+        try:
+            tools.map_relink(active(context), context.scene.groomlab_tools.paint_map, self.filepath)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_map_rename(MapOperator):
+    """Rename the map; Map nodes and params reading it follow"""
+    bl_idname = "groomlab.map_rename"
+    bl_label = "Rename Map"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: StringProperty(name="New Name", options={"SKIP_SAVE"},
+                         description="Letters, digits and _ (not starting with a digit)")
+
+    def invoke(self, context, event):
+        self.name = context.scene.groomlab_tools.paint_map
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        old = context.scene.groomlab_tools.paint_map
+        new = self.name.strip()
+        if not new or new == old:
+            return {"CANCELLED"}
+        try:
+            tools.map_rename(active(context), old, new)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_map_convert(MapOperator):
+    """Convert to another kind: its name, and what reads it, stay the same"""
+    bl_idname = "groomlab.map_convert"
+    bl_label = "Convert Map"
+    bl_options = {"REGISTER", "UNDO"}
+
+    kind: EnumProperty(name=defs.get("choices/mapKind")["label"], items=defs.enum_items("mapKind", field="convert"),
+                       default="vertices")
+    resolution: EnumProperty(name=defs.get("choices/mapResolution")["label"], items=defs.enum_items("mapResolution"),
+                             default=defs.enum_default("mapResolution"))
+
+    @classmethod
+    def description(cls, context, properties):
+        c = defs.choice("mapKind", properties.kind)
+        return c["tip"] if c else cls.__doc__
+
+    def invoke(self, context, event):
+        if self.kind == "texture":  # "A texture at the scalp's UVs...": its resolution asked
+            return context.window_manager.invoke_props_dialog(self)
+        return self.execute(context)
+
+    def draw(self, context):
+        self.layout.prop(self, "resolution")
+
+    def execute(self, context):
+        m = tools.current_map(context.scene)
+        if m.kind == self.kind:
+            self.report({"INFO"}, "%s is %s already" % (m.name, defs.choice_label("mapKind", m.kind).lower()))
+            return {"CANCELLED"}
+        try:
+            r = tools.map_convert(active(context), m.name, self.kind, resolution=int(self.resolution))
+        except HelperError as e:
+            return _fail(self, e)
+        for w in r.get("warnings") or []:
+            self.report({"WARNING"}, sentence(w))
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_map_set_channels(MapOperator):
+    """Make the map gray (its luminance) or color (r g b a)"""
+    bl_idname = "groomlab.map_set_channels"
+    bl_label = "Map Channels"
+    bl_options = {"REGISTER", "UNDO"}
+
+    channels: IntProperty(name="Channels", default=4, min=1, max=4)
+
+    def execute(self, context):
+        try:
+            tools.map_set_channels(active(context), context.scene.groomlab_tools.paint_map, self.channels)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_map_reload(MapOperator):
+    """Read the image again after editing it outside Blender"""
+    bl_idname = "groomlab.map_reload"
+    bl_label = "Reload Image"
+
+    def execute(self, context):
+        try:
+            tools.map_reload(active(context), context.scene.groomlab_tools.paint_map)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_map_show_file(MapOperator):
+    """Open the image's folder in the file browser"""
+    bl_idname = "groomlab.map_show_file"
+    bl_label = "Show in Explorer"
+
+    def execute(self, context):
+        m = tools.current_map(context.scene)
+        folder = os.path.dirname(m.texture) if m.texture else ""
+        if not folder or not os.path.isdir(folder):
+            self.report({"ERROR"}, "%s has no image on disk" % m.name)
+            return {"CANCELLED"}
+        bpy.ops.wm.path_open(filepath=folder)
+        return {"FINISHED"}
+
+
+# ---- Guide groups: colors, promote / demote, mirroring, reparenting ----------------------------------
+
+class GROOMLAB_OT_group_color(GroomToolOperator):
+    """The group's color in the viewport"""
+    bl_idname = "groomlab.group_color"
+    bl_label = "Group Color"
+    bl_options = {"REGISTER", "UNDO"}
+
+    group: StringProperty(name="Group", options={"SKIP_SAVE"})
+    color: FloatVectorProperty(name="Color", size=3, subtype="COLOR_GAMMA", min=0.0, max=1.0, default=(1.0, 0.5, 0.2))
+
+    def invoke(self, context, event):
+        t = context.scene.groomlab_tools
+        self.group = self.group or t.group
+        g = next((g for g in t.groups if g.name == self.group), None)
+        if g is not None and g.has_color:
+            self.color = g.color
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        group = self.group or context.scene.groomlab_tools.group
+        if not group or group == tools.ALL_GROUPS:
+            self.report({"ERROR"}, "No group picked: pick a group first")
+            return {"CANCELLED"}
+        try:
+            tools.set_group_color(active(context), group, tuple(self.color))
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_group_promote_demote(GroomToolOperator):
+    """Move a group one level up, or down under a sibling group"""
+    bl_idname = "groomlab.group_promote_demote"
+    bl_label = "Promote / Demote Group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    action: EnumProperty(name="Move", items=[("PROMOTE", "Promote", "One level up"),
+                                             ("DEMOTE", "Demote", "One level down, under a sibling group")])
+    group: StringProperty(name="Group", options={"SKIP_SAVE"})
+    parent: StringProperty(name="Under", options={"SKIP_SAVE"}, description="Demote: the sibling group to move it under")
+
+    def invoke(self, context, event):
+        t = context.scene.groomlab_tools
+        if not self.group and t.group != tools.ALL_GROUPS:
+            self.group = t.group
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        t = context.scene.groomlab_tools
+        layout = self.layout
+        layout.row().prop(self, "action", expand=True)
+        layout.prop_search(self, "group", t, "groups")
+        if self.action == "DEMOTE":
+            layout.prop_search(self, "parent", t, "groups")
+
+    def execute(self, context):
+        if not self.group:
+            self.report({"ERROR"}, "No group: pick the group to move")
+            return {"CANCELLED"}
+        try:
+            if self.action == "PROMOTE":
+                tools.guides_edit(active(context), "promote_group", group=self.group)
+            else:
+                tools.guides_edit(active(context), "demote_group", group=self.group, parent=self.parent.strip())
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_guides_mirror_group(GroomToolOperator):
+    """Copy a root group from one side to the other"""
+    bl_idname = "groomlab.guides_mirror_group"
+    bl_label = "Mirror Group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    group: StringProperty(name="Root Group", options={"SKIP_SAVE"})
+    direction: EnumProperty(name="From", items=[("POS", "+X → -X", "Copy the +X side over the -X side"),
+                                                ("NEG", "-X → +X", "Copy the -X side over the +X side")], default="POS")
+
+    def invoke(self, context, event):
+        t = context.scene.groomlab_tools
+        if not self.group:
+            picked = next((g for g in t.groups if g.name == t.group), None)
+            root = picked
+            while root is not None and root.parent:
+                root = next((g for g in t.groups if g.name == root.parent), None)
+            self.group = root.name if root is not None else (t.groups[0].name if len(t.groups) else "")
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop_search(self, "group", context.scene.groomlab_tools, "groups")
+        self.layout.row().prop(self, "direction", expand=True)
+
+    def execute(self, context):
+        if not self.group:
+            self.report({"ERROR"}, "No group: pick a root group to mirror")
+            return {"CANCELLED"}
+        try:
+            tools.guides_edit(active(context), "mirror_group", group=self.group, axis="x", center=0.0,
+                              fromPositive=self.direction == "POS")
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_guides_reparent(GroomToolOperator):
+    """Move the selected children under another parent"""
+    bl_idname = "groomlab.guides_reparent"
+    bl_label = "Reparent Selected Guides"
+    bl_options = {"REGISTER", "UNDO"}
+
+    parent: IntProperty(name="New Parent (Guide ID)", default=0, min=0, description="The ID of the new parent guide")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        scalp = active(context)
+        ids = tools.selected_guides(scalp)
+        if not ids:
+            self.report({"ERROR"}, "No guides selected: select the children to move first")
+            return {"CANCELLED"}
+        try:
+            tools.guides_edit(scalp, "reparent", ids=ids, parent=int(self.parent))
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+# ---- Parts and flow (the Part and Flow tools' cards) -------------------------------------------------
+
+class GROOMLAB_OT_part_remove(GroomToolOperator):
+    """Remove the part picked above"""
+    bl_idname = "groomlab.part_remove"
+    bl_label = "Remove Part"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: StringProperty(name="Part", options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        t = context.scene.groomlab_tools
+        name = self.name or (t.parts[t.part_index].name if 0 <= t.part_index < len(t.parts) else "")
+        if not name:
+            self.report({"ERROR"}, "No part picked: pick a part in the list")
+            return {"CANCELLED"}
+        try:
+            tools.part_remove(active(context), name)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_parts_clear(GroomToolOperator):
+    """Remove every part"""
+    bl_idname = "groomlab.parts_clear"
+    bl_label = "Clear All Parts"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            tools.parts_clear(active(context))
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_flow_clear(GroomToolOperator):
+    """Remove every flow arrow and sink"""
+    bl_idname = "groomlab.flow_clear"
+    bl_label = "Clear All Flow"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        try:
+            tools.flow_clear(active(context))
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+# ---- Tubes (the Tubes section) --------------------------------------------------------------------
+
+class TubeOperator(GroomToolOperator):
+    bl_options = {"REGISTER", "UNDO"}
+
+
+def _library_pick(context):
+    t = context.scene.groomlab_tools
+    return t.tube_shapes[t.tube_shape_index] if 0 <= t.tube_shape_index < len(t.tube_shapes) else None
+
+
+class GROOMLAB_OT_tube_apply(TubeOperator):
+    """Give the targeted guides this shape"""
+    bl_idname = "groomlab.tube_apply"
+    bl_label = "Apply to Selected"
+
+    def execute(self, context):
+        scalp = active(context)
+        guides = tools.groom_tools(scalp).tube_guides
+        if not guides:
+            self.report({"ERROR"}, "No guides selected or soloed: select guides (Select tool), or Shift+click one")
+            return {"CANCELLED"}
+        try:
+            tools.set_tube(scalp, guides=guides, shape=context.scene.groomlab_tools.tube_choice)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_tube_smooth(TubeOperator):
+    """Smooth the targeted guides' tubes along each guide: what the brush painted evened out, the root's and tip's
+    sections kept (Shift+drag with the brush smooths under it)"""
+    bl_idname = "groomlab.tube_smooth"
+    bl_label = "Smooth"
+
+    def execute(self, context):
+        scalp = active(context)
+        t = context.scene.groomlab_tools
+        guides = tools.groom_tools(scalp).tube_guides
+        if not guides:
+            self.report({"ERROR"}, "No guides selected or soloed: select guides (Select tool), or Shift+click one")
+            return {"CANCELLED"}
+        try:
+            tools.smooth_tube(scalp, channel=t.tube_channel if t.tube_smooth_what == "current" else "all", guides=guides)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_tube_shape_custom(TubeOperator):
+    """Copy this built-in shape into the groom's library as a new shape you can edit (the targeted guides take it)"""
+    bl_idname = "groomlab.tube_shape_custom"
+    bl_label = "Edit as Custom"
+
+    def execute(self, context):
+        scalp = active(context)
+        scene = context.scene
+        t = scene.groomlab_tools
+        base = t.tube_choice or "round"
+        try:
+            points, smooth = tools.shape_points(scalp, base)
+            name = tools.unique_shape_name(scene, base)
+            tools.add_tube_shape(scalp, name, points, smooth=smooth)
+            guides = tools.groom_tools(scalp).tube_guides
+            if guides:
+                tools.set_tube(scalp, guides=guides, shape=name)
+        except HelperError as e:
+            return _fail(self, e)
+        with props.quiet():
+            t.tube_choice = name
+        tools.refresh_tubes(scalp, scene)
+        tools.push_safely(context)
+        tools.status(scene, "%s: a copy of the built-in in the groom's library." % name)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_tube_shape_new(TubeOperator):
+    """A new library shape (a circle to start from)"""
+    bl_idname = "groomlab.tube_shape_new"
+    bl_label = "New Shape"
+
+    duplicate: BoolProperty(name="Duplicate", default=False, options={"SKIP_SAVE"},
+                            description="A copy of the shape picked in the list, to change on its own")
+
+    @classmethod
+    def description(cls, context, properties):
+        return ("A copy of this shape in the library, to change on its own" if properties.duplicate
+                else "A new library shape (a circle to start from)")
+
+    def execute(self, context):
+        scalp = active(context)
+        scene = context.scene
+        t = scene.groomlab_tools
+        try:
+            if self.duplicate:
+                picked = _library_pick(context)
+                if picked is None:
+                    self.report({"ERROR"}, "No library shape picked")
+                    return {"CANCELLED"}
+                points, smooth = tools.shape_points(scalp, picked.name)
+                name = tools.unique_shape_name(scene, picked.name)
+            else:
+                points, smooth = tools.shape_points(scalp, "round")
+                smooth, name = True, tools.unique_shape_name(scene, "shape")
+            tools.add_tube_shape(scalp, name, points, smooth=smooth)
+        except HelperError as e:
+            return _fail(self, e)
+        with props.quiet():
+            t.tube_choice = name
+        tools.refresh_tubes(scalp, scene)
+        names = [x.name for x in t.tube_shapes]
+        with props.quiet():
+            t.tube_shape_index = names.index(name) if name in names else t.tube_shape_index
+        tools.push_safely(context)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_tube_shape_rename(TubeOperator):
+    """Rename this library shape (its guides keep it)"""
+    bl_idname = "groomlab.tube_shape_rename"
+    bl_label = "Rename Shape"
+
+    name: StringProperty(name="New Name", options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return TubeOperator.poll(context) and _library_pick(context) is not None
+
+    def invoke(self, context, event):
+        self.name = _library_pick(context).name
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        old = _library_pick(context).name
+        new = self.name.strip()
+        if not new or new == old:
+            return {"CANCELLED"}
+        t = context.scene.groomlab_tools
+        try:
+            tools.rename_tube_shape(active(context), old, new)
+        except HelperError as e:
+            return _fail(self, e)
+        if t.tube_choice == old:
+            with props.quiet():
+                t.tube_choice = new
+            tools.refresh_tubes(active(context), context.scene)
+            tools.push_safely(context)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_tube_shape_remove(TubeOperator):
+    """Remove this shape from the library (its guides become round)"""
+    bl_idname = "groomlab.tube_shape_remove"
+    bl_label = "Delete Shape"
+
+    @classmethod
+    def poll(cls, context):
+        return TubeOperator.poll(context) and _library_pick(context) is not None
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        picked = _library_pick(context)
+        t = context.scene.groomlab_tools
+        name, users = picked.name, picked.users
+        try:
+            tools.remove_tube_shape(active(context), name)
+        except HelperError as e:
+            return _fail(self, e)
+        if t.tube_choice == name:
+            with props.quiet():
+                t.tube_choice = "round"
+            tools.push_safely(context)
+        tools.status(context.scene, "Deleted %s: %d guide%s went round." % (name, users, "" if users == 1 else "s"))
+        return {"FINISHED"}
+
+
+# ---- Correctives and Sculpt nodes (the Correctives tab) -------------------------------------------
+
+class CorrectiveOperator(GroomToolOperator):
+    """An edit of a corrective: `name`, else the one picked in the list."""
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: StringProperty(name="Corrective", options={"SKIP_SAVE"})
+
+    @classmethod
+    def description(cls, context, properties):
+        return _description(cls, properties, cls.__doc__ or "")
+
+    def corrective(self, context):
+        if self.name:
+            return self.name
+        kind, name = tools.picked_corrective(context.scene)
+        if kind != "layer":
+            self.report({"ERROR"}, "Pick a corrective.")
+            return None
+        return name
+
+
+class GROOMLAB_OT_corrective_new(GroomToolOperator):
+    """New corrective on every frame (unkeyed weight 1)"""
+    bl_idname = "groomlab.corrective_new"
+    bl_label = "New Corrective"
+    bl_options = {"REGISTER", "UNDO"}
+
+    fix: BoolProperty(name="Fix Frame", default=False, options={"SKIP_SAVE"},
+                      description="A corrective on this frame, keyed in over the 6 frames before and out over the 6 after")
+
+    @classmethod
+    def description(cls, context, properties):
+        return _description(cls, properties, cls.__doc__)
+
+    def execute(self, context):
+        scalp = active(context)
+        try:
+            if self.fix:
+                name = tools.corrective_new(scalp, frame=float(context.scene.frame_current), fade=6.0)
+            else:
+                name = tools.corrective_new(scalp, all_frames=True)
+        except HelperError as e:
+            return _fail(self, e)
+        tools.status(context.scene, "Brushes sculpt into %s." % name)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_corrective_move(CorrectiveOperator):
+    """Move up the stack"""
+    bl_idname = "groomlab.corrective_move"
+    bl_label = "Move Corrective"
+
+    step: IntProperty(default=1)
+
+    def execute(self, context):
+        name = self.corrective(context)
+        if not name:
+            return {"CANCELLED"}
+        try:
+            tools.corrective_move(active(context), name, self.step)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_corrective_solo(CorrectiveOperator):
+    """Solo: only this corrective on (again: all on)"""
+    bl_idname = "groomlab.corrective_solo"
+    bl_label = "Solo Corrective"
+
+    def execute(self, context):
+        name = self.corrective(context)
+        if not name:
+            return {"CANCELLED"}
+        try:
+            tools.corrective_solo(active(context), name)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_corrective_delete(CorrectiveOperator):
+    """Delete the corrective and its keys"""
+    bl_idname = "groomlab.corrective_delete"
+    bl_label = "Delete Corrective"
+
+    def execute(self, context):
+        name = self.corrective(context)
+        if not name:
+            return {"CANCELLED"}
+        scalp = active(context)
+        try:
+            tools.corrective_delete(scalp, name)
+        except HelperError as e:
+            return _fail(self, e)
+        tools.remove_weight_fcurve(scalp, name)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_corrective_go_to(CorrectiveOperator):
+    """The time slider to the corrective's frame"""
+    bl_idname = "groomlab.corrective_go_to"
+    bl_label = "Go to Its Frame"
+
+    def execute(self, context):
+        name = self.corrective(context)
+        if not name:
+            return {"CANCELLED"}
+        row = next((r for r in context.scene.groomlab_tools.correctives if r.kind == "layer" and r.name == name), None)
+        fc = tools.weight_fcurve(active(context), name)
+        frame = None
+        if fc is not None and len(fc.keyframe_points):
+            frame = max(fc.keyframe_points, key=lambda k: k.co[1]).co[0]  # the strongest key
+        elif row is not None and row.has_frame:
+            frame = row.frame
+        if frame is None:
+            self.report({"INFO"}, "%s is on every frame" % name)
+            return {"CANCELLED"}
+        context.scene.frame_set(int(round(frame)))
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_corrective_key(CorrectiveOperator):
+    """Key the weight on this frame"""
+    bl_idname = "groomlab.corrective_key"
+    bl_label = "Key Weight Here"
+
+    def execute(self, context):
+        name = self.corrective(context)
+        if not name:
+            return {"CANCELLED"}
+        try:
+            tools.key_corrective(active(context), name)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_corrective_clear_keys(CorrectiveOperator):
+    """Delete the weight's keys: the corrective on every frame"""
+    bl_idname = "groomlab.corrective_clear_keys"
+    bl_label = "Clear Keys"
+
+    def execute(self, context):
+        name = self.corrective(context)
+        if not name:
+            return {"CANCELLED"}
+        scalp = active(context)
+        tools.remove_weight_fcurve(scalp, name)
+        try:
+            tools.corrective_clear_keys(scalp, name)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_corrective_rename(CorrectiveOperator):
+    """Rename the corrective"""
+    bl_idname = "groomlab.corrective_rename"
+    bl_label = "Rename Corrective"
+
+    new_name: StringProperty(name="New Name", options={"SKIP_SAVE"}, description="Letters, digits and _")
+
+    def invoke(self, context, event):
+        name = self.corrective(context)
+        if not name:
+            return {"CANCELLED"}
+        self.name, self.new_name = name, name
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop(self, "new_name")
+
+    def execute(self, context):
+        name = self.corrective(context)
+        new = self.new_name.strip()
+        if not name or not new or new == name:
+            return {"CANCELLED"}
+        scalp = active(context)
+        weights = scalp.groomlab_tools.corrective_weights
+        try:
+            tools.corrective_rename(scalp, name, new)
+        except HelperError as e:
+            return _fail(self, e)
+        with props.quiet():
+            if weights.get(name) is not None:
+                weights[name].name = new
+            # Looked up now, not before the rename: the rename's refresh can rebuild the action's
+            # curves, and writing through a curve Blender freed crashed it (FCurve_data_path_set).
+            fc = tools.weight_fcurve(scalp, name)
+            if fc is not None:
+                fc.data_path = tools.weight_path(new)
+            gt = tools.groom_tools(scalp)
+            if name in gt.pushed_keys:
+                gt.pushed_keys[new] = gt.pushed_keys.pop(name)
+        tools.refresh_correctives(scalp, context.scene)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_sculpt_target(GroomToolOperator):
+    """Brushes shape the guides this node hands on; each stroke is kept in the node and follows the guides when what
+    feeds it changes (off: the base groom)"""
+    bl_idname = "groomlab.sculpt_target"
+    bl_label = "Brush This Node's Guides"
+
+    node: StringProperty(name="Node", options={"SKIP_SAVE"}, description="A Sculpt node (empty: the base groom)")
+    corrective: StringProperty(name="Corrective", options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        scalp = active(context)
+        try:
+            if self.node:
+                tools.sculpt_target(scalp, node=self.node)
+            elif self.corrective:
+                tools.sculpt_target(scalp, corrective=self.corrective)
+            else:
+                tools.sculpt_target(scalp, base=True)
+            tools.refresh_correctives(scalp, context.scene)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
+
+
+class GROOMLAB_OT_sculpt_clear(GroomToolOperator):
+    """Drop every stroke kept in this node: its guides as it is fed them (one undo step)"""
+    bl_idname = "groomlab.sculpt_clear"
+    bl_label = "Clear Sculpt Edits"
+    bl_options = {"REGISTER", "UNDO"}
+
+    node: StringProperty(name="Node", options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        node = self.node
+        if not node:
+            kind, name = tools.picked_corrective(context.scene)
+            node = name if kind == "node" else ""
+        if not node:
+            self.report({"ERROR"}, "Pick a Sculpt node.")
+            return {"CANCELLED"}
+        try:
+            tools.sculpt_clear(active(context), node)
+        except HelperError as e:
+            return _fail(self, e)
+        return {"FINISHED"}
 
 
 # ---- Strand colors ---------------------------------------------------------------------------------
@@ -915,10 +1691,17 @@ def _tool_button(layout, tool, label=None):
 
 
 def overflow():
-    """The catalog's tools not on the radial (Select and Freeze last, after a divider)."""
+    """The catalog's tools not on the radial nor excluded (marking_menu.json's overflow: Select and
+    Freeze come last, in the tail)."""
     radial = set(mode for _, mode in RADIAL)
+    exclude = set(defs.get("markingMenu/overflow").get("exclude") or ())
     return [t["id"] for t in tools.cached_catalog().get("tools", []) if t["id"] not in radial
-            and t["id"] not in ("select", "freeze")]
+            and t["id"] not in exclude]
+
+
+def tail():
+    """The marking menu's tail: [("tool", id) | ("action", id)]."""
+    return [("tool", e["tool"]) if isinstance(e, dict) else ("action", e) for e in defs.get("markingMenu/tail")]
 
 
 class GROOMLAB_MT_pie(bpy.types.Menu):
@@ -946,10 +1729,17 @@ class GROOMLAB_MT_pie(bpy.types.Menu):
                 for tool in overflow():
                     _tool_button(box, tool)
                 box.separator()
-                _tool_button(box, "select")
-                _tool_button(box, "freeze")
-                box.separator()
-                box.operator("groomlab.groom_tools", text="Groom Tools", icon_value=icons.icon("palette"))
+                last = None
+                for kind, item in tail():
+                    if kind == "action" and last == "tool":
+                        box.separator()
+                    if kind == "tool":
+                        _tool_button(box, item)
+                    elif actions.bound(item):
+                        from . import menu
+                        menu.draw_action(box, {"id": item, "label": defs.label(item), "icon": defs.action(item).get("icon")},
+                                         context)
+                    last = kind
             else:
                 _tool_button(pie, by_dir[direction])
 
@@ -981,6 +1771,15 @@ def unregister_keymaps():
 classes = (GROOMLAB_OT_tool_modal, GROOMLAB_OT_tool, GROOMLAB_OT_tool_exit, GROOMLAB_OT_tool_undo,
            GROOMLAB_OT_step_level, GROOMLAB_OT_group_new, GROOMLAB_OT_group_edit, GROOMLAB_OT_guides_edit,
            GROOMLAB_OT_map_new, GROOMLAB_OT_paint_param, GROOMLAB_OT_map_remove, GROOMLAB_OT_map_fill,
+           GROOMLAB_OT_map_import, GROOMLAB_OT_map_relink, GROOMLAB_OT_map_rename, GROOMLAB_OT_map_convert,
+           GROOMLAB_OT_map_set_channels, GROOMLAB_OT_map_reload, GROOMLAB_OT_map_show_file,
+           GROOMLAB_OT_group_color, GROOMLAB_OT_group_promote_demote, GROOMLAB_OT_guides_mirror_group,
+           GROOMLAB_OT_guides_reparent, GROOMLAB_OT_part_remove, GROOMLAB_OT_parts_clear, GROOMLAB_OT_flow_clear,
+           GROOMLAB_OT_tube_apply, GROOMLAB_OT_tube_smooth, GROOMLAB_OT_tube_shape_custom, GROOMLAB_OT_tube_shape_new,
+           GROOMLAB_OT_tube_shape_rename, GROOMLAB_OT_tube_shape_remove, GROOMLAB_OT_corrective_new,
+           GROOMLAB_OT_corrective_move, GROOMLAB_OT_corrective_solo, GROOMLAB_OT_corrective_delete,
+           GROOMLAB_OT_corrective_go_to, GROOMLAB_OT_corrective_key, GROOMLAB_OT_corrective_clear_keys,
+           GROOMLAB_OT_corrective_rename, GROOMLAB_OT_sculpt_target, GROOMLAB_OT_sculpt_clear,
            GROOMLAB_OT_show_strand_colors, GROOMLAB_MT_pie)
 
 

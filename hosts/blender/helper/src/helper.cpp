@@ -52,6 +52,8 @@
 
 #include "authoring.h"
 #include "host_space.h"
+#include "pipeline.h"
+#include "reference.h"
 #include "request.h"
 #include "session.h"
 #include "shared_memory.h"
@@ -253,7 +255,9 @@ void adopt(Session& s, GroomFile file) {
     s.evaluations = s.incrementals = 0;
     s.notes = std::move(notes);
     s.exports.clear();
+    s.simJob.reset();
     applySearchPaths(s);
+    applyScalpFrames(s);  // the host's scalp at other frames feeds the new groom's Simulate nodes
 }
 
 GroomFile currentFile(const Session& s) {
@@ -598,7 +602,7 @@ json setFlatGuides(Session& s, GuideCurves curves, bool atRest) {
     return {{"pose", atRest ? "rest" : "now"}, {"target", "flat"}, {"guides", set->size()}, {"changed", changed}, {"added", added}, {"removed", removed}, {"updated", !same}};
 }
 
-json setHierarchyGuides(Session& s, GuideCurves curves, bool keepMissing) {
+json setHierarchyGuides(Session& s, GuideCurves curves, bool keepMissing, const std::string& groupName = "") {
     const auto stored = s.groom->storedHierarchy();
     GuideHierarchy h = stored ? *stored : GuideHierarchy();
     const HierarchyPtr rooted = s.groom->authoredHierarchy();  // the shapes get_guides gave
@@ -608,7 +612,14 @@ json setHierarchyGuides(Session& s, GuideCurves curves, bool keepMissing) {
         if (!g.followsParent()) editable.insert(g.id);
     }
     GroupId group = kNoGroup;
+    if (!groupName.empty()) {
+        // New guides join this group (a root group made when missing): curves drawn in the host as a
+        // braid's paths or feathers' shafts (Maya's guides_from_curves group=).
+        group = h.findGroup(groupName);
+        if (group == kNoGroup) group = h.addGroup(groupName);
+    }
     for (const GuideGroup& g : h.groups()) {
+        if (group != kNoGroup) break;
         if (g.parent == kNoGroup) {
             group = g.id;
             break;
@@ -799,9 +810,79 @@ PrototypeLookup storedPrototypes(const Session& s) {
     };
 }
 
+// Unity's hair package resamples strands to 3..128 particles (HairSim.MIN/MAX_STRAND_PARTICLE_COUNT),
+// as Maya's groomlab.game checks a count it is given.
+std::size_t unityPoints(const json& args, const char* key) {
+    const double v = optNumber(args, key, 0.0);
+    if (v != 0.0 && (v < 3.0 || v > 128.0 || v != std::floor(v))) {
+        fail("bad_request", std::string(key) + " must be 3 to 128 (Unity's strand particle counts), or 0: as they are");
+    }
+    return static_cast<std::size_t>(v);
+}
+
+#if GROOMLAB_HAS_ALEMBIC
+// The engine writer's options as Maya's export_unreal_groom and export_unity_strands take them
+// (groomlab/game.py): groups ("auto", a channel, "" one object), shafts, a barb lod or density
+// and width, Unreal's feather guides and iridescence as AO, Unity's scale and resampling.
+EngineExportOptions engineOptions(const json& args, bool unreal) {
+    EngineExportOptions e;
+    e.engine = unreal ? EngineExportOptions::Engine::Unreal : EngineExportOptions::Engine::Unity;
+    const std::string groups = optString(args, "groups", "auto");
+    e.groups = groups == "auto" ? std::string(kGroupIdChannel) : groups;
+    if (args.contains("shafts") && !args["shafts"].is_null()) e.shafts = optBool(args, "shafts", true);
+    // A lighter groom for heavy shots: the barbs thinned to the lod's share (by ID), each kept one
+    // wider by 1/sqrt(share) so the vanes keep their look (game.py UNREAL_LODS, _barb_lod).
+    double density = 1.0;
+    bool given = false;
+    const std::string lod = optString(args, "lod", "");
+    if (!lod.empty()) {
+        static const std::map<std::string, double> kLods = {{"high", 1.0}, {"mid", 0.5}, {"low", 0.25}};
+        const auto it = kLods.find(lod);
+        if (it == kLods.end()) fail("bad_request", "lod is high, mid or low");
+        density = it->second;
+        given = true;
+    }
+    if (args.contains("barbDensity") && !args["barbDensity"].is_null()) {
+        density = optNumber(args, "barbDensity", 1.0);
+        given = true;
+    }
+    if (!(density > 0.0 && density <= 1.0)) fail("bad_request", "barbDensity must be above 0 and at most 1");
+    e.barbDensity = static_cast<float>(density);
+    e.barbWidthScale = static_cast<float>(optNumber(args, "barbWidthScale", given ? 1.0 / std::sqrt(density) : 1.0));
+    if (!(e.barbWidthScale > 0.0f)) fail("bad_request", "barbWidthScale must be above 0");
+    if (unreal) {
+        e.featherGuides = optBool(args, "featherGuides", false);
+        e.iridescenceAo = optBool(args, "iridescenceAo", false);
+    } else {
+        e.scale = static_cast<float>(optNumber(args, "scale", 1.0));
+        if (!(e.scale > 0.0f)) fail("bad_request", "scale must be above 0");
+        e.pointsPerStrand = unityPoints(args, "pointsPerStrand");
+        if (!e.groups.empty()) {
+            e.barbPoints = unityPoints(args, "barbPoints");
+            const double most = optNumber(args, "maxStrandsPerGroup", static_cast<double>(kUnityMaxStrandsPerGroup));
+            if (most < 0.0) fail("bad_request", "maxStrandsPerGroup must be 0 (no limit) or more");
+            e.maxStrandsPerGroup = static_cast<std::size_t>(most);
+        } else if (optNumber(args, "barbPoints", 0.0) != 0.0) {
+            fail("bad_request", "barbPoints needs groups (the barbs' own curves objects)");
+        }
+    }
+    const std::string problem = e.problem();
+    if (!problem.empty()) fail("bad_request", problem);
+    return e;
+}
+#endif
+
 std::unique_ptr<ExportJob> openExport(Session& s, const json& args) {
-    const std::string format = optString(args, "format", "alembic");
-    if (format != "alembic" && format != "usd") fail("bad_request", "format is \"alembic\" or \"usd\"");
+    std::string format = optString(args, "format", "alembic");
+    const bool engine = format == "unrealGroom" || format == "unityStrands";
+    if (format != "alembic" && format != "usd" && format != "scalesUsd" && !engine) {
+        fail("bad_request", "format is alembic, usd, scalesUsd, unrealGroom, unityStrands, gltfCards, unrealCards, unityCards, "
+                            "unityFeathers or scalesFbx");
+    }
+    // The scales: Maya's export_alembic / export_usd's `scales` ("Scales Instancer (USD)" is a USD
+    // export with the scales as a PointInstancer of their plates).
+    const std::string scales = optString(args, "scales", format == "scalesUsd" ? "instancer" : "mesh");
+    if (format == "scalesUsd") format = "usd";
     auto job = std::make_unique<ExportJob>();
     job->format = format;
     job->path = needString(args, "path");
@@ -818,8 +899,29 @@ std::unique_ptr<ExportJob> openExport(Session& s, const json& args) {
             o.upAxis = "Y";
             o.comment = s.file.source.empty() ? std::string("GroomLab for Blender") : s.file.source;
             o.prototypes = storedPrototypes(s);
+            if (scales == "mesh") {
+                o.scales = UsdCurvesWriter::Options::Scales::Mesh;
+            } else if (scales == "instancer") {
+                o.scales = UsdCurvesWriter::Options::Scales::Instancer;
+            } else if (scales == "both") {
+                o.scales = UsdCurvesWriter::Options::Scales::Both;
+            } else if (scales == "none") {
+                o.scales = UsdCurvesWriter::Options::Scales::None;
+            } else {
+                fail("bad_request", "scales is mesh, instancer, both or none");
+            }
             job->usd = std::make_unique<UsdCurvesWriter>(job->path, name, o);
+        } else if (engine) {
+#if GROOMLAB_HAS_ALEMBIC
+            job->unreal = format == "unrealGroom";
+            job->engine = std::make_unique<EngineGroomWriter>(job->path, name, frameToSeconds(start, job->fps),
+                                                              frameToSeconds(step, job->fps), engineOptions(args, job->unreal));
+#else
+            fail("unsupported", "this helper was built without Alembic");
+#endif
         } else {
+            if (scales != "mesh" && scales != "none") fail("bad_request", "scales is mesh or none (an instancer goes to USD)");
+            job->withScales = scales == "mesh";
 #if GROOMLAB_HAS_ALEMBIC
             job->abc = std::make_unique<AlembicCurvesWriter>(job->path, name, frameToSeconds(start, job->fps),
                                                              frameToSeconds(step, job->fps));
@@ -829,10 +931,22 @@ std::unique_ptr<ExportJob> openExport(Session& s, const json& args) {
         }
     } catch (const RequestError&) {
         throw;
+    } catch (const std::invalid_argument& e) {
+        fail("bad_request", e.what());
     } catch (const std::exception& e) {
         fail("io", e.what());
     }
     return job;
+}
+
+// The primary guides as curves (what Unreal simulates): the hierarchy's level 0.
+StrandSet primaryCurves(const HierarchyPtr& hierarchy) {
+    StrandSet out;
+    if (!hierarchy) return out;
+    for (const Guide& g : hierarchy->flatten(0).guides()) {
+        if (g.points.size() >= 2) out.addStrand(g.id, g.points, {}, g.root);
+    }
+    return out;
 }
 
 std::size_t exportFrame(Session& s, ExportJob& job, double frame, float density) {
@@ -849,13 +963,22 @@ std::size_t exportFrame(Session& s, ExportJob& job, double frame, float density)
     }
     const StrandSet& st = *view.strands;
     const MeshPtr scalp = view.scalp ? view.scalp : s.groom->rawScalp();
-    const bool scaled = st.instances() && st.instances()->hasMeshes();
+    bool scaled = job.withScales && st.instances() && st.instances()->hasMeshes();
+#if GROOMLAB_HAS_ALEMBIC
+    scaled = scaled && !job.engine;
+#endif
     const auto scaleMesh = scaled ? job.scales.build(st, scalp, storedPrototypes(s)) : nullptr;
     try {
         if (job.usd) job.usd->writeFrame(frame, st, scalp.get(), scaleMesh.get());
 #if GROOMLAB_HAS_ALEMBIC
         if (job.abc) job.abc->writeFrame(st, scalp.get(), scaleMesh.get());
+        if (job.engine) {
+            const StrandSet primaries = job.unreal ? primaryCurves(view.hierarchy) : StrandSet{};
+            job.engine->writeFrame(st, job.unreal ? &primaries : nullptr, scalp.get());
+        }
 #endif
+    } catch (const std::invalid_argument& e) {
+        fail("bad_request", e.what());
     } catch (const std::exception& e) {
         fail("io", e.what());
     }
@@ -864,15 +987,29 @@ std::size_t exportFrame(Session& s, ExportJob& job, double frame, float density)
     return st.strandCount();
 }
 
-void closeExport(ExportJob& job) {
+// What an export wrote, as its close answers: the path and frames, and for an engine's groom the
+// objects its first frame decided (Unity's curves objects, Unreal's groups: Maya's -report).
+json closeExport(ExportJob& job) {
+    json r = {{"path", job.path}, {"frames", job.frames}};
     try {
         if (job.usd) job.usd->close();
 #if GROOMLAB_HAS_ALEMBIC
         if (job.abc) job.abc->close();
+        if (job.engine) {
+            job.engine->close();
+            json objects = json::array();
+            for (const EngineGroomWriter::Object& o : job.engine->objects()) {
+                objects.push_back({{"object", o.path}, {"group", o.group}, {"groupId", o.groupId}, {"feathers", o.feathers},
+                                   {"strands", o.strands}, {"pointsPerStrand", o.pointsPerStrand ? json(o.pointsPerStrand) : json()},
+                                   {"minPoints", o.minPoints}, {"maxPoints", o.maxPoints}});
+            }
+            r["objects"] = objects;
+        }
 #endif
     } catch (const std::exception& e) {
         fail("io", e.what());
     }
+    return r;
 }
 
 // ---- Presets ------------------------------------------------------------------------------------
@@ -1078,7 +1215,34 @@ json setState(Session& s, const json& args) {
     return info;
 }
 
+// The sample meshes shipped with the helper (Maya's hosts/maya/meshes, CC BY 4.0): bin/meshes
+// beside it (or one up), else the source tree's (a build tree's helper).
+std::string shippedMeshesDir() {
+    std::error_code ec;
+    if (!g_executableDir.empty()) {
+        for (const fs::path& p : {fs::u8path(g_executableDir) / "meshes", fs::u8path(g_executableDir) / ".." / "meshes"}) {
+            if (fs::is_directory(p, ec)) return p.lexically_normal().generic_u8string();
+        }
+    }
+#ifdef GROOMLAB_SHIPPED_MESHES
+    if (fs::is_directory(fs::u8path(GROOMLAB_SHIPPED_MESHES), ec)) return GROOMLAB_SHIPPED_MESHES;
+#endif
+    return {};
+}
+
 }  // namespace
+
+// ---- Shared with pipeline.cpp ---------------------------------------------------------------------
+
+MeshPtr hostMesh(const json& args, const HostSpace& space, BlockReader& blocks) { return scalpFrom(args, space, blocks); }
+void hostMeshFaces(const ScalpMesh& mesh, std::vector<std::int32_t>& counts, std::vector<std::int32_t>& indices,
+                   std::vector<float>& uvs, bool& exact) {
+    scalpFaces(mesh, counts, indices, uvs, exact);
+}
+void feedSessionTime(Session& s) { feedTime(s); }
+PrototypeLookup sessionPrototypes(const Session& s) { return storedPrototypes(s); }
+void handSessionRestGuides(Session& s) { handRestGuides(s); }
+std::string sampleMeshesDir() { return shippedMeshesDir(); }
 
 // ---- The helper ---------------------------------------------------------------------------------
 
@@ -1156,8 +1320,9 @@ json Helper::run(const std::string& cmd, const json& args) {
         r["groomSpace"] = {{"upAxis", "Y"}, {"units", "cm"}};
         // What this helper offers beyond protocol 1's first commands, each with its own version
         // (raised when its commands change in a way an add-on must know): GroomLab's own tools
-        // (new_groom, tool_*, stroke_*, select, guides_edit, maps, undo, display) and the state.
-        r["features"] = {{"tools", kToolsVersion}, {"state", 1}, {"cardMaps", 1}, {"authoring", 1}};
+        // (new_groom, tool_*, stroke_*, select, guides_edit, maps, undo, display), the state, card
+        // maps, authoring and the pipeline (game exports, simulation, meshes, transfer: pipeline.cpp).
+        r["features"] = {{"tools", kToolsVersion}, {"state", 1}, {"cardMaps", 1}, {"authoring", 1}, {"pipeline", 1}, {"photos", 1}};
         return r;
     }
     if (cmd == "ping") return {{"pong", true}};
@@ -1382,7 +1547,9 @@ json Helper::run(const std::string& cmd, const json& args) {
         const std::string pose = optString(args, "pose", "now");
         if (pose != "now" && pose != "rest") fail("bad_request", "pose is \"now\" or \"rest\"");
         if (target == "flat") return setFlatGuides(s, std::move(curves), pose == "rest");
-        if (target == "hierarchy") return setHierarchyGuides(s, std::move(curves), optBool(args, "keepMissing", false));
+        if (target == "hierarchy") {
+            return setHierarchyGuides(s, std::move(curves), optBool(args, "keepMissing", false), optString(args, "group", ""));
+        }
         fail("bad_request", "target is \"auto\", \"flat\" or \"hierarchy\"");
     }
 
@@ -1713,6 +1880,14 @@ json Helper::run(const std::string& cmd, const json& args) {
         if (shippedNodeDir().empty()) setShippedNodeDir(shippedNodesDir());
         return json::parse(libraryNodesJson());
     }
+    if (cmd == "preset_graph") {
+        // A preset's graph as it would apply to this scalp (fitted), nothing changed: the add-on's
+        // graph inserts take nodes from it (Maya's presets.preset_for: a feather design).
+        Session& s = session(args);
+        std::string stem;
+        const std::string text = readText(presetFile(args, &stem));
+        return {{"preset", stem}, {"graph", json::parse(presetGraphJson(text, scalpSize(s)))}};
+    }
     if (cmd == "insert_preset") {
         Session& s = session(args);
         std::string stem;
@@ -1744,8 +1919,7 @@ json Helper::run(const std::string& cmd, const json& args) {
                             static_cast<float>(optNumber(args, "density", 1.0)));
             return {{"strands", strands}, {"frames", job.frames}};
         }
-        closeExport(job);
-        const json r = {{"path", job.path}, {"frames", job.frames}};
+        const json r = closeExport(job);
         s.exports.erase(e.get<int>());
         return r;
     }
@@ -1812,6 +1986,8 @@ json Helper::run(const std::string& cmd, const json& args) {
     }
     if (cmd == "export") {
         Session& s = session(args);
+        // A game export of one frame (cards, the scales' mesh, Unity's feathers): pipeline.cpp.
+        if (isPipelineExport(optString(args, "format", "alembic"))) return runPipelineExport(s, args);
         const json frames = args.contains("frames") && args["frames"].is_object() ? args["frames"] : json::object();
         const double fps = s.groom->framesPerSecond();
         const double first = optNumber(frames, "first", secondsToFrame(s.seconds, fps));
@@ -1827,8 +2003,9 @@ json Helper::run(const std::string& cmd, const json& args) {
         for (std::size_t i = 0; i < count; ++i) {
             strands = exportFrame(s, *job, first + static_cast<double>(i) * step, static_cast<float>(optNumber(args, "density", 1.0)));
         }
-        closeExport(*job);
-        return {{"path", job->path}, {"frames", job->frames}, {"strands", strands}};
+        json r = closeExport(*job);
+        r["strands"] = strands;
+        return r;
     }
 
     // ---- Grooming in the host: a new groom, its state, GroomLab's own tools (tools.cpp) ----
@@ -1860,6 +2037,8 @@ json Helper::run(const std::string& cmd, const json& args) {
     if (cmd == "get_state") return getState(session(args), args);
     if (cmd == "set_state") return setState(session(args), args);
     if (cmd == "tool_catalog") return toolCatalogJson();
+    if (isPipelineCommand(cmd)) return runPipelineCommand(cmd, args, blocks, [&]() -> Session& { return session(args); });
+    if (isReferenceCommand(cmd)) return runReferenceCommand(cmd, args, [&]() -> Session& { return session(args); });
     if (isAuthoringCommand(cmd)) {
         if (shippedNodeDir().empty()) setShippedNodeDir(shippedNodesDir());
         return runAuthoringCommand(cmd, args, [&]() -> Session& { return session(args); });

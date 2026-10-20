@@ -81,6 +81,13 @@ class GroomLabNode(bpy.types.PropertyGroup):
     is_output: BoolProperty()
 
 
+class GroomLabCollider(bpy.types.PropertyGroup):
+    """A mesh the groom's ColliderMesh nodes read by name (Maya's colliderMeshes): sent as it is posed
+    on every frame (pipeline.sync_colliders)."""
+    # name: the graph's name for it (a ColliderMesh node's `name`)
+    object: PointerProperty(type=bpy.types.Object)
+
+
 def _node_selected(self, context):
     if is_quiet():
         return
@@ -125,6 +132,8 @@ class GroomLabObject(bpy.types.PropertyGroup):
                                            "pose and each strand carried along by its root")
     graph_json: StringProperty()  # the graph, kept current (rebuilds a session if the helper restarts)
     snapshot: StringProperty()    # the whole groom as a .groom text, written when the .blend is saved
+    groom_file: StringProperty(subtype="FILE_PATH",  # Save to / Reload from Groom File (Maya's linked file)
+                               description="The groom file this groom was opened from or saved to last")
     nodes: CollectionProperty(type=GroomLabNode)
     node_index: IntProperty(update=_node_selected)
     params: CollectionProperty(type=GroomLabParam)
@@ -133,6 +142,7 @@ class GroomLabObject(bpy.types.PropertyGroup):
     open_groups: StringProperty(default="")
     show_advanced: BoolProperty(name="Advanced", default=False)
     view_node: StringProperty(description="The node the viewport shows instead of the output (the Graph Editor's View)")
+    colliders: CollectionProperty(type=GroomLabCollider)  # Add > Collider's meshes
 
 
 def _is_scalp(self, obj):
@@ -190,7 +200,7 @@ class GroomLabScene(bpy.types.PropertyGroup):
     add_type: EnumProperty(name="Node", items=_types, description="The kind of node to add")
 
 
-classes = (GroomLabParam, GroomLabNode, GroomLabObject, GroomLabScene)
+classes = (GroomLabParam, GroomLabNode, GroomLabCollider, GroomLabObject, GroomLabScene)
 
 
 def register():

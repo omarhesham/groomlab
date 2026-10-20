@@ -183,9 +183,9 @@
     "preset.apply": {"label": "Apply", "tip": "Replace this groom's graph with the preset, sizes fitted to this scalp, the maps it reads made: one undo step"},
     "preset.insert": {"label": "Insert After Selected Node", "tip": "Keep this graph and add the preset's look to it as one Compound after the selected node (before the Output when none is selected), fitted to this scalp: one undo step"},
 
-    "param.setKey": {"label": "Set Key", "tip": "Key this param at the current frame (S over it): it becomes a keyable attribute on the groom, edited in Maya's Graph Editor", "tipDisabled": "Cannot be keyed: {why}", "enabled": ["param.canKey"], "hosts": ["maya"]},
-    "param.deleteKey": {"label": "Delete Key", "enabled": ["param.keyed"], "hosts": ["maya"]},
-    "param.removeAnimation": {"label": "Remove Animation", "tip": "Delete its keys and keep its value now as the param's own", "enabled": ["param.linked"], "hosts": ["maya"]},
+    "param.setKey": {"label": "Set Key", "tip": "Key this param at the current frame: it becomes a keyable attribute on the groom (Maya: S over it, its curve in Maya's Graph Editor; Blender: the scalp's ctl_ property)", "tipDisabled": "Cannot be keyed: {why}", "enabled": ["param.canKey"], "hosts": ["maya", "blender"]},
+    "param.deleteKey": {"label": "Delete Key", "enabled": ["param.keyed"], "hosts": ["maya", "blender"]},
+    "param.removeAnimation": {"label": "Remove Animation", "tip": "Delete its keys and keep its value now as the param's own", "enabled": ["param.linked"], "hosts": ["maya", "blender"]},
     "param.selectAttribute": {"label": "Select Attribute", "tip": "Select the groom with this param's attribute in the Channel Box (Maya's Graph Editor shows its curve)", "enabled": ["param.linked"], "hosts": ["maya"]},
     "param.expose": {"label": "Expose as Input", "checkable": true},
     "param.paintGuides": {"label": "On Guides", "tip": "A layer on the guides: children inherit it, strands blend it, it survives a new scalp"},

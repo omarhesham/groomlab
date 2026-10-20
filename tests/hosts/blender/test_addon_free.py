@@ -46,6 +46,9 @@ def drawn(cls):
     class Holder(object):
         layout = Recorder(log)
 
+    for name in ("bl_idname", "_entries", "_key", "_conditions"):  # a menu built from the UI definitions
+        if hasattr(cls, name):
+            setattr(Holder, name, getattr(cls, name))
     cls.draw(Holder, bpy.context)
     return log
 
@@ -97,11 +100,11 @@ class FreeTest(unittest.TestCase):
         groom.export(loaded, bpy.context.scene, "alembic", old_abc, 1, 1, density=0.1)
         self.assertGreater(os.path.getsize(old_abc), 0)
 
-        # Support GroomLab: the GroomLab menu (after Help) and About, both to Ko-fi.
+        # Support GroomLab: the GroomLab menu's Help (Maya's) and About, both to Ko-fi.
         self.assertEqual(menu.DONATE_URL, DONATE_URL)
-        log = drawn(bpy.types.GROOMLAB_MT_main)
-        texts = [e[2] for e in log if e[0] == "op_text"]
+        texts = [e[2] for e in drawn(bpy.types.GROOMLAB_MT_main) if e[0] == "op_text"]
         self.assertNotIn("License...", texts)
+        log = drawn(bpy.types.GROOMLAB_MT_main_help)
         support = [e for e in log if e[0] == "op_text" and e[2] == "Support GroomLab"]
         self.assertEqual(len(support), 1)
         self.assertEqual(support[0][1], "wm.url_open")
@@ -125,8 +128,9 @@ class FreeTest(unittest.TestCase):
         g.show_advanced = True
         log = bu.draw_panels()
         self.assertIn(("operator", "groomlab.update"), log)
-        self.assertIn(("list", "nodes"), log)
-        self.assertIn(("prop", "value_color"), log)
+        # Presets and the node list are the Graph Editor's (its Presets menu and sidebar), as in Maya.
+        self.assertNotIn(("list", "nodes"), log)
+        self.assertFalse([e for e in log if e[0] == "operator" and "preset" in e[1]])
         self.assertFalse(any(kind == "label" and ("Learning" in text or "license" in text.lower()) for kind, text in log))
         graph.operator_specs()
         g.node_index = [n.name for n in g.nodes].index("noise")

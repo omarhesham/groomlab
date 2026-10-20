@@ -32,6 +32,7 @@ tools = importlib.import_module(bu.MODULE + ".tools")
 tool_ops = importlib.import_module(bu.MODULE + ".tool_ops")
 display = importlib.import_module(bu.MODULE + ".display")
 palette = importlib.import_module(bu.MODULE + ".palette")
+shading = importlib.import_module(bu.MODULE + ".shading")
 menu = importlib.import_module(bu.MODULE + ".menu")
 icons = importlib.import_module(bu.MODULE + ".icons")
 
@@ -241,8 +242,8 @@ class ToolsTest(unittest.TestCase):
                    "guides_edit", "map_new", "map_remove", "map_fill", "show_strand_colors", "groom_tools", "shortcuts",
                    "about"):
             self.assertTrue(hasattr(bpy.ops.groomlab, op), op)
-        for name in ("GROOMLAB_MT_main", "GROOMLAB_MT_pie", "GROOMLAB_MT_files", "GROOMLAB_MT_export", "GROOMLAB_MT_help",
-                     "VIEW3D_PT_groomlab_tools", "GROOMLAB_UL_groups", "GROOMLAB_UL_maps"):
+        for name in ("GROOMLAB_MT_main", "GROOMLAB_MT_pie", "GROOMLAB_MT_main_groomfiles", "GROOMLAB_MT_main_export",
+                     "GROOMLAB_MT_main_help", "VIEW3D_PT_groomlab_tools", "GROOMLAB_UL_groups", "GROOMLAB_UL_maps"):
             self.assertTrue(hasattr(bpy.types, name), name)
         self.assertIn(menu.draw_topbar, bpy.types.TOPBAR_MT_editor_menus._dyn_ui_initialize())
         # The pie on Maya's marking menu key, in the add-on keymap the preferences show.
@@ -257,19 +258,15 @@ class ToolsTest(unittest.TestCase):
             icons.icon(name)
             self.assertIn(name, icons._previews[0], name)
             self.assertEqual(tuple(icons._previews[0][name].image_size), (64, 64))
-        # The menu in Maya's order.
+        # The menu in Maya's order (menus.json; test_addon_ui checks it whole).
         log = draw_classes([bpy.types.GROOMLAB_MT_main])
-        texts_ = [e[2] for e in log if e[0] == "op_text"] + [e[1] for e in log if e[0] == "menu"]
-        for item in ("Groom Tools", "Graph Editor", "Create Groom from Selection", "Paint", "Support GroomLab",
-                     "Open Download Page", "Keyboard Shortcuts..."):
-            self.assertIn(item, texts_)
-        self.assertIn(("menu", "GROOMLAB_MT_graph_presets"), log)
-        self.assertIn(("menu", "GROOMLAB_MT_export"), log)
         order = [e[2] for e in log if e[0] == "op_text"]
-        self.assertLess(order.index("Groom Tools"), order.index("Graph Editor"))
-        self.assertLess(order.index("Graph Editor"), order.index("Create Groom from Selection"))
-        self.assertLess(order.index("Open Download Page"), order.index("Support GroomLab"))
-        for cls in (bpy.types.GROOMLAB_MT_files, bpy.types.GROOMLAB_MT_export, bpy.types.GROOMLAB_MT_help):
+        self.assertEqual(order, ["Groom Tools", "Graph Editor", "Create Groom from Selection",
+                                 "Guides from Photos (experimental)..."])
+        self.assertIn(("menu", "GROOMLAB_MT_main_export"), log)
+        self.assertIn(("menu", "GROOMLAB_MT_main_help"), log)
+        for cls in (bpy.types.GROOMLAB_MT_main_groomfiles, bpy.types.GROOMLAB_MT_main_export,
+                    bpy.types.GROOMLAB_MT_main_help):
             draw_classes([cls])
 
     def test_2_new_groom_in_the_hierarchy(self):
@@ -550,6 +547,36 @@ class ToolsTest(unittest.TestCase):
         display.refresh(head)
         tubes = [e for e in display.draw_list(head) if e[0] == "tubes"]
         self.assertTrue(tubes and tubes[0][1] == "triangles" and tubes[0][4].shape[1] == 4)
+        self.assertTrue(tubes[0][7])  # pulled through the strands round the guide, as the guides are
+        # The Shape brush: every tube it can shape as a wire, the selected guides' apart (warm,
+        # thicker), as Maya draws them while the brush is on; gone when the tool is left.
+        self.assertIn("shape", [x["id"] for x in tools.catalog()["tools"]])
+        bpy.ops.groomlab.tool(tool="shape")
+        self.assertTrue(display.settings_for(head, bpy.context.scene).get("tubeWires"))
+        ids = sorted(guides_of(head))
+        tools.selection_set(head, ids=ids[:1], mode="replace")
+        display.mark(head)
+        display.refresh(head)
+        wires = {e[0]: e for e in display.draw_list(head) if e[0] in ("tubeWires", "selectedTubeWires")}
+        self.assertEqual(set(wires), {"tubeWires", "selectedTubeWires"})
+        for e in wires.values():
+            self.assertEqual(e[1], "lines")
+            self.assertEqual(e[3].shape[1], 2)
+            self.assertTrue(e[7])
+        self.assertGreater(len(wires["tubeWires"][2]), len(wires["selectedTubeWires"][2]))  # the other guides
+        self.assertGreater(wires["selectedTubeWires"][6], wires["tubeWires"][6])
+        np.testing.assert_allclose(wires["selectedTubeWires"][5], (1.0, 0.7, 0.15, 1.0), atol=1e-6)
+        # The wires lie round the guides (a tube's width off them, in the scalp's space).
+        guide_pts = np.concatenate(list(guides_of(head).values()))
+        lo, hi = guide_pts.min(0), guide_pts.max(0)
+        w = wires["tubeWires"][2]
+        self.assertTrue(np.all(w.min(0) > lo - 0.01) and np.all(w.max(0) < hi + 0.01))
+        r = display.refresh(head)
+        self.assertFalse(r["items"]["tubeWires"]["changed"])  # nothing re-sent for what is held
+        bpy.ops.groomlab.guides_edit(action="CLEAR")
+        bpy.ops.groomlab.tool_exit()
+        display.refresh(head)
+        self.assertFalse({"tubeWires", "selectedTubeWires"} & {e[0] for e in display.draw_list(head)})
         d.show_tubes = False
         d.show_guides = False
         display.refresh(head)
@@ -573,6 +600,18 @@ class ToolsTest(unittest.TestCase):
         d.strand_color = "solid"
         display.refresh(head)
         self.assertIsNone(hair.attributes.get(display.DISPLAY_COLORS))
+        # Solid shading (no material nodes; Blender's Attribute color does not reach hair curves):
+        # the material's viewport color is the hair's look, the strands' mean appearance color
+        # (core's hairAppearanceColor of each strand's base color), not Blender's default gray.
+        mat = hair.materials[0]
+        base = np.empty(len(hair.curves) * 4, np.float32)
+        hair.attributes[groom.COLOR].data.foreach_get("color", base)
+        expected = shading.appearance_colors(base.reshape(-1, 4)[:, :3]).mean(axis=0)
+        np.testing.assert_allclose(tuple(mat.diffuse_color)[:3], expected, atol=2e-3)
+        self.assertGreater(max(abs(c - 0.8) for c in tuple(mat.diffuse_color)[:3]), 0.2)
+        np.testing.assert_allclose(shading.appearance_colors([[1.0, 1.0, 1.0]]), [[1.0, 1.0, 1.0]], atol=1e-6)
+        a, b = shading.appearance_colors([[0.04, 0.015, 0.003], [0.3, 0.2, 0.1]])  # darker base, darker look
+        self.assertTrue(np.all(a < b) and np.all(a > 0.03))
         # Strands hidden: the hair object off in the viewport.
         d.show_strands = False
         self.assertTrue(head.groomlab.hair.hide_viewport)
@@ -584,7 +623,7 @@ class ToolsTest(unittest.TestCase):
         self.assertIn(("prop", "strand_color"), log)
         self.assertIn(("list", "groups"), log)
         self.assertIn(("menu", "GROOMLAB_MT_guide_edits"), log)
-        draw_classes([palette.GROOMLAB_MT_guide_edits, palette.GROOMLAB_MT_tools_more])
+        draw_classes([bpy.types.GROOMLAB_MT_guide_edits, bpy.types.GROOMLAB_MT_tools_more])
         _ = t
 
     def _draw_offscreen(self, head):
@@ -653,6 +692,25 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("scalpMap", [e[0] for e in display.draw_list(head)])
         log = draw_classes([palette.VIEW3D_PT_groomlab_tools])
         self.assertIn(("list", "maps"), log)
+        # Back to the Tools tab: done painting, as picking Comb is (Maya's palette): no tool, the map
+        # off the scalp, the display asked again (the paint view stayed until a tool was picked).
+        gd = display.state(head)
+        self.assertFalse(gd.dirty)
+        t.tab = "TOOLS"
+        self.assertEqual(t.tool, "")
+        self.assertIsNone(display.map_for(scene))
+        self.assertTrue(gd.dirty)
+        display.refresh(head)
+        self.assertNotIn("scalpMap", [e[0] for e in display.draw_list(head)])
+        # The Paint tab with another tool picked: leaving it still drops the paint view.
+        t.tab = "PAINT"
+        bpy.ops.groomlab.tool(tool="comb")
+        display.refresh(head)
+        t.tab = "TOOLS"
+        self.assertEqual(t.tool, "comb")
+        self.assertTrue(gd.dirty)
+        bpy.ops.groomlab.tool(tool="paint")
+        self.assertEqual(t.tab, "PAINT")
         # A guide map, filled.
         bpy.ops.groomlab.map_new(name="layer", kind="guides", value=0.0)
         t.value = 0.75

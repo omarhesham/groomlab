@@ -51,6 +51,10 @@ and `ui.definitions` checks the files themselves (the schema, every id and refer
 used somewhere, and, with `groomlab_core` importable, the shortcut ids and tools against the core).
 
 The app gets the files embedded as Qt resources (`:/groomlab/ui/menus.json`), the Blender extension
-as plain files in `GroomLabBlender/ui/` (`hosts/blender/addon/CMakeLists.txt`). A new host action:
+as plain files in `GroomLabBlender/ui/` (`hosts/blender/addon/CMakeLists.txt`). Blender reads them
+with `hosts/blender/addon/groomlab/definitions.py` (Maya's semantics, host `blender`) and binds the
+ids in `actions.py` (`BINDINGS`: action id -> operator idname and properties); an id without a
+binding is hidden, and `blender.addon_ui` fails on any id Blender shows that is neither bound nor in
+its `ALLOWED_MISSING` list (the parity checklist). A new host action:
 add it to `actions.json`, list it in a container, bind it in each host that shows it (or give it
 `hosts`), and run `ctest -R "ui.definitions|maya.ui_scaling"`.

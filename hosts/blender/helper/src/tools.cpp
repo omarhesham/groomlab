@@ -98,7 +98,10 @@ struct SideEdit {
     std::vector<FileEdit> files;
     bool colors = false;
     std::map<std::string, std::string> colorsBefore, colorsAfter;
-    bool empty() const { return files.empty() && !colors; }
+    // Other state an edit changed (commitStep: a simulation's bakes, a transfer's scalp): each
+    // puts it as the edit left it (true) or found it (false).
+    std::vector<std::function<void(bool after)>> actions;
+    bool empty() const { return files.empty() && !colors && actions.empty(); }
 };
 
 struct ToolState {
@@ -144,6 +147,8 @@ struct ToolState {
     // the one the next commit takes (an edit's files written, or its colors, before it commits).
     std::vector<SideEdit> doneSide, redoSide;
     SideEdit pending;
+    // Files the next commitStep's edit writes (sideFileBefore): their bytes before it.
+    std::vector<FileEdit> pendingFiles;
 
     // The guide groups given their own viewport color: name -> "#rrggbb" (the display's
     // guideGroupColors unless the host's display settings give theirs).
@@ -161,6 +166,10 @@ struct ToolState {
     std::string generation;
     Arena overlayOut, displayOut, colorsOut;
     std::uint64_t colorsKey = 0, colorsVersion = 0;
+    // The Shape brush's tube wires (the display's tubeWires setting; Maya's GroomShape::tubeWires):
+    // [0] every guide the brush can shape, [1] the selected ones, drawn apart to stand out.
+    std::array<DisplayGeometry, 2> tubeWires;
+    std::uint64_t tubeWiresKey = 0, tubeWiresVersion = 0;
 };
 
 Session::Session(int id)
@@ -775,6 +784,11 @@ void applySide(ToolState& t, const SideEdit& side, bool after) {
     }
     if (!side.files.empty()) dropPaints(t);
     if (side.colors) t.groupColors = after ? side.colorsAfter : side.colorsBefore;
+    if (after) {
+        for (const auto& action : side.actions) action(true);
+    } else {
+        for (auto action = side.actions.rbegin(); action != side.actions.rend(); ++action) (*action)(false);
+    }
 }
 
 // An edit that failed after writing its files: they are put back, nothing kept for undo.
@@ -1844,7 +1858,8 @@ json mapForParam(ToolState& t, const json& args) {
     Session& s = t.session;
     const std::string node = needString(args, "node"), param = needString(args, "param");
     const std::string kind = optString(args, "kind", "vertices");
-    if (kind != "vertices" && kind != "texture") fail("bad_request", "a setting's map lives on the scalp: vertices or texture, not '" + kind + "'");
+    if (kind != "vertices" && kind != "texture" && kind != "guides")
+        fail("bad_request", "a setting's map is on the guides, the scalp's vertices or a texture, not '" + kind + "'");
     const MeshPtr scalp = s.groom->cageScalp();
     if (!scalp) fail("state", "no scalp to paint on: set_scalp first");
     if (t.tool.stroking()) t.tool.cancel(&t.host);
@@ -1866,6 +1881,35 @@ json mapForParam(ToolState& t, const json& args) {
         } catch (const std::exception& e) {
             fail("bad_request", e.what());
         }
+    } else if (map.empty() && kind == "guides") {
+        // A guide layer (Maya's paint_param kind "guides"): every primary guide carries it at 1 (white:
+        // the look stays), children inherit it, strands blend it; the layer and its link one step.
+        std::set<std::string> taken;
+        for (const json& m : mapsList(t)["maps"]) taken.insert(m["name"].get<std::string>());
+        const std::string base = sanitizeMapName(node + "_" + param);
+        map = base;
+        for (int k = 1; taken.count(map); ++k) map = base + std::to_string(k);
+        GuideHierarchy h = editedGuides(t, [&](GuideHierarchy& hh) {
+            bool any = false;
+            for (const HierarchyGuide& g : hh.guides()) {
+                if (g.parent != kNoGuide) continue;  // children inherit their primary's
+                hh.setAttribute(g.id, map, 1.0f);
+                any = true;
+            }
+            if (!any) fail("state", "the groom has no guides to paint on: add guides, or paint on the scalp's vertices");
+        });
+        std::string graph;
+        try {
+            graph = wireParamMap(graphBefore, s.groom->scalpMaps(), node, param, map, "guides");
+        } catch (const std::exception& e) {
+            fail("bad_request", e.what());
+        }
+        StrokeEdit edit;
+        edit.mode = "map " + node + "." + param;
+        edit.set(StrokeField::Guides, h.toJson());
+        edit.set(StrokeField::Graph, std::move(graph));
+        t.host.commit(std::move(edit));
+        mapKind = "guides";
     } else if (map.empty()) {
         // A texture: its image beside the groom, white, linked by its file in the same step.
         std::set<std::string> taken;
@@ -2617,6 +2661,7 @@ DisplaySettings displaySettingsOf(ToolState& t, const json& v) {
         if (key == "guides") s.guides = settingBool(x, k);
         else if (key == "tubes") s.tubes = settingBool(x, k);
         else if (key == "flow") s.flow = settingBool(x, k);
+        else if (key == "tubeWires") settingBool(x, k);  // display() reads it (not the core's display)
         else if (key == "guideWidth") s.guideWidth = settingNumber(x, k);
         else if (key == "guideColorMode") {
             if (x.is_string()) {
@@ -2692,6 +2737,40 @@ std::uint64_t haveVersion(const json& have, const std::string& name) {
     return it != have.end() && it->is_number_unsigned() ? it->get<std::uint64_t>() : 0;
 }
 
+// The Shape brush's tube wires as Maya's draw override builds them (addTubeWires): every guide the
+// brush can shape (shown, not frozen: activeTubeGuides) as a wire (appendTubeWire), the selected
+// ones apart; fewer rings along each tube on a groom of many guides. Built again when the guides,
+// the selection or the hidden groups change; empty when off.
+void updateTubeWires(ToolState& t, const HierarchyPtr& hierarchy, std::uint64_t hierarchyVersion, const std::string& hidden, bool on) {
+    std::uint64_t key = 0;
+    if (on && hierarchy) {
+        key = hashCombine(hashCombine(hash64(hierarchyVersion), t.selectionVersion), hashString(hash64(0x7B3u), hidden)) | 1u;
+    }
+    if (key == t.tubeWiresKey) return;
+    t.tubeWiresKey = key;
+    ++t.tubeWiresVersion;
+    for (DisplayGeometry& g : t.tubeWires) g = DisplayGeometry();
+    if (!key) return;
+    const std::set<GuideId> selected(t.selection.begin(), t.selection.end());
+    const std::vector<const HierarchyGuide*> guides = activeTubeGuides(*hierarchy, hidden);
+    std::size_t points = 0;
+    for (const HierarchyGuide* g : guides) points += g->points.size();
+    constexpr std::size_t kBudget = 400000;  // segment ends (Maya's)
+    const std::size_t perPoint = 2 * 32 + 2 * 8;
+    const std::size_t ringStep = std::max<std::size_t>(1, (points * perPoint + kBudget - 1) / kBudget);
+    std::array<std::vector<Vec3f>, 2> wires;
+    for (const HierarchyGuide* g : guides) appendTubeWire(wires[selected.count(g->id) ? 1 : 0], *g, hierarchy->scale(), 8, ringStep);
+    for (std::size_t i = 0; i < 2; ++i) {
+        DisplayGeometry& g = t.tubeWires[i];
+        g.positions.reserve(wires[i].size() * 3);
+        g.indices.reserve(wires[i].size());
+        for (const Vec3f& p : wires[i]) {
+            g.indices.push_back(static_cast<std::uint32_t>(g.positions.size() / 3));
+            g.positions.insert(g.positions.end(), {p.x, p.y, p.z});
+        }
+    }
+}
+
 json display(ToolState& t, const json& args) {
     Session& s = t.session;
     GroomSession& session = *s.groom;
@@ -2735,6 +2814,10 @@ json display(ToolState& t, const json& args) {
         in.scalpMap = mapView(s, args["map"].get<std::string>(), "rgb");
     }
     const DisplayFrame& frame = t.builder.update(in, settings);
+    const json& asked = args.contains("settings") ? args["settings"] : json(nullptr);
+    const bool tubeWires = asked.is_object() && asked.contains("tubeWires") && settingBool(asked["tubeWires"], "tubeWires");
+    updateTubeWires(t, in.hierarchy, in.hierarchyVersion, settings.hiddenGuideGroups, tubeWires);
+    static const std::array<const char*, 2> kWireNames{"tubeWires", "selectedTubeWires"};
 
     // What changed against what the host holds: those items' arrays, in one block.
     std::vector<const DisplayItem*> send;
@@ -2745,6 +2828,11 @@ json display(ToolState& t, const json& args) {
             send.push_back(&item);
             bytes += geometryBytes(*item.geometry);
         }
+    }
+    std::array<bool, 2> sendWires{};
+    for (std::size_t i = 0; i < 2; ++i) {
+        sendWires[i] = t.tubeWiresVersion != 0 && t.tubeWiresVersion != haveVersion(have, kWireNames[i]);
+        if (sendWires[i]) bytes += geometryBytes(t.tubeWires[i]);
     }
     const std::uint64_t dotsVersion = frame.item(DisplayItemId::Guides).geometryVersion;
     const bool sendDots = dotsVersion != haveVersion(have, "dots");
@@ -2769,6 +2857,23 @@ json display(ToolState& t, const json& args) {
         j["changed"] = changed;
         if (changed) j["arrays"] = geometryArrays(t.displayOut, *g, space);
         items[item.name] = j;
+    }
+    // The tube wires: Maya's colors (a cool wire, the selected warm, opaque and thicker).
+    for (std::size_t i = 0; i < 2; ++i) {
+        const DisplayGeometry& g = t.tubeWires[i];
+        json j;
+        j["version"] = t.tubeWiresVersion;
+        j["shown"] = !g.positions.empty();
+        j["vertexCount"] = g.positions.size() / 3;
+        j["color"] = i ? std::array<float, 4>{1.0f, 0.7f, 0.15f, 1.0f} : std::array<float, 4>{0.45f, 0.85f, 1.0f, 0.6f};
+        j["lineWidth"] = i ? 2.0f : 1.0f;
+        j["layer"] = i ? "selection" : "activeWire";
+        j["primitive"] = "lines";
+        j["perVertexColors"] = false;
+        j["surface"] = false;
+        j["changed"] = sendWires[i];
+        if (sendWires[i]) j["arrays"] = geometryArrays(t.displayOut, g, space);
+        items[kWireNames[i]] = j;
     }
     json dots;
     dots["version"] = dotsVersion;
@@ -2982,6 +3087,28 @@ void commitTexts(Session& s, const std::string& label, const std::vector<std::pa
     pruneTargets(t);
 }
 
+void commitStep(Session& s, const std::string& label, const std::vector<std::pair<StrokeField, std::string>>& texts,
+                std::function<void(bool after)> apply) {
+    ToolState& t = toolsOf(s);
+    for (FileEdit& e : t.pendingFiles) fileAfter(t, std::move(e));
+    t.pendingFiles.clear();
+    if (apply) t.pending.actions.push_back(std::move(apply));
+    StrokeEdit edit;
+    edit.mode = label;
+    for (const auto& [field, text] : texts) edit.set(field, text);
+    commitEdit(t, std::move(edit));
+    pruneTargets(t);
+}
+
+void sideFileBefore(Session& s, const std::string& path) { toolsOf(s).pendingFiles.push_back(fileBefore(path)); }
+
+void dropSideFiles(Session& s) {
+    ToolState& t = toolsOf(s);
+    for (auto f = t.pendingFiles.rbegin(); f != t.pendingFiles.rend(); ++f) putFile(f->path, f->before, f->beforeBytes);
+    if (!t.pendingFiles.empty()) dropPaints(t);
+    t.pendingFiles.clear();
+}
+
 json undoStateJson(Session& s) { return undoJson(toolsOf(s)); }
 
 void setShotLayer(Session& s, const std::string& layer) {
@@ -3144,7 +3271,8 @@ bool runToolCommandIn(Session& s, ToolState& t, const std::string& cmd, const js
         return true;
     }
     if (cmd == "stroke_drag") {
-        if (!t.tool.stroking()) fail("state", "no stroke: stroke_begin first");
+        // (A Shift press has no stroke yet: its drag starts the smoothing.)
+        if (!t.tool.stroking() && !t.tool.shiftPending()) fail("state", "no stroke: stroke_begin first");
         if (args.contains("view") && !args["view"].is_null()) setView(t, args["view"]);
         const float pressure = static_cast<float>(optNumber(args, "pressure", 1.0));
         std::vector<Pixel> points;
@@ -3334,10 +3462,12 @@ bool runToolCommandIn(Session& s, ToolState& t, const std::string& cmd, const js
     if (cmd == "undo" || cmd == "redo") {
         if (t.tool.stroking()) t.tool.cancel(&t.host);
         const std::string graphBefore = s.groom->data().graphJson;
+        const MeshPtr scalpBefore = s.groom->rawScalp();
         const bool done = cmd == "undo" ? undo(t) : redo(t);
         result = undoJson(t);
         result["done"] = done;
         result["graphChanged"] = s.groom->data().graphJson != graphBefore;  // a setting's map linked or unlinked (map_for_param)
+        result["scalpChanged"] = s.groom->rawScalp() != scalpBefore;  // a transfer undone or redone: the groom is on the other scalp
         return true;
     }
     if (cmd == "undo_state") {

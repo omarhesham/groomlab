@@ -30,7 +30,8 @@ install(FILES ${_addon_ui} DESTINATION "GroomLabBlender/ui" COMPONENT Blender)
 # profile; tools/package_blender.py makes the release zip the same way.
 set(_ext_root "${CMAKE_BINARY_DIR}/blender_extension/$<CONFIG>")
 set(_ext_zip "${_ext_root}/GroomLab-Blender-${PROJECT_VERSION}-${GROOMLAB_BLENDER_PLATFORM}.zip")
-file(GLOB_RECURSE _addon_presets CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/hosts/maya/presets/*" "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/*")
+file(GLOB_RECURSE _addon_presets CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/hosts/maya/presets/*" "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/*"
+     "${PROJECT_SOURCE_DIR}/hosts/maya/meshes/*")
 add_custom_command(
     OUTPUT "${_ext_root}/assembled.stamp"
     COMMAND "${CMAKE_COMMAND}" -DBUILD_DIR=${CMAKE_BINARY_DIR} -DCONFIG=$<CONFIG> -DSTAGE=${_ext_root}

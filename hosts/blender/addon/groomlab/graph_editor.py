@@ -2,9 +2,11 @@
 """The GroomLab Graph Editor in Blender's node editor, after Maya's GroomLab Graph Editor: the
 groom's graph as nodes with typed, colored ports (graph_tree.py keeps it in step with the helper),
 the selected node's params in the sidebar's Node tab (collapsible groups, Advanced folded,
-showWhen, units, Upgrade, notes and errors), presets (apply, or insert as a Compound), View (a
-node's strands in the viewport instead of the output's), and Maya's keys: Tab adds, F frames, V
-views, B bypasses, Ctrl+D duplicates, Delete deletes."""
+showWhen, units, Upgrade, notes and errors, each param's menu), presets (apply, or insert as a
+Compound), View (a node's strands in the viewport instead of the output's), Maya's menus from the
+shared UI definitions (graph_ui.py: node, backdrop, Edit, Add, Presets, param), and Maya's keys:
+Tab adds, F frames, V views, B bypasses, Ctrl+D duplicates, Ctrl+G groups, Ctrl+Shift+G ungroups,
+Delete deletes. The authoring itself is graph_authoring.py's."""
 
 import json
 import re
@@ -12,8 +14,9 @@ import re
 import bpy
 from bpy.props import BoolProperty, EnumProperty, StringProperty
 
-from . import graph, graph_tree, groom, process, units
+from . import graph, graph_authoring, graph_tree, graph_ui, groom, process, units
 from .graph_tree import TREE, ours
+from .graph_ui import ActionTip, MenuContext, action_prop, bind
 from .helper_client import HelperError, sentence
 
 _folded = {}       # (operator type, section) -> folded, for the session (Maya: unset = Advanced folded)
@@ -210,14 +213,24 @@ def check_tree(tree):
 
 # ---- Operators ----------------------------------------------------------------------------------
 
-class _GraphOperator(bpy.types.Operator):
+def foreign_editor(context):
+    """Whether the context is a node editor showing another kind of tree (its keys are Blender's)."""
+    space = getattr(context, "space_data", None)
+    return space is not None and getattr(space, "type", "") == "NODE_EDITOR" and getattr(space, "tree_type", "") != TREE
+
+
+class _GraphOperator(ActionTip, bpy.types.Operator):
+    action: action_prop()  # the menu entry it runs (its tooltip: graph_ui.ActionTip)
+
     @classmethod
     def poll(cls, context):
-        return context_groom(context) is not None
+        return not foreign_editor(context) and context_groom(context) is not None
 
 
-class _EditorOperator(bpy.types.Operator):
+class _EditorOperator(ActionTip, bpy.types.Operator):
     """Keys of the GroomLab Graph Editor: only there (elsewhere Blender's own keys act)."""
+
+    action: action_prop()
 
     @classmethod
     def poll(cls, context):
@@ -566,33 +579,85 @@ class GROOMLAB_OT_graph_presets_refresh(bpy.types.Operator):
         return {"FINISHED"}
 
 
-# ---- Menus --------------------------------------------------------------------------------------
+# ---- Menus: the UI definitions' (engine/ui/graph_ui.json), as Maya's Graph Editor builds them -----
 
-class GROOMLAB_MT_graph_preset_actions(bpy.types.Menu):
-    bl_label = "Preset"
-
-    def draw(self, context):
-        name = getattr(context, "groomlab_preset", "") or ""
-        layout = self.layout
-        for mode, text in (("APPLY", "Apply"), ("INSERT", "Insert after selected node")):
-            op = layout.operator("groomlab.graph_preset", text=text)
-            op.name, op.mode = name, mode
+def menu_context(context, node=None, param=None, frame=None):
+    return MenuContext(scalp=context_groom(context), tree=context_tree(context),
+                       node=node.gl_name if node is not None else None, param=param,
+                       frame=frame.name if frame is not None else None)
 
 
-class GROOMLAB_MT_graph_preset_category(bpy.types.Menu):
-    bl_label = "Presets"
+def node_state(node):
+    """The node menu's conditions (Maya's NodeItem.menu_state) and the values its labels name."""
+    state = set()
+    if _viewable(node):
+        state.add("node.viewable")
+    if node.gl_type == "Sculpt":
+        state.add("node.sculpt")
+    if len(node.outputs) and node.outputs[0].bl_idname in ("GroomLabSocketStrands", "GroomLabSocketGuides") \
+            and node.gl_type != "Output":
+        state.add("node.bakeable")
+    if graph_authoring.linkable(node):
+        state.add("node.mappable")
+    if node.gl_type in ("Script", "Compound"):
+        state.add("node." + node.gl_type.lower())
+    info = graph_authoring.library_info(node)
+    if info:
+        state.add("node.library")
+        if info.get("updateAvailable"):
+            state.add("node.updateAvailable")
+    return state, {"latest": info.get("latest", "")}
 
-    def draw(self, context):
-        category = getattr(context, "groomlab_preset_category", None)
-        draw_preset_items(self.layout, category or "")
+
+def node_generators(node):
+    """The node menu's generated entries: the params it can expose, a compound's inner params."""
+    def expose(entry):
+        return [{"id": entry["action"], "value": p, "label": p, "tip": ""} for p in graph_authoring.linkable(node)]
+
+    def inner(entry):
+        return [{"submenu": name, "items": [{"id": entry["action"], "value": "%s.%s" % (name, p["name"]),
+                                              "label": graph_tree.pretty(p["name"]), "tip": p.get("description", "")}
+                                             for p in specs]}
+                for name, specs in graph_authoring.inner_params(node)]
+    return {"exposeParams": expose, "innerParams": inner}
 
 
-def draw_preset_items(layout, category):
-    presets = sorted((p for p in _catalog["presets"] if (p.get("category") or "") == category),
-                     key=lambda p: (p.get("title") or p["name"]).lower())
-    for p in presets:
-        layout.context_string_set("groomlab_preset", p["name"])
-        layout.menu("GROOMLAB_MT_graph_preset_actions", text=p.get("title") or p["name"])
+def draw_node_menu(layout, context, node):
+    """The node's right-click menu (graph_ui.json's nodeMenu): in the context menu and the sidebar."""
+    state, values = node_state(node)
+    return graph_ui.draw(layout, "graph/nodeMenu", menu_context(context, node), "node", state, values,
+                         node_generators(node))
+
+
+def draw_backdrop_menu(layout, context, frame):
+    return graph_ui.draw(layout, "graph/backdropMenu", menu_context(context, frame=frame), "backdrop")
+
+
+def draw_node_actions(layout, context):
+    node = active_node(context)
+    if node is not None:
+        draw_node_menu(layout, context, node)
+
+
+def _preset_entries(entry):
+    """The Presets menu's presets (its "presets" generator): a submenu per category (your own last,
+    not in one), each preset a submenu of Apply and Insert After Selected Node (presetItem)."""
+    items = graph_ui.get("graph/presetItem", [])
+
+    def preset(p):
+        return {"submenu": p.get("title") or p["name"],
+                "items": [e if e == "-" else {"id": e, "value": p["name"]} for e in items]}
+
+    out = []
+    for category in preset_categories():
+        presets = sorted((p for p in _catalog["presets"] if (p.get("category") or "") == category),
+                         key=lambda p: (p.get("title") or p["name"]).lower())
+        if category:
+            out.append({"submenu": category, "items": [preset(p) for p in presets]})
+        else:
+            out.append("-")
+            out += [preset(p) for p in presets]
+    return out
 
 
 class GROOMLAB_MT_graph_presets(bpy.types.Menu):
@@ -603,60 +668,34 @@ class GROOMLAB_MT_graph_presets(bpy.types.Menu):
         layout = self.layout
         if not _catalog["presets"]:
             layout.operator("groomlab.graph_presets_refresh", text="List Presets", icon="FILE_REFRESH")
-            return
-        for category in preset_categories():
-            if not category:
-                layout.separator()
-                draw_preset_items(layout, "")
-                continue
-            layout.context_string_set("groomlab_preset_category", category)
-            layout.menu("GROOMLAB_MT_graph_preset_category", text=category)
-        layout.separator()
-        layout.operator("groomlab.graph_presets_refresh", icon="FILE_REFRESH")
+        graph_ui.draw(layout, "graph/presetMenu", menu_context(context, active_node(context)), "presets",
+                      {"groom"}, generators={"presets": _preset_entries})
+        if _catalog["presets"]:
+            layout.separator()
+            layout.operator("groomlab.graph_presets_refresh", icon="FILE_REFRESH")
 
 
-class GROOMLAB_MT_graph_more(bpy.types.Menu):
-    """Layout, view, the selected node"""
-    bl_label = "GroomLab"
+class GROOMLAB_MT_graph_edit(bpy.types.Menu):
+    """Undo, framing and layout, group into or out of compounds, copy and paste the graph"""
+    bl_label = "Edit"
 
     def draw(self, context):
-        layout = self.layout
-        layout.operator("groomlab.graph_frame", text="Frame (F)")
-        layout.operator("groomlab.graph_tidy")
-        layout.separator()
-        draw_node_actions(layout, context)
-        layout.separator()
-        layout.operator("groomlab.graph_reload", icon="FILE_REFRESH")
-
-
-def draw_node_actions(layout, context):
-    node = active_node(context)
-    if node is None:
-        return
-    scalp = context_groom(context)
-    layout.operator("groomlab.graph_set_output", icon="NODE").node = node.gl_name
-    if _viewable(node):
-        on = scalp is not None and scalp.groomlab.view_node == node.gl_name
-        layout.operator("groomlab.graph_view_node", text="Focus: View Up to Here (V)",
-                        icon="HIDE_OFF" if on else "HIDE_ON", depress=on).node = node.gl_name
-    layout.operator("groomlab.graph_bypass", text="Bypass (B)", icon="CHECKBOX_HLT" if node.mute else "CHECKBOX_DEHLT").node = node.gl_name
-    # When it runs: always, viewport only, render only.
-    row = layout.row(align=True)
-    for mode, label in (("always", "Always"), ("viewportOnly", "Viewport Only"), ("renderOnly", "Render Only")):
-        op = row.operator("groomlab.graph_evaluation", text=label, depress=node.gl_evaluation == mode)
-        op.node = node.gl_name
-        op.mode = mode
-    if editor_tree(context) is not None:
-        layout.operator("groomlab.graph_duplicate", text="Duplicate (Ctrl+D)")
-        layout.operator("node.delete", text="Delete")
+        # (Units and themes are Blender's own: their generators give nothing here.)
+        graph_ui.draw(self.layout, "graph/editMenu", menu_context(context, active_node(context)), "edit",
+                      {"groom"}, generators={"units": lambda e: [], "themeMenu": lambda e: []})
 
 
 def draw_context_menu(self, context):
-    if editor_tree(context) is None:
+    tree = editor_tree(context)
+    if tree is None:
         return
     layout = self.layout
     layout.separator()
-    draw_node_actions(layout, context)
+    active = tree.nodes.active
+    if active is not None and active.bl_idname == "NodeFrame" and active.select:
+        draw_backdrop_menu(layout, context, active)
+    else:
+        draw_node_actions(layout, context)
 
 
 def draw_header(self, context):
@@ -670,13 +709,43 @@ def draw_header(self, context):
     check_tree(tree)
     row = layout.row(align=True)
     row.prop(scene.groomlab, "groom", text="", icon="CURVES")
+    layout.menu("GROOMLAB_MT_graph_edit")
     layout.menu("GROOMLAB_MT_graph_presets")
     scalp = tree.gl_scalp
     if scalp is not None and scalp.groomlab.view_node:
         op = layout.operator("groomlab.graph_view_node", text="Viewing %s" % scalp.groomlab.view_node,
                              icon="HIDE_OFF", depress=True)
         op.clear = True
-    layout.menu("GROOMLAB_MT_graph_more", text="", icon="THREE_DOTS")
+
+
+def _n(ctx, _item):
+    return {"node": ctx.node or ""}
+
+
+def _tree_node(ctx):
+    tree = ctx.tree
+    return next((n for n in tree.nodes if ours(n) and n.gl_name == ctx.node), None) if tree is not None and ctx.node else None
+
+
+def _bind_editor():
+    """The node, Edit and Presets menus' actions this module runs (graph_authoring binds the rest)."""
+    bind("node.setOutput", "groomlab.graph_set_output", _n)
+    bind("node.view", "groomlab.graph_view_node", _n,
+         lambda ctx, item: ctx.scalp is not None and ctx.scalp.groomlab.view_node == ctx.node)
+    bind("node.bypass", "groomlab.graph_bypass", _n,
+         lambda ctx, item: bool(_tree_node(ctx) and _tree_node(ctx).mute))
+    bind("node.evaluate", "groomlab.graph_evaluation", lambda ctx, item: {"node": ctx.node or "", "mode": item["value"]},
+         lambda ctx, item: bool(_tree_node(ctx)) and _tree_node(ctx).gl_evaluation == item["value"])
+    bind("node.duplicate", "groomlab.graph_duplicate")
+    bind("graph.undo", "ed.undo")
+    bind("graph.redo", "ed.redo")
+    bind("graph.frame", "groomlab.graph_frame")
+    bind("graph.frameAll", "node.view_all")
+    bind("graph.tidy", "groomlab.graph_tidy")
+    bind("graph.delete", "groomlab.graph_delete")
+    bind("graph.reload", "groomlab.graph_reload")
+    bind("preset.apply", "groomlab.graph_preset", lambda ctx, item: {"name": item["value"], "mode": "APPLY"})
+    bind("preset.insert", "groomlab.graph_preset", lambda ctx, item: {"name": item["value"], "mode": "INSERT"})
 
 
 # ---- The Add menu: Maya's categories ------------------------------------------------------------
@@ -716,11 +785,93 @@ def _add_categories():
                                                settings={"gl_library": repr(entry["type"])})
         return items
 
+    def map_items(context):
+        # The groom's painted maps, each a Map node reading it, named after it (Maya's Tab search
+        # lists them the same way: MAP_ENTRY).
+        cls = graph_tree.node_class("Map") if graph_tree._node_classes else None
+        if cls is None:
+            return
+        for m in painted_maps(context_groom(context or bpy.context)):
+            init = json.dumps({"name": m["name"], "params": {"name": m["name"]}})
+            yield nodeitems_utils.NodeItem(cls.bl_idname, label="Map: %s" % m["name"], settings={"gl_init": repr(init)})
+
     names = list(graph_tree.CATEGORY_TITLES)
     categories = [GroomLabCategory("GROOMLAB_" + re.sub(r"\W", "_", c).upper(), c, items=items_of(c)) for c in names]
     categories.append(GroomLabCategory("GROOMLAB_COMPOUND_NODES", "Compound Nodes", items=library_items("compound")))
     categories.append(GroomLabCategory("GROOMLAB_SCRIPT_NODES", "Script Nodes", items=library_items("script")))
+    categories.append(GroomLabCategory("GROOMLAB_PAINTED_MAPS", PAINTED_MAPS, items=map_items))
     return categories
+
+
+PAINTED_MAPS = "Painted Maps"
+CATEGORY_OF_MENU = {"Compound Nodes": "Compound", "Script Nodes": "Compound", PAINTED_MAPS: "Color"}
+_icons = {"previews": None, "ids": {}}
+
+
+def painted_maps(scalp):
+    """The groom's painted maps ({name, kind}), Freeze's own mask left out; [] without a session."""
+    rt = groom.runtime_if_any(scalp) if scalp is not None else None
+    if rt is None or rt.session is None or not process.running():
+        return []
+    try:
+        maps = process.call("maps_list", session=rt.session).get("maps", [])
+    except HelperError:
+        return []
+    return [m for m in maps if not m.get("freezeMask")]
+
+
+def _make_icons():
+    """A swatch per category color (the Add menu's icons, Maya's category colors)."""
+    try:
+        from bpy.utils import previews as preview_utils
+        previews = preview_utils.new()
+    except Exception:  # noqa: BLE001 - no icons, the menu still works
+        return
+    for category, rgb in graph_tree.CATEGORY_COLORS.items():
+        try:
+            p = previews.new("category_" + category)
+            p.image_size = (16, 16)
+            pixels = []
+            for y in range(16):
+                for x in range(16):
+                    edge = x in (0, 15) or y in (0, 15)
+                    pixels += [c / 255.0 * (0.6 if edge else 1.0) for c in rgb] + [1.0]
+            p.image_pixels_float = pixels
+            _icons["ids"][category] = p.icon_id
+        except Exception:  # noqa: BLE001
+            pass
+    _icons["previews"] = previews
+
+
+def category_icon(title):
+    return _icons["ids"].get(CATEGORY_OF_MENU.get(title, title), 0)
+
+
+def _draw_add_menu(categories):
+    """The Add menu (graph_ui.json's addMenu): the core's categories, each with its color, then the
+    node library's New Script Node, Import Node..., Open Nodes Folder."""
+    def draw(self, context):
+        layout = self.layout
+        shown = False
+        for cat in categories:
+            if cat.poll(context):
+                layout.menu("NODE_MT_category_" + cat.identifier, icon_value=category_icon(cat.name))
+                shown = True
+        if not shown or editor_tree(context) is None:
+            return
+        layout.separator()
+        graph_ui.draw(layout, "graph/addMenu", menu_context(context, active_node(context)), "add", {"catalog", "groom"},
+                      generators={"nodeCategories": lambda e: []})
+    return draw
+
+
+def _register_add_menu():
+    import nodeitems_utils
+    categories = _add_categories()
+    nodeitems_utils.register_node_categories("GROOMLAB_NODES", categories)
+    registered = getattr(nodeitems_utils, "_node_categories", {}).get("GROOMLAB_NODES")
+    if registered is not None and len(registered) == 3:  # (categories, draw, menu types): our draw instead
+        nodeitems_utils._node_categories["GROOMLAB_NODES"] = (registered[0], _draw_add_menu(registered[0]), registered[2])
 
 
 # ---- The sidebar: the selected node's params (Maya's param panel) -------------------------------
@@ -742,10 +893,28 @@ class GROOMLAB_PT_graph_node(bpy.types.Panel):
             layout.label(text="Reading the groom's graph...", icon="TIME")
             return
         node = tree.nodes.active
+        if node is not None and node.bl_idname == "NodeFrame" and node.select:
+            draw_backdrop_panel(layout, context, node)
+            return
         if node is None or not ours(node) or not node.select:
             wrap(layout, "Select a node to edit it. Shift+A or Tab adds one; drag from a port to wire it.")
             return
         draw_node_panel(layout, context, node)
+
+
+def draw_backdrop_panel(layout, context, frame):
+    """A backdrop (a frame): its title, its color (Maya's), the backdrop menu."""
+    layout.label(text="Backdrop", icon="SELECT_SET")
+    layout.prop(frame, "label", text="Title")
+    row = layout.row(align=True)
+    for text, rgb in graph_ui.backdrop_colors():
+        op = row.operator("groomlab.graph_backdrop_color", text=text)
+        op.frame, op.color = frame.name, json.dumps(rgb)
+    col = layout.column(align=True)
+    col.separator()
+    draw_backdrop_menu(col, context, frame)
+    wrap(layout.column(), "Kept in the graph with its nodes' layout (Maya's backdrops): moving it moves the nodes in it.",
+         icon="INFO")
 
 
 def draw_node_panel(layout, context, node):
@@ -759,19 +928,109 @@ def draw_node_panel(layout, context, node):
     row.label(text=kind, icon="NODE")
     if node.gl_outdated:
         row.operator("groomlab.graph_upgrade_node", text="Upgrade", icon="FILE_REFRESH").node = node.gl_name
+    info = graph_authoring.library_info(node)
+    if info.get("updateAvailable"):
+        op = row.operator("groomlab.graph_update_node", text="Update", icon="SORT_DESC")
+        op.node, op.action = node.gl_name, "node.update"
     about = (json.loads(node.gl_spec_json).get("description") if node.gl_spec_json else None) or node.gl_spec.get("description", "")
     if about:
         wrap(layout.column(), about)
+    if info:
+        line = "Library node %s, version %d" % (info.get("id", ""), int(info.get("version", 0)))
+        if info.get("updateAvailable"):
+            line += ": the library has version %d (Update Node)" % int(info.get("latest", 0))
+        wrap(layout.column(), line, icon="ASSET_MANAGER")
     error = node_errors(scalp).get(node.gl_name) if scalp is not None else None
     if error:
         wrap(layout.box(), error, icon="ERROR")
     note = node_notes(scalp).get(node.gl_name) if scalp is not None else None
     if note:
         wrap(layout.column(), note, icon="INFO")
+    if node.gl_type == "Script":
+        draw_script_editor(layout, node)
+    if node.gl_type == "Control" and scalp is not None:
+        draw_control_slider(layout, node, scalp)
     draw_params(layout, context, node, scene)
     col = layout.column(align=True)
     col.separator()
     draw_node_actions(col, context)
+
+
+def draw_script_editor(layout, node):
+    """A script node being edited (its text blocks): whether it checks, its errors, Apply, Save to
+    Library, Save as New, Done; else Edit Node..."""
+    box = layout.box()
+    if not graph_authoring.editing_script(node.gl_name):
+        op = box.operator("groomlab.graph_script_edit", text=graph_ui.label("script.edit", "Edit Node..."), icon="TEXT")
+        op.node, op.action = node.gl_name, "script.edit"
+        return
+    script_name, header_name = graph_authoring.script_text_names(node.gl_name)
+    wrap(box, "Editing in the text blocks %s and %s (a Text Editor shows them)" % (script_name, header_name), icon="TEXT")
+    errors = graph_authoring.script_errors_of(node.gl_name)
+    if errors:
+        for e in errors[:6]:
+            where = " (line %d)" % e["line"] if e.get("line") else ""
+            wrap(box, "%s%s: %s" % (e.get("part", "script"), where, e.get("message", "")), icon="ERROR")
+    else:
+        box.label(text="Checks: the node takes each change (live)", icon="CHECKMARK")
+    row = box.row(align=True)
+    row.operator("groomlab.graph_apply_text", text="Apply", icon="FILE_REFRESH").text = script_name
+    op = row.operator("groomlab.graph_script_save", text="Save to Library")
+    op.node, op.action = node.gl_name, "script.saveToLibrary"
+    op = row.operator("groomlab.graph_script_save", text="Save as New")
+    op.node, op.as_new = node.gl_name, True
+    row.operator("groomlab.graph_script_done", text="Done").node = node.gl_name
+
+
+def draw_control_slider(layout, node, scalp):
+    """A Control node's slider: the groom's ctl_ property (keyable: I over it)."""
+    name = graph_tree.values(node).get("name") or ""
+    key = graph_authoring.CONTROL_PREFIX + name
+    if name and key in scalp.keys():
+        layout.prop(scalp, '["%s"]' % key, text="Slider (%s)" % name)
+
+
+def param_state(node, spec, scalp):
+    """A param menu's conditions (Maya's ParamPanel: keyable, linked, keyed, linkable, mappable,
+    groom) and the values its texts name (why it cannot be keyed)."""
+    name = spec["name"]
+    state = {"groom"} if scalp is not None else set()
+    values = {"why": ""}
+    if spec.get("kind") in graph_authoring.KEYABLE_KINDS:
+        state.add("param.keyable")
+        why = graph_authoring.keyable_why(node, name, spec)
+        linked = bool(graph_authoring.control_names(node, name))
+        if linked or not why:
+            state.add("param.canKey")
+        if linked:
+            state.add("param.linked")
+            if scalp is not None and graph_authoring.key_state(scalp, node, name) == "keyed":
+                state.add("param.keyed")
+        values["why"] = why
+    if spec.get("port"):
+        state.add("param.linkable")
+        if spec.get("mappable"):
+            state.add("param.mappable")
+    return state, values
+
+
+def draw_param_menu(row, context, node, spec):
+    """The param's menu (graph_ui.json's paramMenu: keys, Expose as Input, Paint, Drive with Slider)
+    behind a small button at the end of its row."""
+    scalp = node.id_data.gl_scalp
+    state, values = param_state(node, spec, scalp)
+    key = "param:%s:%s" % (node.gl_name, spec["name"])
+    ctx = MenuContext(scalp=scalp, tree=node.id_data, node=node.gl_name, param=spec["name"])
+    entries = graph_ui.prepare(graph_ui.resolve(graph_ui.get("graph/paramMenu", []), state, values), ctx, key)
+    if not any(e[0] != "divider" for e in entries):
+        return
+    graph_ui._submenus[key] = (spec["name"], entries)
+    row.context_string_set("groomlab_menu", key)
+    row.menu(graph_ui.GROOMLAB_MT_graph_submenu.bl_idname, text="", icon="DOWNARROW_HLT")
+
+
+KEY_ICONS = {"keyed": "DECORATE_KEYFRAME", "animated": "DECORATE_ANIMATE", "linked": "DECORATE_LINKED",
+             "driven": "DECORATE_DRIVER"}
 
 
 def draw_params(layout, context, node, scene):
@@ -794,7 +1053,7 @@ def draw_params(layout, context, node, scene):
     for spec in specs:
         name = spec["name"]
         if op_type in ("Compound", "Script") and name == "definition":
-            continue  # (a script node is edited in Maya or the app: Edit Node...)
+            continue  # (a script node's file: Edit Node..., its text blocks)
         if (op_type, name) in graph_tree.PLUMBING and params.get(name, spec.get("default")) == spec.get("default"):
             continue
         shown.append(spec)
@@ -814,7 +1073,7 @@ def draw_params(layout, context, node, scene):
             if folded:
                 continue
         for spec in visible:
-            draw_param(col, node, spec, scene, mapped, inputs, drivers, collection)
+            draw_param(col, node, spec, scene, mapped, inputs, drivers, collection, context)
 
 
 def _map_label(value):
@@ -822,27 +1081,56 @@ def _map_label(value):
     label = {"texture": "texture", "colorSet": "color set", "attribute": "attribute", "expression": "expression",
              "guide": "painted map"}.get(source, "map")
     name = value.get(source) if source else ""
+    if source == "expression" and isinstance(name, str):
+        name = name.strip().splitlines()[0][:32] if name.strip() else ""
     return "%s %s" % (label, name if isinstance(name, str) else "")
 
 
-def draw_param(layout, node, spec, scene, mapped, inputs, drivers, collection):
+def draw_mapped(layout, context, node, spec, value, label):
+    """A param read from a map: its source named, edited (Map Source), its expression's text block
+    and errors, Paint (a painted map), Clear (back to a value); the param menu."""
+    name = spec["name"]
+    col = layout.column(align=True)
+    row = col.row(align=True)
+    row.label(text="%s: %s" % (label, _map_label(value)), icon="IMAGE_DATA")
+    op = row.operator("groomlab.graph_map_source", text="", icon="PREFERENCES")
+    op.node, op.param = node.gl_name, name
+    if "expression" in value:
+        op = row.operator("groomlab.graph_edit_expression", text="", icon="TEXT")
+        op.node, op.param = node.gl_name, name
+    else:
+        op = row.operator("groomlab.graph_paint_param", text="", icon="BRUSH_DATA")
+        op.node, op.param = node.gl_name, name
+    op = row.operator("groomlab.graph_map_source", text="", icon="X")
+    op.node, op.param, op.clear = node.gl_name, name, True
+    draw_param_menu(row, context, node, spec)
+    text = bpy.data.texts.get(graph_authoring.expression_text_name(node.gl_name, name))
+    if text is not None:
+        errors = graph_authoring.text_errors(text)
+        sub = col.row(align=True)
+        sub.label(text=("Error: " + errors[0]["message"]) if errors else "Editing in %s (live)" % text.name,
+                  icon="ERROR" if errors else "TEXT")
+        sub.operator("groomlab.graph_apply_text", text="Apply").text = text.name
+
+
+def draw_param(layout, node, spec, scene, mapped, inputs, drivers, collection, context=None):
+    context = context or bpy.context
     name = spec["name"]
     unit = graph_tree._unit_of(node, spec)  # (unitWhen: as the node's values have it)
     label = graph_tree.pretty(name) + (" ◆" if name in inputs else "")
     suffix = units.suffix(unit, scene) if unit not in units.SCENE_LENGTH else ""
     driver = drivers.get(name)
+    scalp = node.id_data.gl_scalp
     if name in mapped:
-        row = layout.row(align=True)
-        row.label(text="%s: %s" % (label, _map_label(mapped[name])), icon="IMAGE_DATA")
-        if hasattr(bpy.types, "GROOMLAB_OT_paint_param"):  # Groom Tools' painting (when installed)
-            op = row.operator("groomlab.paint_param", text="Paint", icon="BRUSH_DATA")
-            op.node, op.param = node.gl_name, name
+        draw_mapped(layout, context, node, spec, mapped[name], label)
         return
     if spec.get("kind") == "ramp" and collection is None:
         if driver:
             layout.label(text="%s: driven by %s" % (label, driver), icon="LINKED")
             return
-        layout.label(text=label)
+        row = layout.row(align=True)
+        row.label(text=label)
+        draw_param_menu(row, context, node, spec)
         curve = graph_tree.ramp_node(node, name)
         if curve is None:
             layout.label(text="(updating)", icon="TIME")
@@ -852,15 +1140,30 @@ def draw_param(layout, node, spec, scene, mapped, inputs, drivers, collection):
             defer(("ramps", node.id_data.name), graph_tree.sync_ramps, node.id_data)
         layout.template_curve_mapping(curve, "mapping")
         return
+    controls = graph_authoring.control_names(node, name)
+    if controls and scalp is not None and all(graph_authoring.CONTROL_PREFIX + c in scalp.keys() for c in controls):
+        # A keyed param: the groom's ctl_ properties, keyed in Blender (I over them; the Graph Editor
+        # and Dope Sheet show their curves), given to the graph on each frame.
+        state = graph_authoring.key_state(scalp, node, name)
+        row = layout.row(align=True)
+        row.label(text=label + suffix, icon=KEY_ICONS.get(state, "NONE"))
+        for c in controls:
+            row.prop(scalp, '["%s%s"]' % (graph_authoring.CONTROL_PREFIX, c), text="")
+        draw_param_menu(row, context, node, spec)
+        return
     if collection is not None:
         p = collection.get(name)
         if p is not None:
             from . import ui
-            ui.draw_param(layout, p, scene)
+            row = layout.row(align=True)
+            ui.draw_param(row, p, scene)
+            draw_param_menu(row, context, node, spec)
         return
     prop = graph_tree.prop_name(name)
     if not hasattr(node, prop):
-        layout.label(text="%s: edit it in Maya or the GroomLab app" % label)
+        row = layout.row(align=True)
+        row.label(text="%s: edit it in Maya or the GroomLab app" % label)
+        draw_param_menu(row, context, node, spec)
         return
     if spec.get("channel") in ("writes", "reads") and spec.get("kind") == "string":
         draw_attribute_param(layout, node, spec, prop, label)
@@ -868,13 +1171,21 @@ def draw_param(layout, node, spec, scene, mapped, inputs, drivers, collection):
     row = layout.row(align=True)
     if spec.get("kind") == "vec3" and unit != "color":
         col = layout.column(align=True)
-        col.label(text=label + suffix)
+        head = col.row(align=True)
+        head.label(text=label + suffix)
+        draw_param_menu(head, context, node, spec)
         col.row(align=True).prop(node, prop, text="")
     else:
         slider = spec.get("kind") in ("float", "int") and ("softMax" in spec or "max" in spec)
         row.prop(node, prop, text=label + suffix, slider=slider)
     if driver:
-        row.label(text="x %s" % driver, icon="LINKED")
+        src = next((n for n in node.id_data.nodes if ours(n) and n.gl_name == driver), None)
+        row.label(text="x %s" % driver, icon=KEY_ICONS["driven"] if src is not None and src.gl_type == "Control" else "LINKED")
+    if spec.get("mappable") and spec.get("port") and not driver:
+        op = row.operator("groomlab.graph_map_source", text="", icon="IMAGE_DATA")
+        op.node, op.param = node.gl_name, name
+    if not (spec.get("kind") == "vec3" and unit != "color"):
+        draw_param_menu(row, context, node, spec)
 
 
 def draw_attribute_param(layout, node, spec, prop, label):
@@ -1096,6 +1407,10 @@ def _draw_overlay_now():
         elif name in notes:
             disc(bx, ay, r, (0.5, 0.52, 0.55, 1.0))
             text(bx - 0.14 * size, ay - 0.36 * size, "i", (0.96, 0.96, 0.96, 1), size)
+        if node.gl_library_info and graph_authoring.library_info(node).get("updateAvailable"):
+            # The library has a newer copy of this node: a mark on its left corner (Update Node), as Maya's.
+            disc(ax, ay, r, (0.96, 0.69, 0.26, 1.0))
+            text(ax - 0.24 * size, ay - 0.36 * size, "↑", (0.1, 0.1, 0.12, 1), size)
         if node.gl_viewed:
             disc(bx - 2.6 * r, ay, r * 0.8, (0.35, 0.82, 0.94, 1.0))
             disc(bx - 2.6 * r, ay, r * 0.3, (0.1, 0.1, 0.12, 1.0))
@@ -1116,20 +1431,23 @@ _keymaps = []
 classes = (GROOMLAB_OT_graph_open, GROOMLAB_OT_graph_add_search, GROOMLAB_OT_graph_frame, GROOMLAB_OT_graph_duplicate,
            GROOMLAB_OT_graph_view_node, GROOMLAB_OT_graph_bypass, GROOMLAB_OT_graph_evaluation, GROOMLAB_OT_graph_set_output,
            GROOMLAB_OT_graph_upgrade_node, GROOMLAB_OT_graph_fold, GROOMLAB_OT_graph_pick_attribute, GROOMLAB_OT_graph_tidy, GROOMLAB_OT_graph_reload,
-           GROOMLAB_OT_graph_preset, GROOMLAB_OT_graph_presets_refresh, GROOMLAB_MT_graph_preset_actions,
-           GROOMLAB_MT_graph_preset_category, GROOMLAB_MT_graph_presets, GROOMLAB_MT_graph_more,
-           GROOMLAB_PT_graph_node, GROOMLAB_PT_graph_groom, GROOMLAB_PT_graph_presets)
+           GROOMLAB_OT_graph_preset, GROOMLAB_OT_graph_presets_refresh, GROOMLAB_MT_graph_presets,
+           GROOMLAB_MT_graph_edit, GROOMLAB_PT_graph_node, GROOMLAB_PT_graph_groom, GROOMLAB_PT_graph_presets)
 
+# Maya's keys (shortcuts.h): Tab adds, F frames, V views, B bypasses, Ctrl+D duplicates, Ctrl+G groups
+# into a Compound, Ctrl+Shift+G ungroups (only in GroomLab graphs: each operator's poll).
 KEYS = (("groomlab.graph_add_search", "TAB", {}), ("groomlab.graph_frame", "F", {}),
         ("groomlab.graph_view_node", "V", {}), ("groomlab.graph_bypass", "B", {}),
-        ("groomlab.graph_duplicate", "D", {"ctrl": True}))
+        ("groomlab.graph_duplicate", "D", {"ctrl": True}), ("groomlab.graph_group", "G", {"ctrl": True}),
+        ("groomlab.graph_ungroup", "G", {"ctrl": True, "shift": True}))
 
 
 def register():
-    import nodeitems_utils
     for c in classes:
         bpy.utils.register_class(c)
-    nodeitems_utils.register_node_categories("GROOMLAB_NODES", _add_categories())
+    _bind_editor()
+    _make_icons()
+    _register_add_menu()
     bpy.types.NODE_HT_header.append(draw_header)
     bpy.types.NODE_MT_context_menu.append(draw_context_menu)
     _draw_handle[0] = bpy.types.SpaceNodeEditor.draw_handler_add(_draw_overlay, (), "WINDOW", "POST_PIXEL")
@@ -1157,6 +1475,11 @@ def unregister():
         nodeitems_utils.unregister_node_categories("GROOMLAB_NODES")
     except KeyError:
         pass
+    if _icons["previews"] is not None:
+        from bpy.utils import previews
+        previews.remove(_icons["previews"])
+        _icons["previews"] = None
+        _icons["ids"].clear()
     if bpy.app.timers.is_registered(_run_deferred):
         bpy.app.timers.unregister(_run_deferred)
     _deferred.clear()

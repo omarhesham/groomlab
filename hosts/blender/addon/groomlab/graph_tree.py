@@ -13,7 +13,10 @@ step with the helper's graph both ways, as Maya's GroomLab Graph Editor keeps it
   opened) rebuilds the tree from the graph, node positions kept.
 - Positions live in the graph as Maya keeps them: each node's "ui": {"x", "y"} (graph_io.h; Qt's
   y down, so Blender's location is (x, -y)), so a .groom saved in Blender lays out the same in
-  Maya's editor and the app's, and the other way round."""
+  Maya's editor and the app's, and the other way round.
+- Blender's frames are the graph's backdrops (Maya's: a title, a rectangle, a color), kept with the
+  layout; the nodes inside one are its children.
+- A node dropped on a link (Blender splices it in) is the graph's insert_on_link."""
 
 import hashlib
 import json
@@ -23,7 +26,7 @@ import bpy
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty, FloatVectorProperty,
                        IntProperty, PointerProperty, StringProperty)
 
-from . import groom, process, props, units
+from . import graph_ui, groom, process, props, units
 from .helper_client import HelperError
 
 TREE = "GroomLabGraphTree"
@@ -31,11 +34,12 @@ NODE_PREFIX = "GroomLabNode_"
 NODE_WIDTH = 200
 LAYOUT_DX, LAYOUT_DY = 240, 140  # the core's column and row for a new node (graph_edit.cpp), as Maya's
 
-# Maya's Graph Editor (hosts/maya/scripts/groomlab/ui/graph_editor.py): port and category colors,
-# the Add menu's order, the spec categories' names.
-TYPE_COLORS = {"Strands": (232, 168, 92), "Guides": (92, 196, 232), "Mesh": (140, 206, 110),
-               "Field": (214, 122, 214), "Curve": (245, 215, 90), "Curves": (206, 210, 218),
-               "Value": (120, 214, 190)}
+# Maya's Graph Editor (hosts/maya/scripts/groomlab/ui/graph_editor.py): port and category colors and
+# the plumbing params from the shared UI definitions (engine/ui/graph_ui.json; these defaults when
+# the files are missing), the Add menu's order, the spec categories' names.
+TYPE_COLORS = graph_ui.port_colors({"Strands": (232, 168, 92), "Guides": (92, 196, 232), "Mesh": (140, 206, 110),
+                                    "Field": (214, 122, 214), "Curve": (245, 215, 90), "Curves": (206, 210, 218),
+                                    "Value": (120, 214, 190)})
 # The Add menu's categories in the core's order (node_catalog.h, each spec's "categoryTitle"): Blender
 # registers its node categories before the helper runs, so their titles are listed here; which node
 # goes where, its label and its order come from the specs. A test checks this list against them.
@@ -44,14 +48,17 @@ CATEGORY_TITLES = ["Sources", "Grow", "Shape", "Deform", "Collide", "Look", "Mot
 HIDDEN_TYPES = {"Compound", "Input", "Script"}  # made by grouping (Maya), a preset or the node library, not from the Add menu
 # When a node runs (its "evaluation"; always when absent): the labels of the other two.
 EVALUATION_LABELS = {"viewportOnly": "Viewport only", "renderOnly": "Render only"}
-CATEGORY_COLORS = {"Sources": (72, 190, 170), "Grow": (79, 209, 197), "Color": (255, 122, 182),
-                   "Shape": (90, 150, 240), "Deform": (110, 170, 250), "Collide": (100, 180, 200),
-                   "Look": (170, 120, 240), "Fields & Curves": (214, 122, 214),
-                   "Utility": (140, 148, 158), "Output": (245, 176, 66), "Compound": (110, 200, 120),
-                   "Games": (90, 200, 230), "Convert": (240, 140, 95), "Motion": (120, 200, 255),
-                   "Feathers": (226, 186, 90)}
+CATEGORY_COLORS = graph_ui.category_colors({
+    "Sources": (72, 190, 170), "Grow": (79, 209, 197), "Color": (255, 122, 182), "Shape": (90, 150, 240),
+    "Deform": (110, 170, 250), "Collide": (100, 180, 200), "Look": (170, 120, 240), "Fields & Curves": (214, 122, 214),
+    "Utility": (140, 148, 158), "Output": (245, 176, 66), "Compound": (110, 200, 120), "Games": (90, 200, 230),
+    "Convert": (240, 140, 95), "Motion": (120, 200, 255), "Feathers": (226, 186, 90)})
 # Params naming the host's inputs: plumbing, hidden from the panel unless changed (as in Maya).
-PLUMBING = {("Scalp", "input"), ("Guides", "input"), ("Guides", "hierarchy")}
+PLUMBING = graph_ui.plumbing({("Scalp", "input"), ("Guides", "input"), ("Guides", "hierarchy")})
+# Nodes whose `path` names a file (graph_ui.json's filePathFilters): Blender's file browser button.
+FILE_PATH_FILTERS = graph_ui.get("graph/filePathFilters", {"Reference": "", "ImportCurves": ""})
+# A backdrop's color when a frame has none of its own (Maya's Add Backdrop: Blue).
+BACKDROP_COLOR = [70, 90, 120]
 ADVANCED = "Advanced"
 NODE_BG = (43, 45, 50)  # Maya's node body: a node's custom color is it with a wash of its category's
 
@@ -350,6 +357,9 @@ def _base_props():
         "gl_values": StringProperty(),     # the node's params as the graph has them (JSON)
         "gl_spec_json": StringProperty(),  # node_spec of a Compound, Script or Input (their own ports and params)
         "gl_library": StringProperty(),    # "node:<id>": added from the node library (the Add menu)
+        "gl_library_info": StringProperty(),  # node_spec's "library" of a library node (its id, version, latest)
+        "gl_init": StringProperty(),       # {"name", "params"} a node added from Tab search starts with (a painted map's Map)
+        "gl_controls": StringProperty(),   # {param: control} of keyed params (paramControls)
         "gl_params": CollectionProperty(type=props.GroomLabParam),  # a Compound's params
     }
 
@@ -378,12 +388,15 @@ def _ranged(spec, conv):
     return kw
 
 
-def param_property(spec, update):
+def param_property(spec, update, file_path=False):
     """The node property of one param (None: a ramp, drawn with a curve widget; or a kind Blender
     cannot edit here). A unit that holds only in some mode (unitWhen) converts as the node's values
-    have it (_unit_of), so the property itself takes none."""
+    have it (_unit_of), so the property itself takes none. `file_path`: a string naming a file
+    (graph_ui.json's filePathFilters: Blender's file browser button)."""
     kind, unit = spec.get("kind"), "" if spec.get("unitWhen") else (spec.get("unit") or "")
     common = {"name": pretty(spec["name"]), "description": spec.get("description", ""), "update": update}
+    if file_path and kind == "string" and not spec.get("choices"):
+        return StringProperty(subtype="FILE_PATH", **common)
     scale = _scale()
     if kind == "float":
         if unit in units.SCENE_LENGTH:
@@ -438,9 +451,10 @@ def make_node_class(spec):
     op_type = spec["type"]
     annotations = _base_props()
     params = {}
+    files = op_type in FILE_PATH_FILTERS
     for p in spec.get("params", []):
         params[p["name"]] = p
-        prop = param_property(p, _make_update(p["name"]))
+        prop = param_property(p, _make_update(p["name"]), file_path=files and p["name"] == "path")
         if prop is not None:
             annotations[prop_name(p["name"])] = prop
     attrs = {
@@ -580,6 +594,8 @@ def property_value(node, spec, scene):
         return bool(v)
     if kind == "vec3":
         return [units.from_ui(unit, float(x), scene) for x in v]
+    if spec["name"] == "path" and node.gl_type in FILE_PATH_FILTERS and str(v).startswith("//"):
+        return bpy.path.abspath(str(v))  # (Blender's file browser gives paths relative to the .blend)
     return str(v)
 
 
@@ -920,9 +936,94 @@ def location_of(gnode):
     return None
 
 
+def get_location(node):
+    """A node's place in the whole editor (a node in a frame has its location relative to it)."""
+    loc = node.location_absolute if hasattr(node, "location_absolute") else node.location
+    return float(loc[0]), float(loc[1])
+
+
+def set_location(node, at):
+    if hasattr(node, "location_absolute"):
+        node.location_absolute = at
+    else:
+        node.location = at
+
+
 def ui_of(node):
     """A Blender node's position as the graph keeps it (Maya's: y down)."""
-    return [round(float(node.location.x), 2), round(-float(node.location.y), 2)]
+    x, y = get_location(node)
+    return [round(x, 2), round(-y, 2)]
+
+
+# ---- Backdrops: Blender's frames ------------------------------------------------------------------
+
+def frames(tree):
+    return [n for n in tree.nodes if n.bl_idname == "NodeFrame"]
+
+
+def _srgb(color):
+    """Blender's linear color to sRGB 0-255 (a backdrop's color)."""
+    def one(v):
+        v = max(0.0, min(1.0, float(v)))
+        v = v * 12.92 if v <= 0.0031308 else 1.055 * v ** (1.0 / 2.4) - 0.055
+        return int(round(v * 255.0))
+    return [one(c) for c in color[:3]]
+
+
+def frame_size(frame):
+    """(w, h) of a frame in the editor's units: its own size, or what it shrinks to around its nodes
+    as last drawn (Ctrl+J's frames)."""
+    w, h = float(frame.width), float(frame.height)
+    if frame.shrink and frame.dimensions[0] > 0:
+        prefs = bpy.context.preferences.system if getattr(bpy.context, "preferences", None) else None
+        scale = float(prefs.ui_scale) * float(getattr(prefs, "pixel_size", 1.0)) if prefs is not None else 1.0
+        w, h = frame.dimensions[0] / scale, frame.dimensions[1] / scale
+    return max(20.0, w), max(20.0, h)
+
+
+def backdrop_of(frame):
+    """A frame as the graph keeps a backdrop (Maya's): {title, x, y, w, h, color}, y down."""
+    x, y = get_location(frame)
+    w, h = frame_size(frame)
+    color = _srgb(frame.color) if frame.use_custom_color else list(BACKDROP_COLOR)
+    return {"title": frame.label or frame.name, "x": round(x, 2), "y": round(-y, 2), "w": round(w, 2),
+            "h": round(h, 2), "color": color}
+
+
+def backdrops_of(tree):
+    return [backdrop_of(f) for f in frames(tree)] if tree is not None else []
+
+
+def _same_backdrops(a, b):
+    def key(items):
+        return [(str(i.get("title", "")), round(float(i.get("x", 0)), 1), round(float(i.get("y", 0)), 1),
+                 round(float(i.get("w", 0)), 1), round(float(i.get("h", 0)), 1), list(i.get("color") or BACKDROP_COLOR))
+                for i in items or []]
+    return key(a) == key(b)
+
+
+def set_frame(frame, backdrop):
+    """A frame showing a backdrop of the graph (quietly: building)."""
+    frame.shrink = False
+    frame.label = str(backdrop.get("title") or "Backdrop")
+    frame.width = max(20.0, float(backdrop.get("w", 300.0)))
+    frame.height = max(20.0, float(backdrop.get("h", 200.0)))
+    set_location(frame, (float(backdrop.get("x", 0.0)), -float(backdrop.get("y", 0.0))))
+    frame.use_custom_color = True
+    frame.color = _linear(backdrop.get("color") or BACKDROP_COLOR)
+    frame["gl_backdrop"] = True
+
+
+def frame_at(tree, at):
+    """The frame whose rectangle holds the point `at` (Blender's x, y), the smallest; None."""
+    best, area = None, None
+    for f in frames(tree):
+        x, y = get_location(f)
+        w, h = frame_size(f)
+        if x <= at[0] <= x + w and y - h <= at[1] <= y:
+            if area is None or w * h < area:
+                best, area = f, w * h
+    return best
 
 
 def auto_layout(data):
@@ -951,13 +1052,16 @@ def auto_layout(data):
     return out
 
 
-def set_positions(scalp, positions):
-    """{node: [x, y]} into the helper's graph (edit_graph set_positions: a graph that does not load
-    yet takes them too)."""
-    if not positions:
+def set_positions(scalp, positions, backdrops=None):
+    """{node: [x, y]} (and the backdrops, all of them, when given) into the helper's graph
+    (edit_graph set_positions: a graph that does not load yet takes them too)."""
+    if not positions and backdrops is None:
         return
     rt = groom.ensure(scalp)
-    _call("edit_graph", session=rt.session, op="set_positions", positions=positions)
+    args = {"positions": positions or {}}
+    if backdrops is not None:
+        args["backdrops"] = list(backdrops)
+    _call("edit_graph", session=rt.session, op="set_positions", **args)
     groom.remember_graph(scalp, rt)
 
 
@@ -991,7 +1095,19 @@ def push_positions(scalp, tree=None, data=None):
             gnode["ui"] = {"x": at[0], "y": at[1]}
         with building():
             node["gl_at"] = at
-    set_positions(scalp, moved)
+    # The frames are the backdrops (Maya's): made, moved, resized, renamed or recolored since the
+    # tree last had them from the graph (or sent them), all of them go.
+    backdrops = backdrops_of(tree)
+    was = tree.get("gl_backdrops")
+    changed = was is not None and not _same_backdrops(backdrops, json.loads(was))
+    set_positions(scalp, moved, backdrops if changed else None)
+    if changed:
+        with building():
+            tree["gl_backdrops"] = json.dumps(backdrops)
+        if backdrops:
+            data["backdrops"] = backdrops
+        else:
+            data.pop("backdrops", None)
     return data
 
 
@@ -1044,13 +1160,28 @@ def build_tree(scalp, tree, data, rt=None):
     view = scalp.groomlab.view_node
     with building():
         existing = {}
+        kept_frames = []
         for node in list(tree.nodes):
+            if node.bl_idname == "NodeFrame":
+                kept_frames.append(node)
+                continue
             gname = node.gl_name if ours(node) else None
             gtype = next((n.get("type") for n in gnodes if n["name"] == gname), None) if gname else None
             if gname and gtype == node.gl_type and gname not in existing:
                 existing[gname] = node
             else:
                 tree.nodes.remove(node)  # gone from the graph, of another type now, or not ours
+        # The backdrops as frames (in order: the first frame the first backdrop), placed first so
+        # the nodes inside each can be its children (moving it moves them, as in Maya).
+        for node in existing.values():
+            node.parent = None
+        backdrops = [b for b in data.get("backdrops") or [] if isinstance(b, dict)]
+        for i, backdrop in enumerate(backdrops):
+            frame = kept_frames[i] if i < len(kept_frames) else tree.nodes.new("NodeFrame")
+            frame.parent = None
+            set_frame(frame, backdrop)
+        for frame in kept_frames[len(backdrops):]:
+            tree.nodes.remove(frame)
         for i, node in enumerate(existing.values()):
             node.name = "__groomlab_%d" % i  # free every name before giving the graph's
         made = {}
@@ -1066,12 +1197,20 @@ def build_tree(scalp, tree, data, rt=None):
             node.name = name
             node.gl_name = name
             node.gl_copy_of = ""
+            node.gl_init = ""
             at = location_of(gnode)
             if at is not None:
-                node.location = at
+                set_location(node, at)
+            inside = frame_at(tree, get_location(node)) if backdrops else None
+            if inside is not None:
+                node.parent = inside
             node["gl_at"] = ui_of(node)  # where the graph has it: a move after this is the user's
             spec = spec_of(name) or {}
             node.gl_spec_json = json.dumps(own_spec[name]) if name in own_spec and op_type in ("Compound", "Script", "Input") else ""
+            library = (own_spec.get(name) or {}).get("library")
+            node.gl_library_info = json.dumps(library) if isinstance(library, dict) else ""
+            controls = gnode.get("paramControls")
+            node.gl_controls = json.dumps(controls) if isinstance(controls, dict) and controls else ""
             ins = [(p["name"], p["type"], bool(p.get("param"))) for p in spec.get("inputs", [])]
             outs = [(p["name"], p["type"]) for p in (spec.get("outputs") or [spec.get("output")]) if p]
             if outs:
@@ -1113,6 +1252,7 @@ def build_tree(scalp, tree, data, rt=None):
             with props.quiet():
                 scalp.groomlab.view_node = ""
         tree["gl_sig"] = signature(tree)
+        tree["gl_backdrops"] = json.dumps(backdrops_of(tree))
         tree["gl_generation"] = process.generation()
     return tree
 
@@ -1161,8 +1301,8 @@ def sync_from_tree(tree):
 
     with building():
         for node in list(tree.nodes):
-            if node.bl_idname in ("NodeFrame", "NodeReroute"):
-                tree.nodes.remove(node)  # GroomLab graphs have none (Maya's backdrops are not frames)
+            if node.bl_idname == "NodeReroute":
+                tree.nodes.remove(node)  # GroomLab graphs have none (frames are its backdrops: push_positions)
     nodes = [n for n in tree.nodes if ours(n)]
     # Renames (F2, the sidebar's Name field).
     for node in nodes:
@@ -1192,6 +1332,11 @@ def sync_from_tree(tree):
         source = data_node(data, node.gl_copy_of) if node.gl_copy_of else None
         if source is not None and source.get("type") == node.gl_type:
             args["params"] = source.get("params") or {}
+        init = json.loads(node.gl_init) if node.gl_init else {}
+        if init.get("params"):  # (Tab search's painted map: a Map node reading it, named after it)
+            args["params"] = init["params"]
+        if init.get("name"):
+            args["name"] = unique_name(init["name"], gnodes)
         r = edit(**args)
         with building():
             if r is None:
@@ -1215,6 +1360,19 @@ def sync_from_tree(tree):
             continue
         output = link.from_socket.identifier
         want[(b.gl_name, link.to_socket.identifier)] = (a.gl_name, "" if output == _first_output(a) else output)
+    # A node dropped on a link (Blender splices it in): the graph's insert_on_link, one step (Maya's
+    # insert_on_wire), which picks the node's input as Maya does; the graph's links are then the truth.
+    for (dst, inp, src, output, mid) in insertions(have, want, gnodes):
+        args = {"op": "insert_on_link", "from": src, "to": dst, "input": inp, "node": mid}
+        if output:
+            args["output"] = output
+        if edit(**args) is None:
+            continue
+        want = {k: v for k, v in want.items() if not ((k[0] == mid and v[0] == src) or (k == (dst, inp)))}
+        current = _call("get_graph", session=session)["graph"]
+        have = {(c["to"], c["input"]): (c["from"], c.get("output") or "") for c in current.get("connections", [])}
+        for key in [k for k in have if k[0] == mid or k == (dst, inp)]:
+            want[key] = have[key]
     for key, frm in have.items():
         if key not in want and key[0] in gnodes and frm[0] in gnodes:
             edit(op="disconnect", to=key[0], input=key[1])
@@ -1243,6 +1401,35 @@ def sync_from_tree(tree):
 
 def data_node(data, name):
     return next((n for n in data.get("nodes", []) if n.get("name") == name), None)
+
+
+def insertions(have, want, known):
+    """[(to, input, from, output, node)]: links the graph has (`have` {(to, input): (from, output)})
+    that the tree now routes through another node (`want`): the link from -> to.input gone, `node`
+    feeding to.input and taking from `from` on an input that did not before (a node dropped on it)."""
+    found = []
+    for (dst, inp), frm in have.items():
+        now = want.get((dst, inp))
+        if now is None or now == frm or dst not in known or frm[0] not in known:
+            continue
+        mid = now[0]
+        if mid == frm[0] or mid == dst or mid not in known:
+            continue
+        if any(k[0] == mid and v[0] == frm[0] and have.get(k) != v for k, v in want.items()):
+            found.append((dst, inp, frm[0], frm[1], mid))
+    return found
+
+
+def unique_name(base, taken):
+    """`base` as a node name the graph does not have yet: letters, digits and _, a number added."""
+    base = re.sub(r"\W", "_", base or "node") or "node"
+    if base[0].isdigit():
+        base = "n" + base
+    name, k = base, 1
+    while name in taken:
+        name = "%s%d" % (base, k)
+        k += 1
+    return name
 
 
 # ---- Edits the editor's operators make ----------------------------------------------------------
