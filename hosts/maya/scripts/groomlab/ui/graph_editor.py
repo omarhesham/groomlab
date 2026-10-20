@@ -475,8 +475,8 @@ def categories(catalog):
 
 
 # Nodes and ports cache their painting (see NodeItem): a 30-node graph pans at under 2 ms a frame
-# instead of ~11. An Alt+right-drag zoom draws item-resolution pixmaps scaled instead (GraphView's
-# press and release), sharp again on release: ~7 ms a frame instead of ~43.
+# instead of ~11. An Alt+right-drag zoom scales a picture of the view taken when it starts
+# (GraphView.paintEvent), sharp again on release.
 ITEM_CACHE = QtWidgets.QGraphicsItem.DeviceCoordinateCache
 
 
@@ -488,18 +488,6 @@ PIXMAP_CACHE_KB = 64 * 1024
 def make_room_for_cache():
     if QtGui.QPixmapCache.cacheLimit() < PIXMAP_CACHE_KB:
         QtGui.QPixmapCache.setCacheLimit(PIXMAP_CACHE_KB)
-
-
-def cache_items(scene, mode):
-    """Every node and port of `scene` cached as `mode` (an ItemCoordinateCache at twice the item's
-    size, so a zoom up to 2x stays readable while it is scaled)."""
-    for item in scene.items():
-        if isinstance(item, (NodeItem, PortItem)):
-            if mode == QtWidgets.QGraphicsItem.ItemCoordinateCache:
-                size = item.boundingRect().size().toSize() * 2
-                item.setCacheMode(mode, size)
-            else:
-                item.setCacheMode(mode)
 
 
 class PortItem(QtWidgets.QGraphicsItem):
@@ -1665,13 +1653,16 @@ class GraphView(QtWidgets.QGraphicsView):
         self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.setRenderHint(QtGui.QPainter.Antialiasing)
-        self.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)  # the cached nodes scaled during a zoom drag
-        self.setCacheMode(QtWidgets.QGraphicsView.CacheBackground)  # the dot grid scrolled, not redrawn
+        # The whole view painted on every change (the nodes from their cached pictures, the dots from
+        # one cached tile): a cached background, or a partial update, scrolled old pixels along
+        # and left larger pictures of the nodes behind while zooming.
+        self.setViewportUpdateMode(QtWidgets.QGraphicsView.FullViewportUpdate)
         self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)  # a click gives it the keys (Delete, Ctrl+Z...)
         self._pan = None
         self._zoom = None  # an Alt+right-drag: (its press point, the scene point there, the zoom then)
+        self._snapshot = None  # the view's picture an Alt+right-drag scales (paintEvent)
         self._zoomed = False  # the right button's release ended a zoom: no add menu
         self.auto_frame = True  # keep the graph framed on resize until the user zooms or pans
         self.setTransform(QtGui.QTransform.fromScale(theme.scale(), theme.scale()))  # 1:1 at Maya's UI scale
@@ -1729,6 +1720,52 @@ class GraphView(QtWidgets.QGraphicsView):
         self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + off.x())
         self.verticalScrollBar().setValue(self.verticalScrollBar().value() + off.y())
         self.auto_frame = False
+        self.viewport().update()
+
+    # The longest side, in pixels, of the picture an Alt+right-drag scales (a bigger graph is drawn
+    # into it a little softer, sharp again on release).
+    ZOOM_PICTURE_MAX = 4096
+
+    def zoom_picture(self):
+        """The scene, its dots too, over the whole graph and three views' worth round the one shown,
+        at the view's zoom and the screen's resolution (capped at ZOOM_PICTURE_MAX): what an
+        Alt+right-drag scales, so zooming out shows the rest of the graph. (picture, where its
+        top-left was in the view, view pixels a picture pixel spans)."""
+        port = self.viewport()
+        ratio = port.devicePixelRatioF()
+        shown = self.mapToScene(port.rect()).boundingRect()
+        area = shown.adjusted(-shown.width(), -shown.height(), shown.width(), shown.height())
+        graph = self.scene().itemsBoundingRect()
+        if not graph.isEmpty():
+            area = area.united(graph.adjusted(-60, -60, 60, 60))
+        zoom = self.transform().m11()
+        scale = min(zoom * ratio, self.ZOOM_PICTURE_MAX / max(area.width(), area.height(), 1.0))
+        picture = QtGui.QPixmap(max(1, int(math.ceil(area.width() * scale))), max(1, int(math.ceil(area.height() * scale))))
+        picture.fill(QtCore.Qt.transparent)
+        painter = QtGui.QPainter(picture)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setRenderHint(QtGui.QPainter.TextAntialiasing)
+        self.scene().render(painter, QtCore.QRectF(picture.rect()), area, QtCore.Qt.IgnoreAspectRatio)
+        painter.end()
+        return picture, self.viewportTransform().map(area.topLeft()), zoom / scale
+
+    def paintEvent(self, event):
+        """While an Alt+right-drag zooms: the graph's picture taken when it started, scaled about
+        the point pressed (one blit a frame); else the scene."""
+        if self._snapshot is None or self._zoom is None:
+            super(GraphView, self).paintEvent(event)
+            return
+        start, _anchor, zoom = self._zoom
+        picture, corner, span = self._snapshot
+        k = self.transform().m11() / zoom
+        port = self.viewport()
+        painter = QtGui.QPainter(port)
+        painter.fillRect(port.rect(), self.scene().backgroundBrush())
+        painter.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+        p = QtCore.QPointF(start)
+        target = QtCore.QRectF(p + (corner - p) * k, QtCore.QSizeF(picture.width() * span * k, picture.height() * span * k))
+        painter.drawPixmap(target, picture, QtCore.QRectF(picture.rect()))
+        painter.end()
 
     def contextMenuEvent(self, event):
         if self._zoomed or self._zoom is not None or event.modifiers() & QtCore.Qt.AltModifier:
@@ -1821,8 +1858,10 @@ class GraphView(QtWidgets.QGraphicsView):
             pos = qt.event_pos(event)
             self._zoom = (pos, self.mapToScene(pos), self.transform().m11())
             self._zoomed = False
+            # A picture of the graph, scaled while the drag zooms (Qt 5's item-coordinate caches
+            # drew 1.5x too large on a 150% screen).
+            self._snapshot = self.zoom_picture()
             self.setCursor(QtCore.Qt.SizeVerCursor)
-            cache_items(self.scene(), QtWidgets.QGraphicsItem.ItemCoordinateCache)
             event.accept()
             return
         self._zoomed = False
@@ -1849,9 +1888,10 @@ class GraphView(QtWidgets.QGraphicsView):
     def mouseReleaseEvent(self, event):
         if self._zoom is not None and event.button() == QtCore.Qt.RightButton:
             self._zoom = None
+            self._snapshot = None
             self._zoomed = True
             self.unsetCursor()
-            cache_items(self.scene(), ITEM_CACHE)
+            self.viewport().update()  # the nodes drawn sharp at the zoom reached
             event.accept()
             return
         if self._pan is not None and event.button() in (QtCore.Qt.MiddleButton, QtCore.Qt.LeftButton):

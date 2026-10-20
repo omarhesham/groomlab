@@ -1330,9 +1330,10 @@ class GraphEditorTest(unittest.TestCase):
 
     def test_nodes_pan_from_their_cached_pictures(self):
         # Testers found Alt+drag panning sluggish: nodes and ports paint once into pixmaps a pan
-        # moves; an Alt+right-drag zoom scales item-resolution ones, sharp again on release.
+        # moves; an Alt+right-drag zoom scales one picture of the view (at the screen's resolution:
+        # item-coordinate caches drew 1.5x too large on a 150% screen), sharp again on release.
         from PySide2 import QtCore, QtGui, QtWidgets
-        device, scaled = QtWidgets.QGraphicsItem.DeviceCoordinateCache, QtWidgets.QGraphicsItem.ItemCoordinateCache
+        device = QtWidgets.QGraphicsItem.DeviceCoordinateCache
         items = [i for i in self.editor.scene.items() if isinstance(i, (self.ge.NodeItem, self.ge.PortItem))]
         self.assertTrue(items)
         self.assertEqual({i.cacheMode() for i in items}, {device})
@@ -1345,10 +1346,98 @@ class GraphEditorTest(unittest.TestCase):
         right, alt = QtCore.Qt.RightButton, QtCore.Qt.AltModifier
         try:
             self.app.sendEvent(view, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonPress, center, right, right, alt))
-            self.assertEqual({i.cacheMode() for i in items}, {scaled})
+            snapshot = self.editor.view._snapshot
+            self.assertIsNotNone(snapshot)
+            picture, corner, span = snapshot
+            # At the screen's resolution (a small graph: under the size cap), over the whole graph
+            # and past the view, so zooming out mid-drag shows the rest of it.
+            self.assertAlmostEqual(span, 1.0 / view.devicePixelRatioF(), places=3)
+            covered = QtCore.QRectF(corner, QtCore.QSizeF(picture.width() * span, picture.height() * span))
+            graph = self.editor.view.mapFromScene(self.editor.scene.itemsBoundingRect()).boundingRect()
+            self.assertTrue(covered.contains(QtCore.QRectF(graph)), (covered, graph))
+            self.assertTrue(covered.contains(QtCore.QRectF(view.rect().adjusted(-view.width(), 0, view.width(), 0))))
+            self.assertEqual({i.cacheMode() for i in items}, {device})
             self.app.sendEvent(view, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonRelease, center, right,
                                                        QtCore.Qt.NoButton, alt))
+            self.assertIsNone(self.editor.view._snapshot)
             self.assertEqual({i.cacheMode() for i in items}, {device})
+        finally:
+            self.editor.close()
+
+    def test_wheel_zoom_draws_what_a_fresh_paint_draws(self):
+        # A tester saw the view broken while wheel-zooming (stale, larger pictures of the nodes left
+        # behind): each wheel step must show what painting the view afresh shows.
+        from PySide2 import QtCore, QtGui, QtWidgets
+        self.editor.resize(1200, 500)
+        self.editor.show()
+        wait(30)
+        view = self.editor.view
+        port = view.viewport()
+
+        def shown():
+            """What is on the screen (not a fresh render of the view)."""
+            for _ in range(3):
+                QtWidgets.QApplication.processEvents()
+                wait(15)
+            screen = port.screen() if hasattr(port, "screen") else QtGui.QGuiApplication.primaryScreen()
+            return screen.grabWindow(int(port.winId())).toImage().convertToFormat(QtGui.QImage.Format_RGB32)
+
+        def fresh():
+            view.resetCachedContent()
+            for item in view.scene().items():
+                item.update()
+            port.update()
+            return shown()
+        try:
+            view.frame_all()
+            at = QtCore.QPointF(port.width() / 2.0, port.height() / 2.0)
+            for k, up in enumerate([True] * 6 + [False] * 9):
+                wheel = QtGui.QWheelEvent(at, port.mapToGlobal(at.toPoint()), QtCore.QPoint(0, 0),
+                                          QtCore.QPoint(0, 120 if up else -120), QtCore.Qt.NoButton,
+                                          QtCore.Qt.NoModifier, QtCore.Qt.NoScrollPhase, False)
+                self.app.sendEvent(port, wheel)
+                now = shown()
+                again = fresh()
+                differ = sum(1 for y in range(0, now.height(), 3) for x in range(0, now.width(), 3)
+                             if now.pixel(x, y) != again.pixel(x, y))
+                self.assertLess(differ, 20, "wheel step %d (%s): %d sampled pixels differ from a fresh paint"
+                                % (k, "in" if up else "out", differ))
+            # An Alt+right-drag zoom shows its picture of the view scaled about the point pressed: at
+            # the zoom it started from, what was there; after the release, the view painted afresh.
+            view.frame_all()
+            before = shown()
+            right, alt = QtCore.Qt.RightButton, QtCore.Qt.AltModifier
+            self.app.sendEvent(port, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonPress, at, right, right, alt))
+            try:
+                for dx in (40, 120, -60, 0):
+                    self.app.sendEvent(port, QtGui.QMouseEvent(QtCore.QEvent.MouseMove, at + QtCore.QPointF(dx, 0),
+                                                               QtCore.Qt.NoButton, right, alt))
+                now = shown()  # back where it started: the picture unscaled
+                differ = sum(1 for y in range(0, now.height(), 3) for x in range(0, now.width(), 3)
+                             if abs(QtGui.qGray(now.pixel(x, y)) - QtGui.qGray(before.pixel(x, y))) > 40)
+                self.assertLess(differ, 40, "mid-drag at the start's zoom: %d sampled pixels moved" % differ)
+                self.app.sendEvent(port, QtGui.QMouseEvent(QtCore.QEvent.MouseMove, at + QtCore.QPointF(80, 0),
+                                                           QtCore.Qt.NoButton, right, alt))
+            finally:
+                self.app.sendEvent(port, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonRelease, at, right,
+                                                           QtCore.Qt.NoButton, alt))
+            now, again = shown(), fresh()
+            differ = sum(1 for y in range(0, now.height(), 3) for x in range(0, now.width(), 3)
+                         if now.pixel(x, y) != again.pixel(x, y))
+            self.assertLess(differ, 20, "after the drag zoom: %d sampled pixels differ from a fresh paint" % differ)
+            # Painting the whole view each move stays quick: an Alt+drag pan, painted at once.
+            import time
+            left = QtCore.Qt.LeftButton
+            self.app.sendEvent(port, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonPress, at, left, left, alt))
+            start = time.perf_counter()
+            for k in range(40):
+                to = at + QtCore.QPointF(3 * k, 2 * k)
+                self.app.sendEvent(port, QtGui.QMouseEvent(QtCore.QEvent.MouseMove, to, QtCore.Qt.NoButton, left, alt))
+                port.repaint()
+            per_move = (time.perf_counter() - start) * 1000.0 / 40
+            self.app.sendEvent(port, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonRelease, at, left, QtCore.Qt.NoButton, alt))
+            print("alt+drag pan: %.2f ms a move" % per_move)
+            self.assertLess(per_move, 12.0)
         finally:
             self.editor.close()
 
