@@ -53,11 +53,12 @@
       "hotkeys.install",
       {"submenu": "Help", "id": "help", "ref": "menus/help"}
     ],
-    "samples": ["sample.nika", "sample.manny", "sample.wolf"],
+    "samples": ["sample.nika", "sample.manny", "sample.wolf", "sample.buddy"],
     "import": ["import.xgen", "import.yeti", "import.alembicCurves"],
     "export": [
       "export.alembic",
       "export.usd",
+      "export.vrscene",
       "-",
       "export.unrealGroom",
       "export.unrealCards",
@@ -70,7 +71,7 @@
       "export.scalesFbx",
       "export.scalesUsd"
     ],
-    "render": ["render.fromGroomFile", "render.asCurves"],
+    "render": ["render.fromGroomFile", "render.asCurves", "-", "render.hardware2", "-", "render.prman", "-", "render.vrayStandalone", "render.vrayHook", "render.vrayLoadScene"],
     "studio": [
       {"generator": "studioPresets", "action": "studio.preset", "hosts": ["maya"], "tip": "Studio lighting in Arnold: {description}. A backdrop, area lights and a camera round the groom, the head in a matte grey (one undo step; another preset relights in place)"},
       "-",
@@ -119,7 +120,7 @@
       "-",
       {"id": "file.saveAs", "tip": "Write the groom to a new groom file (the standalone app, groomlab-cli, the Arnold procedural)"}
     ],
-    "output.render": ["render.fromGroomFile", "render.asCurves", "-", "render.turntable"],
+    "output.render": ["render.fromGroomFile", "render.asCurves", "-", "render.turntable", "-", "render.hardware2", "render.prman", "render.vrayStandalone", "render.vrayHook", "render.vrayLoadScene"],
     "output.studio": [{"include": "menus/studio"}]
   }
 }

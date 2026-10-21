@@ -125,16 +125,25 @@ def pe_imports(path):
     return walk(1, 20, 12), walk(13, 32, 4)
 
 
+# DLLs a plugin's host has loaded before it loads the plugin, never shipped: the RenderMan procedural
+# (procedurals/renderman) runs inside prman, which brings libprman.
+HOST_PROVIDED = {"procedurals/renderman/": {"libprman.dll"}}
+
+
 def check_imports(folder):
-    """Every DLL a binary in `folder` imports is in the folder or in Windows (System32, an API set)."""
+    """Every DLL a binary in `folder` imports is in the folder or in Windows (System32, an API set),
+    or (HOST_PROVIDED) the renderer that loads it has it."""
     present = {n.lower() for n in os.listdir(folder)}
     system = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
     missing = []
     for path in glob.glob(os.path.join(folder, "**", "*.dll"), recursive=True) + glob.glob(os.path.join(folder, "*.exe")):
         normal, _delayed = pe_imports(path)
+        rel = os.path.relpath(path, folder).replace(os.sep, "/").lower()
+        provided = set().union(*[names for prefix, names in HOST_PROVIDED.items() if rel.startswith(prefix)])
         for name in normal:
             low = name.lower()
-            if low in present or low.startswith(("api-ms-win-", "ext-ms-")) or os.path.isfile(os.path.join(system, name)):
+            if low in present or low in provided or low.startswith(("api-ms-win-", "ext-ms-")) or \
+                    os.path.isfile(os.path.join(system, name)):
                 continue
             missing.append("%s needs %s" % (os.path.relpath(path, folder), name))
     return missing
@@ -190,7 +199,8 @@ def qt_third_party(folder, qt_dir):
             elif r["relationshipType"] == "CONTAINS" and "PackagedFile" in r["relatedSpdxElement"]:
                 file_owner[r["relatedSpdxElement"]] = r["spdxElementId"]
     problems, found = [], {}
-    qt_files = [f for f in files_of(folder) if f.lower().endswith(".dll") and
+    # (Qt's: Qt6*.dll and its plugin folders; GroomLab's own RenderMan procedural folder is not Qt's.)
+    qt_files = [f for f in files_of(folder) if f.lower().endswith(".dll") and not f.startswith("procedurals/") and
                 (os.path.basename(f).startswith("Qt6") or "/" in f)]
     for rel in qt_files:
         name = os.path.basename(rel).lower()

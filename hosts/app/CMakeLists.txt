@@ -220,6 +220,7 @@ qt_add_library(groomlab_app_ui STATIC
     src/main_window_panels.cpp
     src/main_window_scripting.cpp
     src/main_window_viewport.cpp
+    src/main_window_render.cpp
     src/maps_panel.cpp
     src/maps_panel.h
     src/marker_view.cpp
@@ -239,7 +240,13 @@ qt_add_library(groomlab_app_ui STATIC
     src/transfer_window.cpp
     src/transfer_window.h
     src/viewport.cpp
-    src/viewport.h)
+    src/viewport.h
+    src/prman_render.cpp
+    src/prman_render.h
+    src/render_job.cpp
+    src/render_job.h
+    src/vray_render.cpp
+    src/vray_render.h)
 # The brush icons: GroomLab's own (the Maya plugin's, hosts/maya/icons), and the UI's (ui_*.svg, white
 # strokes tinted at paint time), as resources (an icon added is found on the next build).
 file(GLOB GROOMLAB_APP_ICONS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/icons/*.svg")
@@ -300,6 +307,23 @@ install(TARGETS groomlab_app RUNTIME DESTINATION "${GROOMLAB_APP_DIR}" COMPONENT
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/presets/" DESTINATION "${GROOMLAB_APP_DIR}/presets" COMPONENT App)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/" DESTINATION "${GROOMLAB_APP_DIR}/nodes" COMPONENT App)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/package/README_BETA.txt" DESTINATION "${GROOMLAB_APP_DIR}" COMPONENT App)
+# GroomLab's RenderMan procedural (hosts/renderman, when RenderMan Pro Server's SDK is found) beside the
+# app in procedurals/renderman, as the Maya module has it: Render > ... in RenderMan hands it to prman
+# (prman_render.h). Copied beside the build's executable too, so a build runs the same way.
+if(TARGET groomlab_renderman)
+    add_dependencies(groomlab_app groomlab_renderman)
+    add_custom_command(TARGET groomlab_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:groomlab_app>/procedurals/renderman"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:groomlab_renderman> $<TARGET_RUNTIME_DLLS:groomlab_renderman>
+                "$<TARGET_FILE_DIR:groomlab_app>/procedurals/renderman"
+        COMMAND_EXPAND_LISTS)
+    install(TARGETS groomlab_renderman
+        LIBRARY DESTINATION "${GROOMLAB_APP_DIR}/procedurals/renderman" COMPONENT App
+        RUNTIME DESTINATION "${GROOMLAB_APP_DIR}/procedurals/renderman" COMPONENT App)
+    if(WIN32 AND GROOMLAB_TBB_RUNTIME)
+        install(FILES $<TARGET_RUNTIME_DLLS:groomlab_renderman> DESTINATION "${GROOMLAB_APP_DIR}/procedurals/renderman" COMPONENT App)
+    endif()
+endif()
 groomlab_install_legal("${GROOMLAB_APP_DIR}" App)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/package/licenses/" DESTINATION "${GROOMLAB_APP_DIR}/licenses" COMPONENT App)
 if(WIN32)

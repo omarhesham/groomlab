@@ -875,9 +875,9 @@ EngineExportOptions engineOptions(const json& args, bool unreal) {
 std::unique_ptr<ExportJob> openExport(Session& s, const json& args) {
     std::string format = optString(args, "format", "alembic");
     const bool engine = format == "unrealGroom" || format == "unityStrands";
-    if (format != "alembic" && format != "usd" && format != "scalesUsd" && !engine) {
-        fail("bad_request", "format is alembic, usd, scalesUsd, unrealGroom, unityStrands, gltfCards, unrealCards, unityCards, "
-                            "unityFeathers or scalesFbx");
+    if (format != "alembic" && format != "usd" && format != "scalesUsd" && format != "vrscene" && !engine) {
+        fail("bad_request", "format is alembic, usd, scalesUsd, vrscene, unrealGroom, unityStrands, gltfCards, unrealCards, "
+                            "unityCards, unityFeathers or scalesFbx");
     }
     // The scales: Maya's export_alembic / export_usd's `scales` ("Scales Instancer (USD)" is a USD
     // export with the scales as a PointInstancer of their plates).
@@ -911,6 +911,26 @@ std::unique_ptr<ExportJob> openExport(Session& s, const json& args) {
                 fail("bad_request", "scales is mesh, instancer, both or none");
             }
             job->usd = std::make_unique<UsdCurvesWriter>(job->path, name, o);
+        } else if (format == "vrscene") {
+            VrsceneWriter::Options o;
+            o.framesPerSecond = job->fps;
+            o.metersPerUnit = 0.01;  // groom space: centimeters, Y up (the Node's transform the identity)
+            o.upAxis = "Y";
+            // units "scene": the strands in the scene's unit, still Y up (the add-on's V-Ray Scene
+            // object turns them Z up: vray.py; V-Ray does not scale hair widths with a transform),
+            // times `scale` (the scalp object's own scale, which that object's transform leaves out).
+            const std::string units = optString(args, "units", "groom");
+            if (units == "scene") {
+                o.scale = 1.0 / s.space.scale();
+                o.metersPerUnit = s.space.metersPerUnit;
+            } else if (units != "groom") {
+                fail("bad_request", "units is groom or scene");
+            }
+            const double scale = optNumber(args, "scale", 1.0);
+            if (!(scale > 0.0)) fail("bad_request", "scale must be above 0");
+            o.scale *= scale;
+            o.comment = s.file.source.empty() ? std::string("GroomLab for Blender") : s.file.source;
+            job->vrscene = std::make_unique<VrsceneWriter>(job->path, name, o);
         } else if (engine) {
 #if GROOMLAB_HAS_ALEMBIC
             job->unreal = format == "unrealGroom";
@@ -970,6 +990,10 @@ std::size_t exportFrame(Session& s, ExportJob& job, double frame, float density)
     const auto scaleMesh = scaled ? job.scales.build(st, scalp, storedPrototypes(s)) : nullptr;
     try {
         if (job.usd) job.usd->writeFrame(frame, st, scalp.get(), scaleMesh.get());
+        if (job.vrscene) {
+            if (job.frames == 0) job.vrscene->setLobes(hairLobes(s.groom->hairLook()));  // HairColor's highlight
+            job.vrscene->writeFrame(frame, st, scalp.get());
+        }
 #if GROOMLAB_HAS_ALEMBIC
         if (job.abc) job.abc->writeFrame(st, scalp.get(), scaleMesh.get());
         if (job.engine) {
@@ -993,6 +1017,7 @@ json closeExport(ExportJob& job) {
     json r = {{"path", job.path}, {"frames", job.frames}};
     try {
         if (job.usd) job.usd->close();
+        if (job.vrscene) job.vrscene->close();
 #if GROOMLAB_HAS_ALEMBIC
         if (job.abc) job.abc->close();
         if (job.engine) {

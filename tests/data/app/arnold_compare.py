@@ -132,6 +132,9 @@ def main():
                    help="groom: the strands' melanin channels through user data (the app's groom material); "
                         "constant: --melanin and --redness for every strand (the app's presets); "
                         "rgb: the groom's RGB (hair_color) as the base color over no melanin")
+    p.add_argument("--base-color-gamma", type=float, default=1.0,
+                   help="--pigment rgb: the RGB through a color_correct of this gamma, as create_hair_shader gives it "
+                        "(1.084: hair_color.h kArnoldBaseColorGamma, so it renders as the viewport shades it)")
     p.add_argument("--iridescence", default="", help="r,g,b,shift: FeatherColor's iridescenceColor and iridescenceShift")
     p.add_argument("--specular-tint", type=float, default=1.0, help="HairColor's specular / 0.3, at most 1")
     p.add_argument("--hide-scalp", action="store_true")
@@ -198,6 +201,9 @@ def main():
     if args.pigment == "rgb" or args.iridescence:
         ass.append("user_data_rgb { name color_data attribute \"hair_color\" default 0.3 0.2 0.12 }\n")
         base, specular = "color_data", "%f %f %f" % (tint, tint, tint)
+        if args.base_color_gamma != 1.0:  # create_hair_shader's aiColorCorrect (hair_color.h kArnoldBaseColorGamma)
+            ass.append("color_correct { name color_gamma input color_data gamma %f }\n" % args.base_color_gamma)
+            base = "color_gamma"
         if args.iridescence:
             # create_hair_shader's network (__init__.py's _iridescence_network), node for node.
             r, g, b, shift = (float(v) for v in args.iridescence.split(","))

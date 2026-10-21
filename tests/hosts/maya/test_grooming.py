@@ -879,6 +879,33 @@ class GroomingTest(unittest.TestCase):
         cmds.undo()
         self.assertEqual(cmds.getAttr(self.groom + ".guideData"), start)
 
+    def test_export_vrscene(self):
+        # A V-Ray scene: the strands in object space (the USD export's count), the shader, and the
+        # groom's world matrix on the Node (here its transform moved: unlocked for the test).
+        transform = cmds.listRelatives(self.groom, parent=True, fullPath=True)[0]
+        cmds.setAttr(transform + ".translate", lock=False)
+        cmds.setAttr(transform + ".translate", 5.0, 0.0, 0.0)
+        try:
+            folder = tempfile.mkdtemp(prefix="groomlab_vrscene_")
+            path = os.path.join(folder, "hair.vrscene")
+            self.assertEqual(groomlab.export_vrscene(self.groom, path, start=1, end=2, density=0.5), 2)
+            with open(path) as f:
+                text = f.read()
+            usd = os.path.join(folder, "hair.usda")
+            groomlab.export_usd(self.groom, usd, density=0.5)
+            with open(usd) as f:
+                counts = re.search(r"curveVertexCounts\.timeSamples = \{\s*[\d.-]+: \[([^\]]*)\]", f.read()).group(1)
+            strands = len([c for c in counts.split(",") if int(c) >= 2])
+            self.assertIn("// %d strands" % strands, text)
+            for plugin in ("GeomMayaHair", "TexHairSampler", "BRDFHair4", "MtlSingleBRDF", "Node", "SettingsUnitsInfo"):
+                self.assertRegex(text, r"\n%s \S+@\w+ \{" % plugin)
+            world = cmds.getAttr(self.groom + ".worldMatrix[0]")
+            self.assertAlmostEqual(world[12], 5.0)
+            self.assertRegex(text, r"transform=Transform\(Matrix\([^;]*\), Vector\(5, 0, 0\)\);")
+        finally:
+            cmds.setAttr(transform + ".translate", 0.0, 0.0, 0.0)
+            cmds.setAttr(transform + ".translate", lock=True)
+
     def strand_extent(self):
         """Bounds of the strands alone (the groom's bounding box also holds its guides)."""
         path = os.path.join(tempfile.gettempdir(), "groomlab_extent.usda")
@@ -949,6 +976,144 @@ class GroomingTest(unittest.TestCase):
                          ["wolf_body", "wolf_eye_l", "wolf_eye_r", "wolf_mouthbag", "wolf_nails"])
         with self.assertRaises(ValueError):
             groomlab.add_sample("nope")
+
+    def test_the_buddy_rig_comes_in_posable_and_a_groom_follows_it(self):
+        # Buddy, a rig (body, eyes, teeth and tongue skinned to 63 joints, posed by *_CTL controls):
+        # its real size in any scene unit, turned for a z-up scene at its top group (nothing frozen),
+        # its body selected, a pose moving the skin. A second one takes free names.
+        from maya.api import OpenMaya as om
+
+        def meshes():
+            return cmds.ls(cmds.listRelatives("buddy_rig", allDescendents=True, type="mesh", fullPath=True),
+                           noIntermediate=True)
+
+        def body_points():
+            return [om.MPoint(p) for p in om.MFnMesh(om.MSelectionList().add("buddy_body").getDagPath(0))
+                    .getPoints(om.MSpace.kWorld)]
+
+        def head_matrix():
+            return om.MMatrix(cmds.xform("head", query=True, worldSpace=True, matrix=True))
+
+        def skin_area():
+            fn = om.MFnMesh(om.MSelectionList().add("buddy_bodyShape").getDagPath(0))
+            p, (_, v) = fn.getPoints(om.MSpace.kWorld), fn.getTriangles()
+            return sum(0.5 * ((p[v[i + 1]] - p[v[i]]) ^ (p[v[i + 2]] - p[v[i]])).length() for i in range(0, len(v), 3))
+
+        counts = []
+        for unit, axis in (("cm", "y"), ("m", "y"), ("cm", "z")):
+            cmds.file(new=True, force=True)
+            cmds.currentUnit(linear=unit)
+            cmds.upAxis(axis=axis)
+            self.assertEqual(groomlab.add_sample("buddy"), "buddy_body")
+            self.assertEqual(cmds.ls(selection=True), ["buddy_body"])
+            self.assertEqual(len(meshes()), 5)
+            self.assertEqual(len(cmds.ls(type="joint")), 63)
+            self.assertEqual(len(cmds.ls("*_CTL", type="transform")), 50)
+            bbox = cmds.exactWorldBoundingBox(meshes())
+            size = 1.0 if unit == "cm" else 0.01
+            up = 1 if axis == "y" else 2
+            msg = "%s %s-up" % (unit, axis)
+            self.assertAlmostEqual((bbox[3] - bbox[0]) / (96.65 * size), 1.0, delta=0.01, msg=msg)
+            self.assertAlmostEqual(bbox[up], 0.0, delta=0.01 * size, msg=msg)  # feet on the ground
+            self.assertGreater(bbox[up + 3], 50.0 * size, msg)
+            # A head turn moves the skin with the head joint.
+            before, m0 = body_points(), head_matrix()
+            cmds.setAttr("head_CTL.rotateZ", 30)
+            after, carry = body_points(), m0.inverse() * head_matrix()
+            top = max(range(len(before)), key=lambda i: before[i][up])  # the crown: on the head joint alone
+            self.assertGreater(after[top].distanceTo(before[top]), 2.0 * size, msg)
+            self.assertLess(after[top].distanceTo(before[top] * carry), 0.01 * size, msg)
+            cmds.setAttr("head_CTL.rotateZ", 0)
+            # A groom on it: its rest mesh (the skin's original shape) is the skin at the bind pose in
+            # every unit and up axis (a z-up rig is bound again where it was turned), so its 1x, and
+            # its strands, are the same in each.
+            groom = groomlab.create_groom("buddy_body", fit=True)
+            skin = om.MFnMesh(om.MSelectionList().add("buddy_bodyShape").getDagPath(0)).getPoints(om.MSpace.kWorld)
+            plug = om.MFnDependencyNode(om.MSelectionList().add(groom).getDependNode(0)).findPlug("restMesh", False)
+            rest = om.MFnMesh(plug.asMObject()).getPoints()
+            self.assertLess(max(a.distanceTo(b) for a, b in zip(skin, rest)), 1e-4 * size, msg)
+            self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4, msg=msg)
+            counts.append(cmds.getAttr(groom + ".outStrandCount"))
+        self.assertEqual(len(set(counts)), 1, counts)
+        cmds.delete(cmds.listRelatives(groom, parent=True))
+        # Scaled at its top group, the meshes scale once (geometry_GRP doesn't inherit: the joints
+        # carry them), and the controls still pose them.
+        cmds.setAttr("buddy_rig.scale", 2, 2, 2)
+        doubled = cmds.exactWorldBoundingBox(meshes())
+        self.assertAlmostEqual((doubled[3] - doubled[0]) / (bbox[3] - bbox[0]), 2.0, delta=0.01)
+        before, m0 = body_points(), head_matrix()
+        cmds.setAttr("head_CTL.rotateZ", 30)
+        self.assertLess(body_points()[top].distanceTo(before[top] * (m0.inverse() * head_matrix())), 0.02)
+        # A second one: a free name, no namespace left behind (its parts keep theirs, under it).
+        self.assertEqual(groomlab.add_sample("buddy"), "buddy_rig1|geometry_GRP|buddy_body")
+        self.assertIn("buddy_rig1", cmds.ls(assemblies=True))
+        self.assertNotIn("groomlab_sample", cmds.namespaceInfo(":", listOnlyNamespaces=True) or [])
+
+        # A groom on the body (cm, y up): its rest mesh, the skin's original shape.
+        cmds.file(new=True, force=True)
+        cmds.upAxis(axis="y")
+        cmds.currentUnit(linear="cm")
+        groom = groomlab.create_groom(groomlab.add_sample("buddy"), fit=True)
+        count = cmds.getAttr(groom + ".outStrandCount")
+        self.assertEqual(count, counts[0])
+        self.assertTrue(cmds.listConnections(groom + ".restMesh", source=True))
+        path = os.path.join(tempfile.gettempdir(), "groomlab_buddy.usda")
+
+        def strands():
+            """The exported strands' points (density 0.05) and their strand IDs."""
+            groomlab.export_usd(groom, path, density=0.05)
+            with open(path) as f:
+                text = f.read()
+
+            def sampled(name):
+                return re.search(name + r"\.timeSamples = \{\s*[\d.-]+: \[([^\]]*)\]", text).group(1)
+
+            sizes = [int(c) for c in sampled("curveVertexCounts").split(",")]
+            flat = [om.MPoint(*[float(v) for v in p.split(",")]) for p in re.findall(r"\(([^)]*)\)", sampled("points"))]
+            ids = [int(v) for v in sampled("primvars:strandId").split(",")]
+            out, i = [], 0
+            for c in sizes:
+                out.append(flat[i:i + c])
+                i += c
+            return out, ids
+
+        # A pose (an arm raised, the spine bent, the head turned) keeps the strands, with Follow
+        # Scalp and without: the same count and IDs (scattered on the rest pose), and the groom's
+        # scale (measured without the pose's stretch: the median triangle's), though the skin's
+        # area changes.
+        rest_area, (_, rest_ids) = skin_area(), strands()
+        pose = (("upShoulder_L_CTL", "rotateZ", 40), ("spine_CTL", "rotateZ", 20), ("head_CTL", "rotateZ", 30))
+        for follow in (False, True):
+            groomlab.set_follow_scalp(groom, follow)
+            for control, attr, value in pose:
+                cmds.setAttr(control + "." + attr, value)
+            self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), count)
+            self.assertEqual(strands()[1], rest_ids)
+            self.assertGreater(abs(skin_area() / rest_area - 1.0), 0.005)  # the pose stretched the skin (about 1%)
+            self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=3)
+            for control, attr, value in pose:
+                cmds.setAttr(control + "." + attr, 0)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 1.0, places=4)
+        # The rig scaled at its root control (main_CTL's globalScale): the groom with it, the
+        # strand count kept (guides-and-brushes: Rigs).
+        cmds.setAttr("main_CTL.globalScale", 2)
+        self.assertAlmostEqual(cmds.getAttr(groom + ".groomScale"), 2.0, places=3)
+        self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), count)
+        cmds.setAttr("main_CTL.globalScale", 1)
+        # Follow Scalp: the head bent carries the strands rooted on the crown with it, each keeping
+        # its shape (times the groom's scale, 1 through the bend).
+        (rest, _), m0 = strands(), head_matrix()
+        cmds.setAttr("head_CTL.rotateZ", 30)
+        (posed, _), carry = strands(), m0.inverse() * head_matrix()
+        k = cmds.getAttr(groom + ".groomScale")
+        self.assertEqual(len(posed), len(rest))
+        crown = max(p[1] for p in body_points())
+        on_crown = [i for i, s in enumerate(rest) if s[0][1] > crown - 6.0]
+        self.assertGreater(len(on_crown), 10)
+        for i in on_crown:  # (the same frame exported again: the export reads the pose, not the one before)
+            root = rest[i][0] * carry
+            self.assertLess(posed[i][0].distanceTo(root), 0.01)  # the root, on the bent skin
+            self.assertLess(posed[i][-1].distanceTo(root + (rest[i][-1] * carry - root) * k), 0.02)  # the tip with it
 
     def test_leaving_the_paint_brush_puts_the_view_back(self):
         # Painting shows the map on the strands and the scalp; another brush, or another tool

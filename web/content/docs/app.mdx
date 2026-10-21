@@ -271,6 +271,49 @@ shading, GPU preview, strand colors (solid, color set, attribute, random, clump,
 the scalp and a map on the scalp. The point budget defaults to 300k points to keep large grooms
 interactive; 0 means no limit.
 
+## Render in V-Ray
+
+With **V-Ray Standalone** installed (V-Ray 7 tested), **Render > Render Frame in V-Ray** renders the
+groom at this frame as the viewport shows it: every strand (not the preview density), the
+viewport's camera, the lighting preset's lights and environment, the background, the exposure and
+the scalp. **Render > Render Turntable in V-Ray** renders 36 frames with the camera going once
+around the groom. A window shows the progress and the image as it comes; **Cancel** stops V-Ray,
+**Save Image...** saves the image and **Show in Folder** opens the folder with the images and the
+scene files.
+
+- The hair is GroomLab's V-Ray hair, as the **V-Ray scene** export writes it: each strand's color
+  and a VRayHairNextMtl shader set up from the groom's look ([Other renderers](/docs/other-renderers#v-ray)).
+  The look panel's swatches render when they are the groom's own HairColor settings; an override
+  material that only the viewport uses does not.
+- The image is V-Ray's linear result saved as an sRGB PNG, without the viewport's tone map: compare
+  it with the viewport set to **Tone map: None**.
+- Props and eyes, shadow softness and ambient occlusion stay in the viewport.
+- The app looks for `vray.exe` in the `GROOMLAB_VRAY` environment variable, then the one picked with
+  **Render > V-Ray Standalone Location...**, then V-Ray's default install folder
+  (`C:\Program Files\Chaos\V-Ray\Standalone for x64\bin`) and the `PATH`.
+- V-Ray runs as its own process, so the app stays usable while it renders.
+- From a script: `GroomLab hair.groom --render-vray frame.png --size 1920x1080` renders without a
+  window and quits (`--vray-turntable 36` for a turntable: `frame.0001.png` and on).
+
+## Render in RenderMan
+
+With **RenderMan Pro Server** installed (RenderMan 27.3 tested; free for non-commercial use),
+**Render > Render Frame in RenderMan** and **Render > Render Turntable in RenderMan** render the
+same way in RenderMan's `prman`, in the same window: the groom as it is now is written to a
+`.groom` file that GroomLab's RenderMan procedural (in the app's `procedurals/renderman` folder)
+evaluates at render time, every strand, shaded by PxrHairColor and PxrMarschnerHair set up from the
+groom's look ([RenderMan](/docs/other-renderers#renderman)); the viewport's camera, the lighting
+preset's lights (PxrDistantLight) and environment (PxrDomeLight), the background, the exposure and
+the scalp go to a RIB beside it.
+
+- The image is prman's linear result saved as an sRGB PNG, without the viewport's tone map.
+- Under a strong key light, light hair renders a little darker than in the viewport and V-Ray.
+- The app looks for `prman` in the `GROOMLAB_PRMAN` environment variable, then the one picked with
+  **Render > RenderMan Location...**, then `RMANTREE`, RenderMan's default install folder
+  (`C:\Program Files\Pixar\RenderManProServer-*\bin`) and the `PATH`.
+- From a script: `GroomLab hair.groom --render-prman frame.png --size 1920x1080` renders without a
+  window and quits (`--prman-turntable 36` for a turntable).
+
 ## Game cards
 
 **Cards** mode generates hair cards from the groom. Click **Add Cards node** if the graph has
@@ -300,6 +343,7 @@ the last bake. See [Game export](/docs/game-export).
 | **Cards (glTF)** | The cards at this frame as `.glb` (or `.gltf`), maps inside, with the hair cap. |
 | **Unity strands** | Alembic for Unity's hair package, resampled to a fixed point count. |
 | **Card maps** | The cards' texture maps as a preset packs them (Unreal, Unity HDRP, every map on its own, your own), TGA, PNG, TIFF or EXR up to 8K; the output is a folder and a name ([Export card maps](/docs/game-export#export-card-maps)). |
+| **V-Ray scene** | The strands and their V-Ray hair shader as a `.vrscene` for V-Ray Standalone or V-Ray for Maya ([V-Ray](/docs/other-renderers#v-ray)). |
 
 Set the frames (the current frame, or a range for an animated groom), the density and the target's
 options, then the output file (type a path or pick it with **...**). **Export** shows progress and
@@ -322,8 +366,10 @@ made.
 
 - **Import:** **From XGen...** and **From Yeti...** ([Importing](/docs/importing)). Alembic curves
   come in through an **ImportCurves** node.
-- **Rendering:** Arnold, RenderMan, Redshift and V-Ray, and **Render Turntable...**. The app's
-  **Render** refines the viewport; export Alembic or USD for other renderers.
+- **Rendering:** Arnold and Redshift, and Maya's **Render Turntable...** (the app renders RenderMan
+  and V-Ray frames and turntables: [Render in RenderMan](#render-in-renderman),
+  [Render in V-Ray](#render-in-v-ray)). The app's viewport refines; export Alembic or USD for other
+  renderers.
 - **Exports:** the FBX ones (**Unreal Cards...**, **Unity Cards...**, **Unity Feathers...**,
   **Scales Mesh (FBX)...**) and **Scales Instancer (USD)...**. The app bakes the card maps and
   writes glTF cards.

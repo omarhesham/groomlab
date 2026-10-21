@@ -17,6 +17,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
 
@@ -292,6 +293,46 @@ void MainWindow::buildMenu() {
     turntable_ = new QTimer(this);
     turntable_->setInterval(16);
     connect(turntable_, &QTimer::timeout, this, [this] { adjustCamera(1.0f, 0.0f, 0.0f); });
+
+    // Render: RenderMan (prman) and V-Ray Standalone renders of the groom as the viewport frames
+    // and lights it (the images in the temp folder: the window saves them elsewhere).
+    QMenu* render = menu_->addMenu(tr("&Render"));
+    auto renderImage = [this](const QString& renderer, const QString& kind) {
+        const QString name = document_ && !document_->path().empty()
+                                 ? QFileInfo(QString::fromStdString(document_->path())).completeBaseName()
+                                 : QStringLiteral("groom");
+        return QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+            .filePath(QStringLiteral("GroomLab-%3/%1_%2/%1.png").arg(name, kind, renderer));
+    };
+    QAction* prmanFrame = render->addAction(tr("Render Frame in &RenderMan"), this, [this, renderImage] {
+        renderPrman(renderImage(QStringLiteral("prman"), QStringLiteral("frame")), 0, QSize(), false);
+    });
+    prmanFrame->setObjectName(QStringLiteral("prmanFrame"));
+    prmanFrame->setToolTip(tr("This frame in RenderMan's prman (free for non-commercial use) through GroomLab's RenderMan "
+                              "procedural: every strand, the viewport's camera, lights and scalp"));
+    QAction* prmanTurntable = render->addAction(tr("Render Turntable in Render&Man"), this, [this, renderImage] {
+        renderPrman(renderImage(QStringLiteral("prman"), QStringLiteral("turntable")), 36, QSize(), false);
+    });
+    prmanTurntable->setObjectName(QStringLiteral("prmanTurntable"));
+    prmanTurntable->setToolTip(tr("36 frames of the camera around the groom in RenderMan's prman"));
+    render->addSeparator();
+    auto vrayImage = [renderImage](const QString& kind) { return renderImage(QStringLiteral("vray"), kind); };
+    QAction* vrayFrame = render->addAction(tr("Render Frame in &V-Ray"), this, [this, vrayImage] {
+        renderVray(vrayImage(QStringLiteral("frame")), 0, QSize(), false);
+    });
+    vrayFrame->setObjectName(QStringLiteral("vrayFrame"));
+    vrayFrame->setToolTip(tr("This frame in V-Ray Standalone: every strand, the viewport's camera, lights and scalp"));
+    QAction* vrayTurntable = render->addAction(tr("Render &Turntable in V-Ray"), this, [this, vrayImage] {
+        renderVray(vrayImage(QStringLiteral("turntable")), 36, QSize(), false);
+    });
+    vrayTurntable->setObjectName(QStringLiteral("vrayTurntable"));
+    vrayTurntable->setToolTip(tr("36 frames of the camera around the groom in V-Ray Standalone"));
+    render->addSeparator();
+    render->addAction(tr("RenderMan L&ocation..."), this, [this] { choosePrman(); })
+        ->setObjectName(QStringLiteral("prmanLocation"));
+    render->addAction(tr("V-Ray Standalone &Location..."), this, [this] { chooseVrayStandalone(); })
+        ->setObjectName(QStringLiteral("vrayLocation"));
+    render->setToolTipsVisible(true);
 
     // Help: the docs (the web docs, else the docs folder beside the executable or in the source
     // tree), the shortcuts and About as floating pages over the viewport (no dialogs).

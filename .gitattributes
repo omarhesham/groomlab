@@ -6,6 +6,7 @@
 *.abc binary
 *.ma text eol=lf
 *.mb binary
+*.fbx binary
 *.pgm binary
 *.ppm binary
 *.tga binary

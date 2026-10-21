@@ -96,6 +96,7 @@ add_library(groomlab_core_objects OBJECT
     src/scalp_mirror.cpp
     src/texture.cpp
     src/usd_writer.cpp
+    src/vrscene_writer.cpp
     src/operators/compound.cpp
     src/operators/script_op.cpp
     src/operators/deform_ops.cpp

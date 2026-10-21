@@ -52,5 +52,6 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/web/content/docs/" DESTINATION "GroomLa
 if(NOT GROOMLAB_BUILD_MAYA)
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/presets/" DESTINATION "GroomLab/presets" COMPONENT GroomLab)
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/" DESTINATION "GroomLab/nodes" COMPONENT GroomLab)
-    install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/meshes/" DESTINATION "GroomLab/meshes" COMPONENT GroomLab)
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/meshes/" DESTINATION "GroomLab/meshes" COMPONENT GroomLab
+            PATTERN "*_rig.*" EXCLUDE)  # the hosts' rigs: the app grooms buddy.obj
 endif()

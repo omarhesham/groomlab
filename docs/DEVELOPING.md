@@ -180,7 +180,10 @@ and `maya.studio_render` (`arnold`) and `maya.gui` (`gui`); `ctest -R maya\.groo
 window and runs the GUI suites in it one after another (`tests/hosts/maya/gui_runner.py`, harness and
 shared helpers in `gui_support.py`): `viewport` (the draw budget), `brush`, `select`, `reference`
 and `graph_editor` (`editor_cases.py`, the Graph Editor and Groom Tools widgets), `cached_playback`
-(grooms played with Maya's Cached Playback: see Evaluation Manager and Cached Playback), then `quit`
+(grooms played with Maya's Cached Playback: see Evaluation Manager and Cached Playback), `updates`,
+`render` (Render > Maya Hardware 2.0: Nika's groom in the Studio Portrait, the render density, the
+anti-aliasing, everything put back; `GROOMLAB_HW2_COMPARE=1` with `GROOMLAB_HW2_OUT=<folder>` makes
+a side by side with Arnold instead), then `quit`
 (the panels open, what Maya's quit runs, the panels open again for the session's own quit:
 see Quitting Maya below). Between suites
 the session is put back as it started (new scene, docks and windows closed, scriptJobs killed,
@@ -195,7 +198,7 @@ draws, which a picture's check may not notice). Its log,
 `build/win-maya2022/tests/gui.log`, marks every line with its suite and ends with a summary naming
 each failure by suite and test; read it when the session fails (ctest's own output is Maya's
 startup chatter). The log's first line names Viewport 2.0's device: fresh prefs give OpenGL Core
-Profile, so `maya.gui_dx11` runs the `viewport`, `brush`, `cached_playback` and `quit` suites again on DirectX 11 (forced with
+Profile, so `maya.gui_dx11` runs the `viewport`, `brush`, `cached_playback`, `render` and `quit` suites again on DirectX 11 (forced with
 `MAYA_VP2_DEVICE_OVERRIDE=VirtualDeviceDx11`, log `gui_dx11.log`), which many artists use and
 where buffers behave differently (GPU-only vertex buffers cannot be written there). One or a few
 suites alone:
@@ -737,6 +740,76 @@ through RfM's own generic `RenderManProcedural` node, so no GroomLab translator 
   RenderManProcedural.
 
 Not done either: LOD and culling (they need the camera), and instances and scales.
+
+### V-Ray scene export
+
+`engine/core vrscene_writer.h` writes a groom as a `.vrscene` (V-Ray's text scene format; no V-Ray
+library): `GeomMayaHair` (points, radii, per-point colors, root UVs, opacity as transparency), a
+`TexHairSampler` whose `hair_color` feeds `BRDFHair4`'s (VRayHairNextMtl's) dye over melanin 0,
+`MtlSingleBRDF` and a `Node`; long lists as `List*Hex("ZIPC...")` (zlib + base64, as V-Ray's
+exporters write them); a frame range as `interpolate()` keys. Callers: `groomlab-cli eval -o
+x.vrscene` (and the MCP export), `groomLabExportVrscene`/`groomlab.export_vrscene` (the groom's world
+matrix on the Node), the Blender helper's `export` format `vrscene`, `groomlab_core.VrsceneWriter`.
+
+Measured with V-Ray Standalone 7 (`plgparams.exe <plugin>` lists any plugin's parameters):
+`GeomMayaHair`'s `widths` are radii; `Node` `nsamples=1` turns geometry motion blur off (left out:
+V-Ray's default); `LightDirect`'s intensity times pi is its irradiance and it shines down its -Z;
+`LightDome`'s "spherical" lat-long is Z-up; V-Ray's license (the trial's VRLService) checks out
+headless, `vray -display=0 -autoClose=1`. The shader mapping (`vray::vrayDyeColor`,
+`vrayHairBrdf`) was fitted against `aiStandardHair` with `tests/data/app/vray_compare.py` beside
+`arnold_compare.py --linear-srgb --lights key` on the head groom at four pigments and three
+roughnesses (the numbers in `vrscene_writer.h`). Tests: `VrsceneWriter.*` (groomlab_tests, the
+file read back) and `ctest -L vray` (`tests/hosts/vray/test_vray.py`: coverage, per-strand color,
+motion blur, and against Arnold in the Maya build). A contact sheet against Arnold:
+
+```bash
+python tools/bench/vray/vray_sheet.py --cli build/ninja-app/engine/cli/RelWithDebInfo/groomlab-cli.exe \
+    --procedural build/ninja-maya2022/hosts/arnold/procedurals/RelWithDebInfo --out build/probe/vray
+```
+
+**Blender (V-Ray for Blender) and the app.** `hosts/blender/addon/groomlab/vray.py`: V-Ray for
+Blender renders a mesh object whose `obj.vray.VRayAsset.assetType` is "2" (Scene) as a `VRayScene`
+plugin loading `obj.data.vray.VRayScene["filepath"]` at the object's world matrix; the add-on keeps
+one such object per groom (role `VRAY`, an empty mesh under the scalp, its local matrix the Y-up to
+Z-up turn) and, in `render_pre` when the engine is `VRAY_RENDER_RT`, has the helper write the groom
+(`export` format `vrscene`, `units: "scene"`: the points and radii in the scene's unit, since V-Ray
+does not scale hair widths by a Node's or VRayScene's transform: measured, the strands render that
+many times thicker; `scale`: the scalp's world scale, which the object's transform cancels) for
+the frames V-Ray needs (V-Ray animation mode: the range; its motion blur:
+a frame more each side), shows that object and hides the hair Curves for the render job
+(`render_complete`/`render_cancel` restore both). Test: `blender.addon_vray` (labels blender, vray;
+skipped without V-Ray for Blender: the throwaway profile gets the user's `scripts` folder as a
+script directory, read only). The app: `hosts/app/src/vray_render.h` (the stage scene around
+`GroomDocument::exportVrscene`, vray.exe as a QProcess, its console progress parsed, the V-Ray
+Render window), `--render-vray`/`--vray-turntable`; tests `AppVray.*`,
+`AppPanels.VrayRenderWindowShowsTheFrame` and `app.vray_render` (labels app, vray).
+
+**V-Ray Standalone from Maya (any version):** `hosts/maya/scripts/groomlab/vray_scene.py` (no Maya:
+the scene text around the grooms' files, RenderView, LightRectangle/LightDome/LightDirect,
+GeomStaticMesh + BRDFVRayMtl, SettingsLightLinker; vray.exe's command line, image names, progress
+and the background `VRayJob`) and `vray_render.py` (reads the Maya scene into it: grooms, meshes,
+camera, lights, per-frame keys; `groomlab.render_vray`). Measured: a `LightRectangle` (units 0)
+renders its color x intensity as radiance, Arnold's non-normalized quad light's, and shines down its
+-Z; V-Ray's `directional` keeps the light's power, so Arnold's spread maps to
+`0.78 (1 - spread)^2` (`spread_to_directional`, fitted on a lit floor with kick and vray); vray
+writes `<stem>.<frame>.png` for a frame range and `<stem>.png` for one frame; it resolves a relative
+`-imgFile` against the scene file's folder (pass absolute paths). The studio portrait renders within
+about 15% of Arnold in linear sRGB (MtoA's `.ass` with an OCIO linear-sRGB color manager and the
+PNG driver's `color_space` "sRGB": its "" writes linear values). Tests: `vray.scene` (quick: the
+scene text, command line and the hook against a stand-in `vray.utils`) and `maya.vray` (label vray:
+the studio's scene from Maya, and with vray.exe a small render whose hair is centered, and a
+two-frame sequence).
+
+**V-Ray for Maya hook (Maya 2024+, experimental, never run here):** `vray_hook.py`. V-Ray for Maya
+supports Maya 2024+ only, so it is written from Chaos's documented API alone (the doc pages are cited
+in the module) and every entry point raises `VRayRequired` ("V-Ray for Maya 2024+ required") in Maya
+2022. `enable_hook` appends one line to `vraySettings.postTranslatePython` (V-Ray execs that script
+after translating); `post_translate` exports each visible groom over V-Ray's motion-blur shutter
+(`cam_mbOn`, `cam_mbDuration`, `cam_mbIntervalCenter`, `cam_mbGeomSamples`) and makes a `VRayScene`
+plugin (`vray.utils.create`/`findByName`, `filepath`, `use_transform` 0: the file's Node has the
+world matrix) and deletes Node plugins V-Ray may have made from the groom shape. `load_vrayscene`
+makes a Maya VRayScene node (`FilePath`, `inputTime`, `outMesh`). Read V-Ray for Maya's shipped
+scripts (`maya_vray/scripts/vray`) to learn the public API; never copy Chaos code.
 
 ### Linux builds (WSL): farms and pipelines
 

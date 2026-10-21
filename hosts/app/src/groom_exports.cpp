@@ -26,6 +26,7 @@
 #include "groomlab/gltf_writer.h"
 #include "groomlab/png.h"
 #include "groomlab/usd_writer.h"
+#include "groomlab/vrscene_writer.h"
 
 namespace groomlab::app {
 
@@ -132,6 +133,41 @@ ExportResult GroomDocument::exportUsd(const std::string& path, const ExportOptio
             const bool scaled = strands->instances() && strands->instances()->hasMeshes();
             const auto scaleMesh = scaled ? scales.build(*strands, scalp, prototypes) : nullptr;
             writer.writeFrame(frame, *strands, scalp.get(), scaleMesh.get());
+            result.strands = strands->strandCount();
+            result.frames = i + 1;
+            if (!continueExport(progress, i + 1, count)) {
+                result.cancelled = true;
+                break;
+            }
+        }
+        writer.close();
+    } catch (const std::exception& e) {
+        throw std::runtime_error(e.what());
+    }
+    result.files = {path};
+    return result;
+}
+
+ExportResult GroomDocument::exportVrscene(const std::string& path, const ExportOptions& options, const ExportProgress& progress,
+                                          MeshPtr* firstScalp) {
+    const FrameRange& range = options.frames;
+    const double fps = framesPerSecond();
+    ExportResult result;
+    try {
+        VrsceneWriter::Options o;
+        o.framesPerSecond = fps;
+        o.metersPerUnit = usdMetersPerUnit(file().units);
+        o.upAxis = "Y";  // the app is Y-up (a Z-up file turned on load)
+        o.comment = path_.empty() ? std::string("GroomLab") : path_;
+        VrsceneWriter writer(path, exportName(path), o);
+        const std::size_t count = range.count();
+        for (std::size_t i = 0; i < count; ++i) {
+            MeshPtr scalp;
+            const double frame = range.frame(i);
+            const StrandsPtr strands = exportFrame(frameToSeconds(frame, fps), options.density, &scalp);
+            if (i == 0) writer.setLobes(hairLobes(scene_->session().hairLook()));  // as evaluated at the first frame
+            if (i == 0 && firstScalp) *firstScalp = scalp;
+            writer.writeFrame(frame, *strands, scalp.get());
             result.strands = strands->strandCount();
             result.frames = i + 1;
             if (!continueExport(progress, i + 1, count)) {

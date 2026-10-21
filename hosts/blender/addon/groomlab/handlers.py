@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Blender's handlers: sculpted guides and edited scalps (depsgraph updates, debounced), frames
-(the scalp's pose and the time), final renders (every strand), .blend saves and loads, undo, quit."""
+(the scalp's pose and the time), final renders (every strand; V-Ray's: the groom's V-Ray scene,
+vray.py), .blend saves and loads, undo, quit."""
 
 import bpy
 from bpy.app.handlers import persistent
 
-from . import groom, process
+from . import groom, process, vray
 
 
 @persistent
@@ -43,13 +44,23 @@ def on_frame(scene, depsgraph=None):
 
 
 @persistent
+def on_render_init(scene, *args):
+    vray.render_init(scene)
+
+
+@persistent
 def on_render_pre(scene, *args):
-    if groom.scalps():
+    if not groom.scalps():
+        return
+    # V-Ray renders each groom's V-Ray scene (written here at full density); the hair Curves keep
+    # their preview unless a groom's scene could not be written (V-Ray converts the Curves then).
+    if not vray.renders(scene) or not vray.render_pre(scene):
         groom.set_rendering(scene, True)
 
 
 @persistent
 def on_render_post(scene, *args):
+    vray.render_post(scene)
     if groom._rendering:
         groom.set_rendering(scene, False)
 
@@ -78,6 +89,7 @@ def on_exit(*args):
 _HANDLERS = (
     ("depsgraph_update_post", on_depsgraph),
     ("frame_change_post", on_frame),
+    ("render_init", on_render_init),
     ("render_pre", on_render_pre),
     ("render_complete", on_render_post),
     ("render_cancel", on_render_post),

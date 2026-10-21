@@ -16,6 +16,7 @@
 #include "groomlab/groom_session.h"
 #include "groomlab/scales.h"
 #include "groomlab/usd_writer.h"
+#include "groomlab/vrscene_writer.h"
 
 #if GROOMLAB_HAS_ALEMBIC
 #include "groomlab/alembic_io.h"
@@ -39,6 +40,7 @@ struct ExportJob {
 #endif
     bool unreal = false;  // the engine writer's: Unreal (the primary guides go too) or Unity
     std::unique_ptr<UsdCurvesWriter> usd;
+    std::unique_ptr<VrsceneWriter> vrscene;  // a V-Ray scene (vrscene_writer.h)
     bool withScales = true;  // an Alembic export writes the scales' mesh (scales "mesh")
     ScaleMeshBuilder scales;
     std::size_t frames = 0;

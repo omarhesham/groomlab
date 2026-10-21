@@ -187,7 +187,11 @@ def main():
                                                    "Discord", "Support GroomLab", "About GroomLab"], "Help")
         _expect([l for l, _, _ in sub["Simulate"]][-1] == "Legacy", "nHair under Simulate > Legacy")
         _expect("Simulation" not in [l for l, _, _ in sub["Add"]], "no second Add Simulate")
-        _expect([l for l, _, _ in sub["Render"]] == ["Render from Groom File...", "Render as Curves"], "Render")
+        render = [l for l, _, _ in sub["Render"]]
+        _expect(render == ["Render from Groom File...", "Render as Curves", "Maya Hardware 2.0 (no renderer needed)...",
+                           "RenderMan (prman)...", "V-Ray Standalone...",
+                           "V-Ray for Maya Hook (2024+, experimental)", "Load as VRayScene (2024+, experimental)"],
+                "Render: %r" % render)
         _expect(not {"Groom File...", "Bake Scale Maps", "Render as Curves"} & {l for l, _, _ in sub["Export"]}, "Export")
         _expect("Save Groom File As..." in [l for l, _, _ in sub["Groom Files"]], "one groom-file block")
         review = {l: kw for l, _, kw in sub["Review"]}

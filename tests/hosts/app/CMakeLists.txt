@@ -21,6 +21,28 @@ if(Python3_Interpreter_FOUND)
                      "${PROJECT_SOURCE_DIR}/tests/data/strokes/strokes.groom" "${CMAKE_CURRENT_BINARY_DIR}/cli_exports")
     set_tests_properties(app.cli_exports PROPERTIES LABELS "quick;app" TIMEOUT 600
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    # Render > ... in V-Ray (vray_render.h) through the executable's flags, when V-Ray Standalone is
+    # installed: a frame and a three-frame turntable of the head groom. V-Ray's license is checked
+    # out per render: alone.
+    find_program(GROOMLAB_APP_VRAY vray
+        PATHS "$ENV{ProgramFiles}/Chaos/V-Ray/Standalone for x64/bin" "$ENV{VRAY_PATH}" NO_CACHE)
+    if(GROOMLAB_APP_VRAY)
+        add_test(NAME app.vray_render
+                 COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/vray_render.py" "$<TARGET_FILE:groomlab_app>"
+                         "${GROOMLAB_APP_VRAY}" "${CMAKE_CURRENT_BINARY_DIR}/vray_render")
+        set_tests_properties(app.vray_render PROPERTIES LABELS "app;vray" RUN_SERIAL TRUE TIMEOUT 900
+                             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+    # Render > ... in RenderMan (prman_render.h) through the executable's flags, when prman and the
+    # RenderMan procedural (copied beside the app's build) are there: a frame and a three-frame
+    # turntable of the head groom. prman's license is one per machine: alone.
+    if(TARGET groomlab_renderman AND RenderMan_PRMAN)
+        add_test(NAME app.prman_render
+                 COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/prman_render.py" "$<TARGET_FILE:groomlab_app>"
+                         "${RenderMan_PRMAN}" "${CMAKE_CURRENT_BINARY_DIR}/prman_render")
+        set_tests_properties(app.prman_render PROPERTIES LABELS "app;renderman" RUN_SERIAL TRUE TIMEOUT 900
+                             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
     # The app's package (tools/package_app.py --stage-only): the App component installed into a
     # scratch folder and checked against the manifest (every file it needs, nothing it must not
     # ship, every DLL each binary imports beside it or in Windows, Qt's files Qt's own).

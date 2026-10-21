@@ -54,26 +54,32 @@ def create_groom(scalp=None, guides=None, name="groomLab1", fit=False):
 
 # The sample meshes shipped with GroomLab (CC BY 4.0, Nick Rutlinh), in meshes/: centimetres, y up,
 # facing +z. Each: its file, its largest extent in cm (it comes in that size in any scene unit),
-# the name it gets, and the part the groom grows on (None: the only one).
+# the name it gets, and the part the groom grows on (None: the only one). A .ma is a rig: its
+# skinned meshes posed by its controls (the extent is its meshes').
 SAMPLES = {
     "nika": ("nika_head.obj", 34.61, "nika_head", None),  # a head and shoulders
     "manny": ("manny_head.obj", 34.21, "manny_head", None),  # a head
     "wolf": ("wolf.obj", 109.7, "wolf", "wolf_body"),     # a sitting wolf: body, eyes, nails, mouth
+    "buddy": ("buddy_rig.ma", 96.65, "buddy_rig", "buddy_body"),  # a posable character (buddy.obj: its body alone)
 }
 MESHES_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "meshes"))
 
 
 def add_sample(sample="nika"):
     """Add a sample mesh (SAMPLES: "nika", a head and shoulders; "manny", a head; "wolf", a
-    sitting wolf) to the scene at the origin, sized for the scene's units and turned for a z-up
-    scene, and select the part to groom: Create Groom from Selection grows hair on it. A sample of several parts comes
-    in under a group of its name. One undo step. Returns the selected part's transform."""
+    sitting wolf; "buddy", a posable character rig) to the scene at the origin, sized for the
+    scene's units and turned for a z-up scene, and select the part to groom: Create Groom from
+    Selection grows hair on it. A sample of several parts comes in under a group of its name; a
+    rig as it was built (buddy_rig: its controls pose it, a groom follows its skinned body). One
+    undo step (a rig none: delete it). Returns the selected part's transform."""
     if sample not in SAMPLES:
         raise ValueError("no sample %r (%s)" % (sample, ", ".join(sorted(SAMPLES))))
     filename, extent_cm, name, scalp = SAMPLES[sample]
     path = os.path.join(MESHES_DIR, filename)
     if not os.path.isfile(path):
         raise RuntimeError("the %s sample is missing from the GroomLab install (%s)" % (sample, path))
+    if filename.endswith(".ma"):
+        return _add_rig_sample(sample, path, extent_cm, scalp)
     if not cmds.pluginInfo("objExport", query=True, loaded=True):
         cmds.loadPlugin("objExport", quiet=True)
     with undo_chunk("add sample %s" % sample):
@@ -90,14 +96,9 @@ def add_sample(sample="nika"):
         else:
             top = cmds.group(made, name=name, world=True)
             made = cmds.listRelatives(top, children=True, type="transform", fullPath=False)
-        # Sized in the scene's own units: whatever unit the import read the numbers in, it ends up
-        # its real size.
-        bbox = cmds.exactWorldBoundingBox(top)
-        extent = max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2])
-        unit = cmds.currentUnit(query=True, linear=True)
-        want = float(cmds.convertUnit(extent_cm, fromUnit="cm", toUnit=unit).rstrip("abcdefghijklmnopqrstuvwxyz"))
-        if extent > 0 and abs(extent / want - 1.0) > 1e-3:
-            cmds.setAttr(top + ".scale", want / extent, want / extent, want / extent)
+        factor = _sample_scale(top, extent_cm)
+        if factor != 1.0:
+            cmds.setAttr(top + ".scale", factor, factor, factor)
         if cmds.upAxis(query=True, axis=True) == "z":
             cmds.setAttr(top + ".rotateX", 90)
         cmds.makeIdentity(top, apply=True, translate=True, rotate=True, scale=True)
@@ -105,6 +106,93 @@ def add_sample(sample="nika"):
             cmds.delete(part, constructionHistory=True)
         target = next((m for m in made if m.split("|")[-1] == scalp), made[0]) if scalp else made[0]
         cmds.select(target, replace=True)
+    return cmds.ls(target, long=False)[0]
+
+
+def _sample_scale(nodes, extent_cm):
+    """The scale that gives `nodes` (their world bounding box) the largest extent `extent_cm` in
+    the scene's own units, whatever unit the import read the numbers in: 1.0 when it already has."""
+    bbox = cmds.exactWorldBoundingBox(nodes)
+    extent = max(bbox[3] - bbox[0], bbox[4] - bbox[1], bbox[5] - bbox[2])
+    unit = cmds.currentUnit(query=True, linear=True)
+    want = float(cmds.convertUnit(extent_cm, fromUnit="cm", toUnit=unit).rstrip("abcdefghijklmnopqrstuvwxyz"))
+    return want / extent if extent > 0 and abs(extent / want - 1.0) > 1e-3 else 1.0
+
+
+def _bind_where_placed(top, meshes):
+    """The rig's skins bound again where its top group (just sized or turned, at the bind pose)
+    put them: each influence's bindPreMatrix its joint's inverse world matrix now, each original
+    (Orig) shape's points carried by the top group's matrix. The skinned meshes stay where they
+    are; their original shapes, which a groom's rest mesh is (create_groom), now match them (else
+    a z-up scene's rest pose would lie on its back, a scaled rig's be its file size)."""
+    from maya.api import OpenMaya as om
+
+    def sources(node, attr):  # {logical index: the full path of the DAG node plugged in}
+        plug = om.MFnDependencyNode(om.MSelectionList().add(node).getDependNode(0)).findPlug(attr, False)
+        out = {}
+        for k in range(plug.numElements()):
+            element = plug.elementByPhysicalIndex(k)
+            source = element.source()
+            if not source.isNull and source.node().hasFn(om.MFn.kDagNode):
+                out[element.logicalIndex()] = om.MDagPath.getAPathTo(source.node()).fullPathName()
+        return out
+
+    placed = om.MMatrix(cmds.getAttr(top + ".worldMatrix[0]"))
+    for mesh in meshes:
+        orig = _original_shape(mesh)
+        for skin in cmds.ls(cmds.listHistory(mesh, pruneDagObjects=True) or [], type="skinCluster"):
+            fixed = sources(skin, "bindPreMatrix")  # (a rig whose joints drive them: left as they are)
+            for i, joint in sources(skin, "matrix").items():
+                if i not in fixed:
+                    cmds.setAttr("%s.bindPreMatrix[%d]" % (skin, i), cmds.getAttr(joint + ".worldInverseMatrix[0]"),
+                                 type="matrix")
+            if orig:
+                geom = om.MMatrix(cmds.getAttr(skin + ".geomMatrix"))
+                carry = geom * placed * geom.inverse()
+                fn = om.MFnMesh(om.MSelectionList().add(orig).getDagPath(0))
+                fn.setPoints([p * carry for p in fn.getPoints(om.MSpace.kObject)], om.MSpace.kObject)
+    joints = cmds.listRelatives(top, allDescendents=True, type="joint", fullPath=True) or []
+    for pose in set(cmds.ls(cmds.listConnections(joints, type="dagPose") or [])):
+        members = list(sources(pose, "members").values())
+        if members:
+            cmds.dagPose(members, reset=True, name=pose)  # Go to Bind Pose: this placement
+
+
+def _add_rig_sample(sample, path, extent_cm, scalp):
+    """A rig sample (Maya ASCII: a top group holding the joints, the controls and geometry_GRP,
+    whose skinned meshes don't inherit their parents' transforms, so the joints alone move them):
+    imported without a namespace (a name taken in the scene gets a number), sized and turned at
+    its top group (nothing frozen: the rig stays posable and the joints carry the meshes), the
+    part to groom selected. Returns it.
+
+    Maya can't undo a file import, so none of it is recorded (an undo would leave the rig in the
+    sample's namespace): delete buddy_rig to take it out."""
+    recording = cmds.undoInfo(query=True, stateWithoutFlush=True)
+    cmds.undoInfo(stateWithoutFlush=False)
+    try:
+        new = cmds.file(path, i=True, type="mayaAscii", ignoreVersion=True, mergeNamespacesOnClash=False,
+                        namespace="groomlab_sample", returnNewNodes=True, preserveReferences=False) or []
+        tops = cmds.ls(new, assemblies=True, long=True) or []
+        parts = cmds.listRelatives(cmds.ls(new, type="mesh", noIntermediate=True, long=True) or [], parent=True,
+                                   fullPath=True) or []
+        if len(tops) != 1 or not parts:
+            raise RuntimeError("the %s sample did not import" % sample)
+        target = next((p for p in parts if p.split("|")[-1].split(":")[-1] == scalp), parts[0])
+        # Kept by UUID through the namespace's merge, which renames what clashes.
+        top_id, target_id = cmds.ls(tops[0], uuid=True)[0], cmds.ls(target, uuid=True)[0]
+        cmds.namespace(removeNamespace="groomlab_sample", mergeNamespaceWithRoot=True)
+        top, target = cmds.ls(top_id, long=True)[0], cmds.ls(target_id, long=True)[0]
+        meshes = cmds.ls(cmds.listRelatives(top, allDescendents=True, type="mesh", fullPath=True), noIntermediate=True)
+        factor = _sample_scale(meshes, extent_cm)
+        if factor != 1.0:
+            cmds.setAttr(top + ".scale", factor, factor, factor)
+        if cmds.upAxis(query=True, axis=True) == "z":
+            cmds.setAttr(top + ".rotateX", 90)
+        if factor != 1.0 or cmds.upAxis(query=True, axis=True) == "z":
+            _bind_where_placed(top, meshes)
+        cmds.select(target, replace=True)
+    finally:
+        cmds.undoInfo(stateWithoutFlush=recording)
     return cmds.ls(target, long=False)[0]
 
 

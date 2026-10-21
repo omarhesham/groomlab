@@ -54,6 +54,21 @@ public:
     bool isUndoable() const override { return false; }
 };
 
+// groomLabExportVrscene -file path.vrscene [-startFrame f] [-endFrame f] [-step s] [-density d]
+//                       [-renderOverrides b] [-minPixelWidth w] groom
+// A V-Ray scene (vrscene_writer.h): the strands as GeomMayaHair in the groom's object space, the
+// hair shader (BRDFHair4 from the groom's look) and a Node with the groom's world matrix; frames as
+// interpolate() keys. For V-Ray Standalone or V-Ray for Maya's VRayScene node.
+class ExportVrsceneCmd : public MPxCommand {
+public:
+    static const char* kName;
+    static void* creator();
+    static MSyntax newSyntax();
+
+    MStatus doIt(const MArgList& args) override;
+    bool isUndoable() const override { return false; }
+};
+
 // groomLabExportGroom -file path.groom [-scalpCache abc [-scalpObject name]]
 //                    [-guideCache abc [-guideObject name]] groom
 // Writes a groom file at the current time: graph, guides and scalp, plus

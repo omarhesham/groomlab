@@ -1078,7 +1078,7 @@ def bake_card_maps(scalp, scene, preset, directory, name, resolution=0, fmt="", 
 
 
 def export(scalp, scene, fmt, path, first, last, step=1, density=1.0, **options):
-    """The groom's strands over frames: Alembic, USD, scalesUsd, unrealGroom or unityStrands, with the
+    """The groom's strands over frames: Alembic, USD, scalesUsd, vrscene, unrealGroom or unityStrands, with the
     format's options (scales, groups, lod, pointsPerStrand...: docs/BLENDER.md "Pipeline")."""
     global _exporting
     rt = ensure(scalp, scene)

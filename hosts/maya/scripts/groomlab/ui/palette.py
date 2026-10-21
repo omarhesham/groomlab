@@ -1270,6 +1270,7 @@ class ToolPalette(QtWidgets.QWidget):
         "sample.nika": lambda self: self.add_sample("nika"),
         "sample.manny": lambda self: self.add_sample("manny"),
         "sample.wolf": lambda self: self.add_sample("wolf"),
+        "sample.buddy": lambda self: self.add_sample("buddy"),
         "parts.fromCurves": "parts_from_curves",
         "parts.remove": "remove_part",
         "parts.clear": "clear_parts",

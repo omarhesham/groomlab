@@ -16,6 +16,7 @@
 #include "groomlab/semver.h"
 #include "groomlab/texture.h"
 #include "groomlab/usd_writer.h"
+#include "groomlab/vrscene_writer.h"
 
 namespace groomlab::py_bind {
 
@@ -490,6 +491,7 @@ void bindBasic(py::module_& m) {
     py::register_exception<GroomFileError>(m, "GroomFileError", PyExc_RuntimeError);
     py::register_exception<TextureError>(m, "TextureError", PyExc_RuntimeError);
     py::register_exception<UsdError>(m, "UsdError", PyExc_RuntimeError);
+    py::register_exception<VrsceneError>(m, "VrsceneError", PyExc_RuntimeError);
 
     m.def("hash64", &hash64, py::arg("value"), "64-bit hash of an integer (the core's mixing function).");
     m.def("keep_at_density", &keepAtDensity, py::arg("strand_id"), py::arg("density"),

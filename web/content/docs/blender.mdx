@@ -397,6 +397,31 @@ What's approximate:
 - Compare colors with **Color Management > View Transform: Standard** (Blender's default, AgX,
   tones the image differently from Arnold's sRGB output).
 
+### V-Ray
+
+With **V-Ray for Blender** as the render engine, a final render (F12, or an animation) renders each
+groom as GroomLab's V-Ray hair: the strands with each strand's color and a VRayHairNextMtl shader
+set up from the groom's look, the same as GroomLab's V-Ray scene export
+([Other renderers](/docs/other-renderers#v-ray)). V-Ray's own conversion of the hair object would
+lose the colors and the look. Nothing needs setting up:
+
+- Before the render, GroomLab writes the groom (every strand) as a V-Ray scene in your temp folder
+  (`groomlab_vray`) and renders it through a **V-Ray Scene** object it adds under the scalp
+  (`<scalp>_vray`, hidden in the viewport). For that render the hair object is hidden; afterwards
+  both are as they were, so Cycles and EEVEE render as before.
+- The hair follows the scalp: move, rotate or scale it as usual. (The scalp's scale goes into the
+  strands themselves, since V-Ray does not scale hair widths with an object's transform; a scalp
+  scaled unevenly gets the average of its scale.)
+- **Animation:** with V-Ray's animation mode on, the scene holds the whole frame range as V-Ray
+  keys. **Motion blur:** with V-Ray's motion blur on, it holds a frame more on each side, and V-Ray
+  blurs between them.
+- A scalp that deforms (an armature, shape keys), rendered from Blender's window, keeps the pose of
+  the frame the render starts on for the whole animation and its motion blur.
+- **Interactive (viewport) rendering** in V-Ray shows V-Ray's own conversion of the hair object, as
+  a preview without GroomLab's colors and look. Use a final render to judge the hair.
+- The file is temporary and written on the machine that renders: on a render farm, render the
+  `.blend` with GroomLab and V-Ray for Blender installed on each machine.
+
 
 ## Files
 
@@ -429,9 +454,14 @@ The Groom Tools' **Output** section has **Simulate Range**, the **Export** and *
 
 ### Sample meshes
 
-**Add Sample Mesh** brings in **Nika** (a head and shoulders), **Manny** (a head) or the **Wolf**
-at the origin, at their real size in the scene's units, facing Blender's front, with the part to
-groom selected: then **Create Groom from Selection**.
+**Add Sample Mesh** brings in **Nika** (a head and shoulders), **Manny** (a head), the **Wolf** or
+**Buddy (rig)** at the origin, at their real size in the scene's units, facing Blender's front, with
+the part to groom selected: then **Create Groom from Selection**. Buddy is a posable cartoon
+character: an armature (buddy_rig) with the body, eyes, teeth and tongue skinned to it. Groom the
+body, then pose the armature's bones (head, arms, fingers) and the hair follows (see
+[Animation](#animation)). Credit: "Nika head by Nick Rutlinh (GroomLab), CC BY 4.0", "Manny head
+by Nick Rutlinh (GroomLab), CC BY 4.0", "Wolf by Nick Rutlinh (GroomLab), CC BY 4.0", "Buddy by
+Nick Rutlinh (GroomLab), CC BY 4.0".
 
 ## Add
 

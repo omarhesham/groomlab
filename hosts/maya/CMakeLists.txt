@@ -188,7 +188,8 @@ install(DIRECTORY themes/ DESTINATION "${GROOMLAB_MODULE_DIR}/themes" COMPONENT 
 # The UI structure every host shares (engine/ui: menus, lists, choices...), read by scripts/groomlab/ui/definitions.py.
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/engine/ui/" DESTINATION "${GROOMLAB_MODULE_DIR}/ui" COMPONENT GroomLab)
 install(DIRECTORY nodes/ DESTINATION "${GROOMLAB_MODULE_DIR}/nodes" COMPONENT GroomLab)  # compound nodes (.glnode) shipped with every host
-install(DIRECTORY meshes/ DESTINATION "${GROOMLAB_MODULE_DIR}/meshes" COMPONENT GroomLab)  # Nika, the sample head (CC BY 4.0)
+# The sample meshes (CC BY 4.0): Nika, Manny, the wolf, Buddy (its rig, buddy_rig.ma; the .fbx is Blender's).
+install(DIRECTORY meshes/ DESTINATION "${GROOMLAB_MODULE_DIR}/meshes" COMPONENT GroomLab PATTERN "*.fbx" EXCLUDE)
 # GroomLab's license and NOTICE, and the licenses of the open-source code inside the binaries and of
 # tbb.dll, shipped with them.
 groomlab_install_legal("${GROOMLAB_MODULE_DIR}" GroomLab)

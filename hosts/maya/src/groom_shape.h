@@ -231,7 +231,11 @@ public:
     static MObject aRenderDensity;
     static MObject aRenderWidthScale;
     static MObject aRenderLengthScale;
-    static MObject aGraphUi;         // graph editor layout JSON (stored; does not affect evaluation)
+    // The viewport drawing the groom as a render shows it (on while Maya's Hardware 2.0 renders it:
+    // groomlab.render_hardware2): at renderDensity with no point budget, renderOnly nodes on, and
+    // the render width and length scales applied. Hidden, never stored.
+    static MObject aRenderView;
+    static MObject aGraphUi;        // graph editor layout JSON (stored; does not affect evaluation)
     static MObject aViewNode;  // the graph node the viewport shows ("": the output); renders use the output
     static MObject aLocked;    // brushes and parts leave a locked groom alone (a finished groom)
     static MObject aDisplayInstances;  // instanced geometry (Instance node) drawn as small markers
@@ -656,6 +660,11 @@ private:
         // move for what changed since).
         FramePtr frame;
         ViewVersions seen;
+        // renderView's width and length scales as the last evaluation read them (makeFrame applies
+        // them to the strands it hands on).
+        bool renderView = false;
+        float renderWidthScale = 1.0f;
+        float renderLengthScale = 1.0f;
         std::uint64_t evaluations = 0;
         double lastComputeMs = 0.0;
     };

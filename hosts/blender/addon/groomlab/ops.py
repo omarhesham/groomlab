@@ -6,7 +6,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from . import graph, graph_tree, groom
+from . import graph, graph_tree, groom, vray
 from .helper_client import HelperError, sentence
 
 
@@ -99,6 +99,7 @@ class GROOMLAB_OT_remove_groom(GroomOperator):
                 bpy.data.objects.remove(obj)
                 if data is not None and data.users == 0:
                     bpy.data.hair_curves.remove(data)
+        vray.remove_object(scalp)
         g.role = "NONE"
         g.uid = ""
         g.snapshot = ""
@@ -479,6 +480,16 @@ class GROOMLAB_OT_export_usd(_Export):
     fmt = "usd"
 
 
+class GROOMLAB_OT_export_vrscene(_Export):
+    """Export the groom as a V-Ray scene: its strands and V-Ray hair shader (centimeters, Y up), for
+    V-Ray Standalone or V-Ray for Maya's VRayScene node"""
+    bl_idname = "groomlab.export_vrscene"
+    bl_label = "Export V-Ray Scene"
+    filename_ext = ".vrscene"
+    filter_glob: StringProperty(default="*.vrscene", options={"HIDDEN"})
+    fmt = "vrscene"
+
+
 _card_items = []  # kept: Blender reads an enum's item strings after the callback returns
 
 
@@ -538,7 +549,7 @@ classes = (GROOMLAB_OT_add_groom, GROOMLAB_OT_remove_groom, GROOMLAB_OT_sculpt_g
            GROOMLAB_OT_node_remove, GROOMLAB_OT_node_move, GROOMLAB_OT_toggle_group, GROOMLAB_OT_save_groom,
            GROOMLAB_OT_load_groom, GROOMLAB_OT_save_groom_linked, GROOMLAB_OT_reload_groom,
            GROOMLAB_OT_add_node_before_output, GROOMLAB_OT_review_heatmap, GROOMLAB_OT_export_alembic,
-           GROOMLAB_OT_export_usd, GROOMLAB_OT_bake_card_maps)
+           GROOMLAB_OT_export_usd, GROOMLAB_OT_export_vrscene, GROOMLAB_OT_bake_card_maps)
 
 
 GROOM_FILE_TEXT = "GroomLab Groom File (.groom)"  # File > Import and File > Export, named as Blender names formats

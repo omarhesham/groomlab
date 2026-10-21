@@ -345,6 +345,12 @@ std::shared_ptr<const ScalpMesh> withRestArea(const std::shared_ptr<const ScalpM
 // `area` (false: left as they are: no area, or within 1e-6): withRestArea's, for a host handing a
 // rest pose's points alone (GroomSession::updateScalpPoints).
 double surfaceArea(const std::vector<Vec3f>& points, const std::vector<ScalpMesh::Triangle>& triangles);
+// The area `points` (the scalp's triangles, posed) give the rest pose without the pose's stretch:
+// the rest area times the median of the triangles' area ratios, posed over rest. A uniform scale
+// (a rig scaled at its root) scales every triangle alike and comes through; a pose stretches some
+// (a shoulder, a neck) and leaves the median. surfaceArea(points) without a rest pose or when the
+// counts differ.
+double poseFreeArea(const ScalpMesh& scalp, const std::vector<Vec3f>& points);
 bool scaleToArea(std::vector<Vec3f>& points, const std::vector<ScalpMesh::Triangle>& triangles, double area);
 
 }  // namespace groomlab

@@ -269,7 +269,7 @@ void MainWindow::refreshExportState() {
 bool MainWindow::setExportTarget(const QString& target) {
     ExportPanel::Target t;
     if (!ExportPanel::targetFromName(target.toLower().toStdString(), &t)) {
-        report(tr("No export target '%1' (alembic, usd, unreal, unity, cards, maps)").arg(target));
+        report(tr("No export target '%1' (alembic, usd, vrscene, unreal, unity, cards, maps)").arg(target));
         return false;
     }
     host_->exportPanel()->setTarget(t);
@@ -301,7 +301,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
     }
     ExportPanel::Target t;
     if (!ExportPanel::targetFromName(target.toLower().toStdString(), &t)) {
-        report(tr("No export target '%1' (alembic, usd, unreal, unity, cards, maps)").arg(target));
+        report(tr("No export target '%1' (alembic, usd, vrscene, unreal, unity, cards, maps)").arg(target));
         return false;
     }
     panel->setTarget(t);
@@ -329,6 +329,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
             case ExportPanel::Target::Unity: result = document_->exportUnityStrands(out, options, progress); break;
             case ExportPanel::Target::Cards: result = document_->exportCards(out, options, progress); break;
             case ExportPanel::Target::CardMaps: result = document_->exportCardMaps(out, options, progress); break;
+            case ExportPanel::Target::Vrscene: result = document_->exportVrscene(out, options, progress); break;
             default: break;
         }
     } catch (const std::exception& e) {

@@ -18,7 +18,7 @@
       "title": "Start a groom",
       "items": [
         {"id": "groom.create", "tip": "Select the scalp mesh (and any guide curves), then click: a new groom on it"},
-        {"submenu": "Add Sample Mesh", "id": "samples", "tip": "No mesh yet? A sample to start from, added at the origin and selected: Nika (a head and shoulders), Manny (a head) or a wolf", "ref": "menus/samples"},
+        {"submenu": "Add Sample Mesh", "id": "samples", "tip": "No mesh yet? A sample to start from, added at the origin and selected: Nika (a head and shoulders), Manny (a head), a wolf or Buddy (a posable rig)", "ref": "menus/samples"},
         {"submenu": "Import", "id": "import", "tip": "Bring a groom in: XGen, Yeti, Alembic curves (on the selected mesh) or a groom file", "ref": "menus/output.import"}
       ]
     },
@@ -31,7 +31,7 @@
     "output": [
       {"id": "sim.range", "tip": "Step the Simulate nodes over the playback range into their cache (Simulate > Add Simulate Node first); Esc stops"},
       {"submenu": "Export", "id": "export", "tip": "The strands, cards or a groom file for other apps and engines", "ref": "menus/output.export"},
-      {"submenu": "Render", "id": "render", "tip": "Arnold: from a groom file, as curves, or a turntable", "ref": "menus/output.render"},
+      {"submenu": "Render", "id": "render", "tip": "Arnold (from a groom file, as curves, a turntable), RenderMan (prman, in any Maya) or V-Ray (Standalone in any Maya; the V-Ray for Maya hook, 2024+, experimental)", "ref": "menus/output.render"},
       {"submenu": "Studio", "id": "studio", "tip": "Studio lighting for showcase renders in Arnold: a backdrop, area lights and a camera round the groom, by preset; Remove Studio puts things back", "ref": "menus/output.studio"},
       {"id": "groom.transfer", "label": "Transfer...", "tip": "Move the groom onto another mesh (Transfer Groom to Scalp...)"},
       {"submenu": "Import", "id": "import", "tip": "XGen, Yeti, Alembic curves or a groom file", "ref": "menus/output.import"}

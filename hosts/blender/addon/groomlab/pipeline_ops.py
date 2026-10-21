@@ -533,7 +533,7 @@ class GROOMLAB_OT_add_sample(_Tipped, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     sample: EnumProperty(name="Sample", items=[("nika", "Nika (head)", ""), ("manny", "Manny (head)", ""),
-                                               ("wolf", "Wolf", "")], default="nika")
+                                               ("wolf", "Wolf", ""), ("buddy", "Buddy (rig)", "")], default="nika")
 
     def execute(self, context):
         if context.mode != "OBJECT":

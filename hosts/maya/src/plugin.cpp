@@ -136,6 +136,9 @@ PLUGIN_EXPORT MStatus initializePlugin(MObject obj) {
     CHECK_MSTATUS_AND_RETURN_IT(status);
     status = plugin.registerCommand(ExportUsdCmd::kName, ExportUsdCmd::creator, ExportUsdCmd::newSyntax);
     CHECK_MSTATUS_AND_RETURN_IT(status);
+    status = plugin.registerCommand(groomlab::maya::ExportVrsceneCmd::kName, groomlab::maya::ExportVrsceneCmd::creator,
+                                    groomlab::maya::ExportVrsceneCmd::newSyntax);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
     status = plugin.registerCommand(ExportGroomCmd::kName, ExportGroomCmd::creator, ExportGroomCmd::newSyntax);
     CHECK_MSTATUS_AND_RETURN_IT(status);
     status = plugin.registerCommand(groomlab::maya::ImportGroomCmd::kName, groomlab::maya::ImportGroomCmd::creator,
@@ -271,6 +274,7 @@ PLUGIN_EXPORT MStatus uninitializePlugin(MObject obj) {
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(groomlab::maya::ImportGroomCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(ExportGroomCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(ExportUsdCmd::kName));
+    CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(groomlab::maya::ExportVrsceneCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(groomlab::maya::CameraSolveCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterContextCommand(groomlab::maya::ReferenceFlowContextCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterContextCommand(groomlab::maya::ReferencePickContextCmd::kName));

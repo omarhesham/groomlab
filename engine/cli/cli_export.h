@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// Writing a groom's strands to Alembic or USD frame by frame: what `groomlab-cli eval` does, and
+// Writing a groom's strands to Alembic, USD or a V-Ray scene frame by frame: what `groomlab-cli eval` does, and
 // the MCP server's export tool (mcp_tools.cpp) with it, so the two write the same files.
 
 #include <cstddef>
@@ -15,7 +15,7 @@ class GroomScene;
 namespace cli {
 
 struct ExportOptions {
-    std::string out;  // .abc, .usda or .usd
+    std::string out;  // .abc, .usda, .usd or .vrscene
     double start = 1.0;
     double end = 1.0;
     double step = 1.0;
@@ -33,6 +33,8 @@ struct ExportReport {
 
 // Whether the path names a USD file (.usda, .usd) rather than Alembic.
 bool isUsdPath(const std::string& path);
+// Whether the path names a V-Ray scene (.vrscene).
+bool isVrscenePath(const std::string& path);
 
 // Checks the options (throws std::invalid_argument saying what is wrong), then evaluates `scene`
 // at each frame and writes the strands. Progress lines ("frame 1: 1200 strands") go to `log` when

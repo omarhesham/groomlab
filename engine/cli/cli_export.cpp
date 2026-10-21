@@ -10,8 +10,10 @@
 #include "groomlab/alembic_io.h"
 #include "groomlab/frame_time.h"
 #include "groomlab/groom_scene.h"
+#include "groomlab/groom_session.h"
 #include "groomlab/scales.h"
 #include "groomlab/usd_writer.h"
+#include "groomlab/vrscene_writer.h"
 
 namespace groomlab::cli {
 
@@ -33,13 +35,18 @@ PrototypeLookup storedPrototypes(const GroomScene& scene) {
 
 bool isUsdPath(const std::string& path) { return endsWith(path, ".usda") || endsWith(path, ".usd"); }
 
+bool isVrscenePath(const std::string& path) { return endsWith(path, ".vrscene"); }
+
 ExportReport exportStrands(GroomScene& scene, const ExportOptions& a, std::ostream* log) {
     if (a.out.empty()) throw std::invalid_argument("no output file");
     if (!(a.step > 0.0)) throw std::invalid_argument("the frame step must be positive");
     if (a.end < a.start) throw std::invalid_argument("the end frame is before the start frame");
     if (!(a.density >= 0.0f && a.density <= 1.0f)) throw std::invalid_argument("the density must be between 0 and 1");
     const bool usd = isUsdPath(a.out);
-    if (!usd && !endsWith(a.out, ".abc")) throw std::invalid_argument("the output must be .abc, .usda or .usd");
+    const bool vrscene = isVrscenePath(a.out);
+    if (!usd && !vrscene && !endsWith(a.out, ".abc")) {
+        throw std::invalid_argument("the output must be .abc, .usda, .usd or .vrscene");
+    }
     if (a.scales != "mesh" && a.scales != "instancer" && a.scales != "both" && a.scales != "none") {
         throw std::invalid_argument("scales must be mesh, instancer, both or none");
     }
@@ -51,8 +58,16 @@ ExportReport exportStrands(GroomScene& scene, const ExportOptions& a, std::ostre
 
     std::unique_ptr<AlembicCurvesWriter> abc;
     std::unique_ptr<UsdCurvesWriter> usdWriter;
+    std::unique_ptr<VrsceneWriter> vrsceneWriter;
     const std::string name = "groom";
-    if (usd) {
+    if (vrscene) {
+        VrsceneWriter::Options options;
+        options.framesPerSecond = fps;
+        options.comment = scene.file().source;
+        options.upAxis = scene.file().upAxis == "Z" ? "Z" : "Y";
+        options.metersPerUnit = usdMetersPerUnit(scene.file().units);
+        vrsceneWriter = std::make_unique<VrsceneWriter>(a.out, name, options);
+    } else if (usd) {
         UsdCurvesWriter::Options options;
         options.framesPerSecond = fps;
         options.comment = scene.file().source;
@@ -80,9 +95,12 @@ ExportReport exportStrands(GroomScene& scene, const ExportOptions& a, std::ostre
         const StrandSet empty;
         const StrandSet& s = strands ? *strands : empty;
         const MeshPtr scalp = scene.rootScalpAt(seconds);
-        const bool scaled = a.scales != "none" && s.instances() && s.instances()->hasMeshes();
+        const bool scaled = !vrscene && a.scales != "none" && s.instances() && s.instances()->hasMeshes();
         const auto scaleMesh = scaled ? scales.build(s, scalp, storedPrototypes(scene)) : nullptr;
-        if (usdWriter) {
+        if (vrsceneWriter) {
+            if (i == 0) vrsceneWriter->setLobes(hairLobes(scene.session().hairLook()));  // HairColor's highlight
+            vrsceneWriter->writeFrame(frame, s, scalp.get());
+        } else if (usdWriter) {
             usdWriter->writeFrame(frame, s, scalp.get(), scaleMesh.get());
         } else {
             abc->writeFrame(s, scalp.get(), scaleMesh.get());  // root UVs, as Maya's export writes them
@@ -99,6 +117,7 @@ ExportReport exportStrands(GroomScene& scene, const ExportOptions& a, std::ostre
             for (const auto& [node, ms] : times) *log << "  " << node << ": " << ms << " ms\n";
         }
     }
+    if (vrsceneWriter) vrsceneWriter->close();
     if (usdWriter) usdWriter->close();
     if (abc) abc->close();
     report.frames = frameCount;

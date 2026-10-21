@@ -3196,6 +3196,62 @@ def widgets_theme_menu(parent):
     return widgets.theme_menu(parent)
 
 
+class RenderProgressTest(unittest.TestCase):
+    """A standalone render's progress window (V-Ray, RenderMan): a tester saw it flash as a small
+    white box until the image came."""
+
+    def test_one_steady_window_over_maya_until_done(self):
+        from PySide2 import QtWidgets
+        from groomlab.ui import menu, widgets
+
+        class FakeJob(object):
+            frames = [1, 2]
+            cancelled = False
+            folder = log = ""
+
+            def __init__(self):
+                self.step = 0
+
+            def poll(self):  # (written, frames, done, percent)
+                self.step += 1
+                return min(self.step // 4, 2), 2, self.step >= 9, (self.step % 4) * 25.0
+
+            def cancel(self):
+                self.cancelled = True
+
+            def images(self):
+                return []
+
+            def ok(self):
+                return False
+
+            def errors(self):
+                return ["fake"]
+
+        before = set(QtWidgets.QApplication.topLevelWidgets())
+        job = FakeJob()
+        menu._watch_render(job, {"label": "Fake", "window": "GroomLab Fake", "title": "Render in Fake"})
+        _, progress, timer = menu._RENDER_JOBS[-1]
+        try:
+            self.assertEqual(progress.parentWidget().objectName(), widgets._maya_main_window().objectName())  # over Maya
+            self.assertTrue(progress.isVisible())
+            width = progress.width()
+            seen = []
+            while job.step < 9:
+                timer.timeout.emit()
+                wait(5)
+                seen.append((progress.isVisible(), progress.width()))
+            self.assertTrue(all(v for v, _ in seen[:-1]), seen)  # shown the whole time, never hidden and shown again
+            self.assertEqual({w for _, w in seen}, {width})  # a new label never resizes it
+            new = [w for w in set(QtWidgets.QApplication.topLevelWidgets()) - before if w is not progress and w.isVisible()]
+            self.assertEqual(new, [])
+            self.assertFalse(progress.isVisible())  # done: closed
+            self.assertNotIn((job, progress, timer), menu._RENDER_JOBS)
+        finally:
+            timer.stop()
+            progress.close()
+
+
 class DockableWindowsTest(unittest.TestCase):
     """The menu's entry points: Maya's dockable wrappers, as a user opens them."""
 
@@ -3362,7 +3418,10 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertEqual(cmds.menuItem(menu.HUD_ITEM, query=True, checkBox=True), bool(groomlab.review.hud_visible()))
             self.assertEqual(entries_of("Studio"), ["Portrait", "Beauty", "Rim Drama", "High Key", "Turntable",
                                                     "Look Through Studio Camera", "Remove Studio"])
-            self.assertEqual(entries_of("Render"), ["Render from Groom File...", "Render as Curves"])
+            self.assertEqual(entries_of("Render"), ["Render from Groom File...", "Render as Curves",
+                                                    "Maya Hardware 2.0 (no renderer needed)...", "RenderMan (prman)...",
+                                                    "V-Ray Standalone...", "V-Ray for Maya Hook (2024+, experimental)",
+                                                    "Load as VRayScene (2024+, experimental)"])
             exports = entries_of("Export")
             self.assertIn("Unreal Cards...", exports)
             self.assertNotIn("Groom File...", exports)

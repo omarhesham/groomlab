@@ -234,7 +234,7 @@ void checkParamPaths(const Workspace& w, const json& value) {
     const std::string s = value.get<std::string>();
     if (s.empty() || s.size() > 1024) return;
     static const std::set<std::string> fileTypes{".png", ".jpg", ".jpeg", ".tif", ".tiff", ".exr", ".tx", ".tga", ".hdr",
-                                                 ".abc", ".usd", ".usda", ".usdc", ".obj", ".json", ".groom", ".ptx"};
+                                                 ".abc", ".usd", ".usda", ".usdc", ".vrscene", ".obj", ".json", ".groom", ".ptx"};
     const bool looksLikeFile = s.find('/') != std::string::npos || s.find('\\') != std::string::npos ||
                                fileTypes.count(lower(fs::u8path(s).extension().u8string())) != 0;
     if (looksLikeFile && !w.insideRoot(s)) {
@@ -591,7 +591,9 @@ struct McpTools::Impl {
         static const std::map<std::string, std::string> about{
             {"nika", "Nika, a human head (CC BY 4.0), about 25 units tall, Y-up, facing +Z: for hair."},
             {"manny", "Manny, a human head (CC BY 4.0), about 34 units tall, Y-up, facing +Z: for hair."},
-            {"wolf", "A wolf's body, Y-up: for fur."}};
+            {"wolf", "A wolf's body, Y-up: for fur."},
+            {"buddy", "Buddy, a cartoon character's body (CC BY 4.0), about 57 units tall, Y-up, facing +Z; the Maya/Blender "
+                      "samples also ship it rigged."}};
         json meshes = json::array();
         for (const auto& [name, file] : sampleMeshes()) {
             json m = {{"name", name}, {"file", fs::u8path(file).filename().u8string()}};
@@ -1338,7 +1340,8 @@ struct McpTools::Impl {
         } catch (const std::invalid_argument& e) {
             throw ToolError(e.what());
         }
-        return textResult({{"groom", g.name}, {"path", w.shown(o.out)}, {"format", isUsdPath(o.out) ? "usd" : "alembic"},
+        const char* format = isVrscenePath(o.out) ? "vrscene" : isUsdPath(o.out) ? "usd" : "alembic";
+        return textResult({{"groom", g.name}, {"path", w.shown(o.out)}, {"format", format},
                            {"frames", report.frames}, {"strandsPerFrame", report.frames ? report.strandTotal / report.frames : 0},
                            {"ms", static_cast<long long>(report.milliseconds + 0.5)}});
     }
@@ -1437,7 +1440,8 @@ struct McpTools::Impl {
             "each makes. new_groom and apply_preset take them by name.",
             objectSchema({}), &Impl::listPresets);
         add("list_sample_meshes", "List sample meshes",
-            "Lists the meshes that ship with GroomLab to groom on (Nika and Manny, human heads; a wolf for fur). new_groom takes them by name.",
+            "Lists the meshes that ship with GroomLab to groom on (Nika and Manny, human heads; a wolf for fur; Buddy, a cartoon "
+            "character's body). new_groom takes them by name.",
             objectSchema({}), &Impl::listSampleMeshes);
         add("get_docs", "Read the docs",
             "Reads a page of GroomLab's documentation as text (Markdown): how features work, what nodes and params do, recipes. "
@@ -1452,7 +1456,7 @@ struct McpTools::Impl {
             "HairColor, Width, Resample, Output), or a preset's. The mesh is a sample's name (list_sample_meshes) or an .obj or "
             ".abc file inside the server's folder. Answers with the scalp's bounds and a summary of the groom.",
             objectSchema({{"name", prop("string", "A name for the groom (letters, digits, _ - .), used by every other tool.")},
-                          {"mesh", prop("string", "A sample mesh's name (\"nika\", \"manny\", \"wolf\") or a mesh file's path (.obj, .abc).")},
+                          {"mesh", prop("string", "A sample mesh's name (\"nika\", \"manny\", \"wolf\", \"buddy\") or a mesh file's path (.obj, .abc).")},
                           {"object", prop("string", "The mesh's name inside an Alembic file (default: its first mesh).")},
                           {"preset", prop("string", "A preset to start from (list_presets), instead of the default graph.")}},
                          {"name", "mesh"}),
@@ -1615,8 +1619,9 @@ struct McpTools::Impl {
             &Impl::saveGroom);
         add("export", "Export curves",
             "Writes the groom's strands as curves to Alembic (.abc) or USD (.usda, .usd) over a frame range, as groomlab-cli "
-            "eval does: widths, root UVs, colors and channels.",
-            objectSchema({{"groom", groom}, {"path", prop("string", "The output file: .abc, .usda or .usd.")},
+            "eval does: widths, root UVs, colors and channels; or as a V-Ray scene (.vrscene: the hair and its V-Ray hair "
+            "shader).",
+            objectSchema({{"groom", groom}, {"path", prop("string", "The output file: .abc, .usda, .usd or .vrscene.")},
                           {"frames", {{"type", json::array({"string", "number"})}, {"description", "A frame (12) or a range (\"1-24\"); default the groom's frame."}}},
                           {"step", prop("number", "Frames between samples (default 1).")},
                           {"density", prop("number", "Share of strands, 0-1 (default 1).")},

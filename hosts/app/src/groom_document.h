@@ -463,6 +463,17 @@ public:
     ExportResult exportAlembic(const std::string& path, const ExportOptions& options, const ExportProgress& progress = {});
     // USD BasisCurves in a text layer (.usda).
     ExportResult exportUsd(const std::string& path, const ExportOptions& options, const ExportProgress& progress = {});
+    // A V-Ray scene (.vrscene: vrscene_writer.h): the strands, their colors and the look's
+    // BRDFHair4, in the file's unit, Y up; a range as V-Ray's keys. `firstScalp`, when given, gets
+    // the scalp of the first frame written (the V-Ray render's stage: vray_render.h).
+    ExportResult exportVrscene(const std::string& path, const ExportOptions& options, const ExportProgress& progress = {},
+                               MeshPtr* firstScalp = nullptr);
+    // The groom as it is now (save's file) written to `path` for a render that evaluates it
+    // (GroomLab's RenderMan procedural: prman_render.h), the document untouched (its own path and
+    // saved state): no card bake, the simulation bakes relative to `path`, the groom's own folder
+    // among its search paths (its relative maps found from there). `scalp`, when given, gets the
+    // scalp at the document's time (the render's stage). Throws std::runtime_error.
+    void writeRenderGroom(const std::string& path, MeshPtr* scalp = nullptr);
     // Unreal's groom importer (UnrealGroomWriter): the strands with the primary guides, by
     // groom group when `options.groups`.
     ExportResult exportUnrealGroom(const std::string& path, const ExportOptions& options, const ExportProgress& progress = {});

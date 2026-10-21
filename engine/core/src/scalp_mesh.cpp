@@ -904,6 +904,26 @@ bool ScalpMesh::intersectRay(const Vec3f& origin, const Vec3f& direction, Surfac
     return true;
 }
 
+double poseFreeArea(const ScalpMesh& scalp, const std::vector<Vec3f>& points) {
+    const auto& triangles = scalp.triangles();
+    if (!scalp.hasRest() || points.size() != scalp.restPoints().size()) return surfaceArea(points, triangles);
+    std::vector<double> ratios;
+    ratios.reserve(triangles.size());
+    for (std::size_t t = 0; t < triangles.size(); ++t) {
+        const ScalpMesh::Triangle& tri = triangles[t];
+        const double rest = scalp.restTriangleArea(t);
+        if (!(rest > 0.0) || tri[0] < 0 || tri[1] < 0 || tri[2] < 0) continue;
+        const auto a = static_cast<std::size_t>(tri[0]), b = static_cast<std::size_t>(tri[1]), c = static_cast<std::size_t>(tri[2]);
+        if (a >= points.size() || b >= points.size() || c >= points.size()) continue;
+        const double posed = 0.5 * (points[b] - points[a]).cross(points[c] - points[a]).length();
+        ratios.push_back(posed / rest);
+    }
+    if (ratios.empty()) return surfaceArea(points, triangles);
+    auto middle = ratios.begin() + static_cast<std::ptrdiff_t>(ratios.size() / 2);
+    std::nth_element(ratios.begin(), middle, ratios.end());
+    return restSurfaceArea(scalp) * *middle;
+}
+
 double restSurfaceArea(const ScalpMesh& scalp) {
     double area = 0.0;
     for (std::size_t t = 0; t < scalp.triangleCount(); ++t) area += scalp.restTriangleArea(t);

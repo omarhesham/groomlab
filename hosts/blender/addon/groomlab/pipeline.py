@@ -18,7 +18,7 @@ from . import groom, process, units
 from .helper_client import HelperError
 
 # export's formats the helper writes alone, and those whose meshes come back for an FBX.
-STRAND_FORMATS = ("alembic", "usd", "scalesUsd", "unrealGroom", "unityStrands")
+STRAND_FORMATS = ("alembic", "usd", "scalesUsd", "vrscene", "unrealGroom", "unityStrands")
 MESH_FORMATS = ("unrealCards", "unityCards", "scalesFbx", "unityFeathers")
 LODS = ("hero", "mid", "low")            # cards' levels of detail (gltfCards' lods)
 BARB_LODS = ("high", "mid", "low")       # lighter feather grooms (unrealGroom, unityStrands, unityFeathers)
@@ -1459,18 +1459,67 @@ def transfer_markers(scalp, markers=None):
 # ---- Sample meshes ----------------------------------------------------------------------------------
 
 def sample_meshes():
-    """The sample meshes shipped with the helper: [{id, label, file, extentCm, name, part, license}]."""
+    """The sample meshes shipped with the helper: [{id, label, file, extentCm, name, part, kind, license}]
+    (kind "mesh": an OBJ; "rig": an FBX of an armature and the meshes skinned to it)."""
     return process.call("sample_meshes")["samples"]
+
+
+def _select_only(context, target):
+    for o in context.view_layer.objects:
+        if o is not None:
+            o.select_set(False)
+    target.select_set(True)
+    context.view_layer.objects.active = target
+    context.view_layer.update()
+
+
+def _add_rig_sample(context, m):
+    """A rig sample (Buddy): Blender's FBX importer brings the armature (Z up, Blender's front facing
+    it) with the meshes parented and skinned to it (an Armature modifier each), at rest; the armature,
+    named after the sample, is sized for the scene's units (its scale: nothing applied, the rig stays
+    posable), the part to groom selected and active. Returns it."""
+    before = set(bpy.data.objects)
+    if "fbx" in dir(bpy.ops.import_scene):
+        bpy.ops.import_scene.fbx(filepath=m["file"], use_anim=False, ignore_leaf_bones=False)
+    else:  # Blender's own importer (the add-on left out)
+        bpy.ops.wm.fbx_import(filepath=m["file"])
+    made = [o for o in bpy.data.objects if o not in before]
+    rig = next((o for o in made if o.type == "ARMATURE"), None)
+    meshes = [o for o in made if o.type == "MESH"]
+    if rig is None or not meshes:
+        raise HelperError("io", "the %s sample did not import" % m["id"])
+    rig.name = m["name"]
+    context.view_layer.update()
+    depsgraph = context.evaluated_depsgraph_get()
+    points = []
+    for o in meshes:
+        e = o.evaluated_get(depsgraph)
+        world = np.array(e.matrix_world, dtype=np.float64)
+        co = np.empty(len(e.data.vertices) * 3)
+        e.data.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        points.append(co @ world[:3, :3].T + world[:3, 3])
+    points = np.concatenate(points)
+    extent = float(np.max(points.max(axis=0) - points.min(axis=0)))
+    want = m["extentCm"] / units.cm_per_unit(context.scene)
+    if extent > 0 and abs(want / extent - 1.0) > 1e-3:
+        rig.scale = rig.scale * (want / extent)
+    target = next((o for o in meshes if o.name.split(".")[0] == m["part"]), meshes[0])
+    _select_only(context, target)
+    return target
 
 
 def add_sample(context, sample="nika"):
     """A sample mesh in the scene at the origin, its real size in the scene's units, Blender's front
     facing it, the part to groom selected and active (Maya's add_sample: then make a groom on it).
-    A sample of several parts comes in under an empty of its name. Returns the selected part."""
+    A sample of several parts comes in under an empty of its name; a rig (Buddy) as its armature,
+    its meshes skinned to it. Returns the selected part."""
     samples = {m["id"]: m for m in sample_meshes()}
     if sample not in samples:
         raise HelperError("not_found", "no sample %r (%s)" % (sample, ", ".join(sorted(samples))))
     m = samples[sample]
+    if m.get("kind") == "rig":
+        return _add_rig_sample(context, m)
     scene = context.scene
     before = set(bpy.data.objects)
     # The OBJ is Y up, facing +Z: Blender's importer turns it Z up, facing -Y (Blender's front).
@@ -1500,10 +1549,5 @@ def add_sample(context, sample="nika"):
         for o in made:
             o.parent = top
         target = next((o for o in made if o.name.split(".")[0] == m["part"]), made[0]) if m["part"] else made[0]
-    for o in context.view_layer.objects:
-        if o is not None:
-            o.select_set(False)
-    target.select_set(True)
-    context.view_layer.objects.active = target
-    context.view_layer.update()
+    _select_only(context, target)
     return target

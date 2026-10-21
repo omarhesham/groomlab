@@ -57,6 +57,26 @@ def export_usd(groom, path, start=None, end=None, step=1.0, density=1.0, scales=
     return cmds.groomLabExportUsd(groom, **kwargs)
 
 
+def export_vrscene(groom, path, start=None, end=None, step=1.0, density=1.0, render_overrides=False, min_pixel_width=0.0):
+    """Write the groom as a V-Ray scene (.vrscene): the strands (GeomMayaHair, the groom's object
+    space, centimeters), its hair shader (VRayHairNextMtl's BRDFHair4, each strand's color through
+    a TexHairSampler, the highlight from the groom's look) and a Node with the groom's world matrix.
+    Load it in V-Ray for Maya with a VRayScene node, or render it in V-Ray Standalone (#include it in
+    a scene with a camera and lights).
+
+    Same frames, density and render_overrides rules as export_alembic; more than one frame writes
+    the moving values as interpolate() keys, which V-Ray renders and blurs (to blur frame f, write
+    f to f + 1). min_pixel_width: V-Ray's (strands thinner than that many pixels drawn that wide and
+    more transparent). Returns frames written."""
+    kwargs = {"file": path, "step": step, "density": density, "renderOverrides": bool(render_overrides),
+              "minPixelWidth": float(min_pixel_width)}
+    if start is not None:
+        kwargs["startFrame"] = start
+    if end is not None:
+        kwargs["endFrame"] = end
+    return cmds.groomLabExportVrscene(groom, **kwargs)
+
+
 def has_scales(groom):
     """Whether the groom's graph has a Scales node."""
     return any(n.get("type") == "Scales" for n in get_graph(groom).get("nodes", []))

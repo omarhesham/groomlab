@@ -35,12 +35,12 @@ namespace groomlab::app {
 class ExportPanel : public GlassPanel {
     Q_OBJECT
 public:
-    enum class Target { Alembic, Usd, Unreal, Cards, Unity, CardMaps, Count };
+    enum class Target { Alembic, Usd, Unreal, Cards, Unity, CardMaps, Vrscene, Count };
 
     explicit ExportPanel(QWidget* parent = nullptr);
     Target target() const { return target_; }
     void setTarget(Target target);  // no signal
-    static const char* targetName(Target target);  // "alembic", "usd", "unreal", "cards", "unity"
+    static const char* targetName(Target target);  // "alembic", "usd", "unreal", "cards", "unity", "maps", "vrscene"
     static bool targetFromName(const std::string& name, Target* target);
     // The options as set: the frames (the current frame when the range is off), the density
     // and the target's own.

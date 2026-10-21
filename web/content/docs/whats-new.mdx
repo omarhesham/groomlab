@@ -13,6 +13,56 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.21.0 (October 20, 2026)
+
+- **Render with Maya Hardware 2.0, no renderer needed.** GroomLab > Render > Maya Hardware 2.0 (no
+  renderer needed)... renders frames or a turntable with Maya's own Hardware 2.0, in every Maya
+  version, in well under a second to a few seconds a frame: the grooms at their render density,
+  anti-aliased, with GroomLab's hair shading; a studio's Arnold lights replaced by matching Maya
+  lights. The images open in the Render View
+  ([Maya Hardware 2.0](/docs/rendering#maya-hardware-20)).
+- **A steady render progress window.** V-Ray and RenderMan renders from Maya show one progress window
+  over Maya, with the frame and percent, instead of a small box flashing until the image came.
+- **Render in RenderMan from any Maya.** GroomLab > Render > RenderMan (prman)... renders the grooms through GroomLab's RenderMan procedural, the visible
+  meshes, the camera and the lights in RenderMan's prman in the background, in every Maya version,
+  2022 too, without RenderMan for Maya: the studio presets' area lights and dome become RenderMan
+  lights, a frame range renders a turntable or a shot, motion blur is an option, and the image
+  opens in the Render View. RenderMan is free for non-commercial use
+  ([RenderMan](/docs/other-renderers#render-in-renderman-any-maya-tested)).
+- **RenderMan in the app.** Render > Render Frame in RenderMan and Render Turntable in RenderMan
+  render the groom in prman with the viewport's camera, lights and scalp, in the same window as the
+  V-Ray renders; the RenderMan procedural now comes with the app ([the app](/docs/app#render-in-renderman)).
+- **Posing a rig keeps the groom's scale.** On a scalp with a rest mesh (a skinned one gets one),
+  the groom's scale is measured without the pose's stretch: posing at the start frame no longer
+  rescales the hair, and scaling the rig still does.
+- **V-Ray scenes.** GroomLab > Export > V-Ray Scene... (Maya and Blender), `groomlab.export_vrscene`
+  and `groomlab-cli eval hair.groom -o hair.vrscene` write the groom as a V-Ray scene: the strands
+  as V-Ray hair with each strand's color, and a VRayHairNextMtl shader set up from the groom's look
+  so it renders close to Arnold. Render it in V-Ray Standalone or load it in V-Ray for Maya with a
+  VRayScene node. Frame ranges are written as keys, so V-Ray renders motion blur
+  ([Other renderers](/docs/other-renderers#v-ray)).
+- **V-Ray for Blender.** With V-Ray as Blender's render engine, final renders show the groom as
+  GroomLab's V-Ray hair (each strand's color, the shader from the groom's look) instead of V-Ray's
+  plain conversion of the hair object; animations and motion blur included
+  ([Blender](/docs/blender#v-ray)).
+- **V-Ray in the app.** Render > Render Frame in V-Ray and Render Turntable in V-Ray render the
+  groom in V-Ray Standalone with the viewport's camera, lights and scalp, in a window that shows the
+  progress and the image. Export mode has a V-Ray scene target too ([the app](/docs/app#render-in-v-ray)).
+- **Render in V-Ray Standalone from any Maya.** GroomLab > Render > V-Ray Standalone... renders the grooms, the visible meshes, the camera and the lights
+  in V-Ray Standalone in the background, in every Maya version, 2022 too: the studio presets' area
+  lights and dome become V-Ray lights, a frame range renders a turntable or a shot, and the image
+  opens in the Render View ([V-Ray](/docs/other-renderers#render-in-v-ray-standalone-any-maya-tested)).
+- **V-Ray for Maya hook (experimental).** For Maya 2024 and later with V-Ray for Maya: Render > V-Ray
+  for Maya Hook renders the grooms inside V-Ray for Maya's own renders, and Render > Load as
+  VRayScene points a VRayScene node at an exported groom. Untested so far; please report results.
+- **Buddy, a posable sample character.** Add Sample Mesh > Buddy (rig) in Maya and Blender brings in
+  a rigged cartoon character (a skinned body, eyes, teeth and tongue; controls in Maya, an armature
+  in Blender) with its body selected: grow a groom on it, then pose it and the hair follows. The
+  GroomLab app and the AI agent tools get Buddy's body as a sample mesh.
+- **Maya exports read a fresh pose.** An export at the current frame after posing a rig without
+  keys (or any other edit upstream of the scalp) now reads the scalp as posed, not as it was before
+  the edit.
+
 ## 0.20.0 (October 20, 2026)
 
 - **Photos in Blender.** The Groom Tools' Photos tab: reference photos as cameras, Look Through,

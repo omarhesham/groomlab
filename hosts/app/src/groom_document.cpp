@@ -1889,6 +1889,22 @@ void GroomDocument::save(const std::string& path) {
     }
 }
 
+void GroomDocument::writeRenderGroom(const std::string& path, MeshPtr* scalp) {
+    if (scalp) *scalp = scene_->rootScalpAt(time_);
+    GroomFile file = currentFile();
+    const std::string folder = std::filesystem::u8path(path).parent_path().u8string();
+    file.cardBake = {};
+    for (auto& [node, ref] : file.simCaches) ref.file = pathFromGroomFolder(ref.file, folder);
+    // Relative paths (texture maps) as the document resolves them: its folder, then the file's.
+    std::vector<std::string> dirs;
+    if (!path_.empty()) dirs.push_back(std::filesystem::u8path(path_).parent_path().u8string());
+    if (!scene_->file().directory.empty()) dirs.push_back(scene_->file().directory);
+    for (const std::string& dir : dirs) {
+        if (std::find(file.searchPaths.begin(), file.searchPaths.end(), dir) == file.searchPaths.end()) file.searchPaths.push_back(dir);
+    }
+    writeGroomFile(path, file);
+}
+
 std::size_t GroomDocument::exportAlembic(const std::string& path) {
     ExportOptions options;
     options.frames.first = options.frames.last = frame();

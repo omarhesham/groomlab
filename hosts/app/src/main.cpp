@@ -9,7 +9,7 @@
 //            [--brush name=value]... [--stroke "x,y x,y ..."]... [--tool camera|brush|select]
 //            [--time frame] [--follow-scalp on|off] [--show-cards] [--simulate frame] [--bake-simulation frame]
 //            [--export-alembic out.abc] [--export-usd out.usda] [--export-unreal out.abc]
-//            [--export-unity out.abc] [--export-cards out.glb|out.gltf] [--export-maps folder/name]
+//            [--export-unity out.abc] [--export-vrscene out.vrscene] [--export-cards out.glb|out.gltf] [--export-maps folder/name]
 //            [--map-preset name] [--map-format tga|png|tiff|exr] [--map-bit-depth N] [--map-supersample N]
 //            [--export-frames a-b[:step]] [--export-density d] [--points-per-strand N] [--export-scale s]
 //            [--cards-resolution N] [--bake-cards dir [--bake-name name]]
@@ -25,6 +25,9 @@
 // a scripted run grooms and shows the result ("ctrl:" or "shift:" first: with that key held).
 // --export-* and --bake-cards write the groom (at --time, or over --export-frames) without a
 // window and quit unless a screenshot is asked for too: the scripted exports the tests run.
+// --render-vray renders the frame in V-Ray Standalone at --size (--vray-turntable N: N images
+// around the groom) the same way (vray_render.h); --render-prman in RenderMan (--prman-turntable N;
+// prman_render.h).
 // --ui-screenshot shows the window at --size, in a UI mode, with the node graph or a panel
 // open (--ui-node selects a node in the graph, --ui-look-tab picks the look card's tab, --ui-search
 // opens the graph's Add Node search with the text typed; --ui-panel shortcuts: the shortcut sheet), grabs
@@ -173,6 +176,10 @@ int main(int argc, char** argv) {
     exportOptions.mapPreset = groomlab::builtinCardMapPresets().front();  // --export-maps: Unreal's layout by default
     bool exportRange = false;
     QString bakeDir, bakeName;
+    QString vrayImage;
+    int vrayTurntable = 0;
+    QString prmanImage;
+    int prmanTurntable = 0;
     bool bake = false;
     int bakeResolution = 0;
     double atFrame = 0.0;
@@ -337,8 +344,17 @@ int main(int argc, char** argv) {
             bakeSimulationFrame = std::atof(argv[++i]);
         } else if (std::strncmp(arg, "--export-", 9) == 0 && hasValue &&
                    (std::strcmp(arg + 9, "alembic") == 0 || std::strcmp(arg + 9, "usd") == 0 || std::strcmp(arg + 9, "unreal") == 0 ||
-                    std::strcmp(arg + 9, "unity") == 0 || std::strcmp(arg + 9, "cards") == 0 || std::strcmp(arg + 9, "maps") == 0)) {
+                    std::strcmp(arg + 9, "unity") == 0 || std::strcmp(arg + 9, "cards") == 0 || std::strcmp(arg + 9, "maps") == 0 ||
+                    std::strcmp(arg + 9, "vrscene") == 0)) {
             exports.emplace_back(QString::fromLatin1(arg + 9), QString::fromLocal8Bit(argv[++i]));
+        } else if (std::strcmp(arg, "--render-vray") == 0 && hasValue) {
+            vrayImage = QString::fromLocal8Bit(argv[++i]);
+        } else if (std::strcmp(arg, "--render-prman") == 0 && hasValue) {
+            prmanImage = QString::fromLocal8Bit(argv[++i]);
+        } else if (std::strcmp(arg, "--prman-turntable") == 0 && hasValue) {
+            prmanTurntable = std::atoi(argv[++i]);
+        } else if (std::strcmp(arg, "--vray-turntable") == 0 && hasValue) {
+            vrayTurntable = std::atoi(argv[++i]);
         } else if (std::strcmp(arg, "--export-frames") == 0 && hasValue) {
             // a-b[:step]: the frames every export covers (else the current frame alone).
             const QString text = QString::fromLatin1(argv[++i]);
@@ -392,6 +408,8 @@ int main(int argc, char** argv) {
                         "                [--brush name=value]... [--stroke \"[ctrl:|shift:]x,y x,y ...\"]... [--stroke-world \"x,y,z ...\"]... [--tool camera|brush|select]\n"
                         "                [--time frame] [--follow-scalp on|off] [--show-cards] [--simulate frame] [--bake-simulation frame]\n"
                         "                [--export-alembic out.abc] [--export-usd out.usda] [--export-unreal out.abc] [--export-unity out.abc]\n"
+                        "                [--export-vrscene out.vrscene] [--render-vray out.png [--vray-turntable N]]\n"
+                        "                [--render-prman out.png [--prman-turntable N]]\n"
                         "                [--export-cards out.glb|out.gltf] [--export-frames a-b[:step]] [--export-density d]\n"
                         "                [--points-per-strand N] [--export-scale s] [--cards-resolution N]\n"
                         "                [--export-maps folder/name [--map-preset name] [--map-format f] [--map-bit-depth N] [--map-supersample N]]\n"
@@ -422,7 +440,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    const bool writes = !exports.empty() || bake;
+    const bool writes = !exports.empty() || bake || !vrayImage.isEmpty() || !prmanImage.isEmpty();
     const bool headless = !screenshot.isEmpty() || benchmark > 0 || !benchmarkDrags.isEmpty() || benchmarkOrbit > 0 || drawDabs ||
                           (writes && uiScreenshot.isEmpty());
     const bool scripted = headless || !uiScreenshot.isEmpty();  // a run no one sits at: errors end it
@@ -562,6 +580,10 @@ int main(int argc, char** argv) {
         if (!exportRange && window.document()) options.frames.first = options.frames.last = window.document()->frame();
         if (!window.exportTo(target, out, options) && scripted) return 1;
     }
+    // A V-Ray Standalone render of the frame (or a turntable) at --size, as the window frames it.
+    if (!vrayImage.isEmpty() && !window.renderVray(vrayImage, vrayTurntable, QSize(width, height), true) && scripted) return 1;
+    // And in RenderMan (prman, GroomLab's procedural evaluating the groom).
+    if (!prmanImage.isEmpty() && !window.renderPrman(prmanImage, prmanTurntable, QSize(width, height), true) && scripted) return 1;
     if (liveBenchmark > 0) {
         if (uiGraph) window.setGraphShown(true);
         window.benchmarkLive(liveBenchmark, liveMode, [](const QString& line) {

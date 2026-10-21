@@ -18,9 +18,11 @@ precedence = "closest"
 SPDX-FileCopyrightText = "2026 Nick Rutlinh"
 SPDX-License-Identifier = "Apache-2.0"
 
-# The sample meshes shipped with the Maya plugin (Nika, Manny, the wolf): CC BY 4.0 (credit "Nika
-# head by Nick Rutlinh (GroomLab), CC BY 4.0", "Manny head by Nick Rutlinh (GroomLab), CC BY 4.0",
-# "Wolf by Nick Rutlinh (GroomLab), CC BY 4.0"), separate from the code's Apache-2.0.
+# The sample meshes shipped with the Maya plugin, the Blender add-on and the app (Nika, Manny, the
+# wolf, Buddy: buddy.obj and its rig, buddy_rig.ma and buddy_rig.fbx): CC BY 4.0 (credit "Nika head
+# by Nick Rutlinh (GroomLab), CC BY 4.0", "Manny head by Nick Rutlinh (GroomLab), CC BY 4.0", "Wolf
+# by Nick Rutlinh (GroomLab), CC BY 4.0", "Buddy by Nick Rutlinh (GroomLab), CC BY 4.0"), separate
+# from the code's Apache-2.0.
 [[annotations]]
 path = ["hosts/maya/meshes/**"]
 precedence = "override"
@@ -68,11 +70,11 @@ precedence = "override"
 SPDX-FileCopyrightText = "NONE"
 SPDX-License-Identifier = "LicenseRef-Verbatim"
 
-# The renderer logos: their owners' trademarks, shown only to say GroomLab works with them.
+# The renderer logos: their owners' trademarks, shown only to say GroomLab works with them
 [[annotations]]
 path = ["web/public/renderers/**"]
 precedence = "override"
-SPDX-FileCopyrightText = ["Autodesk, Inc.", "Pixar"]
+SPDX-FileCopyrightText = ["Autodesk, Inc.", "Pixar", "Chaos Software"]
 SPDX-License-Identifier = "LicenseRef-Trademark"
 
 # The GroomLab name and logo in the press kit: trademarks, not under the software's licenses.

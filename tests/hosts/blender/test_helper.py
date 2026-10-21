@@ -285,6 +285,27 @@ class GroomTest(HelperTestCase):
         self.h.call("export", session=s, format="usd", path=usd)
         with open(usd) as f:
             self.assertIn("metersPerUnit = 0.01", f.read(4000))
+        # A V-Ray scene: the hair, its shader from the look, the CLI's strands.
+        vrscene = os.path.join(self.tmp, "helper.vrscene")
+        self.h.call("export", session=s, format="vrscene", path=vrscene, frames={"first": 1, "last": 1})
+        with open(vrscene) as f:
+            text = f.read()
+        for plugin in ("GeomMayaHair groom@hair", "BRDFHair4 groom@hairBrdf", "Node groom@node"):
+            self.assertIn(plugin, text)
+        cli_vrscene = os.path.join(self.tmp, "cli.vrscene")
+        cli_eval(os.path.join(self.tmp, "preset.groom"), cli_vrscene)
+        with open(cli_vrscene) as f:
+            theirs = f.read()
+        strip = lambda t: t[t.index("SettingsUnitsInfo"):]  # past the header comment (its source and counts)
+        self.assertEqual(strip(text), strip(theirs))
+        # In the scene's unit (Blender's V-Ray Scene object: vray.py): meters, still Y up.
+        self.h.call("export", session=s, format="vrscene", path=vrscene, frames={"first": 1, "last": 1}, units="scene")
+        with open(vrscene) as f:
+            scene_text = f.read()
+        self.assertIn("meters_scale=1;", scene_text)
+        self.assertIn("scene_upDir=Vector(0, 1, 0);", scene_text)
+        with self.assertRaises(HelperError):
+            self.h.call("export", session=s, format="vrscene", path=vrscene, units="inches")
 
     def test_the_hair_look_and_the_attributes_arnold_shades_by(self):
         """evaluate's look (what Maya's create_hair_shader builds the Arnold shader from) and the
@@ -2470,11 +2491,14 @@ class PipelineTest(HelperTestCase):
 
     def test_sample_meshes(self):
         r = self.call("sample_meshes")
-        self.assertEqual([m["id"] for m in r["samples"]], ["nika", "manny", "wolf"])
+        self.assertEqual([m["id"] for m in r["samples"]], ["nika", "manny", "wolf", "buddy"])
         for m in r["samples"]:
             self.assertTrue(os.path.isfile(m["file"]), m["file"])
             self.assertEqual(m["license"], "CC BY 4.0")
         self.assertEqual(r["samples"][2]["part"], "wolf_body")
+        self.assertEqual([m["kind"] for m in r["samples"]], ["mesh", "mesh", "mesh", "rig"])  # Buddy: an FBX rig
+        self.assertTrue(r["samples"][3]["file"].endswith("buddy_rig.fbx"))
+        self.assertEqual(r["samples"][3]["part"], "buddy_body")
         self.assertEqual(self.call("hello")["features"]["pipeline"], 1)
 
     def test_import_alembic_curves_as_guides(self):

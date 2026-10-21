@@ -51,6 +51,7 @@
 #include "groomlab/parallel.h"
 #include "groomlab/png.h"
 #include "groomlab/random.h"
+#include "groomlab/render_overrides.h"
 #include "groomlab/scalp_paint.h"
 #include "groomlab/strand_lod.h"
 #include "groomlab/texture.h"
@@ -141,6 +142,7 @@ MObject GroomShape::aExtraScalpRestMesh;
 MObject GroomShape::aRenderDensity;
 MObject GroomShape::aRenderWidthScale;
 MObject GroomShape::aRenderLengthScale;
+MObject GroomShape::aRenderView;
 MObject GroomShape::aSimGuides;
 MObject GroomShape::aSimCurve;
 MObject GroomShape::aSimGuideId;
@@ -966,6 +968,11 @@ MStatus GroomShape::initialize() {
     nAttr.setSoftMax(4.0);
     nAttr.setStorable(true);
     nAttr.setKeyable(false);
+    aRenderView = nAttr.create("renderView", "glrvw", MFnNumericData::kBoolean, false, &status);
+    CHECK_MSTATUS_AND_RETURN_IT(status);
+    nAttr.setStorable(false);
+    nAttr.setHidden(true);
+    nAttr.setKeyable(false);
 
     aDisplayGuides = nAttr.create("displayGuides", "gldg", MFnNumericData::kBoolean, true, &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
@@ -1063,13 +1070,13 @@ MStatus GroomShape::initialize() {
     tAttr.setStorable(false);
     tAttr.setHidden(true);
 
-    for (MObject* attr : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aScaleSource, &aScaleReference, &aScaleTransformReference, &aGroomScale, &aScaleArea, &aScaleTransform, &aColliderMeshes, &aExtraScalps, &aRenderDensity, &aRenderWidthScale, &aRenderLengthScale, &aSimGuides, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aTransferMarkers, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aPartData, &aGraphUi, &aViewNode, &aLocked, &aDisplayInstances, &aGuideSelection, &aSoftSelectRadius, &aStrandColorMode, &aStrandColorSource, &aStrandColorMin, &aStrandColorMax, &aDisplayRibbons, &aRibbonWidthScale, &aDisplayWidthCoverage, &aDisplayCoverageDensity, &aDisplayClumpLod, &aClumpLodError, &aDisplayLighting, &aDisplayShadows, &aDisplayHairShading, &aDisplaySelfShadowing, &aDisplayStrandVariation, &aGuideWidth, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aDisplayFlow, &aShotSculpt, &aShotLayer, &aLodDistance, &aLodNear, &aLodFar, &aLodMinDensity,
+    for (MObject* attr : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aScaleSource, &aScaleReference, &aScaleTransformReference, &aGroomScale, &aScaleArea, &aScaleTransform, &aColliderMeshes, &aExtraScalps, &aRenderDensity, &aRenderWidthScale, &aRenderLengthScale, &aRenderView, &aSimGuides, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aTransferMarkers, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aPartData, &aGraphUi, &aViewNode, &aLocked, &aDisplayInstances, &aGuideSelection, &aSoftSelectRadius, &aStrandColorMode, &aStrandColorSource, &aStrandColorMin, &aStrandColorMax, &aDisplayRibbons, &aRibbonWidthScale, &aDisplayWidthCoverage, &aDisplayCoverageDensity, &aDisplayClumpLod, &aClumpLodError, &aDisplayLighting, &aDisplayShadows, &aDisplayHairShading, &aDisplaySelfShadowing, &aDisplayStrandVariation, &aGuideWidth, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aDisplayFlow, &aShotSculpt, &aShotLayer, &aLodDistance, &aLodNear, &aLodFar, &aLodMinDensity,
                           &aLodWidthCompensation, &aCameraCull, &aCullMargin, &aBackfaceCull, &aBackfaceAngle, &aDisplayColor, &aUseMaterialColor, &aSculptDisplay, &aSculptDensity, &aDisplayLevel, &aGuideColorMode, &aGuideColorLayer, &aGuidePoints, &aGuideSmoothing, &aGuideDisplaySegments, &aHiddenGuideGroups, &aGuideGroupColors, &aRenderMode, &aGroomFile, &aPreviewDensity, &aPreviewPointBudget, &aDisplayGuides,
                           &aDisplayTubes, &aBrushTick, &aCardDensity, &aOutCards, &aOutRachis, &aOutStrandMesh, &aDisplayCards, &aDisplayStrandMesh, &aDisplayCardTextures, &aDisplayOverlaysOnTop, &aCardMaps, &aScalpMaps, &aScalpMapDisplay, &aScalpMapChannel, &aOutStrandCount, &aLastError, &aOutFrame}) {
         CHECK_MSTATUS_AND_RETURN_IT(addAttribute(*attr));
     }
     for (MObject* input : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aScaleSource, &aScaleReference, &aScaleTransformReference, &aColliderMeshes, &aColliderMesh, &aColliderName, &aColliderRestMesh,
-                           &aExtraScalps, &aExtraScalpMesh, &aExtraScalpName, &aExtraScalpRestMesh, &aSimGuides, &aSimCurve, &aSimGuideId, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aPartData, &aPreviewDensity, &aPreviewPointBudget, &aSculptDensity, &aViewNode, &aBrushTick, &aCardDensity, &aDisplayCards, &aDisplayStrandMesh, &aCardMaps, &aScalpMaps}) {
+                           &aExtraScalps, &aExtraScalpMesh, &aExtraScalpName, &aExtraScalpRestMesh, &aSimGuides, &aSimCurve, &aSimGuideId, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aPartData, &aPreviewDensity, &aPreviewPointBudget, &aRenderView, &aSculptDensity, &aViewNode, &aBrushTick, &aCardDensity, &aDisplayCards, &aDisplayStrandMesh, &aCardMaps, &aScalpMaps}) {
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutStrandCount));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aLastError));
         CHECK_MSTATUS_AND_RETURN_IT(attributeAffects(*input, aOutCards));
@@ -1108,14 +1115,16 @@ MeshPtr GroomShape::scaleScalp(Lane& lane, MDataBlock& data, const MeshPtr& scal
         const MTime start = MAnimControl::animationStartTime();
         const MTime now = data.inputValue(aTime).asTime();
         double area = 0.0;
+        // With a rest mesh, the area without the pose's stretch (poseFreeArea): posing a rig at the
+        // start frame keeps the groom's scale; scaling the rig still scales it.
         if (now == start) {
-            area = surfaceArea(scalp->points(), scalp->triangles());
+            area = poseFreeArea(*scalp, scalp->points());
         } else if (!(scaleMeasure_.load() > 0.0) || start != scaleMeasuredAt_ || meshTouched) {
             if (!MAnimControl::isPlaying() && !MAnimControl::isScrubbing()) {
                 const std::vector<Vec3f> points = scalpPointsAt(thisMObject(), start);
-                if (points.size() == scalp->pointCount()) area = surfaceArea(points, scalp->triangles());
+                if (points.size() == scalp->pointCount()) area = poseFreeArea(*scalp, points);
             }
-            if (!(area > 0.0) && !(scaleMeasure_.load() > 0.0)) area = surfaceArea(scalp->points(), scalp->triangles());
+            if (!(area > 0.0) && !(scaleMeasure_.load() > 0.0)) area = poseFreeArea(*scalp, scalp->points());
         }
         if (area > 0.0) {
             scaleMeasure_ = area;
@@ -1678,6 +1687,20 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
     request.viewport = true;  // the viewport's: renderOnly nodes off, viewportOnly ones on
     // Following the scalp, the strands at rest where the viewport carries them on the GPU.
     request.hostCarries = viewportCarries();
+    // Drawn as a render shows the groom (renderView, while Hardware 2.0 renders): the render
+    // overrides' density, every strand (no point budget), renderOnly nodes on, the strands carried
+    // here (makeFrame scales their widths and lengths).
+    lane.renderView = data.inputValue(aRenderView).asBool();
+    if (lane.renderView) {
+        RenderOverrides overrides;
+        overrides.density = data.inputValue(aRenderDensity).asFloat();
+        request.density = overrides.densityTimes(1.0f);
+        request.pointBudget = 0.0;
+        request.viewport = false;
+        request.hostCarries = false;
+        lane.renderWidthScale = std::max(0.0f, data.inputValue(aRenderWidthScale).asFloat());
+        lane.renderLengthScale = std::max(0.0f, data.inputValue(aRenderLengthScale).asFloat());
+    }
     // Cards: the output at cardDensity, while something uses them: a card mesh on outCards, or
     // Cards nodes drawing in the viewport (mid-stroke only while quick: they catch up after).
     request.wantCards = cardsConnected ||
@@ -1695,7 +1718,7 @@ MStatus GroomShape::evaluate(MDataBlock& data, Lane& lane) {
     // time, densities, node viewed: what the GPU preview drew from), no stroke live, and nothing the
     // evaluation would need Maya for on the worker (a Simulate node steps through the host's feed,
     // the scalp's history is read live) or the cards (outCards, the cards view: built in compute).
-    if (offThread && !meshTouched && request.stopAt.empty() && !session.hasPreview() && historyFrames == 0 &&
+    if (offThread && !lane.renderView && !meshTouched && request.stopAt.empty() && !session.hasPreview() && historyFrames == 0 &&
         !request.wantCards && !request.wantStrandMeshes && request.density == lastRequest_.density && request.sculptDensity == lastRequest_.sculptDensity &&
         request.pointBudget == lastRequest_.pointBudget && request.viewNode == lastRequest_.viewNode &&
         request.time == lastRequest_.time && request.hostCarries == lastRequest_.hostCarries &&
@@ -1936,6 +1959,24 @@ void GroomShape::makeFrame(MDataBlock& data, Lane& lane, const ViewResult* resul
             frame->bounds = last->bounds;
         }
         lane.seen = result->versions;
+        // renderView: the render's width and length scales on the strands drawn (render_overrides.h),
+        // as strands of their own (no serial: the display builds them whole). Strands scaled by s
+        // about their roots stay within the bounds grown about their center by 2s - 1.
+        RenderOverrides overrides;
+        overrides.widthScale = lane.renderWidthScale;
+        overrides.lengthScale = lane.renderLengthScale;
+        if (lane.renderView && result->strands && !overrides.keepsShape()) {
+            frame->view.strands = applyRenderOverrides(result->strands, overrides);
+            frame->view.strandsSerial = frame->view.changesBase = 0;
+            frame->view.strandsChanges.reset();
+            frame->strandsVersion = frame->version = nextVersion();
+            const double grow = std::max(1.0, 2.0 * overrides.lengthScale - 1.0);
+            if (grow > 1.0 && result->bounds.valid) {
+                const MPoint c = frame->bounds.center();
+                const MVector half = 0.5 * grow * (frame->bounds.max() - frame->bounds.min());
+                frame->bounds = MBoundingBox(c - half, c + half);
+            }
+        }
     } else {
         // A failed evaluation: no strands (the rest of the last frame stays), every version moved.
         if (last) frame->view = last->view;
@@ -1975,7 +2016,7 @@ MStatus GroomShape::setDependentsDirty(const MPlug& plug, MPlugArray& affected) 
         plug == aGuideCacheObject || plug == aSimCaches || plug == aGuideCurves || plug == aTime || plug == aGraph || plug == aGuideData ||
         plug == aPartData || plug == aFlowData || plug == aCorrectiveData || plug == aCorrectiveWeight || plug == aViewNode ||
         plug == aSculptData || plug == aSculptNode ||
-        plug == aSculptDensity || plug == aPreviewDensity || plug == aPreviewPointBudget || plug == aCardDensity ||
+        plug == aSculptDensity || plug == aPreviewDensity || plug == aPreviewPointBudget || plug == aRenderView || plug == aCardDensity ||
         plug == aBrushTick || plug == aScalpMaps;
     // Control attributes (dynamic, added per Control node): the groom re-evaluates.
     const bool control = !display && !input && isControlAttribute(plug.attribute());

@@ -444,7 +444,10 @@ groomed at.
     opened with.
   - **Off**: sizes stay in scene units whatever the scalp's size, and a bigger scalp grows more
     strands at the same density.
-- Animation after the start frame (a squash, blend shapes) does not change the scale.
+- Animation after the start frame (a squash, blend shapes) does not change the scale. Nor does posing
+  a rig at the start frame, when the groom has a rest mesh (a skinned scalp gets one): the scale
+  is measured without the pose's stretch, so raising an arm keeps it, while scaling the rig
+  scales the groom.
 - **Rigs.** Scaling a rig at its root scales the skinned scalp, and the groom with it. Surface
   Area measures the skinned mesh, not its original shape; Transform Only reads the root joint's
   scale.

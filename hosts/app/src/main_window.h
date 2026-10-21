@@ -24,6 +24,7 @@
 #include <QPointF>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 #include <QVector3D>
 
 #include "groomlab/async_evaluation.h"
@@ -45,6 +46,7 @@ class QDoubleSpinBox;
 class QLabel;
 class QListWidget;
 class QMenu;
+class QProcessEnvironment;
 class QSpinBox;
 class QTimer;
 
@@ -69,6 +71,10 @@ class ValueSlider;
 class Viewport;
 class TransferWindow;
 class ReferenceWindow;
+class RenderJob;
+class RenderWindow;
+struct RenderProgress;
+struct RenderStage;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -209,6 +215,22 @@ public:
     // the stderr line says what was written. False (and a message) when refused or failed.
     bool exportTo(const QString& target, const QString& path, const ExportOptions& options);
     bool setExportTarget(const QString& target);
+    // Render > Render Frame / Turntable in V-Ray (main_window_render.cpp, vray_render.h): the groom
+    // at this frame (every strand), the viewport's camera, lighting and scalp written as a
+    // .vrscene beside `imagePath` and rendered by V-Ray Standalone into it (a turntable: one image
+    // per frame, <stem>.0001.png...). `size` invalid: the viewport's. `wait` (scripted runs): blocks
+    // until V-Ray is done, else the V-Ray Render window shows the progress and the image. False
+    // (and a message) when V-Ray is not found or the render failed.
+    bool renderVray(const QString& imagePath, int turntableFrames, const QSize& size, bool wait);
+    void chooseVrayStandalone();
+    // Render > Render Frame / Turntable in RenderMan (main_window_render.cpp, prman_render.h): the
+    // same stage as a RIB beside `imagePath`, the groom as a .groom that GroomLab's RenderMan
+    // procedural (beside the app) evaluates in prman. False (and a message) when prman or the
+    // procedural is not found or the render failed.
+    bool renderPrman(const QString& imagePath, int turntableFrames, const QSize& size, bool wait);
+    void choosePrman();
+    // The window of the renders (V-Ray's and RenderMan's: one at a time), once one has started.
+    RenderWindow* renderWindow() const { return renderWindow_; }
     // Bakes the cards' maps to <directory>/<name>_*.tga (the groom's default place when
     // empty); the cards panel shows the atlas and the viewport the textured cards.
     bool bakeCardsTo(const QString& directory, const QString& name, int resolution = 0, float occlusion = 1.0f);
@@ -514,6 +536,15 @@ private:
     CorrectivesPanel* correctives_ = nullptr;
     TransferWindow* transferWindow_ = nullptr;  // Tools > Transfer Groom to Mesh (a child window)
     ReferenceWindow* referenceWindow_ = nullptr;  // Tools > Guides from Reference (a child window)
+    // A render's shared steps (main_window_render.cpp): the checks and the viewport's stage; the
+    // renderer started, its window shown (or waited for).
+    bool prepareRender(const QString& renderer, const QString& imagePath, int turntableFrames, const QSize& size,
+                       RenderStage* stage);
+    bool runRender(const QString& renderer, const QString& program, const QStringList& arguments,
+                   const QProcessEnvironment& environment, const QString& imagePath, const RenderStage& stage,
+                   std::unique_ptr<RenderProgress> progress, bool wait);
+    RenderWindow* renderWindow_ = nullptr;  // Render > ... in V-Ray or RenderMan (a child window)
+    RenderJob* renderJob_ = nullptr;        // the render running, if any
     QString lastReport_;
     QTimer* turntable_ = nullptr;  // the camera turning while Tools > Turntable is on
     MapsPanel* maps_ = nullptr;

@@ -1611,12 +1611,15 @@ struct Sample {
     double extentCm;    // its largest extent: it comes in that size in any scene unit
     const char* name;   // the object it is called
     const char* part;   // the part the groom grows on ("" the only one)
+    const char* kind;   // "mesh" (an OBJ) or "rig" (an FBX: an armature and the meshes skinned to it)
 };
-// Centimetres, Y up, facing +Z (CC BY 4.0, Nick Rutlinh).
+// Centimetres, Y up, facing +Z (CC BY 4.0, Nick Rutlinh). Buddy's OBJ (its body alone, buddy.obj) is the
+// standalone app's; the hosts add the rig.
 const Sample kSamples[] = {
-    {"nika", "Nika (head)", "nika_head.obj", 34.61, "nika_head", ""},
-    {"manny", "Manny (head)", "manny_head.obj", 34.21, "manny_head", ""},
-    {"wolf", "Wolf", "wolf.obj", 109.7, "wolf", "wolf_body"},
+    {"nika", "Nika (head)", "nika_head.obj", 34.61, "nika_head", "", "mesh"},
+    {"manny", "Manny (head)", "manny_head.obj", 34.21, "manny_head", "", "mesh"},
+    {"wolf", "Wolf", "wolf.obj", 109.7, "wolf", "wolf_body", "mesh"},
+    {"buddy", "Buddy (rig)", "buddy_rig.fbx", 96.65, "buddy_rig", "buddy_body", "rig"},
 };
 
 json sampleMeshes() {
@@ -1628,7 +1631,7 @@ json sampleMeshes() {
         std::error_code ec;
         if (!fs::is_regular_file(file, ec)) continue;
         samples.push_back({{"id", m.id}, {"label", m.label}, {"file", file.generic_u8string()}, {"extentCm", m.extentCm}, {"name", m.name},
-                           {"part", m.part}, {"license", "CC BY 4.0"}, {"author", "Nick Rutlinh"}, {"units", "cm"}, {"upAxis", "Y"},
+                           {"part", m.part}, {"kind", m.kind}, {"license", "CC BY 4.0"}, {"author", "Nick Rutlinh"}, {"units", "cm"}, {"upAxis", "Y"},
                            {"facing", "+Z"}});
     }
     return {{"dir", dir}, {"samples", samples}};

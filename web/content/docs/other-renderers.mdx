@@ -1,17 +1,23 @@
 ---
 title: Other renderers
-description: Rendering GroomLab hair with the RenderMan procedural, or in RenderMan, Redshift and V-Ray from Alembic and USD exports - file layout, units, attributes and hair shader setup.
+description: Rendering GroomLab hair with the RenderMan procedural (and in prman from any Maya or the app), in V-Ray Standalone from Maya or from a V-Ray scene export, or in RenderMan, Redshift and V-Ray from Alembic and USD exports - file layout, units, attributes and hair shader setup.
 ---
 
 GroomLab renders natively in **Arnold** ([Rendering](/docs/rendering)) and in **RenderMan 27**
-([below](#renderman)), where a procedural evaluates the groom file at render time. For Redshift,
-V-Ray and other renderers, export the strands as **Alembic** or **USD** curves.
+([below](#renderman)), where a procedural evaluates the groom file at render time; Render >
+RenderMan (prman) renders the scene in RenderMan from any Maya version and from the standalone app. For **V-Ray**,
+GroomLab writes a V-Ray scene with the hair and its shader, and renders it in V-Ray Standalone from
+any Maya version ([below](#v-ray)). For Redshift and
+other renderers, export the strands as **Alembic** or **USD** curves. For quick previews with no
+renderer at all, Render > Maya Hardware 2.0 renders with Maya's own viewport renderer
+([Maya Hardware 2.0](/docs/rendering#maya-hardware-20)).
 
 <Callout title="What we have tested">
-  The contents of the exported files ([File contents](#file-contents)) and the RenderMan
-  procedural (in prman) are tested. The Alembic and USD import steps for each renderer below
-  follow that renderer's documentation, linked in each section; they have not been tested in
-  Redshift or V-Ray yet. If a step does not work, contact
+  The contents of the exported files ([File contents](#file-contents)), the RenderMan procedural
+  and Render > RenderMan (prman) (in RenderMan Pro Server 27.3, from Maya 2022 and the app), the V-Ray scene export and Render > V-Ray Standalone (in V-Ray Standalone 7, from
+  Maya 2022) are tested. The V-Ray for Maya hook and Load as VRayScene are experimental and untested. The Alembic and USD
+  import steps for each renderer below follow that renderer's documentation, linked in each
+  section; they have not been tested in Redshift or V-Ray yet. If a step does not work, contact
   [support@getgroomlab.com](mailto:support@getgroomlab.com).
 </Callout>
 
@@ -102,6 +108,9 @@ another renderer:
    per strand and per clump, so read the `melanin` and `melaninRedness` attributes rather than a
    constant, and disable the shader's own melanin randomization.
 
+The V-Ray scene export sets V-Ray's shader up itself ([V-Ray](#v-ray)); the V-Ray column is for
+Alembic and USD imports.
+
 GroomLab's `melanin` and `redness` are `aiStandardHair`'s 0-1 parameters. The other renderers use
 0-1 parameters for similar melanin models, but each converts them to fiber absorption
 differently. Use the same values as a starting point, then match against the GroomLab viewport
@@ -153,6 +162,54 @@ scene, shading network included. The primvars are listed in
 - **Color:** GroomLab's melanin and redness are converted to PxrHairColor's (the `rman_melanin`
   and `rman_redness` primvars). Under a strong key light, light hair can render darker than in
   Arnold, because PxrMarschnerHair transmits less light through many hairs.
+
+### Render in RenderMan (any Maya, tested)
+
+**GroomLab > Render > RenderMan (prman)...** (also in the Groom Tools' **Output** section) renders what the scene shows in RenderMan's `prman`, through the
+procedural above, so any Maya version renders the groom in RenderMan, Maya 2022 too: RenderMan for
+Maya is not needed, only **RenderMan Pro Server** (RenderMan is free for non-commercial use; a
+commercial license otherwise). Pick the frames (the current frame, the playback range or the render
+range: a turntable is a sequence), the size, the quality (Draft, Preview, Final), the meshes and
+motion blur; prman then renders in the background, Maya stays free, a progress window counts the
+frames (**Stop** cancels), and the image opens in Maya's **Render View**. The images, the RIB, the
+groom file and prman's log are kept in the scene's `groomlab/<scene>/renders/prman_<date>` folder.
+
+What goes to RenderMan, as one RIB with a frame block per frame:
+
+- **Grooms:** every visible groom, written to a `.groom` file the procedural evaluates at each
+  frame (with its scalp's animation cached when the scalp moves; a groom set to **Render from
+  Groom File** uses its own file), its render density and overrides, and the hair network above
+  with the groom's cuticle tilt. With **Motion blur**, the procedural writes deformation keys over
+  half a frame.
+- **Meshes:** every visible mesh (or the selection and the grooms' scalps and colliders) with a
+  **PxrSurface** from its shader's plain values (`aiStandardSurface`'s base color, specular and
+  roughness; a Lambert's or Blinn's color; textures are not followed), subdivided when Arnold's
+  subdivision or Maya's smooth mesh preview is on. Meshes that cast no shadow, and Maya's light
+  links, carry over.
+- **Camera:** the studio's camera when there is a studio, else the viewport's, with the field of
+  view the render resolution gives it (film fit).
+- **Lights:** Arnold and Maya area lights as **PxrRectLight** (exposure and normalize as in Arnold;
+  a spread below 1 becomes emissionFocus), sky domes as **PxrDomeLight** (their color; an HDR
+  texture is not carried) and directional lights as **PxrDistantLight** (Arnold's intensity is the
+  irradiance). Point, spot, mesh and photometric lights are left out; a scene without any of these
+  gets a soft grey dome and a key light from above the camera. Each studio light alone renders
+  within about 5% of Arnold on the backdrop (in linear sRGB); the hair and head within about 10%,
+  light hair a little darker and more saturated in its rims (PxrMarschnerHair's).
+
+GroomLab looks for `prman` where you set it (the dialog's **Browse...**, or
+`groomlab.set_prman_path(path)`), then in the `GROOMLAB_PRMAN` and `RMANTREE` environment variables,
+the default install folder (`C:\Program Files\Pixar\RenderManProServer-*\bin`) and the `PATH`, and
+says so when it finds none.
+
+```python
+import groomlab
+
+job = groomlab.render_prman()                                     # this frame
+job = groomlab.render_prman(start=1, end=120, quality="final",    # a sequence, 1280 x 720
+                            width=1280, height=720, motion_blur=True)
+job.wait()                                                        # or job.poll() / job.cancel()
+print(job.images())                                               # the PNGs
+```
 
 ### From Alembic or USD
 
@@ -269,54 +326,179 @@ feeds **Albedo**, with **Albedo Mix** at 1.
 
 ## V-Ray
 
+GroomLab writes a groom as a **V-Ray scene** (`.vrscene`, V-Ray's own scene format): the strands as
+V-Ray hair, each strand's color on them, and a **VRayHairNextMtl** shader set up from the groom's
+look so it renders close to Arnold. No Alembic or USD import and no shader setup are needed.
+
 Links: [VRayHairNextMtl](https://documentation.chaos.com/space/VMAYA/111740199),
-[V-Ray Proxy](https://documentation.chaos.com/space/VMAYA/111739092),
-[USD workflow](https://documentation.chaos.com/space/VMAYA/111739288),
-[USD supported features](https://documentation.chaos.com/space/VMAYA/111739268).
+[V-Ray Proxy](https://documentation.chaos.com/space/VMAYA/111739092).
+
+Which route:
+
+| Route | Maya | Use it for |
+| --- | --- | --- |
+| **Render > V-Ray Standalone...** (tested) | Every version GroomLab supports (2022 to 2027); V-Ray for Maya not needed | Groom renders and lookdev: the grooms, the visible meshes, the camera and the lights rendered by V-Ray Standalone in the background, the image in the Render View |
+| **Render > V-Ray for Maya Hook (2024+, experimental)** | 2024 and later, with V-Ray for Maya | The grooms inside your full V-Ray for Maya scene renders (your shaders, lights, render elements and farm) |
+| **Render > Load as VRayScene (2024+, experimental)** | 2024 and later, with V-Ray for Maya | The same without a script: a VRayScene node pointing at an exported `.vrscene` |
+| **Export > V-Ray Scene...** (tested) | Every version, and Blender | A `.vrscene` of the groom to `#include` in your own V-Ray scenes |
+
+### Render in V-Ray Standalone (any Maya, tested)
+
+**GroomLab > Render > V-Ray Standalone...** (also in the Groom Tools' **Output** section) renders what the scene shows in V-Ray Standalone, so any Maya
+version renders the groom in V-Ray, Maya 2022 too. Pick the frames (the current frame, the playback
+range or the render range: a turntable is a sequence), the size (the render settings', half or a
+quarter), the quality (Draft, Preview, Final) and the meshes; vray.exe then renders in the
+background, Maya stays free, a progress window counts the frames (**Stop** cancels), and the image
+opens in Maya's **Render View**. The images, the `.vrscene` files and V-Ray's log are kept in the
+scene's `groomlab/<scene>/renders/vray_<date>` folder.
+
+What goes to V-Ray:
+
+- **Grooms:** every visible groom, exported as below with its render density and overrides.
+- **Meshes:** every visible mesh (or the selection and the grooms' scalps and colliders), with a
+  simple V-Ray material from its shader's plain values: `aiStandardSurface`'s base color, specular
+  and roughness (the studio's mannequin and backdrop greys), or a Lambert's or Blinn's color.
+  Textures are not followed. Meshes that cast no shadow, and Maya's light links, carry over.
+- **Camera:** the studio's camera when there is a studio, else the viewport's, with the field of
+  view the render resolution gives it (film fit).
+- **Lights:** Arnold and Maya area lights (exposure, normalize and spread as in Arnold: a spread
+  below 1 becomes V-Ray's Directional), sky domes (their color; an HDR texture is not carried) and
+  directional lights. Point, spot, mesh and photometric lights are left out. A scene without any
+  of these gets a soft grey dome and a key light from above the camera. The studio presets render
+  within about 15% of Arnold in V-Ray (in linear sRGB).
+- **Animation:** over a frame range, a moving camera or light (the Turntable preset orbits them)
+  and a deforming mesh are keyed per frame.
+
+GroomLab looks for `vray.exe` where you set it (the dialog's **Browse...**, or
+`groomlab.set_vray_path(path)`), then in the `GROOMLAB_VRAY` and `VRAY_PATH` environment variables,
+the default install folder (`C:\Program Files\Chaos\V-Ray\Standalone for x64\bin`) and the
+`PATH`, and says so when it finds none. V-Ray Standalone needs a V-Ray license of its own.
+
+```python
+import groomlab
+
+job = groomlab.render_vray()                                      # this frame
+job = groomlab.render_vray(start=1, end=120, quality="final",     # a sequence, 1280 x 720
+                           width=1280, height=720)
+job.wait()                                                        # or job.poll() / job.cancel()
+print(job.images())                                               # the PNGs
+```
+
+### V-Ray for Maya hook (Maya 2024+, experimental)
+
+<Callout title="Experimental, untested">
+  V-Ray for Maya supports Maya 2024 and later only, and these two items have not been run inside
+  V-Ray for Maya yet. They are written from Chaos's documented Python API; please report results to
+  [support@getgroomlab.com](mailto:support@getgroomlab.com). In Maya 2022, or without V-Ray for
+  Maya loaded, they say "V-Ray for Maya 2024+ required" and change nothing.
+</Callout>
+
+**Render > V-Ray for Maya Hook (2024+, experimental)** adds one line to V-Ray's **Post Translate
+Python Script** (Render Settings > Common > MEL/Python callbacks: the
+`vraySettings.postTranslatePython` attribute; your own lines stay). After V-Ray has translated the
+scene, for each visible groom it writes the frame (with V-Ray's camera motion blur on: the
+shutter's interval, in its geometry samples) to a `.vrscene` in the scene's
+`groomlab/<scene>/caches/vray` folder, and adds a **VRayScene** plugin pointing at it through
+V-Ray's `vray.utils` module. The file carries the groom's world matrix, so the plugin adds none.
+Pick the item again to take the line out.
+
+```python
+import groomlab.vray_hook as hook
+hook.enable_hook()     # hook.disable_hook() takes it out
+```
+
+**Render > Load as VRayScene (2024+, experimental)** exports the selected groom over the playback
+range to the scene's exports folder and makes a **VRayScene** node pointing at it (its transform is
+locked at the origin: the file has the groom's world matrix). Run it again after changing the groom.
 
 <Steps>
 <Step>
 
-### Export (verified)
+### Export (tested in V-Ray Standalone 7)
 
-`groomlab.export_alembic(...)` for a V-Ray Proxy, or `groomlab.export_usd(...)` for MayaUSD.
+Select the groom and choose **GroomLab > Export > V-Ray Scene...** (in Maya or Blender). It exports
+the playback range; for a still, set a one-frame range. From Python or the command line:
 
-</Step>
-<Step>
+```python
+import groomlab
 
-### Load it
+groomlab.export_vrscene(groom, "C:/shots/010/hair.vrscene", start=1, end=48,
+                        render_overrides=True)  # renderDensity, renderWidthScale, renderLengthScale
+```
 
-**Alembic:** create a **V-Ray Proxy** and point it at the `.abc` file. It loads Alembic curves,
-with **Tessellate Hair** and a **Hair width multiplier** for hair. Leave **Flip Axis** off for a
-Y-up Maya scene.
-
-**USD:** **Create > Universal Scene Description (USD) > Stage From File...** loads the layer
-through MayaUSD, which V-Ray renders. V-Ray's USD page lists hair as supported.
-
-</Step>
-<Step>
-
-### Assign the hair shader
-
-Create a **VRayHairNextMtl** and assign it. Set **Melanin** from the HairColor node,
-**Pheomelanin** from its `redness`, **Dye Color** from its `dye`, and **Glossiness** by matching
-against GroomLab's viewport. For opacity, **Transparency** is the inverse (white is opaque).
+```bash
+groomlab-cli eval hair.groom -o hair.vrscene -f 1-48
+```
 
 </Step>
 <Step>
 
-### Read the per-strand values
+### Render it
 
-A **VRayUserScalar** reading `melanin` can feed **Melanin**, and a **VRayUserColor** reading `Cd`
-can feed **Dye Color** for an RGB color (with **Melanin** 0, as V-Ray's documentation advises for
-dyed hair). Leave **Random Melanin** at 0.
+**V-Ray Standalone:** the file holds the groom only (no camera, lights or render settings), so
+`#include` it in a scene that has them, then render:
+
+```
+#include "C:/shots/010/hair.vrscene"
+// ... your camera (RenderView), lights, settings and other objects
+```
+
+```bash
+vray -sceneFile=shot.vrscene -imgFile=hair.png -frames=12
+```
+
+**V-Ray for Maya:** load the file in a **V-Ray Scene** node (VRayScene) and render, or use
+**Render > Load as VRayScene** ([above](#v-ray-for-maya-hook-maya-2024-experimental)). The hair keeps
+the file's shader. This step has not been run inside Maya yet; please report results.
+
+**V-Ray for Blender** and the **GroomLab app** need no export: a final render in V-Ray for Blender
+renders the groom this way on its own ([Blender](/docs/blender#v-ray)), and the app's
+**Render > Render Frame in V-Ray** renders it in V-Ray Standalone with the viewport's camera and
+lights ([the app](/docs/app#render-in-v-ray)).
 
 </Step>
 </Steps>
 
-- V-Ray's documentation does not say whether a proxy's Alembic hair passes per-curve attributes
-  to VRayUserScalar and VRayUserColor. Check on a test frame; if they don't arrive, use a single
-  value for the whole groom.
+What the file holds (plugin names start with the groom's name):
+
+| Plugin | What it is |
+| --- | --- |
+| `GeomMayaHair <name>@hair` | The strands in the groom's object space: points per strand, widths per point (V-Ray's hair width is the **radius**, so it holds half GroomLab's width), the color per point, root UVs (`strand_uvw`), opacity as `transparency` when the groom has any |
+| `BRDFHair4 <name>@hairBrdf` | VRayHairNextMtl's shader: **Melanin** 0 and **Dye Color** from each strand's color (a `TexHairSampler` reads it), the highlight from HairColor's `specular`, `roughness` and `tilt`; glints, glitter and V-Ray's random variation off (GroomLab varies each strand already) |
+| `MtlSingleBRDF <name>@hairMtl` | The material |
+| `Node <name>@node` | The hair with its material and transform: the groom's world matrix in Maya (so it lands where the groom is; its scale goes into the strands), the identity from Blender, the app and the CLI (groom space) |
+| `SettingsUnitsInfo <name>@units` | Centimeters (`meters_scale` 0.01), the up axis (Y unless the Maya scene or groom file is Z-up) and the frame rate |
+
+- **Color:** every color reaches the shader per point: HairColor's pigment (melanin and redness,
+  varied per strand and clump), its RGB mode, tips, Bands and FeatherColor. Wet hair (a Wet node)
+  is darker as in Arnold; its glossier highlight is not carried (the highlight is one for the
+  groom).
+- **Look:** V-Ray's hair shader differs from `aiStandardHair`, so GroomLab converts its values to
+  V-Ray's (Glossiness 0.46 and Softness 0.35 for the default look, IOR 1.7, 40 bounces). Against
+  Arnold on a test head, brown and black hair come within about 5-10%, blonde and light RGB colors
+  render 10-15% darker, and red hair about 25% brighter in V-Ray.
+- **Highlight per strand:** HairColor's `specularRandom` and `roughnessRandom`, and specular or
+  roughness maps, are not carried: V-Ray uses the groom's values for every strand.
+- **Animation and motion blur:** a frame range is one file. Values that change between frames
+  (the points of a moving groom) are written as V-Ray keys, one per frame; values that don't are
+  written once. Turn on V-Ray's motion blur and it blurs between the keys: to blur frame 12,
+  export frames 12 to 13 (or subframes with `step=0.5`). As for Alembic and USD, give a groom on a
+  deforming scalp a rest mesh so every frame has the same strands.
+- **Not written:** instances and scales (use USD for those), FeatherColor's iridescence, and the
+  render-time LOD that Arnold's procedural applies.
+- **Size:** the long lists are compressed, about 22 bytes per point per frame.
+- **Scale:** V-Ray does not scale hair widths with a transform, so a scaled groom's scale goes
+  into the strands themselves and the Node keeps its rotation and position. Don't scale the file
+  again with a V-Ray Scene node's transform: the strands would render too thick or too thin.
+  Render it in the file's units (GroomLab's own V-Ray renders in Blender write the strands in the
+  scene's units for this reason).
+
+### From Alembic or USD
+
+The `.vrscene` export is the recommended route. Alembic (in a **V-Ray Proxy**, with **Tessellate
+Hair**) and USD (through MayaUSD) also load, untested: assign a **VRayHairNextMtl** yourself and
+read the per-strand `melanin` with a **VRayUserScalar** into **Melanin** (or `Cd` with a
+**VRayUserColor** into **Dye Color**, Melanin 0), with **Random Melanin** at 0.
 
 ## Animation, motion blur and farms
 
@@ -327,7 +509,7 @@ dyed hair). Leave **Random Melanin** at 0.
 - **Motion blur:** the files carry no velocities. The renderer interpolates between samples, so
   for fast motion export subframes: `step=0.5` (or `0.25`) writes samples between frames.
 - **Without Maya:** save a groom file (**GroomLab > Groom Files > Save Groom File As...**) with its scalp
-  cache, and `groomlab-cli` writes the Alembic or USD on any machine:
+  cache, and `groomlab-cli` writes the Alembic, USD or V-Ray scene on any machine:
 
 ```bash
 groomlab-cli eval hair.groom -o hair.abc -f 1-48

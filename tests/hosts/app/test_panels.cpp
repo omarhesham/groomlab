@@ -46,6 +46,8 @@
 #include "correctives_panel.h"
 #include "cards_panel.h"
 #include "export_panel.h"
+#include "prman_render.h"
+#include "vray_render.h"
 #include "glass.h"
 #include "groom_document.h"
 #include "reference_window.h"
@@ -3570,6 +3572,65 @@ TEST(AppPanels, CardMapsPanelPicksPresetsEditsThePackingAndExports) {
     std::filesystem::remove_all(out);
     std::filesystem::remove_all(presets);
     qunsetenv("GROOMLAB_USER_CARD_PRESETS");
+}
+
+TEST(AppPanels, VrayRenderWindowShowsTheFrame) {
+    // Render > Render Frame in V-Ray (when V-Ray Standalone is installed): the window shows the
+    // progress, then the image V-Ray wrote; the export panel has the V-Ray scene target.
+    MainWindow window;
+    window.resize(640, 480);
+    window.show();
+    ExportPanel::Target target;
+    EXPECT_TRUE(ExportPanel::targetFromName("vrscene", &target));
+    EXPECT_EQ(target, ExportPanel::Target::Vrscene);
+    for (const char* name : {"vrayFrame", "vrayTurntable", "vrayLocation", "prmanFrame", "prmanTurntable", "prmanLocation"}) {
+        EXPECT_NE(window.findChild<QAction*>(QLatin1String(name)), nullptr) << name;
+    }
+    if (findVrayStandalone().isEmpty()) GTEST_SKIP() << "V-Ray Standalone is not installed";
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "groomlab_app_vray_window" / "frame.png";
+    std::filesystem::remove_all(out.parent_path());
+    ASSERT_TRUE(window.renderVray(QString::fromStdString(out.u8string()), 0, QSize(96, 72), false));
+    RenderWindow* shown = window.renderWindow();
+    ASSERT_NE(shown, nullptr);
+    EXPECT_TRUE(shown->isVisible());
+    QElapsedTimer clock;
+    clock.start();
+    while (shown->image().isNull() && clock.elapsed() < 300000) {
+        QApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
+    ASSERT_FALSE(shown->image().isNull()) << "no image within 5 minutes";
+    EXPECT_EQ(shown->image().size(), QSize(96, 72));
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::error_code ignored;
+    std::filesystem::remove_all(out.parent_path(), ignored);
+}
+
+TEST(AppPanels, PrmanRenderWindowShowsTheFrame) {
+    // Render > Render Frame in RenderMan (when prman and the procedural beside the app are there):
+    // the same window shows the progress, then the image prman wrote.
+    if (findPrman().isEmpty()) GTEST_SKIP() << "RenderMan (prman) is not installed";
+    if (findRenderManProcedural().isEmpty()) GTEST_SKIP() << "GroomLab's RenderMan procedural is not beside the app";
+    MainWindow window;
+    window.resize(640, 480);
+    window.show();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    const std::filesystem::path out = std::filesystem::temp_directory_path() / "groomlab_app_prman_window" / "frame.png";
+    std::filesystem::remove_all(out.parent_path());
+    ASSERT_TRUE(window.renderPrman(QString::fromStdString(out.u8string()), 0, QSize(96, 72), false));
+    RenderWindow* shown = window.renderWindow();
+    ASSERT_NE(shown, nullptr);
+    EXPECT_TRUE(shown->isVisible());
+    QElapsedTimer clock;
+    clock.start();
+    while (shown->image().isNull() && clock.elapsed() < 300000) {
+        QApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
+    ASSERT_FALSE(shown->image().isNull()) << "no image within 5 minutes";
+    EXPECT_EQ(shown->image().size(), QSize(96, 72));
+    EXPECT_TRUE(std::filesystem::exists(out));
+    std::error_code ignored;
+    std::filesystem::remove_all(out.parent_path(), ignored);
 }
 
 }  // namespace groomlab::app

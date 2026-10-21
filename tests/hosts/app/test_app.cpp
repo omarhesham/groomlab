@@ -35,6 +35,8 @@
 #include "gpu_preview.h"
 #include "graph_presets.h"
 #include "groom_document.h"
+#include "prman_render.h"
+#include "vray_render.h"
 #include "groomlab/alembic_io.h"
 #include "groomlab/card_presets.h"
 #include "groomlab/correctives.h"
@@ -4048,6 +4050,191 @@ TEST(AppGpuPreview, AVectorParamDragsAsAVector) {
     EXPECT_TRUE(gpu.dragging());
     gpu.endDrag();
     EXPECT_FALSE(gpu.drag("noise", "weightDirection", gpu::OverrideValue(0.5), &why));
+}
+
+
+// ---- V-Ray renders (vray_render.h) --------------------------------------------------------------
+
+TEST(AppVray, TheStageScene) {
+    const std::string dir = tempPath("groomlab_app_vray");
+    std::filesystem::create_directories(dir);
+    const std::string scene = dir + "/stage_scene.vrscene";
+    VrayStage stage;
+    stage.eye = QVector3D(0.0f, 10.0f, 50.0f);
+    stage.target = QVector3D(0.0f, 10.0f, 0.0f);
+    stage.lighting = lightingPreset("studio");
+    stage.lighting.lights[1].enabled = false;
+    stage.lighting.exposure = 1.0f;
+    stage.scalp = std::make_shared<ScalpMesh>(std::vector<Vec3f>{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}},
+                                              std::vector<ScalpMesh::Triangle>{{0, 1, 2}});
+    stage.width = 400;
+    stage.height = 200;
+    const auto read = [&scene] {
+        std::ifstream in(scene);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    writeVrayScene(scene, dir + "/groom.vrscene", stage);
+    const std::string text = read();
+    EXPECT_NE(text.find("#include \""), std::string::npos);
+    EXPECT_NE(text.find("groom.vrscene\""), std::string::npos);
+    EXPECT_NE(text.find("img_width=400;"), std::string::npos);
+    // The key and the rim (the fill is off), intensity / pi.
+    EXPECT_NE(text.find("LightDirect light_0"), std::string::npos);
+    EXPECT_NE(text.find("LightDirect light_1"), std::string::npos);
+    EXPECT_EQ(text.find("LightDirect light_2"), std::string::npos);
+    EXPECT_NE(text.find("intensity=0.636619"), std::string::npos);  // the key's 2 / pi
+    EXPECT_NE(text.find("LightDome environment"), std::string::npos);
+    EXPECT_NE(text.find("intensity=0.4;"), std::string::npos);  // the studio environment
+    EXPECT_TRUE(std::filesystem::exists(dir + "/stage_scene_env.hdr"));
+    EXPECT_NE(text.find("exposure=Color(2, 2, 2);"), std::string::npos);
+    EXPECT_NE(text.find("faces=ListInt(0, 1, 2);"), std::string::npos);
+    // The camera looks down -Z from +Z: its Z axis is +Z, at the eye; the horizontal fov of a 40
+    // degree vertical one at 2:1.
+    EXPECT_NE(text.find("transform=Transform(Matrix(Vector(1, 0, 0), Vector(0, 1, 0), Vector(0, 0, 1)), Vector(0, 10, 50));"),
+              std::string::npos);
+    const double fov = 2.0 * std::atan(std::tan(20.0 * 3.14159265358979 / 180.0) * 2.0);
+    char expected[64];
+    std::snprintf(expected, sizeof expected, "fov=%.7g;", fov);
+    EXPECT_NE(text.find(expected), std::string::npos) << expected;
+
+    // A turntable: the camera keyed per frame, around the target.
+    stage.turntableFrames = 4;
+    stage.lighting = lightingPreset("key");  // no environment: no dome
+    writeVrayScene(scene, dir + "/groom.vrscene", stage);
+    const std::string turn = read();
+    EXPECT_NE(turn.find("transform=interpolate((1, Transform("), std::string::npos);
+    EXPECT_NE(turn.find("(4, Transform("), std::string::npos);
+    EXPECT_EQ(turn.find("(5, Transform("), std::string::npos);
+    EXPECT_EQ(turn.find("LightDome"), std::string::npos);
+    EXPECT_NE(turn.find("bg_color=Color(0, 0, 0);"), std::string::npos);
+    std::error_code ignored;
+    std::filesystem::remove_all(dir, ignored);
+}
+
+TEST(AppVray, ReadsVraysProgress) {
+    VrayProgress p;
+    EXPECT_FALSE(p.feed(QStringLiteral("[2026/Oct/20|10:09:00] [224 MB] Scene created successfully.")));
+    EXPECT_TRUE(p.feed(QStringLiteral("[2026/Oct/20|10:09:00] [232 MB] Starting frame 2.")));
+    EXPECT_EQ(p.frame, 2);
+    EXPECT_TRUE(p.feed(QStringLiteral("[2026/Oct/20|10:09:00] [447 MB] Rendering image...: 45.50% [ 0h  0m  0.1s]")));
+    EXPECT_DOUBLE_EQ(p.percent, 45.5);
+    EXPECT_TRUE(p.feed(QStringLiteral("[2026/Oct/20|10:09:00] [283 MB] Successfully written image file \"out.0002.png\"")));
+    EXPECT_EQ(p.written, QStringLiteral("out.0002.png"));
+    EXPECT_EQ(p.imagesWritten, 1);
+    p.feed(QStringLiteral("[2026/Oct/20|10:09:00] [20 MB] error: Cannot open file \"x.vrscene\""));
+    EXPECT_EQ(p.error, QStringLiteral("error: Cannot open file \"x.vrscene\""));
+    EXPECT_EQ(renderFrameImage(QStringLiteral("C:/r/turn.png"), 3, 36), QStringLiteral("C:/r/turn.0003.png"));
+    EXPECT_EQ(renderFrameImage(QStringLiteral("C:/r/one.png"), 1, 0), QStringLiteral("C:/r/one.png"));
+    EXPECT_TRUE(vrayArguments(QStringLiteral("s.vrscene"), QStringLiteral("o.png"), 0).contains(QStringLiteral("-noFrameNumbers=1")));
+    EXPECT_TRUE(vrayArguments(QStringLiteral("s.vrscene"), QStringLiteral("o.png"), 36).contains(QStringLiteral("-frames=1-36")));
+}
+
+// ---- RenderMan renders (prman_render.h) -----------------------------------------------------------
+
+TEST(AppPrman, TheStageScene) {
+    const std::string dir = tempPath("groomlab_app_prman");
+    std::filesystem::create_directories(dir);
+    const std::string scene = dir + "/stage_scene.rib";
+    RenderStage stage;
+    stage.eye = QVector3D(0.0f, 10.0f, 50.0f);
+    stage.target = QVector3D(0.0f, 10.0f, 0.0f);
+    stage.lighting = lightingPreset("studio");
+    stage.lighting.lights[1].enabled = false;
+    stage.lighting.exposure = 1.0f;
+    stage.scalp = std::make_shared<ScalpMesh>(std::vector<Vec3f>{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}},
+                                              std::vector<ScalpMesh::Triangle>{{0, 1, 2}});
+    stage.width = 400;
+    stage.height = 200;
+    PrmanScene rib;
+    rib.groomPath = dir + "/groom.groom";
+    rib.frame = 12.0;
+    rib.hairTilt = 2.5f;
+    rib.procedurals = dir;
+    rib.imagePath = dir + "/frame.png";
+    rib.environmentTexture = dir + "/stage_scene_env.tex";
+    const auto read = [&scene] {
+        std::ifstream in(scene);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    const auto count = [](const std::string& text, const std::string& what) {
+        std::size_t n = 0;
+        for (std::size_t at = text.find(what); at != std::string::npos; at = text.find(what, at + 1)) ++n;
+        return n;
+    };
+    writePrmanScene(scene, rib, stage);
+    const std::string text = read();
+    EXPECT_EQ(text.rfind("##RenderMan RIB", 0), 0u);
+    EXPECT_EQ(count(text, "FrameBegin"), 1u);
+    EXPECT_NE(text.find("Format 400 200 1"), std::string::npos);
+    EXPECT_NE(text.find("frame.png\" \"png\" \"rgba\""), std::string::npos);
+    EXPECT_NE(text.find(":@\"]"), std::string::npos);  // the procedural's folder searched
+    // The viewport's vertical 40 degrees: PxrPerspective's (the shorter side's) at 2:1.
+    EXPECT_NE(text.find("\"PxrPerspective\" \"float fov\" [40]"), std::string::npos);
+    // The camera: Z flipped, then the world into the camera at (0, 10, 50) looking down -Z.
+    EXPECT_NE(text.find("Scale 1 1 -1\nConcatTransform [1 0 0 0 0 1 0 0 0 0 1 0 0 -10 -50 1]"), std::string::npos);
+    // The key and the rim (the fill is off): the irradiance x 2^EV over the disk's solid angle.
+    EXPECT_EQ(count(text, "Light \"PxrDistantLight\""), 2u);
+    const double solidAngle = 2.0 * 3.14159265358979 * (1.0 - std::cos(kPrmanDistantAngle * 3.14159265358979 / 360.0));
+    char key[64];
+    std::snprintf(key, sizeof key, "\"float intensity\" [%.7g]", 2.0 * 2.0 / solidAngle);
+    EXPECT_NE(text.find(key), std::string::npos) << key;
+    // The environment: a dome unseen (the background is the solid color, by the display filter).
+    EXPECT_NE(text.find("Light \"PxrDomeLight\" \"environment\" \"float intensity\" [0.8]"), std::string::npos);
+    EXPECT_NE(text.find("stage_scene_env.tex\""), std::string::npos);
+    EXPECT_NE(text.find("\"int camera\" [0]"), std::string::npos);
+    EXPECT_NE(text.find("PxrBackgroundDisplayFilter"), std::string::npos);
+    EXPECT_NE(text.find("PointsPolygons [3]\n  [0 1 2]"), std::string::npos);
+    // The groom through the procedural at the document's frame, the hair network with its tilt.
+    EXPECT_NE(text.find("Procedural2 \"DynamicLoad\" \"DSOBound\" \"string dsoname\" [\"groomlab_renderman\"]"), std::string::npos);
+    EXPECT_NE(text.find("groom.groom\"] \"float frame\" [12]"), std::string::npos);
+    EXPECT_NE(text.find("\"float specularOffset\" [-2.5]"), std::string::npos);
+    EXPECT_NE(text.find("\"string varname\" [\"rman_rgbShare\"]"), std::string::npos);
+
+    // A turntable: a frame a frame, each its own image and camera; no environment, no dome.
+    stage.turntableFrames = 4;
+    stage.lighting = lightingPreset("key");
+    rib.environmentTexture.clear();
+    writePrmanScene(scene, rib, stage);
+    const std::string turn = read();
+    EXPECT_EQ(count(turn, "FrameBegin"), 4u);
+    EXPECT_NE(turn.find("frame.0004.png\""), std::string::npos);
+    EXPECT_EQ(turn.find("PxrDomeLight"), std::string::npos);
+    std::error_code ignored;
+    std::filesystem::remove_all(dir, ignored);
+}
+
+TEST(AppPrman, ReadsPrmansProgress) {
+    PrmanProgress p;
+    EXPECT_FALSE(p.feed(QStringLiteral("X00004 [groomlab] hair.groom: 50320 strands, 855440 points")));
+    EXPECT_TRUE(p.feed(QStringLiteral("R90000    0%")));
+    EXPECT_EQ(p.frame, 1);
+    EXPECT_TRUE(p.feed(QStringLiteral("R90000   45%")));
+    EXPECT_DOUBLE_EQ(p.percent, 45.0);
+    EXPECT_TRUE(p.feed(QStringLiteral("R90000  100%")));
+    EXPECT_EQ(p.imagesWritten, 1);
+    EXPECT_TRUE(p.feed(QStringLiteral("R90000  100%")));  // said twice: one image
+    EXPECT_EQ(p.imagesWritten, 1);
+    EXPECT_TRUE(p.feed(QStringLiteral("R90000    3%")));  // the next frame
+    EXPECT_EQ(p.frame, 2);
+    p.feed(QStringLiteral("R56001 {ERROR} cannot open \"x.groom\""));
+    EXPECT_EQ(p.error, QStringLiteral("R56001 {ERROR} cannot open \"x.groom\""));
+    EXPECT_EQ(prmanArguments(QStringLiteral("s.rib")), QStringList({QStringLiteral("-Progress"), QStringLiteral("s.rib")}));
+    // prman found in its file, its folder, or RenderMan Pro Server's folder.
+    const std::filesystem::path tree = std::filesystem::path(tempPath("groomlab_app_prman_tree")) / "RenderManProServer-27.3";
+    std::filesystem::create_directories(tree / "bin");
+#ifdef _WIN32
+    const std::filesystem::path exe = tree / "bin" / "prman.exe";
+#else
+    const std::filesystem::path exe = tree / "bin" / "prman";
+#endif
+    std::ofstream(exe).put('x');
+    const QString want = QFileInfo(QString::fromStdString(exe.u8string())).absoluteFilePath();
+    for (const auto& given : {exe, tree / "bin", tree}) EXPECT_EQ(prmanIn(QString::fromStdString(given.u8string())), want);
+    EXPECT_EQ(prmanEnvironment(want).value(QStringLiteral("RMANTREE")),
+              QDir::toNativeSeparators(QFileInfo(QString::fromStdString(tree.u8string())).absoluteFilePath()));
+    EXPECT_TRUE(prmanIn(QString::fromStdString((tree / "nothing").u8string())).isEmpty());
+    std::error_code ignored;
+    std::filesystem::remove_all(tree.parent_path(), ignored);
 }
 
 }  // namespace groomlab::app

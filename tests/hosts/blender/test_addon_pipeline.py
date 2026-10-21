@@ -131,12 +131,79 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(len(pipeline.transfer_markers(self.head)), 4)
         # The sample meshes: their real size in the scene's units, the part to groom selected.
         ids = [s["id"] for s in pipeline.sample_meshes()]
-        self.assertEqual(ids, ["nika", "manny", "wolf"])
+        self.assertEqual(ids, ["nika", "manny", "wolf", "buddy"])
         manny = pipeline.add_sample(bpy.context, "manny")
         self.assertEqual(manny.name, "manny_head")
         size = max(manny.dimensions)
         self.assertAlmostEqual(size, 0.3421, delta=0.002)
         self.assertGreater(manny.dimensions.z, manny.dimensions.y * 0.5)  # up is Z
+
+    def test_the_buddy_rig_poses_and_a_groom_follows(self):
+        # Buddy, a rig: an armature (63 bones) with its meshes skinned to it (an Armature modifier
+        # each), its real size, Z up, facing -Y, the body selected and active. A bone posed moves
+        # the body's evaluated vertices; a groom on the body follows the head (Follow Scalp).
+        scene = bpy.context.scene
+        body = pipeline.add_sample(bpy.context, "buddy")
+        self.assertEqual(body.name, "buddy_body")
+        self.assertIs(bpy.context.view_layer.objects.active, body)
+        self.assertEqual(bpy.context.selected_objects, [body])
+        rig = body.parent
+        self.assertEqual((rig.type, rig.name), ("ARMATURE", "buddy_rig"))
+        self.assertEqual(len(rig.data.bones), 63)
+        self.assertEqual(sorted(c.name for c in rig.children),
+                         ["buddy_body", "buddy_eye_l", "buddy_eye_r", "buddy_teeth", "buddy_tongue"])
+        for part in rig.children:
+            self.assertTrue(any(md.type == "ARMATURE" and md.object is rig for md in part.modifiers), part.name)
+
+        def world(o):
+            e = o.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            m = np.array(e.matrix_world)
+            co = np.array([v.co for v in e.data.vertices])
+            return co @ m[:3, :3].T + m[:3, 3]
+
+        pts = world(body)
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        self.assertAlmostEqual(max(hi - lo), 0.9665, delta=0.005)  # metres
+        self.assertAlmostEqual(lo[2], 0.0, delta=0.002)  # Z up, the feet on the ground
+        self.assertAlmostEqual(hi[2], 0.5707, delta=0.005)
+        self.assertLess(world(bpy.data.objects["buddy_eye_l"]).mean(axis=0)[1], -0.05)  # facing -Y
+        # The groom, then the head bent 30 degrees (about its Z) at frame 10.
+        groom.create_groom(bpy.context, body, preset="hair_basics", guide_count=30, guides="flat")
+        groom.flush()
+        rest, counts, _, ids = bu.hair_arrays(body.groomlab.hair)
+        self.assertGreater(len(counts), 1000)
+        pb = rig.pose.bones["head"]
+        pb.rotation_mode = "XYZ"
+        pb.rotation_euler = (0.0, 0.0, 0.0)
+        pb.keyframe_insert("rotation_euler", frame=1)
+        pb.rotation_euler = (0.0, 0.0, np.radians(30.0))
+        pb.keyframe_insert("rotation_euler", frame=10)
+        scene.frame_set(10)
+        posed = world(body)
+        crown = int(np.argmax(pts[:, 2]))
+        self.assertGreater(np.linalg.norm(posed[crown] - pts[crown]), 0.05)  # the skin moved with the head
+        pos, counts10, _, ids10 = bu.hair_arrays(body.groomlab.hair)
+        np.testing.assert_array_equal(ids10, ids)
+        np.testing.assert_array_equal(counts10, counts)
+        # The strands rooted on the crown (the head bone's alone) turned with it: the bone's motion,
+        # in the armature's space, which is the body's (and its hair's).
+        deform = pb.matrix @ pb.bone.matrix_local.inverted()
+        rot, move = np.array(deform.to_3x3()), np.array(deform.translation)
+        local = np.array([v.co for v in body.data.vertices])
+        starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+        on_crown = [s for s in starts if rest[s, 1] > local[:, 1].max() - 6.0]  # cm, Y up in the rig's space
+        self.assertGreater(len(on_crown), 10)
+        # Each keeps its shape, times the groom's scale (the bend stretches the neck: the skin's area
+        # at the frame, so a few percent), the same for all.
+        spans = [(s, counts[list(starts).index(s)]) for s in on_crown]
+        turned = rest.astype(np.float64) @ rot.T + move
+        k = np.median([np.linalg.norm(pos[s:s + n] - pos[s]) / np.linalg.norm(turned[s:s + n] - turned[s]) for s, n in spans])
+        self.assertAlmostEqual(k, 1.0, delta=0.03)
+        for s, n in spans:
+            np.testing.assert_allclose(pos[s], turned[s], atol=1e-3)  # the root, on the bent skin
+            np.testing.assert_allclose(pos[s:s + n], turned[s] + (turned[s:s + n] - turned[s]) * k, atol=0.05)  # cm
+        self.assertTrue(groom.runtime(body).last["following"])
+        scene.frame_set(1)
 
 
 def select_only(*objs):

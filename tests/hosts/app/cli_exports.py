@@ -47,12 +47,17 @@ def main(exe, groom, work):
     unreal = os.path.join(work, "cli_unreal.abc")
     unity = os.path.join(work, "cli_unity.abc")
     glb = os.path.join(work, "cli_cards.glb")
+    vrscene = os.path.join(work, "cli.vrscene")
     bake = os.path.join(work, "bake")
     log = run(exe, [groom, "--graph", graph_path, "--export-alembic", abc, "--export-usd", usda, "--export-unreal", unreal,
-                    "--export-unity", unity, "--points-per-strand", "6", "--export-cards", glb, "--cards-resolution", "128",
+                    "--export-unity", unity, "--export-vrscene", vrscene, "--points-per-strand", "6", "--export-cards", glb, "--cards-resolution", "128",
                     "--bake-cards", bake, "--bake-name", "cli"])
-    for path in (abc, usda, unreal, unity, glb):
+    for path in (abc, usda, unreal, unity, glb, vrscene):
         assert os.path.getsize(path) > 0, path
+    with open(vrscene, encoding="utf-8") as f:
+        text = f.read()
+    for plugin in ("GeomMayaHair cli@hair", "BRDFHair4 cli@hairBrdf", "Node cli@node"):
+        assert plugin in text, "a V-Ray scene with " + plugin
     with open(abc, "rb") as f:
         assert f.read(5) == b"Ogawa", "an Ogawa Alembic archive"
     with open(usda, encoding="utf-8") as f:

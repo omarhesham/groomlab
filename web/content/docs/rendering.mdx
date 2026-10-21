@@ -1,6 +1,6 @@
 ---
 title: Rendering
-description: Rendering in Arnold, studio lighting presets, the viewport hair shading, the hair shader, the strand attributes each renderer and cache format receives, instances and scales, render LOD and overrides, and farm rendering from groom files.
+description: Rendering in Arnold and with Maya Hardware 2.0, studio lighting presets, the viewport hair shading, the hair shader, the strand attributes each renderer and cache format receives, instances and scales, render LOD and overrides, and farm rendering from groom files.
 ---
 
 <Example name="hairstyle.png" alt="A wolf's head fur in the Maya viewport" caption="GroomLab's hair shading in the Maya viewport; Arnold renders the same strands" />
@@ -16,6 +16,44 @@ MtoA loads GroomLab's translator automatically. The translator evaluates the gra
 (regardless of `previewDensity`) and exports native Arnold `curves` (linear basis, one curve per
 strand, `radius` = half the strand width), with deformation motion blur when motion blur is on.
 The curves carry the strand attributes as Arnold user data ([Strand attributes](#strand-attributes)).
+
+## Maya Hardware 2.0
+
+**GroomLab > Render > Maya Hardware 2.0 (no renderer needed)...** (also in the Groom Tools' **Output**
+section) renders with Maya's own Hardware 2.0 renderer: nothing to install or license, in every Maya
+version. It takes well under a second to a few seconds a frame, so use it for quick lookdev, turntables
+and previews while you groom; use Arnold (or [another renderer](/docs/other-renderers)) for final
+pictures.
+
+Choose the frames (the current frame, the playback range or the render range), the size and the
+quality (Draft, Preview or Final: 4, 8 or 16 anti-aliasing samples a pixel), then **Render**. The
+frames render one after another in this Maya, with a progress window; **Stop** ends the render after
+the frame it is on. The images go to the scene's `groomlab/<scene>/renders/hw2_<date>` folder, and the
+last one opens in the Render View. From Python: `groomlab.render_hardware2(start=1, end=120)`.
+
+What the render shows:
+
+- **The scene as the viewport draws it**, through the studio's camera when there is a studio, else
+  the view's camera.
+- **The groom at its render density.** Every groom draws as a render shows it: `renderDensity` (not
+  `previewDensity`) with no point budget, the render width and length scales, and nodes set to render
+  only. Guides, flow and painted maps are hidden, and the hair draws with GroomLab's hair shading,
+  width as coverage and its self-shadowing.
+- **The studio's lighting.** Hardware 2.0 cannot use Arnold's area lights, so each one is replaced by
+  a Maya light for the render, about as bright as Arnold's on what it faces, light links kept. The
+  sky dome lights as it is. The backdrop and the mannequin render in their colors, as Arnold shows
+  them. Without a studio, the scene's Maya lights light it, or Maya's default light when there are none.
+- **The background.** The studio's backdrop, or else transparency: the PNG's alpha is 0 where the
+  camera sees nothing.
+- **Images as the viewport shows them**, with Maya's color management view (sRGB, ACES).
+
+Everything the render changes (render settings, the groom's display, the stand-in lights and
+materials) is put back after the last frame, outside the undo queue.
+
+Hardware 2.0 shows what the viewport can, not what Arnold computes: no light bounces, so shadowed
+sides are darker; hard shadows from the meshes instead of soft area-light shadows; and the viewport's
+hair shading, close to Arnold's look but not the same (fine hair lying on the skin shows less than in
+Arnold).
 
 ## Studio lighting
 
@@ -70,6 +108,10 @@ Tips:
 - Rim Drama shows stray hairs and flyaways best; High Key shows the color and the density.
 - To keep the head's own materials, pass `mannequin=False` (or reassign them after; Remove Studio
   puts back what it found).
+- **GroomLab > Render > RenderMan (prman)...** and **V-Ray Standalone...** render the studio too
+  (its camera, its area lights and dome as their lights, the backdrop and the head in their greys),
+  from any Maya version ([RenderMan](/docs/other-renderers#render-in-renderman-any-maya-tested),
+  [V-Ray](/docs/other-renderers#v-ray)).
 - The app's **Look** mode has lighting presets of its own (studio, daylight, overcast, sunset, rim)
   ([Look](/docs/app#look)).
 

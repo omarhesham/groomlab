@@ -135,6 +135,9 @@ def main():
         assert any(p["name"] == "hair_basics" for p in presets["presets"])
         meshes, _ = c.call("list_sample_meshes")
         assert any(m["name"] == "nika" for m in meshes["meshes"]), meshes
+        # Buddy: its body (buddy.obj), not the hosts' rigs (buddy_rig.ma, buddy_rig.fbx).
+        buddy = [m for m in meshes["meshes"] if m["name"] == "buddy"]
+        assert len(buddy) == 1 and buddy[0]["file"] == "buddy.obj" and "rigged" in buddy[0]["description"], meshes
         docs, _ = c.call("get_docs", {"topic": "tube guides"})
         assert docs["text"], docs
         c.call("list_nodes", {"bogus": 1}, expect_error=True)  # an unknown argument says so

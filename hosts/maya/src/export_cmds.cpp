@@ -49,6 +49,7 @@
 #include "groomlab/scale_maps.h"
 #include "groomlab/scales.h"
 #include "groomlab/usd_writer.h"
+#include "groomlab/vrscene_writer.h"
 #include "maya_inputs.h"
 
 #if GROOMLAB_HAS_ALEMBIC
@@ -174,6 +175,15 @@ private:
     MComputation computation_;
 };
 
+// The context an export reads `frame` in: the normal one at the current frame. Maya keeps what a
+// timed context computed for a frame, so a rig posed again without keys (or any edit upstream of
+// the scalp) read through MDGContext(current frame) gives the scalp as it was before the edit;
+// the normal context follows every edit.
+MDGContext exportContext(double frame, MTime::Unit unit) {
+    const MTime time(frame, unit);
+    return time == MAnimControl::currentTime() ? MDGContext(MDGContext::fsNormal) : MDGContext(time);
+}
+
 // Evaluates the groom at each frame of the range and hands the strands (and
 // the scalp they grew on) to `write`. Returns the total strand count. Maya's progress bar counts
 // the frames; Esc stops after the current one (the command fails with "cancelled").
@@ -209,7 +219,7 @@ MStatus forEachFrame(const char* command, const MDagPath& path, const FrameRange
     for (unsigned i = 0; i < range.count(); ++i) {
         if (!progress.step(i)) return progress.cancelled(i);
         const double frame = range.start + i * range.step;
-        MDGContext context(MTime(frame, unit));
+        MDGContext context = exportContext(frame, unit);
         MDGContextGuard guard(context);
 
         std::string error;
@@ -531,7 +541,7 @@ MStatus ExportAlembicCmd::doIt(const MArgList& args) {
                 FrameProgress progress(kName, range.count());
                 for (unsigned i = 0; i < range.count(); ++i) {
                     if (!progress.step(i)) return progress.cancelled(i);
-                    MDGContext context(MTime(range.start + i * range.step, unit));
+                    MDGContext context = exportContext(range.start + i * range.step, unit);
                     MDGContextGuard guard(context);
                     StrandSet curves;
                     status = guidesAtFrame(kName, path.node(), group, poses, frames, &curves);
@@ -610,6 +620,75 @@ MStatus ExportUsdCmd::doIt(const MArgList& args) {
             if (!status) return status;
             writer.close();
         } catch (const UsdError& e) {
+            return fail(kName, e.what());
+        }
+        reportWritten(kName, range.count(), strandTotal, file);
+        setResult(static_cast<int>(range.count()));
+        return MS::kSuccess;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// V-Ray scene
+
+const char* ExportVrsceneCmd::kName = "groomLabExportVrscene";
+
+void* ExportVrsceneCmd::creator() { return new ExportVrsceneCmd(); }
+
+MSyntax ExportVrsceneCmd::newSyntax() {
+    MSyntax syntax = curveSyntax();
+    syntax.addFlag("-mpw", "-minPixelWidth", MSyntax::kDouble);
+    return syntax;
+}
+
+MStatus ExportVrsceneCmd::doIt(const MArgList& args) {
+    return groomlab::maya::guarded("ExportVrsceneCmd::doIt", [&]() -> MStatus {
+        MStatus status;
+        MArgDatabase db(syntax(), args, &status);
+        if (!status) return status;
+        if (!db.isFlagSet(kFileFlag)) return fail(kName, "-file is required");
+        MString file;
+        db.getFlagArgument(kFileFlag, 0, file);
+        MDagPath path;
+        FrameRange range;
+        if (!groomArgument(kName, db, &path) || !frameRange(kName, db, &range)) return MS::kFailure;
+
+        std::size_t strandTotal = 0;
+        try {
+            VrsceneWriter::Options options;
+            options.framesPerSecond = framesPerSecond();
+            options.comment = std::string(MFileIO::currentFile().asChar()) + " " + path.fullPathName().asChar();
+            options.metersPerUnit = 0.01;  // Maya's internal unit is the centimeter, whatever the UI unit
+            options.upAxis = MGlobal::isZAxisUp() ? "Z" : "Y";
+            options.minPixelWidth = static_cast<float>(flagDouble(db, "-mpw", 0.0));
+            if (!(options.minPixelWidth >= 0.0f)) return fail(kName, "-minPixelWidth must be 0 or more");
+            auto* shape = dynamic_cast<GroomShape*>(MFnDagNode(path).userNode());
+            VrsceneWriter writer(file.asChar(), exportName(path), options);
+            bool looked = false;
+            status = forEachFrame(
+                kName, path, range,
+                [&](double frame, const StrandSet& strands, const MeshPtr& scalp, NodeEvaluator& evaluator) {
+                    if (!looked) {  // the look (HairColor's highlight), as of the first frame
+                        HairLook look;
+                        if (evaluator.hairLook(&look)) {
+                            writer.setLobes(hairLobes(look));
+                        } else if (shape) {
+                            writer.setLobes(hairLobes(shape->hairLook()));
+                        }
+                        looked = true;
+                    }
+                    // The groom's world matrix at this frame (in the frame's context).
+                    double m[16];
+                    const MMatrix matrix = path.inclusiveMatrix();
+                    for (int r = 0; r < 4; ++r) {
+                        for (int c = 0; c < 4; ++c) m[4 * r + c] = matrix(r, c);
+                    }
+                    writer.writeFrame(frame, strands, scalp.get(), m);
+                },
+                &strandTotal, true);
+            if (!status) return status;
+            writer.close();
+        } catch (const VrsceneError& e) {
             return fail(kName, e.what());
         }
         reportWritten(kName, range.count(), strandTotal, file);

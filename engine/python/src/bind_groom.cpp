@@ -22,6 +22,7 @@
 #include "groomlab/ptex.h"
 #include "groomlab/scalp_maps.h"
 #include "groomlab/usd_writer.h"
+#include "groomlab/vrscene_writer.h"
 
 namespace groomlab::py_bind {
 
@@ -796,6 +797,49 @@ void bindGroom(py::module_& m) {
         .def("__enter__", [](UsdCurvesWriter& w) -> UsdCurvesWriter& { return w; }, py::return_value_policy::reference)
         .def("__exit__", [](UsdCurvesWriter& w, py::handle, py::handle, py::handle) { w.close(); });
     m.def("usd_identifier", &usdIdentifier, py::arg("name"), "A valid USD prim name made from `name`.");
+
+    // ---- V-Ray -------------------------------------------------------------------------------
+    py::class_<VrsceneWriter::Options>(m, "VrsceneOptions",
+                                       "V-Ray scene options: frame rate, meters per unit, up axis, comment, the look's "
+                                       "highlight (set_look), min_pixel_width, compress.")
+        .def(py::init<>())
+        .def_readwrite("frames_per_second", &VrsceneWriter::Options::framesPerSecond)
+        .def_readwrite("meters_per_unit", &VrsceneWriter::Options::metersPerUnit)
+        .def_readwrite("up_axis", &VrsceneWriter::Options::upAxis)
+        .def_readwrite("comment", &VrsceneWriter::Options::comment)
+        .def_readwrite("min_pixel_width", &VrsceneWriter::Options::minPixelWidth)
+        .def_readwrite("compress", &VrsceneWriter::Options::compress)
+        .def(
+            "set_look",
+            [](VrsceneWriter::Options& o, float specular, float roughness, float tilt) {
+                o.lobes = hairLobes(specular, roughness, tilt);
+            },
+            py::arg("specular") = kDefaultHairSpecular, py::arg("roughness") = kDefaultHairRoughness,
+            py::arg("tilt") = kDefaultHairTilt,
+            "The groom's highlight (HairColor's specular, roughness and tilt: GroomSession.hair_look()) for the "
+            "hair shader.");
+    py::class_<VrsceneWriter>(m, "VrsceneWriter",
+                              "Writes strands and their hair shader as a V-Ray scene (.vrscene), values that change "
+                              "between frames as interpolate() keys. Use as a context manager or call close().")
+        .def(py::init([](const std::string& path, const std::string& name, const VrsceneWriter::Options& options) {
+                 return std::make_unique<VrsceneWriter>(path, name, options);
+             }),
+             py::arg("path"), py::arg("name"), py::arg("options") = VrsceneWriter::Options{})
+        .def(
+            "write_frame",
+            [](VrsceneWriter& w, double frame, const StrandSet& strands, const ScalpMesh* scalp,
+               const std::optional<std::vector<double>>& matrix) {
+                if (matrix && matrix->size() != 16) throw py::value_error("matrix must have 16 values");
+                py::gil_scoped_release release;
+                w.writeFrame(frame, strands, scalp, matrix ? matrix->data() : nullptr);
+            },
+            py::arg("frame"), py::arg("strands"), py::arg("scalp") = nullptr, py::arg("matrix") = py::none(),
+            "Frames must increase; the scalp supplies root UVs; matrix: the object-to-world matrix (16 values, "
+            "row-major, the translation last: Maya's), None for the identity.")
+        .def("frame_count", &VrsceneWriter::frameCount)
+        .def("close", &VrsceneWriter::close, py::call_guard<py::gil_scoped_release>())
+        .def("__enter__", [](VrsceneWriter& w) -> VrsceneWriter& { return w; }, py::return_value_policy::reference)
+        .def("__exit__", [](VrsceneWriter& w, py::handle, py::handle, py::handle) { w.close(); });
 }
 
 }  // namespace groomlab::py_bind

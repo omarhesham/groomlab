@@ -1402,6 +1402,30 @@ class ExtrasTest(SceneMixin, unittest.TestCase):
         finally:
             shutil.rmtree(folder, ignore_errors=True)
 
+    def test_vrscene_writer(self):
+        s = gl.StrandSet()
+        s.add_strand(1, [(0, 0, 0), (0, 1, 0)], widths=[0.02, 0.01])
+        folder = tempfile.mkdtemp(prefix="groomlab_py_")
+        try:
+            path = os.path.join(folder, "hair.vrscene")
+            options = gl.VrsceneOptions()
+            options.comment = "from python"
+            options.compress = False
+            options.set_look(specular=0.3, roughness=1.0)
+            with gl.VrsceneWriter(path, "hair groom", options) as w:
+                w.write_frame(1.0, s, matrix=[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 3, 0, 0, 1])
+                self.assertEqual(w.frame_count(), 1)
+                with self.assertRaises(ValueError):
+                    w.write_frame(2.0, s, matrix=[1, 2, 3])
+            with open(path) as f:
+                text = f.read()
+            self.assertIn("GeomMayaHair hair_groom@hair {", text)
+            self.assertIn("num_hair_vertices=ListIntHex(\"02000000\");", text)
+            self.assertIn("Vector(3, 0, 0))", text)  # the matrix's translation
+            self.assertRegex(text, r"glossiness=0\.3[45]\d*;")  # roughness 1: Arnold's 0.5
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
     @unittest.skipUnless(gl.has_alembic, "built without Alembic")
     def test_alembic_round_trip(self):
         s = gl.StrandSet()

@@ -40,7 +40,7 @@ void printUsage() {
                  "       groomlab-cli --list-operators\n"
 #if GROOMLAB_HAS_ALEMBIC
                  "       groomlab-cli info <file.groom>\n"
-                 "       groomlab-cli eval <file.groom> -o <out.abc|out.usda> [-f <frame>|<start>-<end>]\n"
+                 "       groomlab-cli eval <file.groom> -o <out.abc|out.usda|out.vrscene> [-f <frame>|<start>-<end>]\n"
                  "                    [--step <frames>] [--density <0-1>] [--timings] [--stats]\n"
                  "                    [--scales mesh|instancer|both|none]\n"
                  "       groomlab-cli bake-scales <file.groom> -o <prefix> [-f <frame>] [--resolution <16-8192>]\n"
@@ -217,7 +217,9 @@ int evalGroom(int argc, char** argv) {
     if (a.end < a.start) throw std::invalid_argument("the end frame is before the start frame");
     if (a.density < 0.0f || a.density > 1.0f) throw std::invalid_argument("--density must be between 0 and 1");
     const bool usd = groomlab::cli::isUsdPath(a.out);
-    if (!usd && !endsWith(a.out, ".abc")) throw std::invalid_argument("the output must be .abc or .usda");
+    if (!usd && !groomlab::cli::isVrscenePath(a.out) && !endsWith(a.out, ".abc")) {
+        throw std::invalid_argument("the output must be .abc, .usda or .vrscene");
+    }
     if (!usd && (a.scales == "instancer" || a.scales == "both")) throw std::invalid_argument("an instancer goes to USD");
 
     const auto t0 = std::chrono::steady_clock::now();

@@ -43,6 +43,9 @@ const TargetInfo kTargets[] = {
                                       "resampled to a fixed point count, by strand group."},
     {"maps", "Card maps", "", "The cards' maps as an engine wants them, in one click: pick a preset (Unreal, Unity HDRP, every map "
                               "on its own, your own packing under Advanced), the size and format. The output is <folder>/<name>."},
+    {"vrscene", "V-Ray scene", "vrscene", "The strands and their V-Ray hair shader (BRDFHair4 fitted to the Arnold look, each "
+                                          "strand's color): V-Ray Standalone renders it (#include it), V-Ray for Maya's "
+                                          "VRayScene node loads it. A range is written as V-Ray's keys (motion blur)."},
 };
 
 constexpr const char* kCustomPreset = "Custom";

@@ -8,6 +8,7 @@
     "sample.nika": {"label": "Nika (head)", "tip": "Nika, a head and shoulders, at the origin and selected: then Create Groom from Selection"},
     "sample.manny": {"label": "Manny (head)", "tip": "Manny, a head, at the origin and selected: then Create Groom from Selection"},
     "sample.wolf": {"label": "Wolf", "tip": "A sitting wolf (body, eyes, nails, mouth), at the origin, its body selected: then Create Groom from Selection"},
+    "sample.buddy": {"label": "Buddy (rig)", "tip": "Buddy, a posable character rig (skinned body, eyes, teeth, tongue; joints and controls), at the origin, its body selected: then Create Groom from Selection, and pose it", "hosts": ["maya", "blender"]},
     "photos.guides": {"label": "Guides from Photos (experimental)...", "tip": "Grow guides from reference photos: the photo and the mesh side by side, a few landmarks to line the camera up, optional flow arrows and mask touch-ups, Generate"},
 
     "file.import": {"label": "Import Groom File...", "tip": "A groom from a .groom file (exported from Maya or saved by the standalone app), on the selected mesh when it is the file's scalp, else on a mesh made from the file"},
@@ -49,9 +50,15 @@
 
     "render.fromGroomFile": {"label": "Render from Groom File...", "tip": "Arnold renders the groom from a groom file at render time (small .ass files, farm renders); the scalp's animation is cached into it", "hosts": ["maya"]},
     "render.asCurves": {"label": "Render as Curves", "tip": "Arnold renders the groom's strands from the scene as curves (the default; undoes Render from Groom File)", "hosts": ["maya"]},
+    "render.hardware2": {"label": "Maya Hardware 2.0 (no renderer needed)...", "tip": "Quick groom renders and turntables with Maya's own Hardware 2.0, in any Maya version, nothing to install: the viewport's hair at the render density, lit hair shading, anti-aliased; a studio's Arnold lights stand in as Maya lights. Seconds a frame in this Maya; the image opens in the Render View and is kept in the scene's groomlab renders folder", "hosts": ["maya"]},
+    "render.vrayStandalone": {"label": "V-Ray Standalone...", "tip": "Groom renders and lookdev in V-Ray Standalone, in any Maya version (tested): the grooms, the visible meshes, the camera (the studio's) and the lights as a .vrscene, rendered in the background; the image opens in the Render View and is kept in the scene's groomlab renders folder", "hosts": ["maya"]},
+    "render.prman": {"label": "RenderMan (prman)...", "tip": "Groom renders and lookdev in RenderMan (prman, RenderMan Pro Server: free for non-commercial use), in any Maya version: the grooms through GroomLab's RenderMan procedural, the visible meshes, the camera (the studio's) and the lights as RIB, rendered in the background; the image opens in the Render View and is kept in the scene's groomlab renders folder", "hosts": ["maya"]},
+    "render.vrayHook": {"label": "V-Ray for Maya Hook (2024+, experimental)", "tip": "Experimental, untested: V-Ray for Maya (Maya 2024 or later) renders the grooms inside its own scene renders, through its post-translate Python script (picking it again turns it off)", "hosts": ["maya"]},
+    "render.vrayLoadScene": {"label": "Load as VRayScene (2024+, experimental)", "tip": "Experimental, untested: the groom over the playback range as a .vrscene and a VRayScene node pointing at it, for V-Ray for Maya (Maya 2024 or later)", "hosts": ["maya"]},
 
     "export.alembic": {"label": "Alembic...", "tip": "The strands as Alembic curves over the playback range"},
     "export.usd": {"label": "USD...", "tip": "The strands as USD curves over the playback range"},
+    "export.vrscene": {"label": "V-Ray Scene...", "tip": "The strands and their V-Ray hair shader as a .vrscene over the playback range: a VRayScene node or V-Ray Standalone renders it"},
     "export.unrealGroom": {"label": "Unreal Groom...", "tip": "Alembic in Unreal's groom format: strands plus primary guides, at the current frame"},
     "export.unrealCards": {"label": "Unreal Cards...", "tip": "The game cards as FBX with TGA maps in Unreal's hair card layout and a manifest, into a folder"},
     "export.unityStrands": {"label": "Unity Strands (.abc)...", "tip": "Alembic curves for Unity's hair package: widths and root UVs per point, at the current frame"},

@@ -208,7 +208,7 @@ class DefinitionsTest(unittest.TestCase):
         self.assertEqual(texts(drawn(bpy.types.GROOMLAB_MT_main_groomfiles)),
                          ["Import Groom File...", "Reload from Groom File", "Save to Groom File", "Save Groom File As..."])
         self.assertEqual(texts(drawn(bpy.types.GROOMLAB_MT_main_export)),
-                         ["Alembic...", "USD...", "Unreal Groom...", "Unreal Cards...", "Unity Strands (.abc)...",
+                         ["Alembic...", "USD...", "V-Ray Scene...", "Unreal Groom...", "Unreal Cards...", "Unity Strands (.abc)...",
                           "Unity Feathers...", "Unity Cards...", "glTF Cards...", "Card Maps...", "Scales Mesh (FBX)...",
                           "Scales Instancer (USD)..."])
         add = drawn(bpy.types.GROOMLAB_MT_main_add)
@@ -218,8 +218,8 @@ class DefinitionsTest(unittest.TestCase):
         self.assertEqual(texts(cards), ["Hero", "Mid", "Low"])
         self.assertEqual([e[3].lod for e in cards if e[0] == "op_text"], ["hero", "mid", "low"])
         samples = drawn(bpy.types.GROOMLAB_MT_main_samples)
-        self.assertEqual(texts(samples), ["Nika (head)", "Manny (head)", "Wolf"])
-        self.assertEqual([e[3].sample for e in samples if e[0] == "op_text"], ["nika", "manny", "wolf"])
+        self.assertEqual(texts(samples), ["Nika (head)", "Manny (head)", "Wolf", "Buddy (rig)"])
+        self.assertEqual([e[3].sample for e in samples if e[0] == "op_text"], ["nika", "manny", "wolf", "buddy"])
         sim = drawn(bpy.types.GROOMLAB_MT_main_simulate)
         self.assertEqual(texts(sim), ["Add Simulate Node", "Simulate Range", "Bake Simulation", "Clear Simulation"])
         self.assertEqual([e[3].bake for e in sim if e[0] == "op_text" and e[1] == "groomlab.simulate_range"],

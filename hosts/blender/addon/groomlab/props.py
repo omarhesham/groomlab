@@ -109,7 +109,9 @@ def _settings_changed(self, context):
 class GroomLabObject(bpy.types.PropertyGroup):
     role: EnumProperty(items=[("NONE", "None", ""), ("SCALP", "Scalp", "The mesh a GroomLab groom grows on"),
                               ("GUIDES", "Guides", "A GroomLab groom's guide curves"),
-                              ("HAIR", "Hair", "A GroomLab groom's strands (written by the add-on)")], default="NONE")
+                              ("HAIR", "Hair", "A GroomLab groom's strands (written by the add-on)"),
+                              ("VRAY", "V-Ray Hair", "A GroomLab groom's V-Ray scene: what V-Ray for Blender renders "
+                                                     "for it (vray.py)")], default="NONE")
     uid: StringProperty()
     scalp: PointerProperty(type=bpy.types.Object)
     guides: PointerProperty(type=bpy.types.Object)

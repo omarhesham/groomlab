@@ -248,6 +248,27 @@ TEST(ScaleWithScalp, ADeformingScalpKeepsOneScaleOnItsRestPose) {
     EXPECT_EQ(withRestArea(sized, restSurfaceArea(*sized)), sized) << "the same size: the same mesh";
 }
 
+TEST(ScaleWithScalp, APoseStretchingPartOfTheScalpKeepsItsPoseFreeArea) {
+    // poseFreeArea: a uniform scale comes through (a rig scaled at its root), a pose that stretches
+    // some triangles (a shoulder raised) does not; no rest pose: the plain area.
+    GroomData data = strokesGroom();
+    auto rested = std::make_shared<ScalpMesh>(*data.scalp);
+    rested->setRestPoints(data.scalp->points());
+    const double rest = restSurfaceArea(*rested);
+    std::vector<Vec3f> doubled = rested->points();
+    for (Vec3f& p : doubled) p = p * 2.0f;
+    EXPECT_NEAR(poseFreeArea(*rested, doubled), 4.0 * rest, 1e-4 * rest);
+    std::vector<Vec3f> posed = rested->points();
+    float top = posed.front().y;
+    for (const Vec3f& p : posed) top = std::max(top, p.y);
+    for (Vec3f& p : posed) {
+        if (p.y > top - 0.15f * top) p = {p.x * 1.6f, p.y, p.z * 1.6f};  // the crown stretched
+    }
+    EXPECT_GT(std::fabs(surfaceArea(posed, rested->triangles()) / rest - 1.0), 0.02) << "the pose stretches";
+    EXPECT_NEAR(poseFreeArea(*rested, posed), rest, 1e-3 * rest);
+    EXPECT_NEAR(poseFreeArea(*data.scalp, doubled), surfaceArea(doubled, data.scalp->triangles()), 1e-6);
+}
+
 TEST(ScaleWithScalp, KeyedLengthsScaleWithTheirParams) {
     // A keyed param of the curly preset's Curl that measures a length or a per-length rate, keyed to its
     // own value: the groom is the same keyed or not, at 1x and at 2x.

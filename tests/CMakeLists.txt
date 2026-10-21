@@ -94,6 +94,7 @@ add_executable(groomlab_tests
     engine/core/test_static.cpp
     engine/core/test_tie.cpp
     engine/core/test_usd_layout.cpp
+    engine/core/test_vrscene_writer.cpp
     engine/core/test_wet.cpp
     engine/core/test_example_node.cpp
     # The new-node template, built as a test's operator ("TestExample": test_example_node.cpp); its
@@ -438,7 +439,7 @@ if(TARGET groomlab-helper AND TARGET groomlab-cli)
         set(_addon_env
             "GROOMLAB_CLI=$<TARGET_FILE:groomlab-cli>;GROOMLAB_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/data;GROOMLAB_USER_PRESETS=${CMAKE_CURRENT_BINARY_DIR}/blender_no_user_presets;GROOMLAB_USER_NODES=${CMAKE_CURRENT_BINARY_DIR}/blender_no_user_nodes")
         foreach(_t addon addon_free addon_render addon_graph addon_graph_authoring addon_tools addon_ui addon_pipeline
-                   addon_photos)
+                   addon_photos addon_vray)
             add_test(NAME blender.${_t}
                 COMMAND "${_blender_python}" -B "${CMAKE_CURRENT_SOURCE_DIR}/hosts/blender/run_blender_test.py" "${_blender_exe}"
                         "${GROOMLAB_BLENDER_EXTENSION_ZIP}" "${CMAKE_CURRENT_SOURCE_DIR}/hosts/blender/test_${_t}.py")
@@ -447,6 +448,11 @@ if(TARGET groomlab-helper AND TARGET groomlab-cli)
         set_tests_properties(blender.addon blender.addon_render blender.addon_graph_authoring blender.addon_tools
                              blender.addon_pipeline blender.addon_photos PROPERTIES
             LABELS "blender" ENVIRONMENT "${_addon_env}")
+        # Final renders in V-Ray for Blender (the groom's V-Ray scene): skipped when V-Ray for Blender is not
+        # installed for this Blender (the user's scripts/addons/vray_blender, added read only to the
+        # throwaway profile). V-Ray's license is checked out per render: alone.
+        set_tests_properties(blender.addon_vray PROPERTIES LABELS "blender;vray" RUN_SERIAL TRUE TIMEOUT 900
+                             ENVIRONMENT "${_addon_env}")
         # Free for any use: exports with no key, no notice, Support GroomLab in the menu and About.
         set_tests_properties(blender.addon_free PROPERTIES LABELS "quick;blender" ENVIRONMENT "${_addon_env}")
         # The UI from the shared definitions (engine/ui): every id Blender shows bound, the Groom Tools' operators.
@@ -652,6 +658,81 @@ if(TARGET groomlab_renderman AND TARGET groomlab-cli AND RenderMan_PRMAN)
     endif()
 endif()
 
+# The V-Ray scene export (vrscene_writer.h) in V-Ray Standalone, when it is installed: the head groom
+# written by groomlab-cli and rendered small (vray_compare.py), its coverage, colors and motion blur;
+# with MtoA's kick and GroomLab's Arnold procedural (the Maya build) a comparison with Arnold too.
+# V-Ray's license is checked out per render: alone.
+find_program(GROOMLAB_VRAY_STANDALONE vray
+    PATHS "$ENV{ProgramFiles}/Chaos/V-Ray/Standalone for x64/bin" "$ENV{VRAY_PATH}" NO_CACHE)
+if(GROOMLAB_VRAY_STANDALONE AND TARGET groomlab-cli)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        set(_vray_arnold "")
+        if(TARGET groomlab_procedural AND MTOA_LOCATION AND EXISTS "${MTOA_LOCATION}/bin/kick${CMAKE_EXECUTABLE_SUFFIX}")
+            set(_vray_arnold --kick "${MTOA_LOCATION}/bin/kick${CMAKE_EXECUTABLE_SUFFIX}"
+                             --procedural "$<TARGET_FILE_DIR:groomlab_procedural>")
+        endif()
+        add_test(NAME vray.render
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/hosts/vray/test_vray.py"
+                    "${GROOMLAB_VRAY_STANDALONE}" "$<TARGET_FILE:groomlab-cli>" "${CMAKE_CURRENT_BINARY_DIR}/vray"
+                    ${_vray_arnold})
+        set_tests_properties(vray.render PROPERTIES LABELS "vray" RUN_SERIAL TRUE TIMEOUT 900)
+    endif()
+endif()
+
+# V-Ray Standalone scenes and renders from Maya (groomlab.vray_scene, vray_render, vray_hook): the
+# scene text, vray.exe's command line and progress, and the V-Ray for Maya hook's frames, script and
+# plugin edits against a stand-in vray.utils, in plain Python (quick); the studio's scene written
+# from Maya and, with vray.exe, rendered small (maya.vray, alone: V-Ray's license is per render).
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME vray.scene
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/hosts/vray/test_vray_scene.py"
+                "${PROJECT_SOURCE_DIR}/hosts/maya/scripts")
+    set_tests_properties(vray.scene PROPERTIES LABELS "quick;vray")
+endif()
+if(TARGET groomLabTranslator)
+    add_test(NAME maya.vray
+        COMMAND "${MAYA_LOCATION}/bin/mayapy${CMAKE_EXECUTABLE_SUFFIX}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/hosts/maya/test_vray_render.py"
+                "$<TARGET_FILE:GroomLab>"
+                "${PROJECT_SOURCE_DIR}/hosts/maya/scripts"
+                "$<TARGET_FILE_DIR:groomLabTranslator>"
+                "${CMAKE_CURRENT_BINARY_DIR}/vray_maya"
+                "${GROOMLAB_VRAY_STANDALONE}")
+    set_tests_properties(maya.vray PROPERTIES RUN_SERIAL TRUE TIMEOUT 900)
+endif()
+
+# RenderMan scenes and renders from Maya (groomlab.prman_scene, prman_render, render_common): the RIB
+# text, prman's command line, progress and finding it, in plain Python (quick); with prman, the
+# conventions rendered (a floor under each kind of light); the studio's scene written from Maya and,
+# with prman and the procedural, Nika's groom rendered small (maya.prman). prman's license is one per
+# machine: the renders alone.
+if(Python3_Interpreter_FOUND)
+    add_test(NAME renderman.scene
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/hosts/renderman/test_prman_scene.py"
+                "${PROJECT_SOURCE_DIR}/hosts/maya/scripts")
+    set_tests_properties(renderman.scene PROPERTIES LABELS "quick;renderman")
+    if(RenderMan_PRMAN)
+        add_test(NAME renderman.scene_render
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/hosts/renderman/test_prman_scene.py"
+                    "${PROJECT_SOURCE_DIR}/hosts/maya/scripts" "${RenderMan_PRMAN}")
+        set_tests_properties(renderman.scene_render PROPERTIES LABELS "renderman" RUN_SERIAL TRUE TIMEOUT 600)
+    endif()
+endif()
+if(TARGET groomLabTranslator)
+    add_test(NAME maya.prman
+        COMMAND "${MAYA_LOCATION}/bin/mayapy${CMAKE_EXECUTABLE_SUFFIX}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/hosts/maya/test_prman_render.py"
+                "$<TARGET_FILE:GroomLab>"
+                "${PROJECT_SOURCE_DIR}/hosts/maya/scripts"
+                "$<TARGET_FILE_DIR:groomLabTranslator>"
+                "${CMAKE_CURRENT_BINARY_DIR}/prman_maya"
+                "$<$<TARGET_EXISTS:groomlab_renderman>:$<TARGET_FILE_DIR:groomlab_renderman>>"
+                "${RenderMan_PRMAN}")
+    set_tests_properties(maya.prman PROPERTIES RUN_SERIAL TRUE TIMEOUT 900)
+endif()
+
 # GroomLab's Maya windows on small screens and with large text (125-150%), headless: mayapy's
 # PySide2, Qt offscreen and a stand-in Maya; no window on the desktop.
 if(GROOMLAB_BUILD_MAYA AND TARGET groomlab_core_py)
@@ -670,14 +751,21 @@ endif()
 # The plugin's Python imports the build's groomlab_core module (as the
 # installed module's PYTHONPATH has it). COST starts the long suites first.
 set(GROOMLAB_MAYA_PYTHONPATH "$<$<TARGET_EXISTS:groomlab_core_py>:$<TARGET_FILE_DIR:groomlab_core_py>>")
-foreach(_maya_test maya.plugin maya.graph_editor maya.pipeline maya.groom_io maya.grooming maya.strand_mesh maya.subdivision maya.hardening maya.updates maya.arnold maya.studio maya.studio_render maya.xgen_import maya.yeti_import)
+foreach(_maya_test maya.plugin maya.graph_editor maya.pipeline maya.groom_io maya.grooming maya.strand_mesh maya.subdivision maya.hardening maya.updates maya.arnold maya.studio maya.studio_render maya.vray maya.prman maya.xgen_import maya.yeti_import)
     if(TEST ${_maya_test})
         set(_app_dir "${CMAKE_CURRENT_BINARY_DIR}/maya_app_dirs/${_maya_test}")
         file(MAKE_DIRECTORY "${_app_dir}")
         set_tests_properties(${_maya_test} PROPERTIES COST 1000 ENVIRONMENT
             "MAYA_APP_DIR=${_app_dir};PYTHONPATH=${GROOMLAB_MAYA_PYTHONPATH}")
-        if(NOT _maya_test STREQUAL "maya.arnold" AND NOT _maya_test STREQUAL "maya.studio_render")
+        if(NOT _maya_test STREQUAL "maya.arnold" AND NOT _maya_test STREQUAL "maya.studio_render"
+           AND NOT _maya_test STREQUAL "maya.vray" AND NOT _maya_test STREQUAL "maya.prman")
             set_tests_properties(${_maya_test} PROPERTIES LABELS "quick;maya")
+        endif()
+        if(_maya_test STREQUAL "maya.vray")
+            set_tests_properties(${_maya_test} PROPERTIES LABELS "vray;maya")
+        endif()
+        if(_maya_test STREQUAL "maya.prman")
+            set_tests_properties(${_maya_test} PROPERTIES LABELS "renderman;maya")
         endif()
     endif()
 endforeach()
@@ -712,8 +800,9 @@ if(GROOMLAB_GUI_TESTS AND GROOMLAB_BUILD_MAYA AND TARGET GroomLab)
     # The drawing suites again on DirectX 11: fresh prefs give OpenGL, but many artists run
     # Viewport 2.0 on DirectX 11, where buffers behave differently (GPU-only vertex buffers
     # cannot be written there). MAYA_VP2_DEVICE_OVERRIDE picks the device without touching prefs.
-    # The quit suite too: Maya quits with the panels open on that device as well; and cached
-    # playback, whose frames the viewport draws from the cache.
+    # The quit suite too: Maya quits with the panels open on that device as well; cached
+    # playback, whose frames the viewport draws from the cache; and Hardware 2.0 renders
+    # (gui_render.py), which draw through Viewport 2.0.
     add_test(NAME maya.gui_dx11
         COMMAND "${MAYA_LOCATION}/bin/maya${CMAKE_EXECUTABLE_SUFFIX}" -script "${CMAKE_CURRENT_BINARY_DIR}/gui.mel")
     set_tests_properties(maya.gui_dx11 PROPERTIES
@@ -721,7 +810,7 @@ if(GROOMLAB_GUI_TESTS AND GROOMLAB_BUILD_MAYA AND TARGET GroomLab)
         RUN_SERIAL TRUE
         LABELS "gui;maya"
         FIXTURES_REQUIRED maya_gui_trust
-        ENVIRONMENT "MAYA_DEBUG_ENABLE_CRASH_REPORTING=0;MAYA_VP2_DEVICE_OVERRIDE=VirtualDeviceDx11;GROOMLAB_GUI_SUITES=viewport,brush,cached_playback,quit;MAYA_APP_DIR=${CMAKE_CURRENT_BINARY_DIR}/maya_app_dir;PYTHONPATH=${GROOMLAB_MAYA_PYTHONPATH};GROOMLAB_PLUGIN=$<TARGET_FILE:GroomLab>;GROOMLAB_SCRIPTS=${PROJECT_SOURCE_DIR}/hosts/maya/scripts;GROOMLAB_TESTS=${CMAKE_CURRENT_SOURCE_DIR}/hosts/maya;GROOMLAB_GUI_LOG=${CMAKE_CURRENT_BINARY_DIR}/gui_dx11.log")
+        ENVIRONMENT "MAYA_DEBUG_ENABLE_CRASH_REPORTING=0;MAYA_VP2_DEVICE_OVERRIDE=VirtualDeviceDx11;GROOMLAB_GUI_SUITES=viewport,brush,cached_playback,render,quit;MAYA_APP_DIR=${CMAKE_CURRENT_BINARY_DIR}/maya_app_dir;PYTHONPATH=${GROOMLAB_MAYA_PYTHONPATH};GROOMLAB_PLUGIN=$<TARGET_FILE:GroomLab>;GROOMLAB_SCRIPTS=${PROJECT_SOURCE_DIR}/hosts/maya/scripts;GROOMLAB_TESTS=${CMAKE_CURRENT_SOURCE_DIR}/hosts/maya;GROOMLAB_GUI_LOG=${CMAKE_CURRENT_BINARY_DIR}/gui_dx11.log")
     # The presets' contact sheets (gui_presets.py): every shipped preset applied as the Presets menu
     # applies it and drawn by Viewport 2.0, on OpenGL and on DirectX 11, into
     # GROOMLAB_PRESET_SHEET_DIR (default: <temp>/groomlab_preset_sheet). A look-over tool (label

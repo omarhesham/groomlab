@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The GroomLab menu in Maya's main menu bar (installed when the plugin loads)."""
 
+import functools
 import os
 
 from maya import cmds, mel
@@ -146,14 +147,16 @@ def _run_export(status, path, fn, done_text):
 
 
 def export_curves_dialog(kind):
-    """Strands over the playback range as Alembic or USD curves (Maya's progress bar counts the
-    frames; Esc cancels)."""
+    """Strands over the playback range as Alembic or USD curves, or a V-Ray scene (Maya's progress
+    bar counts the frames; Esc cancels)."""
     import groomlab
     groom = _selected_groom()
     if not groom:
         return None
     file_filter, export, ext, name = {"alembic": ("Alembic (*.abc)", groomlab.export_alembic, ".abc", "Alembic"),
-                                      "usd": ("USD (*.usda)", groomlab.export_usd, ".usda", "USD")}[kind]
+                                      "usd": ("USD (*.usda)", groomlab.export_usd, ".usda", "USD"),
+                                      "vrscene": ("V-Ray Scene (*.vrscene)", groomlab.export_vrscene, ".vrscene",
+                                                  "V-Ray")}[kind]
     path = cmds.fileDialog2(fileFilter=file_filter, dialogStyle=2, fileMode=0, caption="Export Strands",
                             startingDirectory=default_file(groom, "exports", ext))
     if not path:
@@ -837,11 +840,7 @@ def render_turntable_dialog():
     except (RuntimeError, ValueError, OSError) as e:
         cmds.warning("GroomLab: %s" % e)
         return
-    progress = QtWidgets.QProgressDialog("Rendering the turntable…", "Stop", 0, job.frames)
-    progress.setWindowTitle("GroomLab Turntable")
-    progress.setMinimumDuration(0)
-    progress.setWindowModality(QtCore.Qt.NonModal)
-    theme.style(progress)
+    progress = _progress_window("GroomLab Turntable", "Rendering the turntable…", job.frames)
     timer = QtCore.QTimer()
     entry = (job, progress, timer)
 
@@ -881,6 +880,269 @@ def _drop_turntables():
         widgets.dispose(timer)
         widgets.dispose(progress)
     del _TURNTABLES[:]
+
+
+_RENDER_JOBS = []  # (job, progress dialog, timer) of standalone renders (V-Ray, RenderMan) running
+
+
+def _standalone_renderers():
+    """The render dialogs, by name: what differs between Render > V-Ray Standalone, Render >
+    RenderMan (prman) and Render > Maya Hardware 2.0 (groomlab.vray_render, groomlab.prman_render,
+    groomlab.hardware2_render)."""
+    import groomlab
+    from groomlab import prman_render, prman_scene, vray_render, vray_scene
+    exe = ".exe" if os.name == "nt" else ""
+    return {
+        "vray": {"title": "Render in V-Ray Standalone", "label": "V-Ray", "window": "GroomLab: V-Ray Standalone",
+                 "exe": "vray" + exe, "filter": "V-Ray Standalone (vray%s)" % exe, "path": vray_render.vray_path,
+                 "set_path": vray_render.set_vray_path, "not_found": vray_scene.NOT_FOUND,
+                 "render": groomlab.render_vray, "busy": "Writing the V-Ray scene", "motion_blur": False,
+                 "note": "Renders what the scene shows: the grooms (V-Ray's hair shader fitted to the Arnold look), the "
+                         "meshes in their shaders' colors, the studio's (else the view's) camera and the Arnold area "
+                         "lights and dome as V-Ray lights. vray.exe runs in the background (Maya stays free); the "
+                         "images go to the scene's groomlab/<scene>/renders folder."},
+        "prman": {"title": "Render in RenderMan (prman)", "label": "RenderMan", "window": "GroomLab: RenderMan",
+                  "exe": "prman" + exe, "filter": "RenderMan's prman (prman%s)" % exe, "path": prman_render.prman_path,
+                  "set_path": prman_render.set_prman_path, "not_found": prman_scene.NOT_FOUND,
+                  "render": groomlab.render_prman, "busy": "Writing the RenderMan scene", "motion_blur": True,
+                  "note": "Renders what the scene shows: the grooms through GroomLab's RenderMan procedural "
+                          "(PxrMarschnerHair fitted to the Arnold look), the meshes in their shaders' colors, the "
+                          "studio's (else the view's) camera and the Arnold area lights and dome as RenderMan lights. "
+                          "prman runs in the background (Maya stays free); the images go to the scene's "
+                          "groomlab/<scene>/renders folder. RenderMan is free for non-commercial use."},
+        # Maya's own Hardware 2.0, in this Maya session (groomlab.hardware2_render): no renderer to
+        # find, no meshes to choose (it draws the scene as the viewport does), frames one at a time.
+        "hw2": {"title": "Render with Maya Hardware 2.0", "label": "Hardware 2.0", "window": "GroomLab: Maya Hardware 2.0",
+                "exe": None, "render": functools.partial(groomlab.render_hardware2, wait=False, show=False),
+                "busy": "Setting up the render", "motion_blur": False,
+                "qualities": (("Preview (8 samples a pixel)", "preview"), ("Draft (4 samples, quick)", "draft"),
+                              ("Final (16 samples)", "final")),
+                "note": "Renders in this Maya with its own Hardware 2.0 (nothing to install): the scene as the viewport "
+                        "draws it, the grooms at their render density with GroomLab's hair shading, anti-aliased; a "
+                        "studio's Arnold lights stand in as Maya lights. Seconds a frame; Stop ends it between "
+                        "frames. The images go to the scene's groomlab/<scene>/renders folder."},
+    }
+
+
+def _render_standalone_dialog(renderer):
+    """Render > V-Ray Standalone, RenderMan (prman) or Maya Hardware 2.0 (any Maya version): which
+    frames, how big and how good, where the renderer is (not for Hardware 2.0: Maya's own); then it
+    renders with a progress window (Stop cancels) and the image opens in the Render View."""
+    from groomlab import render_gather
+    from groomlab.ui import qt, theme
+    from groomlab.ui.qt import QtWidgets
+    spec = _standalone_renderers()[renderer]
+    if not render_gather.render_grooms():
+        cmds.warning("GroomLab: no visible groom to render")
+        return None
+    dialog = QtWidgets.QDialog()
+    dialog.setWindowTitle(spec["title"])
+    form = QtWidgets.QFormLayout(dialog)
+    frames = QtWidgets.QComboBox()
+    start, end = _playback_range()
+    now = cmds.currentTime(query=True)
+    frames.addItem("Current frame (%g)" % now, (now, now))
+    frames.addItem("Playback range (%g-%g)" % (start, end), (start, end))
+    rstart, rend = cmds.getAttr("defaultRenderGlobals.startFrame"), cmds.getAttr("defaultRenderGlobals.endFrame")
+    frames.addItem("Render range (%g-%g)" % (rstart, rend), (rstart, rend))
+    width, height = render_gather.resolution()
+    size = QtWidgets.QComboBox()
+    for scale, note in ((1.0, ""), (0.5, " (half)"), (0.25, " (quarter, quick)")):
+        w, h = max(16, int(width * scale)), max(16, int(height * scale))
+        size.addItem("%d x %d%s" % (w, h, note), (w, h))
+    quality = QtWidgets.QComboBox()
+    for label, value in spec.get("qualities", (("Preview", "preview"), ("Draft (quick, noisy)", "draft"), ("Final", "final"))):
+        quality.addItem(label, value)
+    meshes = QtWidgets.QComboBox()
+    meshes.addItem("Every visible mesh", "visible")
+    meshes.addItem("The selection and the scalps", "selected")
+    blur = QtWidgets.QCheckBox("Deformation blur over half a frame")
+    path_row = QtWidgets.QHBoxLayout()
+    path = QtWidgets.QLineEdit(spec["path"]() or "" if spec["exe"] else "")
+    path.setPlaceholderText("%s not found: browse for it" % spec["exe"])
+    browse = QtWidgets.QPushButton("Browse...")
+
+    def pick():
+        found = cmds.fileDialog2(fileFilter=spec["filter"], dialogStyle=2, fileMode=1, caption="Find " + spec["exe"])
+        if found:
+            path.setText(found[0])
+    browse.clicked.connect(pick)
+    path_row.addWidget(path)
+    path_row.addWidget(browse)
+    form.addRow("Frames", frames)
+    form.addRow("Size", size)
+    form.addRow("Quality", quality)
+    if spec["exe"]:  # (Hardware 2.0 draws the scene as the viewport does: every visible mesh)
+        form.addRow("Meshes", meshes)
+    if spec["motion_blur"]:
+        form.addRow("Motion blur", blur)
+    if spec["exe"]:
+        form.addRow(spec["exe"], path_row)
+    note = QtWidgets.QLabel(spec["note"])
+    note.setWordWrap(True)
+    note.setProperty("role", "about")
+    form.addRow(note)
+    buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    buttons.button(QtWidgets.QDialogButtonBox.Ok).setText("Render")
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    theme.style(dialog)
+    if qt.exec_(dialog) != QtWidgets.QDialog.Accepted:
+        return None
+    chosen = path.text().strip()
+    try:
+        if spec["exe"] and chosen and os.path.normcase(chosen) != os.path.normcase(spec["path"]() or ""):
+            spec["set_path"](chosen)
+    except ValueError as e:
+        cmds.warning("GroomLab: %s" % e)
+        return None
+    if spec["exe"] and not spec["path"]():
+        cmds.warning("GroomLab: " + spec["not_found"])
+        return None
+    first, last = frames.currentData()
+    w, h = size.currentData()
+    options = {"motion_blur": blur.isChecked()} if spec["motion_blur"] else {}
+    if spec["exe"]:
+        options["meshes"] = meshes.currentData()
+    from groomlab.ui import messages
+    try:
+        with messages.busy(spec["busy"]):
+            job = spec["render"](start=first, end=last, width=w, height=h, quality=quality.currentData(), **options)
+    except (RuntimeError, ValueError, OSError) as e:
+        cmds.warning("GroomLab: %s" % e)
+        return None
+    return _watch_render(job, spec)
+
+
+def render_vray_dialog():
+    """Render > V-Ray Standalone (any Maya version): groomlab.render_vray from a dialog."""
+    return _render_standalone_dialog("vray")
+
+
+def render_prman_dialog():
+    """Render > RenderMan (prman) (any Maya version): groomlab.render_prman from a dialog."""
+    return _render_standalone_dialog("prman")
+
+
+def render_hardware2_dialog():
+    """Render > Maya Hardware 2.0 (any Maya version, no renderer needed): groomlab.render_hardware2
+    from a dialog, frame by frame in this session."""
+    return _render_standalone_dialog("hw2")
+
+
+def _progress_window(title, text, maximum):
+    """A background render's progress window: a tool window over Maya's (not a bare top-level one,
+    which flashed as a small white box while Maya kept taking the front), a fixed width so new
+    label texts don't resize it, shown once and then only updated, left open at the end until
+    the caller closes it."""
+    from groomlab.ui import theme, widgets
+    from groomlab.ui.qt import QtCore, QtWidgets
+    progress = QtWidgets.QProgressDialog(text, "Stop", 0, maximum, widgets._maya_main_window())
+    progress.setWindowFlags(progress.windowFlags() | QtCore.Qt.Tool)
+    progress.setWindowTitle(title)
+    progress.setWindowModality(QtCore.Qt.NonModal)
+    progress.setAutoClose(False)
+    progress.setAutoReset(False)
+    progress.setMinimumDuration(0)
+    progress.setFixedWidth(theme.px(420))
+    theme.style(progress)
+    progress.setValue(0)
+    progress.show()
+    return progress
+
+
+def _watch_render(job, spec):
+    """A render's progress window (non-modal; Stop cancels it); the image in the Render View when
+    it is done. A background renderer's job is polled twice a second; Hardware 2.0's renders a
+    frame each time it is polled, as often as Maya is idle (its poll_interval)."""
+    from groomlab import render_gather
+    from groomlab.ui import widgets
+    from groomlab.ui.qt import QtCore
+    total = len(job.frames)
+    label = spec["label"]
+    progress = _progress_window(spec["window"], "Starting %s..." % label, 100 * total)
+    timer = QtCore.QTimer()
+    entry = (job, progress, timer)
+    in_session = getattr(job, "poll_interval", None) is not None
+
+    def tick():
+        written, frames, done, percent = job.poll()
+        progress.setValue(min(100 * frames, int(100 * written + (0 if done else percent))))
+        if in_session:
+            progress.setLabelText("%s: frame %d of %d" % (label, min(written + 1, frames), frames))
+        else:
+            progress.setLabelText("%s: frame %d of %d, %d%%" % (label, min(written + 1, frames), frames, int(percent)))
+        if progress.wasCanceled() and not done:
+            job.cancel()
+            return
+        if not done:
+            return
+        timer.stop()
+        progress.close()
+        if entry in _RENDER_JOBS:
+            _RENDER_JOBS.remove(entry)
+        images = job.images()
+        if job.ok():
+            render_gather.show_image(images[-1])
+            _say("%s rendered %s" % (label, images[0] if len(images) == 1 else "%d frames into %s" % (len(images),
+                                                                                                    job.folder)))
+        elif job.cancelled:
+            _say("%s stopped; %d of %d frames in %s" % (label, len(images), frames, job.folder))
+        else:
+            cmds.warning("GroomLab: %s stopped early: %s (see %s)" % (label, "; ".join(job.errors()) or "no image",
+                                                                     job.log))
+
+    timer.timeout.connect(tick)
+    timer.start(getattr(job, "poll_interval", 500))
+    _RENDER_JOBS.append(entry)
+    widgets.at_exit(_drop_render_jobs)
+    return job
+
+
+def _drop_render_jobs():
+    """Maya quits: the progress windows go (the renders run on by themselves)."""
+    from groomlab.ui import widgets
+    for _, progress, timer in _RENDER_JOBS:
+        if widgets.alive(timer):
+            timer.stop()
+        widgets.dispose(timer)
+        widgets.dispose(progress)
+    del _RENDER_JOBS[:]
+
+
+def vray_hook_action():
+    """Render > V-Ray for Maya Hook (2024+, experimental): V-Ray's post-translate script renders the
+    grooms (groomlab.vray_hook); picked again, it is taken out. In Maya 2022, or without V-Ray for
+    Maya, a message says what is needed."""
+    from groomlab import vray_hook
+    try:
+        if vray_hook.hook_enabled():
+            vray_hook.disable_hook()
+            _say("V-Ray for Maya no longer renders the grooms through GroomLab's hook")
+            return False
+        vray_hook.enable_hook()
+    except vray_hook.VRayRequired as e:
+        cmds.warning("GroomLab: %s; V-Ray Standalone (Render > V-Ray Standalone) renders the groom in any Maya" % e)
+        return None
+    _say("V-Ray for Maya renders the grooms at render time now (%s)" % vray_hook.EXPERIMENTAL_NOTE)
+    return True
+
+
+def vray_load_scene_action():
+    """Render > Load as VRayScene (2024+, experimental): the groom as a .vrscene and a VRayScene node."""
+    from groomlab import vray_hook
+    groom = _selected_groom()
+    if not groom:
+        return None
+    try:
+        vray_hook.check()
+        transform = _run_export("Exporting the V-Ray scene", None, lambda: vray_hook.export_and_load(groom),
+                                "a VRayScene node renders the groom in V-Ray for Maya (%s)" % vray_hook.EXPERIMENTAL_NOTE)
+    except vray_hook.VRayRequired as e:
+        cmds.warning("GroomLab: %s; V-Ray Standalone (Render > V-Ray Standalone) renders the groom in any Maya" % e)
+        return None
+    return transform
 
 
 def mirror_group_dialog():
@@ -1566,6 +1828,7 @@ ACTIONS = {
     "sample.nika": lambda: add_sample_action("nika"),
     "sample.manny": lambda: add_sample_action("manny"),
     "sample.wolf": lambda: add_sample_action("wolf"),
+    "sample.buddy": lambda: add_sample_action("buddy"),
     "photos.guides": open_guides_from_reference,
     "file.import": import_groom_dialog,
     "file.reload": reload_groom_file,
@@ -1600,8 +1863,14 @@ ACTIONS = {
     "studio.remove": remove_studio_action,
     "render.fromGroomFile": render_from_groom_file_dialog,
     "render.asCurves": render_curves,
+    "render.vrayStandalone": render_vray_dialog,
+    "render.prman": render_prman_dialog,
+    "render.hardware2": render_hardware2_dialog,
+    "render.vrayHook": vray_hook_action,
+    "render.vrayLoadScene": vray_load_scene_action,
     "export.alembic": lambda: export_curves_dialog("alembic"),
     "export.usd": lambda: export_curves_dialog("usd"),
+    "export.vrscene": lambda: export_curves_dialog("vrscene"),
     "export.unrealGroom": export_unreal_dialog,
     "export.unrealCards": export_unreal_cards_dialog,
     "export.unityStrands": export_unity_strands_dialog,
