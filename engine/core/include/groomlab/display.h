@@ -100,9 +100,6 @@ std::uint64_t bufferDigest(const void* data, std::size_t bytes);
 struct DisplayTheme {
     using RGB = std::array<float, 3>;
     using RGBA = std::array<float, 4>;
-    // Guide curves by hierarchy level (cycles): primaries blue, then emerald, yellow, red, white.
-    std::vector<RGB> levels{{0.02f, 0.2f, 0.92f}, {0.03f, 0.6f, 0.27f}, {1.0f, 0.56f, 0.05f}, {1.0f, 0.07f, 0.08f},
-                            {0.9f, 0.9f, 0.9f}};
     float pointSize = 6.0f;  // pixels
     RGBA selected{1.0f, 1.0f, 1.0f, 1.0f};
     RGBA softSelected{1.0f, 0.55f, 0.15f, 1.0f};
@@ -115,8 +112,6 @@ struct DisplayTheme {
     RGBA cards{0.58f, 0.5f, 0.42f, 1.0f};  // game cards without their maps (before a bake, or textures off)
     RGB clumpCenters{1.0f, 0.3f, 0.85f};    // the dots of a viewed Clump's centers
     std::uint64_t version = 1;  // bumped on every change: guides rebuild
-
-    RGB level(int depth) const;
 };
 
 // ---- Colors -----------------------------------------------------------------------------------
@@ -129,14 +124,16 @@ constexpr int kMaxDrawnGuideLevels = 8;
 std::array<float, 3> hueColor(float hue, float saturation, float value);
 
 // The automatic guide colors' hue turn for a groom, from its name (Maya's groom transform,
-// Blender's groom object, the app's groom file name): deterministic (FNV-1a of the name), so two
-// grooms' guide groups start from different hues. In [0, 1); 0 for "" (the theme's own colors).
+// Blender's groom object, the app's groom file name): deterministic (FNV-1a of the name, mixed),
+// so two grooms' guide groups start from different hues, names a digit apart too. In [0, 1); 0 for "" (no turn).
 float guideHueSeed(std::string_view groomName);
-// A guide's automatic color (every host's, through DisplaySettings::guideColorSeed): by level, the
-// theme's color for its depth with its hue turned by the seed; by group, golden-ratio hue steps
-// from the seed in the order the groups were made (`group`: the group's index). A group's own
-// color (GuideGroup::color, DisplaySettings::guideGroupColors) is drawn over it.
-std::array<float, 3> autoGuideColor(const DisplayTheme& theme, float seed, int depth, int group, bool byGroup);
+// Every guide group's automatic color (linear RGB; every host's, through
+// DisplaySettings::guideColorSeed): a hue of its own, child groups included, in golden-ratio steps
+// from the seed in the order the groups were made (a new group leaves the others' colors as they
+// were). A group whose step lands near its parent's hue or an earlier sibling's turns away from
+// them, so a parent and its children, and siblings, never look alike. A group's own color
+// (GuideGroup::color, DisplaySettings::guideGroupColors) is drawn over it.
+std::map<GroupId, std::array<float, 3>> autoGuideColors(const GuideHierarchy& hierarchy, float seed);
 // Blue, cyan, green, yellow, red over t in [0, 1].
 std::array<float, 3> rampColor(float t);
 // Density heatmap per strand (strands per area around each root on a log scale around the
@@ -201,6 +198,8 @@ std::vector<std::uint8_t> rootToTipRamp(unsigned width = 32);
 
 // Groups' own guide colors: "name:#rrggbb ..." (sRGB, returned linear).
 std::map<std::string, std::array<float, 3>> parseGuideGroupColors(const std::string& text);
+// A linear color as "#rrggbb" (sRGB, lower case): parseGuideGroupColors' reverse (hosts' swatches).
+std::string guideColorHex(const std::array<float, 3>& linear);
 // Hidden guide groups: names separated by spaces or commas.
 std::set<std::string> parseHiddenGuideGroups(const std::string& text);
 
@@ -361,8 +360,10 @@ struct DisplaySettings {
     // Guides.
     bool guides = true, tubes = false;
     float guideWidth = 4.0f;
-    int guideColorMode = 0;  // 0 by level, 1 by the layer guideColorLayer, 2 by group
-    // The groom's name: the automatic guide colors start from its hue (guideHueSeed); "" the theme's.
+    // 1: the painted layer guideColorLayer, black 0 to white 1; anything else (0): each group's
+    // color (its own, else autoGuideColors').
+    int guideColorMode = 0;
+    // The groom's name: the automatic guide colors start from its hue (guideHueSeed).
     std::string guideColorSeed;
     std::string guideColorLayer;
     int displayLevel = -1;   // >= 0: that level isolated, the others dimmed

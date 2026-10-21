@@ -311,10 +311,6 @@ class GuidesTab(_GroomTab):
                                        "picked group)")
         self.children_count.valueChanged.connect(lambda v: setattr(menu, "CHILDREN_COUNT", int(v)))
         row.addWidget(self.children_count)
-        self.color = QtWidgets.QCheckBox("Hue per group")
-        self.color.setToolTip("Groups without their own color get a hue each (off: colored by level)")
-        self.color.toggled.connect(lambda on: self.groom and groomlab.color_guides_by_group(self.groom, on))
-        row.addWidget(self.color)
         layout.addLayout(row)
 
         # Segments: the selected guides' (else every guide's) point count, resampled live while
@@ -417,7 +413,6 @@ class GuidesTab(_GroomTab):
         return item.data(0, QtCore.Qt.UserRole) if item else None
 
     def refresh(self):
-        from maya import cmds
         current = self.group()
         self.tree.clear()
         if not self.groom:
@@ -445,7 +440,7 @@ class GuidesTab(_GroomTab):
                 item.setToolTip(0, "%s: checked shows it in the viewport; double-click to rename%s"
                                 % (g["name"], "\nNamed in the graph by " + users if users else ""))
                 items[g["name"]] = item
-                self.tree.setItemWidget(item, 1, self._swatch(g["name"], colors.get(g["name"])))
+                self.tree.setItemWidget(item, 1, self._swatch(g["name"], colors.get(g["name"]), g["color"]))
             if len(left) == len(pending):
                 break
             pending = left
@@ -457,25 +452,24 @@ class GuidesTab(_GroomTab):
             self.tree.setCurrentItem(items[current])
         elif items:
             self.tree.setCurrentItem(self.tree.topLevelItem(0))
-        self.color.blockSignals(True)
-        self.color.setChecked(cmds.getAttr(self.groom + ".guideColorMode") == 2)
-        self.color.blockSignals(False)
         self.sync_segments()
         # The palette's group choice follows the groups (this runs when the guides change).
         fill = getattr(self.owner, "fill_levels", None)
         if fill is not None and getattr(self.owner, "groom", lambda: None)() == self.groom:
             fill(self.groom, select=self.owner.current_group(), groups=groups)
 
-    def _swatch(self, name, color):
-        """A small button in the group's color (dashed when it has none): click to pick one."""
+    def _swatch(self, name, color, drawn):
+        """A small button in the color the group draws in: its own `color` filled, else its automatic
+        one (`drawn`) inside a dashed outline. Click to pick one."""
         b = QtWidgets.QToolButton()
         b.setFixedSize(theme.px(18), theme.px(18))
-        b.setToolTip("%s's color in the viewport: click to pick%s" % (name, ", right-click to clear" if color else ""))
+        b.setToolTip("%s's color in the viewport: click to pick%s" % (
+            name, ", right-click to clear" if color else " (automatic: its own hue from the groom's)"))
         if color:
             b.setStyleSheet("QToolButton { background: %s; border-radius: %dpx; border: none; }" % (color, theme.px(4)))
         else:
-            b.setStyleSheet("QToolButton { background: transparent; border: %dpx dashed %s; border-radius: %dpx; }"
-                            % (max(1, theme.px(1)), theme.current().color("ui.textDim"), theme.px(4)))
+            b.setStyleSheet("QToolButton { background: %s; border: %dpx dashed %s; border-radius: %dpx; }"
+                            % (drawn, max(1, theme.px(1)), theme.current().color("ui.textDim"), theme.px(4)))
         b.clicked.connect(lambda _=False, n=name: self.pick_color(n))
         b.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         b.customContextMenuRequested.connect(lambda _pos, n=name: self.set_color(n, None))

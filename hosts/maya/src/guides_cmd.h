@@ -21,7 +21,7 @@ namespace groomlab::maya {
 //        fills every parent guide's tube with children in a new group
 //   -removeGroup/-rg <group>     removes a group, its sub-groups and guides
 //   -lock/-lk | -unlock/-ul  -guide/-gid <id> (multi-use, decimal string)
-//   -listGroups/-lg              returns "name|parent|depth|guideCount" per group
+//   -listGroups/-lg              returns "name|parent|depth|guideCount|#rrggbb" per group (the color it draws in without a guideGroupColors entry)
 //   -listGuides/-lsg <group>     returns guide IDs (decimal strings)
 //   -guidePoints/-gp <id>        returns the guide's points on the current scalp, x y z ... (world space)
 //   -clear                       removes every group and guide

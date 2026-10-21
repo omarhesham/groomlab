@@ -3908,7 +3908,7 @@ class ControlsAndExamplesTest(unittest.TestCase):
             self.assertIn(("charcoal", "Charcoal", False), theme.menu_entries())
             theme.set_theme("playful")
             # The viewport colors: the command takes linear RGB.
-            cmds.groomLabDisplayTheme(levels="1 0 0 0 1 0", pointSize=3.0, selected="1 1 0")
+            cmds.groomLabDisplayTheme(frozen="1 0 0", pointSize=3.0, selected="1 1 0")
             cmds.groomLabDisplayTheme(reset=True)
         finally:
             del os.environ["GROOMLAB_USER_THEMES"]

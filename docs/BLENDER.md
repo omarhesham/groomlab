@@ -305,8 +305,8 @@ the symmetry in the **host's axes**; strengths, values and pixels are as in Maya
 | `selection_get` / `selection_set` | `ids`, or `group`, or `level`, or `all`; `mode`; `softSelectRadius` | the selection (not in the undo stack, as in Maya) |
 | `pick_level` | `view`, `x`, `y` | `{"level" (-2: none), "group", "settings"}` |
 | `set_hidden_groups` | `groups` [names] | hidden groups are not drawn, picked or brushed |
-| `guides_info` | | `{"groups": [{id, name, parent, level, guides, hidden, color ("#rrggbb" or null)}], "levels", "guides", "primaries", "frozen", "layers", "hiddenGroups", "guideGroupColors", "selection", "hierarchyError"}` |
-| `guides_edit` | `op`: add_group (`name`?, `parent`?), remove_group / promote_group (`group`), rename_group (`group`, `name`; its color follows), demote_group (`group`, `parent`), generate_children (`group` (the last), `count` (5), `selected`, `childGroup`, `rootSpread`, `tipSpread`, `twist`, `jitter`, `childTubeScale`, `seed`), delete_guides / lock / unlock / freeze / unfreeze (`ids` or the selection), set_attribute (`name`, `value`), unfreeze_all, remove_layer (`name`), mirror_all / mirror_group (`axis` host, `center` host units, `fromPositive`, `group`), reparent (`ids`, `parent`), resample (`segments` 1-256; `ids`, `group` or `level`, else the selection, else every guide: Maya's `-resample`, along the smooth curve through the points), mirror_selection (`axis`, `center`, `add`; `ids` or the selection: Maya's `mirror_guide_selection`, a selection, no undo step), set_group_color (`group`, `color` "#rrggbb", [r,g,b] 0-1, or null for the level colors: Maya's `guideGroupColors`) | `{"group"?, "added"?, "removed"?, "resampled"?, "picked"?, "selection"?, "color"?, "undo", "guides": guides_info}`; one undo step each (the app's editGuides) |
+| `guides_info` | `guideColorSeed` (the groom's name) | `{"groups": [{id, name, parent, level, guides, hidden, color ("#rrggbb" or null: its own), autoColor ("#rrggbb": the color it draws in without one, from `guideColorSeed`, given here or by the last display)}], "levels", "guides", "primaries", "frozen", "layers", "hiddenGroups", "guideGroupColors", "selection", "hierarchyError"}` |
+| `guides_edit` | `op`: add_group (`name`?, `parent`?), remove_group / promote_group (`group`), rename_group (`group`, `name`; its color follows), demote_group (`group`, `parent`), generate_children (`group` (the last), `count` (5), `selected`, `childGroup`, `rootSpread`, `tipSpread`, `twist`, `jitter`, `childTubeScale`, `seed`), delete_guides / lock / unlock / freeze / unfreeze (`ids` or the selection), set_attribute (`name`, `value`), unfreeze_all, remove_layer (`name`), mirror_all / mirror_group (`axis` host, `center` host units, `fromPositive`, `group`), reparent (`ids`, `parent`), resample (`segments` 1-256; `ids`, `group` or `level`, else the selection, else every guide: Maya's `-resample`, along the smooth curve through the points), mirror_selection (`axis`, `center`, `add`; `ids` or the selection: Maya's `mirror_guide_selection`, a selection, no undo step), set_group_color (`group`, `color` "#rrggbb", [r,g,b] 0-1, or null for its automatic color: Maya's `guideGroupColors`) | `{"group"?, "added"?, "removed"?, "resampled"?, "picked"?, "selection"?, "color"?, "undo", "guides": guides_info}`; one undo step each (the app's editGuides) |
 | `guide_segments` | `ids`, `group` or `level` (else the selection, else every guide) | `{"ids", "segments"}`: each guide's points - 1 (the Segments slider) |
 | `guides_preview` | `segments`, targets as resample | `{"previewed"}`: the guides shown resampled (`setPreviewHierarchy`, from the stored guides each time), no change, no undo step; `guides_edit resample` commits |
 | `guides_preview_end` | | `{"ended"}`: the stored guides shown again (after `guides_preview` or `tube_shape_preview`) |
@@ -378,10 +378,10 @@ Blender's stand-in for Maya's masks folder: what `map_remove deleteFile` may del
 are now (`GroomSession::hierarchy()`: a live stroke's preview included), the last evaluation's
 parts and flow, the session's scalp, the selection and the map shown, with Maya's display settings
 (`settings`: `guides`, `tubes`, `tubeWires`, `flow`, `guideWidth`,
-`guideColorMode` (level, layer, group), `guideColorLayer`, `guideColorSeed` (the groom's name: the
+`guideColorMode` (group, layer), `guideColorLayer`, `guideColorSeed` (the groom's name: the
 automatic colors' hue), `displayLevel`, `guidePoints` (off,
 ends, all), `guideSmoothing` (4), `guideDisplaySegments`, `hiddenGuideGroups` (default: the
-session's), `guideGroupColors`, `theme` {levels, pointSize, selected, softSelected, frozen, parts,
+session's), `guideGroupColors`, `theme` {pointSize, selected, softSelected, frozen, parts,
 flow, flowField, tubes}). The answer, every array in the session's `display` block (valid until
 the next `display`):
 
@@ -401,7 +401,7 @@ the next `display`):
 ```
 
 - `guides`: every guide as a smooth curve (`guideSmoothing` pieces per segment), colored per vertex
-  as Maya colors them: by level (the theme's level colors), by layer or by group, other levels
+  as Maya colors them: by group (each group its own color, else its automatic hue) or by layer, other levels
   dimmed when one is isolated, **frozen guides in the theme's frozen blue**. `dots`: the guide
   points drawn as screen-facing dots of `pointSize` pixels (roots and tips, or all).
 - `selectedGuides` / `softSelectedGuides`: the selection over the guides in the item's color

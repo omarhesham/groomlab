@@ -132,7 +132,7 @@ labels, search words and number decimals come from the core (`node_catalog.h`, t
 | previewDensity, point budget | AE Groom | present (Display panel) |
 | Lock the groom against brushes | AE `locked` | missing |
 | Display: guides, flow, tubes, instances, strand color modes | AE Display | partial: guides, points, width, strand colors (solid, color set, attribute, random, clump, density), the scalp map; flow, tubes and instances overlays not drawn as such |
-| Display: guide colors by level / layer / group, group colors | AE Display > Guides | partial: levels colored; by layer or group and group colors missing |
+| Display: guide colors by group / painted layer, group colors | AE Display > Guides | present (Guide Color: Group or Painted Layer; each group its own color) |
 | Display: strand shading (lit, shadows, ribbons, width scale) | AE Display > Strand Shading | present (lookdev: lit ribbons, shadows, width scale; lines with Kajiya-Kay) |
 | Display: width as coverage (`displayWidthCoverage`, `displayCoverageDensity`) | AE Display > Strand Shading | present (Display panel's Width coverage and Coverage at full density: the line path's strand lines, hashed, coverage masks on the viewport's multisampled target) |
 | Display: screen-space level of detail (`displayClumpLod`, `clumpLodError`) | AE Display > Strand Shading | present (Display panel's Clump LOD, `--display clumpLod=off`, `clumpLodError=x`: the line path's strand lines by class, impostors, the blended pass; the lookdev ribbons draw every strand) |
@@ -175,7 +175,7 @@ labels, search words and number decimals come from the core (`node_catalog.h`, t
 | Group tree: counts, the brush group, hide/show | `GuidesTab` | present (the guides panel) |
 | New group (root or child), rename, delete | the tree | present |
 | Select a group's guides | the tree | present |
-| Group color, hue per group | the tree | missing |
+| Group color (the swatch: its own, else its automatic color) | the tree | present |
 | Segments: resample the selected or every guide | the slider | present *new* (Resample N segments) |
 | Generate children (count) | Edit Guides > Children (the count inline beside it) | present (Generate children with its count) |
 | Sync symmetry (+X to -X and back) | Edit Guides > Sync | present *new* (from +X; core: `mirrorAll`) |

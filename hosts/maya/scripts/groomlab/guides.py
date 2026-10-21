@@ -69,11 +69,14 @@ def generate_children(groom, parent_group=None, name=None, count=5, root_spread=
 
 
 def list_guide_groups(groom):
-    """Return the groom's guide groups as dicts: name, parent, depth, count."""
+    """Return the groom's guide groups as dicts: name, parent, depth, count, and color: the color it
+    draws in without one of the groom's own (guide_group_colors): its own (a ToGuides node's),
+    else its automatic one, "#rrggbb"."""
     groups = []
     for row in cmds.groomLabGuides(groom, listGroups=True) or []:
-        name, parent, depth, count = row.split("|")
-        groups.append({"name": name, "parent": parent or None, "depth": int(depth), "count": int(count)})
+        name, parent, depth, count, color = row.split("|")
+        groups.append({"name": name, "parent": parent or None, "depth": int(depth), "count": int(count),
+                       "color": color})
     return groups
 
 
@@ -165,7 +168,7 @@ def guide_group_colors(groom):
 
 def set_guide_group_color(groom, group, color):
     """Give a guide group its own viewport color: "#rrggbb", or (r, g, b) in 0-1; None goes back to
-    the level (or group) colors."""
+    its automatic color."""
     if isinstance(color, (tuple, list)):
         color = "#%02x%02x%02x" % tuple(int(round(max(0.0, min(1.0, float(c))) * 255)) for c in color)
     colors = guide_group_colors(groom)
@@ -188,11 +191,6 @@ def show_guide_group(groom, group, visible=True):
     if not visible:
         hidden.append(group)
     cmds.setAttr(groom + ".hiddenGuideGroups", " ".join(hidden), type="string")
-
-
-def color_guides_by_group(groom, on=True):
-    """Color each guide group its own hue in the viewport; off goes back to level colors."""
-    cmds.setAttr(groom + ".guideColorMode", 2 if on else 0)
 
 
 def clear_guides(groom):
@@ -315,7 +313,7 @@ def isolate_level(groom, level=None):
 
 
 def color_guides_by_map(groom, name=None):
-    """Color guides by a painted map (black 0 to white 1); None goes back to level colors."""
+    """Color guides by a painted map (black 0 to white 1); None goes back to each group's color."""
     if name:
         cmds.setAttr(groom + ".guideColorLayer", name, type="string")
     cmds.setAttr(groom + ".guideColorMode", 1 if name else 0)

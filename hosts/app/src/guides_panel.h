@@ -7,7 +7,7 @@
 // Level; the check box shows or hides a group, a double-click renames it in place, a click on the
 // swatch picks its color, a right-click opens lists.groups.context), Edit Guides ▾ (Children,
 // Sync +X → -X and -X → +X, Mirror Selection, Mirror Group, Reparent, Promote / Demote, Clear
-// Selection) with the children count beside it and Hue per group, and Segments (resample).
+// Selection) with the children count beside it, and Segments (resample).
 //
 // The edits go through the document, each one undo step; what the bar and menus run is the
 // window's (app_actions.h: the prompts over the viewport), which calls the functions below. The
@@ -67,8 +67,6 @@ public:
     void editCurrentName();  // the current group's name edited in place (Rename)
     int childrenCount() const;
     void setChildrenCount(int count);
-    bool huePerGroup() const;
-    void setHuePerGroup(bool on);  // no signal
 
     // The edits, as the bar and menus do them; false (and a message) when refused.
     bool addGroup(const std::string& parent, const std::string& name = {});  // parent "": a root group
@@ -121,7 +119,6 @@ signals:
     // The selection, the hidden groups or the colors changed: the host redraws.
     void displayChanged();
     void message(const QString& text);
-    void huePerGroupChanged(bool on);  // Hue per group: the guides' colors by group (DisplaySettings::guideColorMode 2)
     void groupClicked(const std::string& name);  // a row clicked: the brushes' group (Maya's pick_group)
 
 protected:
@@ -148,7 +145,6 @@ private:
     QPushButton* edits_ = nullptr;
     QMenu* editsMenu_ = nullptr;
     QSpinBox* count_ = nullptr;
-    QCheckBox* hue_ = nullptr;
     QSpinBox* segments_ = nullptr;
     QWidget* overlays_ = nullptr;  // the parts and flow box
     QListWidget* parts_ = nullptr;

@@ -225,7 +225,7 @@ class GroomLabGroupItem(bpy.types.PropertyGroup):
     guides: IntProperty()
     hidden: BoolProperty()
     depth: IntProperty()
-    has_color: BoolProperty()   # its own viewport color (else its level's)
+    has_color: BoolProperty()   # its own viewport color (else `color` is its automatic one)
     color: FloatVectorProperty(size=3, subtype="COLOR_GAMMA", min=0.0, max=1.0, default=(0.5, 0.5, 0.5))
 
 
@@ -490,10 +490,10 @@ class GroomLabGroomDisplay(bpy.types.PropertyGroup):
     guide_points: EnumProperty(name="Points", items=[("off", "Off", ""), ("ends", "Roots and tips", ""),
                                                      ("all", "All", "Thinned out on grooms with many guides")],
                                default="all", update=_display, description="The guides' points drawn as dots")
-    guide_color_mode: EnumProperty(name="Guide Colors", items=[("level", "Level", "By level"),
-                                                               ("layer", "Layer", "By a painted layer"),
-                                                               ("group", "Group", "A hue per group")],
-                                   default="level", update=_display)
+    guide_color_mode: EnumProperty(name="Guide Color", items=[("group", "Group", "Each guide group's own color"),
+                                                              ("layer", "Painted Layer",
+                                                               "A painted guide layer from black to white")],
+                                   default="group", update=_display)
     guide_color_layer: StringProperty(name="Layer", update=_display, description="The painted layer the guides show")
     strand_color: EnumProperty(name=defs.get("choices/strandColor")["label"], items=STRAND_COLORS,
                                default=defs.enum_default("strandColor"), update=_display,

@@ -195,12 +195,6 @@ void MainWindow::buildPanels() {
         guidesPanel_->invalidate();  // (not now: a row's check box may be what changed)
         refreshUndoActions();        // (a group's color is a step)
     });
-    // Hue per group: the guides colored by group (Maya's guideColorMode 2), else by level.
-    connect(guidesPanel_, &GuidesPanel::huePerGroupChanged, this, [this](bool on) {
-        settings_.guideColorMode = on ? 2 : 0;
-        refreshProperties();  // (Guide Color Mode follows)
-        redisplay();
-    });
     // A row clicked: the group the brushes edit and new guides go into (Maya's pick_group).
     connect(guidesPanel_, &GuidesPanel::groupClicked, this, [this](const std::string& name) {
         if (!document_) return;

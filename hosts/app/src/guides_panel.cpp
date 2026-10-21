@@ -7,7 +7,6 @@
 #include <map>
 #include <set>
 
-#include <QCheckBox>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -59,8 +58,8 @@ QColor shownColor(const std::array<float, 3>& linear) {
     return QColor(channel(linear[0]), channel(linear[1]), channel(linear[2]));
 }
 
-// The swatch: the group's own color filled; an automatic one (its level's) as a dashed outline
-// around the level's color, dimmed (Maya's dashed swatch: no color of its own).
+// The swatch: the color the group draws in, filled; a dashed outline when it is the automatic one
+// (Maya's dashed swatch: no color of its own).
 QIcon swatchIcon(const QColor& color, bool own, qreal dpr) {
     const int size = 16;
     QPixmap pixmap(QSize(size, size) * dpr);
@@ -74,9 +73,7 @@ QIcon swatchIcon(const QColor& color, bool own, qreal dpr) {
         p.setBrush(color);
         p.drawRoundedRect(r, 4.0, 4.0);
     } else {
-        QColor fill = color;
-        fill.setAlphaF(0.45);
-        p.setBrush(fill);
+        p.setBrush(color);
         QPen pen(theme::textDim(), 1.0, Qt::DashLine);
         p.setPen(pen);
         p.drawRoundedRect(r, 4.0, 4.0);
@@ -142,7 +139,7 @@ GuidesPanel::GuidesPanel(QWidget* parent) : QWidget(parent) {
     selection_->setProperty("role", "about");
     layout->addWidget(selection_);
 
-    // Edits on many guides: one menu, the children count beside it, Hue per group.
+    // Edits on many guides: one menu, the children count beside it.
     auto* row = new QHBoxLayout();
     row->setSpacing(6);
     const ui::json& edits = lists.at("edits");
@@ -160,15 +157,7 @@ GuidesPanel::GuidesPanel(QWidget* parent) : QWidget(parent) {
     count_->setPrefix(tr("x "));
     count_->setToolTip(tr("Children per guide for Edit Guides > Children (the selected guides, else the picked group)"));
     row->addWidget(count_);
-    hue_ = new QCheckBox(tr("Hue per group"), host);
-    hue_->setObjectName(QStringLiteral("huePerGroup"));
-    hue_->setToolTip(tr("Groups without their own color get a hue each (off: colored by level)"));
-    connect(hue_, &QCheckBox::toggled, this, [this](bool on) {
-        if (!updating_) emit huePerGroupChanged(on);
-        invalidate();  // the swatches' automatic colors follow
-    });
     layout->addLayout(row);
-    layout->addWidget(hue_);  // (its own row: a narrow dock keeps Edit Guides and the count whole)
 
     // Segments: the selected (else every) guide resampled to a point count, one undo step.
     auto* segRow = new QHBoxLayout();
@@ -282,14 +271,6 @@ void GuidesPanel::editCurrentName() {
 
 int GuidesPanel::childrenCount() const { return count_->value(); }
 void GuidesPanel::setChildrenCount(int count) { count_->setValue(count); }
-bool GuidesPanel::huePerGroup() const { return hue_->isChecked(); }
-
-void GuidesPanel::setHuePerGroup(bool on) {
-    const QSignalBlocker block(hue_);
-    if (hue_->isChecked() == on) return;
-    hue_->setChecked(on);
-    invalidate();
-}
 
 void GuidesPanel::invalidate() {
     stale_ = true;
@@ -320,10 +301,9 @@ void GuidesPanel::refresh() {
         key += "#" + document_->hiddenGroupsText() + "#" + document_->groupColorsText();
     }
     const DisplayTheme look = theme::displayTheme();
-    // The automatic colors as the viewport draws them: from the groom's own hue, by level or by group.
+    // The automatic colors as the viewport draws them: a hue per group from the groom's own.
     const float seed = guideHueSeed(document_ ? document_->guideColorSeed() : std::string());
-    const bool byGroup = hue_->isChecked();
-    key += "#" + std::to_string(look.version) + "#" + std::to_string(seed) + (byGroup ? "g" : "l");
+    key += "#" + std::to_string(look.version) + "#" + std::to_string(seed);
     if (key != shownKey_) {
         shownKey_ = key;
         ++rebuilds_;
@@ -335,6 +315,7 @@ void GuidesPanel::refresh() {
             const std::set<std::string>& hidden = document_->hiddenGroups();
             const std::map<std::string, std::string>& colors = document_->groupColors();
             std::map<GroupId, QTreeWidgetItem*> items;
+            const std::map<GroupId, std::array<float, 3>> automatic = autoGuideColors(*h, seed);
             for (const GuideGroup& group : h->groups()) {  // parents before children
                 const auto parent = items.find(group.parent);
                 auto* item = parent == items.end() ? new QTreeWidgetItem(tree_) : new QTreeWidgetItem(parent->second);
@@ -346,11 +327,13 @@ void GuidesPanel::refresh() {
                 item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEditable);
                 item->setCheckState(0, hidden.count(group.name) ? Qt::Unchecked : Qt::Checked);
                 const auto own = colors.find(group.name);
-                QColor color = own != colors.end() ? QColor(qs(own->second)) : shownColor(group.hasColor ? group.color
-                                                                                        : autoGuideColor(look, seed, depth, static_cast<int>(group.id), byGroup));
+                const auto shown = automatic.find(group.id);
+                const QColor color = own != colors.end() ? QColor(qs(own->second))
+                                     : group.hasColor    ? shownColor(group.color)
+                                     : shownColor(shown != automatic.end() ? shown->second : std::array<float, 3>{0.5f, 0.5f, 0.5f});
                 item->setIcon(1, swatchIcon(color, own != colors.end() || group.hasColor, devicePixelRatioF()));
                 item->setToolTip(1, own != colors.end() ? tr("%1's color: click to pick, right-click > Default Color to clear").arg(qs(group.name))
-                                                        : tr("%1's color is automatic (its level's or, Hue per group, its own; from the groom's hue): click to pick one").arg(qs(group.name)));
+                                                        : tr("%1's color is automatic (a hue of its own, from the groom's): click to pick one").arg(qs(group.name)));
                 QString tip = tr("%1: checked shows it in the viewport; double-click to rename").arg(qs(group.name));
                 QStringList users;
                 for (const auto& [node, param] : document_->groupUsers(group.name)) users << QStringLiteral("%1 (%2)").arg(qs(node), qs(param));

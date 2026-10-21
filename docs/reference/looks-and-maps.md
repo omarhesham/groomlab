@@ -428,10 +428,11 @@ The color modes stay flat: they are for reading data. At 200k preview strands th
 at about 200 fps as lit lines and about 65 fps as lit ribbons with self-shadowing and ambient
 occlusion, measured by the GUI viewport test on an RTX 3090.
 
-**Guides.** With `themeGuideColors` (on by default) guides take the theme's colors, one per
-hierarchy level (primaries blue, children emerald, then yellow, red, white in the Playful theme);
-off, primaries use `guideColor` and each level down turns a little round the hue wheel.
-`guideColorMode` colors them by `level`, by a painted map (`layer`) or by `group`. `guidePoints`
+**Guides.** Each guide group, child groups too, is drawn in a hue of its own, from a hue of the
+groom's own (its name), so a parent and its children, siblings and two grooms differ; a group's
+own color (`guideGroupColors`, the Groom Tools' swatch) wins. **Guide Color** (`guideColorMode`)
+is `Group` (the default) or `Painted Layer`: a painted guide layer (`guideColorLayer`) from
+black to white. `guidePoints`
 draws round dots on each guide, in the guide's own color: `all` (the default), `roots and
 tips`, or `off`. With `all`, `guideDisplaySegments` (6 by default) spaces the dots evenly
 along the curve as drawn, like beads, whatever point count the guide has; 0 puts a dot on
@@ -467,7 +468,7 @@ choice is remembered.
   "palette": {"blue": "#7C5CFF"},
   "ui": {"background": "#141418", "radius": 16},
   "graph": {"headerStyle": "filled", "categories": {"Look": "red"}},
-  "viewport": {"guideLevels": ["blue", "white"], "pointSize": 7}
+  "viewport": {"frozen": "blue", "pointSize": 7}
 }
 ```
 
@@ -477,7 +478,7 @@ The keys: `palette` (named colors); `ui` (`background`, `panel`, `raised`, `hove
 `node`, `nodeBorder`, `text`, `textDim`, `selected`, `cornerRadius`, `headerStyle` `filled` or
 `tinted`, `shadow`, `error`, `warning` and `note` for node badges and status lines, `driven` for a
 param a field or another node drives, `reads` and `writes` for the attribute chips, `categories`
-by node category, `ports` by port type); `icons` (a color per tool group: `create`, `shape`, `trim`, `paint`, and `app` for the window icons; `ink` for hair and neutral parts; a shade and a tint of each come with it, and a checked tool's icon turns to `accentText` on the accent); `viewport` (`guideLevels`, `pointSize`,
+by node category, `ports` by port type); `icons` (a color per tool group: `create`, `shape`, `trim`, `paint`, and `app` for the window icons; `ink` for hair and neutral parts; a shade and a tint of each come with it, and a checked tool's icon turns to `accentText` on the accent); `viewport` (`pointSize`,
 `selected`, `softSelected`, `frozen`, `parts`, `flow`, `flowField`, `tubes`, `instances`).
 
 ```python

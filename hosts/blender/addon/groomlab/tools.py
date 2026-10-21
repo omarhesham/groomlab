@@ -28,7 +28,7 @@ STATE_DELAY = 1.0               # seconds after the last edit before the groom's
 DEFER = 0.35                    # seconds after a slider's last change before its edit commits (one undo step)
 # The Playful theme's viewport colors (hosts/maya/themes/playful.json "viewport"), as Maya hands
 # them to its display (groomLabDisplayTheme). Blender's overlays are not color managed: sRGB as is.
-THEME_HEX = {"levels": ["#2F7BF6", "#2ECC8F", "#FFC53D", "#FF4D4F", "#F5F5F7"], "selected": "#F5F5F7",
+THEME_HEX = {"selected": "#F5F5F7",
              "softSelected": "#FFC53D", "frozen": "#5EC8FF", "parts": "#FF4D4F", "flow": "#FFC53D",
              "flowField": "#8FA3BF", "tubes": "#8A93A0", "clumpCenters": "#FF4FD8"}
 POINT_SIZE = 6.0
@@ -42,7 +42,7 @@ def _rgb(h):
 
 
 def theme():
-    t = {"levels": [_rgb(c) for c in THEME_HEX["levels"]], "pointSize": POINT_SIZE}
+    t = {"pointSize": POINT_SIZE}
     for key in ("selected", "softSelected", "parts", "flow", "flowField", "tubes"):
         t[key] = _rgb(THEME_HEX[key]) + [1.0]
     t["frozen"] = _rgb(THEME_HEX["frozen"])
@@ -697,7 +697,7 @@ def mirror_selection(scalp, axis="x", center=0.0, add=False):
 
 def set_group_color(scalp, group, color):
     """Give a guide group its own viewport color ("#rrggbb" or (r, g, b) in 0-1); None goes back to
-    the level colors. One undo step."""
+    its automatic color. One undo step."""
     if isinstance(color, (tuple, list)):
         color = [float(c) for c in color[:3]]
     return guides_edit(scalp, "set_group_color", group=group, color=color)
@@ -956,8 +956,9 @@ def _fill_groups(scene, info, gt):
             item.depth = depth
             color = g.get("color")
             item.has_color = bool(color)
-            if color:
-                item.color = _rgb(color)
+            shown = color or g.get("autoColor")
+            if shown:
+                item.color = _rgb(shown)
         if t.group not in names and t.group != ALL_GROUPS:
             t.group = names[0] if names else FIRST_GROUP
         t.group_index = next((i for i, item in enumerate(t.groups) if item.name == t.group), -1)
@@ -973,7 +974,7 @@ def refresh_info(scalp, scene=None):
         return
     gt = groom_tools(scalp)
     try:
-        info = call(scalp, "guides_info")
+        info = call(scalp, "guides_info", guideColorSeed=scalp.name)  # the automatic colors as drawn
         maps = call(scalp, "maps_list")["maps"]
         gt.undo = call(scalp, "undo_state")
     except HelperError as e:

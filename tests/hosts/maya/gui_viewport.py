@@ -2966,9 +2966,7 @@ def overlay_snapshots(folder):
     cmds.setAttr(groom + ".displayLevel", -1)
     cmds.setAttr(groom + ".guidePoints", 1)
     cmds.setAttr(groom + ".guideSmoothing", 1)
-    groomlab.color_guides_by_group(groom)
-    shot("guide_groups")
-    groomlab.color_guides_by_group(groom, False)
+    shot("guide_groups")  # roots and tips on straight curves, each group in its own color
     cmds.setAttr(groom + ".guidePoints", 2)
     cmds.setAttr(groom + ".guideSmoothing", 4)
     groomlab.set_guide_attribute(groom, "len", 0.8, guides=primaries[:1])

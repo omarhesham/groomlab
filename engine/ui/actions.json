@@ -158,7 +158,7 @@
     "group.new": {"label": "New Group...", "tip": "New group (top-level, or a child group of another)"},
     "group.rename": {"label": "Rename", "tip": "Rename the group (or double-click its name); graph params naming it follow", "needs": ["group"]},
     "group.color": {"label": "Color...", "tip": "The group's color in the viewport", "needs": ["group"]},
-    "group.defaultColor": {"label": "Default Color", "tip": "The group's color back to its level's", "needs": ["group", "group.color"]},
+    "group.defaultColor": {"label": "Default Color", "tip": "The group's color back to its automatic one", "needs": ["group", "group.color"]},
     "group.select": {"label": "Select Guides", "tip": "Select the group's guides", "needs": ["group"]},
     "group.delete": {"label": "Delete", "tip": "Delete the group, its child groups and their guides", "needs": ["group"]},
     "group.promoteDemote": {"label": "Promote / Demote...", "tip": "Move a group one level up, or down under a sibling group"},

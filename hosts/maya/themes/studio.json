@@ -81,7 +81,6 @@
     "ink": "#C9CCD0"
   },
   "viewport": {
-    "guideLevels": ["#4F86B0", "#6FA58C", "#B89C62", "#A86E6A", "#9DA2A8"],
     "pointSize": 4,
     "selected": "white",
     "softSelected": "#E0A050",

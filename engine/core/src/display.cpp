@@ -107,11 +107,6 @@ std::uint64_t DisplayGeometry::digest() const {
                               (mapTexture ? 16u : 0u) + (scaleSurface ? 32u : 0u));
 }
 
-DisplayTheme::RGB DisplayTheme::level(int depth) const {
-    if (levels.empty()) return {0.02f, 0.2f, 0.92f};
-    return levels[static_cast<std::size_t>(depth < 0 ? 0 : depth) % levels.size()];
-}
-
 namespace {
 
 // Appends `n` points (xyz) to a float buffer in one copy.
@@ -214,28 +209,61 @@ float guideHueSeed(std::string_view groomName) {
         h ^= static_cast<unsigned char>(c);
         h *= 16777619u;
     }
+    // Mixed (MurmurHash3's finalizer): FNV alone keeps names a digit apart (groomLab1, groomLab2)
+    // within a few thousandths of a turn, the same color to the eye.
+    h ^= h >> 16;
+    h *= 0x85ebca6bu;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35u;
+    h ^= h >> 16;
     return static_cast<float>(h >> 8) / 16777216.0f;  // 24 bits: exact in a float, in [0, 1)
 }
 
-std::array<float, 3> autoGuideColor(const DisplayTheme& theme, float seed, int depth, int group, bool byGroup) {
-    if (byGroup) {
-        // A hue per group, in the order groups were made (golden-ratio steps stay apart).
-        const float hue = std::fmod(0.6f + seed + 0.618034f * static_cast<float>(std::max(group, 0)), 1.0f);
-        return hueColor(hue, 0.75f, 0.95f);
+std::map<GroupId, std::array<float, 3>> autoGuideColors(const GuideHierarchy& h, float seed) {
+    // Parents before their children, each level in the order its groups were made (ids).
+    std::vector<std::pair<int, const GuideGroup*>> order;
+    order.reserve(h.groups().size());
+    for (const GuideGroup& g : h.groups()) order.emplace_back(h.groupDepth(g.id), &g);
+    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
+        return a.first != b.first ? a.first < b.first : a.second->id < b.second->id;
+    });
+    auto fraction = [](float v) { return v - std::floor(v); };
+    auto apart = [&](float a, float b) {
+        const float d = fraction(a - b);
+        return std::min(d, 1.0f - d);
+    };
+    // A golden-ratio step a group from the seed (any two groups made one after another are
+    // 0.38 apart); one that lands within kApart of its parent's or an earlier sibling's hue turns
+    // by a half, then quarters, then eighths, the first turn clear of them all (else the clearest).
+    constexpr float kApart = 0.12f;
+    constexpr float kTurns[] = {0.0f, 0.5f, 0.25f, 0.75f, 0.125f, 0.375f, 0.625f, 0.875f};
+    std::map<GroupId, float> hues;
+    std::vector<float> near;
+    for (const auto& item : order) {
+        const GuideGroup* g = item.second;
+        near.clear();
+        const auto parent = hues.find(g->parent);
+        if (parent != hues.end()) near.push_back(parent->second);
+        for (const auto& entry : order) {
+            const GuideGroup* other = entry.second;
+            if (other == g) break;
+            const auto sibling = hues.find(other->id);
+            if (other->parent == g->parent && sibling != hues.end()) near.push_back(sibling->second);
+        }
+        const float base = 0.6f + seed + 0.618034f * static_cast<float>(g->id);
+        float best = fraction(base), bestGap = -1.0f;
+        for (const float turn : kTurns) {
+            const float hue = fraction(base + turn);
+            float gap = 1.0f;
+            for (const float n : near) gap = std::min(gap, apart(hue, n));
+            if (gap > bestGap) best = hue, bestGap = gap;
+            if (gap >= kApart) break;
+        }
+        hues[g->id] = best;
     }
-    const DisplayTheme::RGB c = theme.level(depth);
-    if (seed == 0.0f) return c;
-    // The theme's level color, its hue turned by the seed (saturation and value kept: the levels
-    // stay apart from each other as the theme made them; grays stay gray).
-    const float hi = std::max({c[0], c[1], c[2]}), lo = std::min({c[0], c[1], c[2]});
-    if (hi <= 0.0f || hi - lo < 1e-4f) return c;
-    const float range = hi - lo;
-    float hue;
-    if (hi == c[0]) hue = (c[1] - c[2]) / range;
-    else if (hi == c[1]) hue = 2.0f + (c[2] - c[0]) / range;
-    else hue = 4.0f + (c[0] - c[1]) / range;
-    hue /= 6.0f;
-    return hueColor(hue + seed, range / hi, hi);
+    std::map<GroupId, std::array<float, 3>> colors;
+    for (const auto& [id, hue] : hues) colors[id] = hueColor(hue, 0.75f, 0.95f);
+    return colors;
 }
 
 void densityColors(const StrandSet& s, std::vector<std::array<float, 3>>& out) {
@@ -523,6 +551,19 @@ std::map<std::string, std::array<float, 3>> parseGuideGroupColors(const std::str
         if (ok) groupColors[word.substr(0, colon)] = rgb;
     }
     return groupColors;
+}
+
+std::string guideColorHex(const std::array<float, 3>& linear) {
+    static const char* const kDigits = "0123456789abcdef";
+    std::string text = "#";
+    for (const float c : linear) {
+        const float v = std::clamp(c, 0.0f, 1.0f);
+        const float srgb = v <= 0.0031308f ? 12.92f * v : 1.055f * pm::pow(v, 1.0f / 2.4f) - 0.055f;
+        const int byte = std::clamp(static_cast<int>(std::lround(srgb * 255.0f)), 0, 255);
+        text += kDigits[byte >> 4];
+        text += kDigits[byte & 15];
+    }
+    return text;
 }
 
 std::set<std::string> parseHiddenGuideGroups(const std::string& text) {
@@ -1743,12 +1784,11 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     item(DisplayItemId::Guides).lineWidth = s.guideWidth;
     item(DisplayItemId::Tubes).color = theme.tubes;
     frame_.pointSize = theme.pointSize + s.guideWidth;
-    const bool byLayer = s.guideColorMode == 1, byGroup = s.guideColorMode == 2;
+    const bool byLayer = s.guideColorMode == 1;
     const int smoothing = std::clamp(s.guideSmoothing, 1, 16);
     const int dotSegments = std::clamp(s.guideDisplaySegments, 0, 64);
     const int pointMode = s.guidePoints;
     std::uint64_t key = hashCombine(hash64(in.hierarchyVersion), (s.guides ? 1u : 0u) + (s.tubes ? 2u : 0u) + (byLayer ? 4u : 0u) +
-                                                                     (byGroup ? 8u : 0u) +
                                                                      32u * static_cast<unsigned>(pointMode));
     key = hashCombine(key, theme.version);
     key = hashCombine(key, static_cast<std::uint64_t>(smoothing + 32 * dotSegments));
@@ -1770,9 +1810,9 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
         for (const float c : theme.clumpCenters) key = hashFloat(key, c);
     }
     if (!rebuild(DisplayPart::Guides, key)) return;
-    // By level (or by a layer, black to white, or by group), other levels dimmed when one is
-    // isolated, frozen ones in the theme's color. Each level in the theme's color for it; a
-    // group's own color (the host's, or a ToGuides node's) wins.
+    // By group (or by a layer, black to white), other levels dimmed when one is isolated, frozen
+    // ones in the theme's color. Each group in its automatic color; its own (the host's, or a
+    // ToGuides node's) wins.
     const std::map<std::string, std::array<float, 3>> groupColors = parseGuideGroupColors(s.guideGroupColors);
     const std::set<std::string> hiddenNames = parseHiddenGuideGroups(s.hiddenGuideGroups);
     auto hiddenGuide = [&](const HierarchyGuide& g) {
@@ -1787,11 +1827,8 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     dots.points.clear();
     dots.colors.clear();
     // The automatic colors start from the groom's own hue (guideColorSeed: two grooms' first groups differ).
-    const float seed = guideHueSeed(s.guideColorSeed);
-    std::array<std::array<float, 3>, kMaxDrawnGuideLevels> levelColors{};
-    for (int level = 0; level < kMaxDrawnGuideLevels; ++level) {
-        levelColors[static_cast<std::size_t>(level)] = autoGuideColor(theme, seed, level, 0, false);
-    }
+    const std::map<GroupId, std::array<float, 3>> autoColors =
+        hierarchy ? autoGuideColors(*hierarchy, guideHueSeed(s.guideColorSeed)) : std::map<GroupId, std::array<float, 3>>{};
     // "all" points on many guides would be noise: every stride-th point, roots and tips always.
     constexpr std::size_t kPointBudget = 2500;
     std::size_t stride = 1;
@@ -1809,8 +1846,8 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
             if (level < 0 || level >= kMaxDrawnGuideLevels || hiddenGuide(g)) continue;
             if (s.tubes) appendTubeSurface(tubes, g, hierarchy->scale());
             if (!s.guides || g.points.size() < 2) continue;
-            std::array<float, 3> c = levelColors[static_cast<std::size_t>(level)];
-            if (byGroup) c = autoGuideColor(theme, seed, level, static_cast<int>(g.group), true);
+            const auto automatic = autoColors.find(g.group);
+            std::array<float, 3> c = automatic != autoColors.end() ? automatic->second : std::array<float, 3>{0.5f, 0.5f, 0.5f};
             const GuideGroup* grp = hierarchy->group(g.group);
             if (grp && grp->hasColor) c = grp->color;  // its own (a ToGuides node's), whatever the mode
             if (!groupColors.empty()) {  // the host's color for the group, over everything

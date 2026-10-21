@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The groom in the 3D viewport as Maya draws it: the helper's display buffers (docs/BLENDER.md,
 "Display buffers": Maya's Viewport 2.0 geometry from the core's DisplayBuilder) drawn with Blender's
-gpu module. Guides colored by level (frozen ones blue), the selection white and the soft selection
+gpu module. Guides colored by group (frozen ones blue), the selection white and the soft selection
 orange, tubes (shaded, and as wires while the Shape brush is on, the selected ones warm), part
 lines, flow arrows and field, a painted map on the scalp, root and tip dots, and the brush's ring
 with the guides it would touch. Strand color modes (random, clump, density,

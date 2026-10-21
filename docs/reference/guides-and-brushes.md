@@ -15,15 +15,16 @@ curves = cmds.ls("guideCurve*", type="transform")
 groomlab.guides_from_curves(groom, curves, group="primary", tube_radius=0.15)   # copies the curves
 groomlab.generate_children(groom, "primary", name="children", count=8, twist=0.5)
 groomlab.generate_children(groom, "children", name="grandchildren", count=4)
-groomlab.list_guide_groups(groom)   # [{'name': 'primary', 'depth': 0, 'count': 6, ...}, ...]
+groomlab.list_guide_groups(groom)   # [{'name': 'primary', 'depth': 0, 'count': 6, 'color': '#...', ...}, ...]
 cmds.setAttr(groom + ".displayTubes", True)
 ```
 
 **Groups.** Guides live in named groups: `primary` (placed, drawn or from curves), child groups
 from `generate_children`, `braids` for braid paths. The **Guides** tab of the Groom Tools shows
 them as a tree with guide counts, levels and the graph nodes naming them; it selects, renames, deletes
-and adds a Guides node for a group, and **Color guides by group** (`guideColorMode` "group")
-gives each its own hue. A `Guides` node reads every group at a `level` (-1: the deepest), or the
+and adds a Guides node for a group. Every group, child groups too, is drawn in a hue of its own
+(a parent and its children, and siblings, well apart), from a hue of the groom's own; a group's
+swatch shows it and picks another (`set_guide_group_color`). A `Guides` node reads every group at a `level` (-1: the deepest), or the
 groups named in `group` (one or several, their guides together), and leaves the groups in `exclude`
 out; in the Graph Editor both have a **+** menu of the groom's groups. Other text params offer what
 exists too: a dropdown for fixed values (Braid `style`, HairColor `mode`, Instance
@@ -37,7 +38,7 @@ node, each with the node that writes it, and notes a name that does not reach
 ```python
 groomlab.group_users(groom, "braids")               # [('guides', 'exclude'), ('braidPaths', 'group')]
 groomlab.rename_guide_group(groom, "braids", "rows")  # graph params follow; groomLabGuides -renameGroup
-groomlab.color_guides_by_group(groom)
+groomlab.set_guide_group_color(groom, "rows", "#ff8800")  # None: its automatic color again
 ```
 
 **Choosing who has children, and placing them by hand.** Parents don't have to be whole groups:

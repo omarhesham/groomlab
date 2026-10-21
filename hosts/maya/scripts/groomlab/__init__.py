@@ -53,8 +53,8 @@ from groomlab.paths import (  # noqa: F401
 from groomlab.collision import add_collider, colliders, remove_collider, set_collider_friction  # noqa: F401
 from groomlab.extra_scalps import add_scalp, remove_scalp, scalps, valid_name as valid_scalp_name  # noqa: F401
 from groomlab.guides import (  # noqa: F401
-    SELECT_CONTEXT, add_guide_group, add_guides, clear_guide_selection, clear_guides, color_guides_by_group,
-    color_guides_by_map, demote_group, end_guide_preview, generate_children, get_hierarchy, group_users,
+    SELECT_CONTEXT, add_guide_group, add_guides, clear_guide_selection, clear_guides, color_guides_by_map,
+    demote_group, end_guide_preview, generate_children, get_hierarchy, group_users,
     guide_group_colors, guide_ids, guide_segments, guides_from_curves, hidden_guide_groups, import_guides_from_alembic,
     isolate_level, list_guide_groups, lock_guides, mirror_group, mirror_guide_selection, preview_resample_guides,
     promote_group, remove_guide_group, rename_guide_group, reparent_guides, resample_guides, select_guides, select_tool,
