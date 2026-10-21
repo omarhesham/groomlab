@@ -696,7 +696,24 @@ struct McpTools::Impl {
             out["node"] = made;
         } else {
             const std::string graph = applyPresetControlsToGraph(presetGraphJson(text, size), presetControlsJson(text, size));
-            w.edit(g, "preset " + stem, [&](std::string& current, std::string&) { current = graph; });
+            // The guide groups it reads, made empty when missing (a hand-placed look: add_guides fills them).
+            json groupsMade = json::array();
+            w.edit(g, "preset " + stem, [&](std::string& current, std::string& hierarchy) {
+                current = graph;
+                const std::vector<PresetGroup> groups = presetRequiredGroups(text);
+                if (groups.empty()) return;
+                GuideHierarchy h = hierarchyOf(g);
+                for (const PresetGroup& group : groups) {
+                    if (h.findGroup(group.name) != kNoGroup) continue;
+                    h.addGroup(group.name);
+                    groupsMade.push_back(group.name);
+                }
+                if (!groupsMade.empty()) hierarchy = h.toJson();
+            });
+            if (!groupsMade.empty()) {
+                out["groupsMade"] = groupsMade;
+                out["groupsNote"] = "Each guide added to these groups (add_guides with group) grows as the preset says: one feather per guide.";
+            }
         }
         json missing = json::array();
         const MapCatalog& maps = g.scene->session().data().maps;

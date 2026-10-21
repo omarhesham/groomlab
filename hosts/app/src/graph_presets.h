@@ -35,6 +35,8 @@ struct PresetApplied {
     std::string title;
     std::size_t nodes = 0;
     std::vector<std::string> mapsMade;  // the painted maps the preset reads, made here
+    std::vector<std::string> groupsMade;  // the guide groups the preset reads, made here (empty)
+    std::string drawGroup;              // the group the preset's Draw tool draws into ("" none)
     bool fitted = false;                // sizes scaled to this scalp
     double fitFactor = 1.0;
     std::string nodeMade;               // inserting: the Compound's name
@@ -43,8 +45,8 @@ struct PresetApplied {
 // The preset file at `path` onto the document: "" or the error (nothing changes then, except
 // maps made before the graph was refused).
 std::string applyPresetFile(GroomDocument& document, const std::string& path, PresetApplied* applied = nullptr);
-// A preset's text (a file's, or pasted) onto the document, as applyPresetFile; the painted maps
-// it requires are not made (pasting writes no files).
+// A preset's text (a file's, or pasted) onto the document, as applyPresetFile; with `makeMaps`
+// the painted maps and guide groups it requires are made (pasting makes none: it writes no files).
 std::string applyPresetText(GroomDocument& document, const std::string& text, bool makeMaps, PresetApplied* applied = nullptr);
 // The preset file at `path` inserted into the document's graph (the core's insertPresetJson: its
 // look as one Compound named after the preset, after node `after`, or before the Output when

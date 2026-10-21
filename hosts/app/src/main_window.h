@@ -456,10 +456,16 @@ public:
     bool addSimulateNode();
     // Add > Collider: the prop named `prop` (a mesh added with File > Add Prop Mesh) keeps the strands off it.
     bool addCollider(const QString& prop);
-    // Add > Feathers: the designs (feathers_<design> presets: featherDesigns) on scattered shafts or
-    // the "feathers" group's guides (`onGuides`), several an assortment (`weights` their shares).
+    // Add > Feathers: the designs (feathers_<design> presets: featherDesigns) as scattered feathers
+    // shaped by the guides, or one feather per guide of guide group `group` (`onGuides`; made when
+    // missing, and with no guides yet the Draw tool draws into it), several an assortment
+    // (`weights` their shares).
     static QStringList featherDesigns();
-    bool addFeathers(const QStringList& designs, bool onGuides, const std::vector<double>& weights = {});
+    bool addFeathers(const QStringList& designs, bool onGuides, const std::vector<double>& weights = {},
+                     const QString& group = QStringLiteral("feathers"));
+    // The Draw tool drawing into guide group `group` (picked as the brushes' group), so every
+    // guide drawn is one of its own: a hand-placed feather. False when the group is missing.
+    bool drawGuidesInto(const std::string& group);
     // Add > Braid on Curves: a Braid after the Interpolate along the "braids" group's guides.
     bool addBraid(const QString& style);
     // Import > Alembic Curves: the file's curves as the guides (an ImportCurves node).

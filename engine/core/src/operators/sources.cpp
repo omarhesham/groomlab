@@ -264,7 +264,17 @@ public:
     Value evaluate(const EvalContext& ctx, const std::vector<Value>&) const override {
         const GuidesPtr flat = valueAs<GuidesPtr>(ctx.external(params().getString("input")));
         const HierarchyPtr hierarchy = valueAs<HierarchyPtr>(ctx.external(params().getString("hierarchy")));
-        if (!hierarchy || hierarchy->guides().empty()) return flat;
+        if (!hierarchy || hierarchy->guides().empty()) {
+            // No guides yet, but the groups named here made (a hand-placed group, empty until its
+            // guides are drawn): no guides rather than nothing, so what it feeds grows nothing
+            // instead of saying its input is missing.
+            const std::vector<std::string> groupNames = splitNames(params().getString("group"));
+            const bool made = hierarchy && !groupNames.empty() &&
+                              std::all_of(groupNames.begin(), groupNames.end(),
+                                          [&](const std::string& g) { return hierarchy->findGroup(g) != kNoGroup; });
+            if (!flat && made) return GuidesPtr(std::make_shared<const GuideSet>());
+            return flat;
+        }
         const std::shared_ptr<const GuideSet> fromHierarchy = picked(*hierarchy);
         if (!flat) return GuidesPtr(fromHierarchy);
         GuideSet set = *fromHierarchy;

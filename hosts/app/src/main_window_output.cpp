@@ -198,7 +198,20 @@ QStringList MainWindow::featherDesigns() {
     return designs;
 }
 
-bool MainWindow::addFeathers(const QStringList& designs, bool onGuides, const std::vector<double>& weights) {
+bool MainWindow::drawGuidesInto(const std::string& group) {
+    if (!document_) return false;
+    refreshGroups();
+    const HierarchyPtr h = document_->session().authoredHierarchy();
+    const GroupId id = h ? h->findGroup(group) : kNoGroup;
+    if (id == kNoGroup) return false;
+    BrushSettings& brush = brush_.settings().brush;
+    brush.group = group;
+    brush.level = h->groupDepth(id);
+    chooseTool(QStringLiteral("draw"));
+    return brush_.toolId() == "draw" && viewport_->toolMode() == Viewport::ToolMode::Brush;
+}
+
+bool MainWindow::addFeathers(const QStringList& designs, bool onGuides, const std::vector<double>& weights, const QString& group) {
     if (!document_) {
         report(tr("No groom open to add feathers to"));
         return false;
@@ -215,16 +228,29 @@ bool MainWindow::addFeathers(const QStringList& designs, bool onGuides, const st
         text << in.rdbuf();
         texts.emplace_back(design.toStdString(), text.str());
     }
+    const std::string groupName = group.trimmed().isEmpty() ? std::string("feathers") : group.trimmed().toStdString();
     std::string made;
-    const std::string error = document_->addFeathers(texts, weights, onGuides ? "guides" : "scatter", "feathers", &made);
+    const std::string error = document_->addFeathers(texts, weights, onGuides ? "guides" : "scatter", groupName, &made);
     if (!error.empty()) {
         report(tr("Cannot add feathers: %1").arg(QString::fromStdString(error)));
         return false;
     }
-    if (onGuides) refreshGroups();
     graphEdited();
-    notify(onGuides ? tr("Added %1 feathers on the feathers group's guides (draw them with the Draw tool)").arg(designs.join(QStringLiteral(", ")))
-                    : tr("Added %1 feathers on scattered shafts").arg(designs.join(QStringLiteral(", "))));
+    if (!onGuides) {
+        notify(tr("Added scattered %1 feathers, shaped by the guides").arg(designs.join(QStringLiteral(", "))));
+        return true;
+    }
+    refreshGroups();
+    const HierarchyPtr h = document_->session().authoredHierarchy();
+    const GroupId id = h ? h->findGroup(groupName) : kNoGroup;
+    const std::size_t count = id == kNoGroup ? 0 : h->guidesInGroup(id).size();
+    const QString name = QString::fromStdString(groupName);
+    if (count == 0 && drawGuidesInto(groupName)) {
+        notify(tr("Added %1 feathers, one per guide of %2: draw guides from the skin, each one is a feather")
+                   .arg(designs.join(QStringLiteral(", ")), name));
+    } else {
+        notify(tr("Added %1 feathers, one per guide of %2 (%3 now)").arg(designs.join(QStringLiteral(", ")), name).arg(count));
+    }
     return true;
 }
 
@@ -388,25 +414,52 @@ QString MainWindow::pickSavePath(const QString& title, const QString& fallback, 
 
 void MainWindow::askFeathers() {
     if (!document_) return;
-    host_->showTextPrompt(
-        tr("Add Feathers"),
-        tr("One design, or several separated by commas with their shares (an assortment: contour 3, down 1). Designs: %1. "
-           "Scatter grows the shafts over the scalp, shaped by the guides; On Guides makes each guide of the feathers group a feather.")
-            .arg(featherDesigns().join(QStringLiteral(", "))),
-        QStringLiteral("contour"),
-        {{tr("On Guides"),
-          [this](const QString& text) {
-              QStringList designs;
-              std::vector<double> weights;
-              parseDesigns(text, &designs, &weights);
-              addFeathers(designs, true, weights);
-          }},
-         {tr("Scatter"), [this](const QString& text) {
-              QStringList designs;
-              std::vector<double> weights;
-              parseDesigns(text, &designs, &weights);
-              addFeathers(designs, false, weights);
-          }}});
+    // The two ways (engine/ui/choices.json's featherSource): scattered feathers, or one feather per
+    // guide of a guide group, asked next. One per guide first (Enter) when the groom has a feathers
+    // group already.
+    const std::vector<std::string> featherGroups = document_->featherGuideGroups();
+    const bool perGuide = !featherGroups.empty();
+    auto label = [](const char* value, const char* field) {
+        for (const ui::json& c : ui::Definitions::shipped().choices("featherSource")) {
+            if (c.value("value", std::string()) == value) return QString::fromStdString(c.value(field, c.value("label", std::string())));
+        }
+        return QString::fromLatin1(value);
+    };
+    auto scattered = [this](const QString& text) {
+        QStringList designs;
+        std::vector<double> weights;
+        parseDesigns(text, &designs, &weights);
+        addFeathers(designs, false, weights);
+    };
+    auto onGuides = [this, featherGroups](const QString& text) {
+        QStringList designs;
+        std::vector<double> weights;
+        parseDesigns(text, &designs, &weights);
+        // The guide group: the groom's feathers group, another of its groups, or a new name.
+        QStringList groups;
+        for (const std::string& g : featherGroups) groups << QString::fromStdString(g);
+        if (const HierarchyPtr h = document_ ? document_->session().authoredHierarchy() : nullptr) {
+            for (const GuideGroup& g : h->groups()) groups << QString::fromStdString(g.name);
+        }
+        groups.removeDuplicates();
+        const QString initial = featherGroups.empty() ? QStringLiteral("feathers") : QString::fromStdString(featherGroups.front());
+        host_->showTextPrompt(tr("Feather Guide Group"),
+                              tr("Each guide of this group is one feather, left out of the hair. A group of the groom (%1) or a new "
+                                 "name: flight_left, flight_right, tail.")
+                                  .arg(groups.isEmpty() ? tr("none yet") : groups.join(QStringLiteral(", "))),
+                              initial, tr("Add Feathers"),
+                              [this, designs, weights](const QString& group) { addFeathers(designs, true, weights, group); });
+    };
+    std::vector<OverlayHost::TextChoice> choices;
+    if (perGuide) choices.emplace_back(label("scatter", "short"), scattered);
+    choices.emplace_back(label("guides", "short"), onGuides);
+    if (!perGuide) choices.emplace_back(label("scatter", "short"), scattered);
+    host_->showTextPrompt(tr("Add Feathers"),
+                          tr("One design, or several separated by commas with their shares (an assortment: contour 3, down 1). Designs: %1. "
+                             "%2: over the scalp, laid the way the guides are combed. %3: each guide of a guide group is a "
+                             "feather, drawn or brushed one by one.")
+                              .arg(featherDesigns().join(QStringLiteral(", ")), label("scatter", "label"), label("guides", "label")),
+                          perGuide ? QStringLiteral("flight") : QStringLiteral("contour"), std::move(choices));
 }
 
 void MainWindow::askBraid() {

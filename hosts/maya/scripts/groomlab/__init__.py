@@ -99,8 +99,8 @@ from groomlab.exports import (  # noqa: F401
     viewport_points)
 from groomlab.braids import add_braid, add_instances, braid_paths_from_curves, set_instance_prototype  # noqa: F401
 from groomlab.feathers import (  # noqa: F401
-    add_feathers, create_feather_cards, create_rachis_mesh, export_rachis, feather_designs, feather_groups, rachis_mesh,
-    rachis_width, set_rachis_width)
+    add_feathers, create_feather_cards, create_rachis_mesh, export_rachis, feather_designs, feather_groups,
+    feather_guide_groups, rachis_mesh, rachis_width, set_rachis_width)
 from groomlab.game import (  # noqa: F401
     UNITY_CARD_MAPS, UNITY_HAIR_PACKAGES, UNITY_MAX_STRANDS, UNITY_STRAND_POINTS, UNREAL_LODS, export_cards_gltf,
     export_cards_unity, export_cards_unreal, export_unity_feathers, export_unity_strands, export_unreal_groom)

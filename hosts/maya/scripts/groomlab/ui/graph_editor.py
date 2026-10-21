@@ -5682,8 +5682,9 @@ class GraphEditor(QtWidgets.QWidget):
             model = gm.GraphModel(self.catalog, presets.preset_for(self.groom, name))
             backdrops = presets.backdrops(name)
             controls = presets.controls(name, self.groom)
+            draw = presets.draw_group(name)
             if self.groom:
-                presets.prepare(self.groom, name)  # the maps it reads, made when missing
+                presets.prepare(self.groom, name)  # the maps and guide groups it reads, made when missing
         except (gm.GraphError, ValueError, IOError, OSError, RuntimeError) as e:
             self.report("preset %s: %s" % (name, e))
             return
@@ -5694,11 +5695,16 @@ class GraphEditor(QtWidgets.QWidget):
         self.view.frame_all()
         if not (controls and self.groom and self.live):
             self.changed()
-            return
-        import groomlab
-        with groomlab.undo_chunk("apply preset"):  # the graph and the control values it records: one step
-            self.changed()
-            presets.set_controls(self.groom, controls)
+        else:
+            import groomlab
+            with groomlab.undo_chunk("apply preset"):  # the graph and the control values it records: one step
+                self.changed()
+                presets.set_controls(self.groom, controls)
+        if draw and self.groom and self.live:
+            # A hand-placed look: the Draw tool draws into its group, every guide drawn grows one.
+            from groomlab.ui import menu
+            menu.draw_guides_into(self.groom, draw)
+            self.report("preset %s: the Draw tool draws into %s, every guide drawn grows one" % (name, draw))
 
     def save_preset(self):
         import os

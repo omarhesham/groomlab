@@ -59,6 +59,15 @@
         {"value": "all", "label": "All channels"}
       ]
     },
+    "featherSource": {
+      "label": "Feathers",
+      "tip": "Where the feathers grow: scattered over the scalp, or one on each guide of a guide group",
+      "default": "scatter",
+      "items": [
+        {"value": "scatter", "label": "Scattered feathers (shaped by the guides)", "short": "Scattered feathers", "tip": "Feathers scattered over the scalp, laid the way the guides are combed: a body of contour or down feathers"},
+        {"value": "guides", "label": "One feather per guide (hand-placed)", "short": "One feather per guide", "tip": "Each guide of the guide group is one feather, left out of the hair: draw or brush them one by one (flight feathers, a tail)"}
+      ]
+    },
     "mapKind": {
       "label": "Kind",
       "default": "guides",

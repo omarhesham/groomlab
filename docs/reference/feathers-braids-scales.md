@@ -238,3 +238,26 @@ feathers are merged with the hair before the output (`keep_hair=False`: they rep
 group (`group`, default `feathers`) is left out of the Guides nodes growing the hair. Save your
 own design as a preset named `feathers_<name>` (a graph whose first Compound is the design) and
 `add_feathers(groom, "<name>")` uses it.
+
+**Hand-placed flight feathers (one feather per guide).** Add > Feathers... (every host) asks
+"Scattered feathers (shaped by the guides)" or "One feather per guide (hand-placed)" (the words
+of `engine/ui/choices.json`'s `featherSource`) and, for one per guide, the **Guide group**: the
+groom's groups or a new name (`flight_left`, `flight_right`, `tail`), its feathers group first
+(default `feathers`). One per guide is the default when curves are selected or the groom has a
+feathers group already (`groomlab.feather_guide_groups(groom)`: the groups of the Guides nodes
+feeding a feather design, and a `feathers` group). Each group gets its own Guides node and is left
+out of the hair's guides; selected curves join it; a group without guides gets the Draw tool
+drawing into it (Maya with a viewport, the app, Blender outside background mode). The preset
+`hand_placed_feathers` ("Flight feathers (hand-placed)") is the same workflow from scratch: a
+Guides node on group `feathers` into the flight design, its `"requires": {"groups": [{"name":
+"feathers", "draw": true}]}` making the group empty when the groom lacks it and picking the Draw
+tool drawing into it, so every guide drawn is one feather (a Guides node on groups that are made
+but hold no guides gives an empty set, even on a groom with no guides at all, so the design grows
+nothing instead of missing its input):
+
+```python
+groomlab.add_feathers(groom, "flight", source="guides", curves=left, group="flight_left")
+groomlab.add_feathers(groom, "flight", source="guides", curves=tail, group="tail")
+groomlab.feather_guide_groups(groom)            # ["flight_left", "tail"]
+presets.apply_preset(groom, "hand_placed_feathers")  # the feathers group made, empty
+```

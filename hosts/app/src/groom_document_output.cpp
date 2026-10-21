@@ -468,6 +468,54 @@ std::string GroomDocument::ensureGuideGroup(const std::string& name) {
     return editGuides("add group " + name, [&](GuideHierarchy& hierarchy) { hierarchy.addGroup(name); });
 }
 
+std::vector<std::string> GroomDocument::featherGuideGroups() {
+    // The groups of the Guides nodes (their `group`) that feed a feather design: a Propagate, or a
+    // Compound with one (Maya's feather_guide_groups).
+    std::set<std::string> designs;
+    for (const json& n : graph_.value("nodes", json::array())) {
+        json params = n.value("params", json::object());
+        std::vector<json*> found;
+        if (n.value("type", std::string()) == "Propagate") found.push_back(&params);
+        else if (n.value("type", std::string()) == "Compound") propagatesIn(params, &found);
+        if (!found.empty()) designs.insert(n.value("name", std::string()));
+    }
+    std::vector<std::string> groups;
+    for (const std::string& guides : ofType(graph_, "Guides")) {
+        const json own = paramOf(graph_, guides, "group");
+        std::string text = own.is_string() ? own.get<std::string>() : std::string();
+        std::replace(text.begin(), text.end(), ',', ' ');
+        std::vector<std::string> names;
+        std::string word;
+        for (const char c : text + " ") {
+            if (c != ' ') {
+                word += c;
+            } else if (!word.empty()) {
+                names.push_back(word);
+                word.clear();
+            }
+        }
+        if (names.empty()) continue;
+        std::set<std::string> seen;
+        std::vector<std::string> todo{guides};
+        bool feeds = false;
+        while (!todo.empty() && !feeds) {
+            const std::string n = todo.back();
+            todo.pop_back();
+            if (!seen.insert(n).second) continue;
+            feeds = designs.count(n) > 0;
+            for (const auto& [to, input] : fedBy(graph_, n)) todo.push_back(to);
+        }
+        for (const std::string& name : names) {
+            if (feeds && std::find(groups.begin(), groups.end(), name) == groups.end()) groups.push_back(name);
+        }
+    }
+    const HierarchyPtr h = session().authoredHierarchy();
+    if (std::find(groups.begin(), groups.end(), "feathers") == groups.end() && h && h->findGroup("feathers") != kNoGroup) {
+        groups.push_back("feathers");
+    }
+    return groups;
+}
+
 std::string GroomDocument::addFeathers(const std::vector<std::pair<std::string, std::string>>& designs, const std::vector<double>& weights,
                                        const std::string& source, const std::string& group, std::string* made) {
     if (designs.empty() || designs.size() > 4) return "one to four feather designs (a Split has four outputs)";

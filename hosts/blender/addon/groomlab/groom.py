@@ -914,10 +914,12 @@ def create_groom(context, scalp, preset="hair_basics", guide_count=0, guide_poin
     _sync_settings(scalp, rt, scene)
     sync_scalp(scalp, rt, force=True)
     missing_maps = []  # what the preset reads that the new groom lacks: made below
+    required_groups = []
     if hierarchy:
         from . import tools
         started = tools.start_groom(scalp, rt, preset=preset, follow=g.follow_scalp)
         missing_maps = (started.get("preset") or {}).get("missingMaps") or []
+        required_groups = (started.get("preset") or {}).get("groups") or []
     elif preset:
         missing_maps = _call("apply_preset", session=rt.session, name=preset).get("missingMaps") or []
     rest, counts, indices, _ = read_scalp(scalp)
@@ -938,6 +940,9 @@ def create_groom(context, scalp, preset="hair_basics", guide_count=0, guide_poin
     if missing_maps:
         from . import graph
         graph.make_required_maps(scalp, missing_maps)
+    if required_groups:  # a hand-placed look: its guide groups, empty
+        from . import graph
+        graph.make_required_groups(scalp, required_groups)
     remember_graph(scalp, rt)
     r = evaluate(scalp, rt, "preview")
     if hierarchy:

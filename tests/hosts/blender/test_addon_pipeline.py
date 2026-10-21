@@ -336,6 +336,36 @@ class PipelineOpsTest(unittest.TestCase):
         self.assertTrue(hair_guides)
         self.assertTrue(all("braids" in str(param(head, n, "exclude")) for n in hair_guides))
         self.assertEqual(process.call("node_status", session=rt.session).get("graphError", ""), "")
+        # The feathers' choice in the shared words: scattered feathers, or one feather per guide.
+        items = {i.identifier: i.name for i in
+                 bpy.ops.groomlab.add_feathers.get_rna_type().properties["source"].enum_items}
+        self.assertEqual(items, {"scatter": "Scattered feathers (shaped by the guides)",
+                                 "guides": "One feather per guide (hand-placed)"})
+        # One feather per guide in a guide group of its own: the selected curve objects join
+        # flight_left, each a flight feather, left out of the hair's guides.
+        wing = [curve_object("wing%d" % i, [root + [0.01 * i, 0.0, 0.0], root + [0.01 * i, -0.02, 0.03],
+                                            root + [0.01 * i, -0.03, 0.07]]) for i in range(2)]
+        select_only(wing[0])
+        wing[1].select_set(True)
+        self.assertEqual(bpy.ops.groomlab.add_feathers(design="flight", source="guides", group="flight_left"),
+                         {"FINISHED"})
+        groups = {g["name"]: g for g in tools.call(head, "guides_info")["groups"]}
+        self.assertEqual(groups["flight_left"]["guides"], 2)
+        self.assertEqual(pipeline.feather_guide_groups(head), ["flight_left"])
+        self.assertTrue(all("flight_left" in str(param(head, n, "exclude")) for n in hair_guides))
+        self.assertEqual(process.call("node_status", session=rt.session).get("graphError", ""), "")
+        # The hand-placed flight feathers preset: its feathers group made, empty; the Draw tool
+        # would draw into it (not in background mode).
+        graph = importlib.import_module(bu.MODULE + ".graph")
+        r = graph.apply_preset(head, "hand_placed_feathers")
+        self.assertEqual((r["groupsMade"], r["drawGroup"]), (["feathers"], "feathers"))
+        groups = {g["name"]: g for g in tools.call(head, "guides_info")["groups"]}
+        self.assertEqual(groups["feathers"]["guides"], 0)
+        self.assertEqual(groups["flight_left"]["guides"], 2)
+        self.assertEqual(process.call("node_status", session=rt.session).get("graphError", ""), "")
+        self.assertIn("feathers", pipeline.feather_guide_groups(head))
+        self.assertFalse(graph.draw_into(bpy.context, head, "feathers"))
+        self.assertEqual(graph.apply_preset(head, "hand_placed_feathers")["groupsMade"], [])  # made once
 
     def test_2_exports_mesh_and_maps(self):
         head = groom_on(self.head, guides=20)

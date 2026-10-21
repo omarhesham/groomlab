@@ -225,6 +225,13 @@ def main():
         assert undone["undone"] == ["add script node"], undone
         graph, _ = c.call("get_graph", {"groom": "nika"})
         assert all(n["name"] != script_node for n in graph["nodes"]), "the script node is gone"
+
+        # ---- hand-placed feathers: the preset's guide group made, each guide added to it a feather ----
+        bird, _ = c.call("apply_preset", {"groom": "nika2", "preset": "hand_placed_feathers"})
+        assert bird["groupsMade"] == ["feathers"] and bird["summary"]["errors"] == [], bird
+        assert bird["summary"]["strands"] == 0, bird
+        drawn, _ = c.call("add_guides", {"groom": "nika2", "group": "feathers", "guides": guides[:2]})
+        assert drawn["summary"]["strands"] == 2 * (1 + 140), drawn
     finally:
         code = c.close()
     assert code == 0, "the server exited with %d" % code

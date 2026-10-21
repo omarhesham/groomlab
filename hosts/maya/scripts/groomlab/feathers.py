@@ -109,6 +109,41 @@ def _feather_groups(model):
     return groups
 
 
+def _feather_guide_groups(model):
+    """The guide groups whose guides grow one feather each in `model`: the groups of the Guides
+    nodes (their `group`) that feed a feather design (a Propagate, or a Compound with one), in
+    the graph's order."""
+    designs = {name for name, _ in _graph_propagates(model)}
+    found = []
+    for name in model.order:
+        if model.node_type(name) != "Guides":
+            continue
+        groups = [g for g in str(model.param(name, "group") or "").replace(",", " ").split() if g]
+        if not groups:
+            continue
+        seen, todo = set(), [name]
+        while todo:
+            n = todo.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            todo += [dst for dst, _ in model.downstream_of(n)]
+        if seen & designs:
+            found += [g for g in groups if g not in found]
+    return found
+
+
+def feather_guide_groups(groom):
+    """The guide groups of `groom` whose guides grow one feather each (add_feathers with source
+    "guides", the hand_placed_feathers preset): flight_left, tail... A "feathers" group the graph
+    does not read yet is one too (the group the hand-placed feathers go into by default)."""
+    from groomlab import graph as gm
+    groups = _feather_guide_groups(gm.GraphModel.from_groom(groom))
+    if "feathers" not in groups and "feathers" in [g["name"] for g in list_guide_groups(groom)]:
+        groups.append("feathers")
+    return groups
+
+
 def feather_groups(groom):
     """{groupId: groupName} of the groom's feather designs: the groom groups the Unreal export
     writes besides the hair (group 0)."""

@@ -1353,6 +1353,14 @@ class PresetsTest(unittest.TestCase):
         self.assertAlmostEqual(presets.scalp_size(groom), 2.0, places=3)
         for name in shipped_presets():
             presets.apply_preset(groom, name)
+            for group in presets.required_groups(name):
+                # A hand-placed look: its group made empty; two guides drawn into it grow it.
+                self.assertIn(group["name"], [g["name"] for g in groomlab.list_guide_groups(groom)], name)
+                if not groomlab.guide_ids(groom, group["name"]):
+                    groomlab.guides_from_curves(groom, [
+                        cmds.curve(degree=1, point=[(0.0, 1.0, 0.0), (0.0, 1.3, 0.6), (0.0, 1.2, 1.4)]),
+                        cmds.curve(degree=1, point=[(0.3, 0.95, 0.0), (0.5, 1.2, 0.5), (0.6, 1.1, 1.2)])],
+                        group=group["name"])
             count = cmds.getAttr(groom + ".outStrandCount")
             self.assertEqual(groomlab.errors(groom), [], name)
             self.assertGreater(count, 100, name)
@@ -1365,6 +1373,31 @@ class PresetsTest(unittest.TestCase):
             # The layout lives in the graph: each node's "ui", the backdrops (graph_io.h).
             self.assertEqual({n["name"] for n in graph["nodes"] if "ui" in n}, {n["name"] for n in preset["nodes"]}, name)
             self.assertEqual(len(graph.get("backdrops", [])), len(preset.get("backdrops", [])), name)
+
+    def test_hand_placed_flight_feathers_start_from_an_empty_group(self):
+        groom = self.head()
+        hair = len(groomlab.guide_ids(groom, "primary"))
+        self.assertEqual(presets.required_groups("hand_placed_feathers"), [{"name": "feathers", "draw": True}])
+        self.assertEqual(presets.draw_group("hand_placed_feathers"), "feathers")
+        self.assertIsNone(presets.draw_group("hair_basics"))
+        self.assertEqual(presets.read_preset("hand_placed_feathers")["about"]["title"], "Flight feathers (hand-placed)")
+        # Applied: the feathers group made, empty, and nothing grows yet (the head's guides are not
+        # feathers); the Draw tool would draw into it (none in batch mode).
+        presets.apply_preset(groom, "hand_placed_feathers")
+        self.assertEqual(groomlab.errors(groom), [])
+        self.assertEqual(groomlab.guide_ids(groom, "feathers"), [])
+        self.assertEqual(len(groomlab.guide_ids(groom, "primary")), hair)
+        self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), 0)
+        self.assertEqual(groomlab.feather_guide_groups(groom), ["feathers"])
+        # Every guide drawn into it is one flight feather: 70 barbs a side and the shaft.
+        curves = [cmds.curve(degree=1, point=[(0.1 * i, 1.0, 0.0), (0.1 * i, 1.3, 0.6), (0.1 * i, 1.2, 1.4)])
+                  for i in range(3)]
+        groomlab.guides_from_curves(groom, curves, group="feathers")
+        self.assertEqual(groomlab.errors(groom), [])
+        self.assertEqual(cmds.getAttr(groom + ".outStrandCount"), 3 * (1 + 140))
+        # Applied again: the group and its guides stay.
+        presets.apply_preset(groom, "hand_placed_feathers")
+        self.assertEqual(len(groomlab.guide_ids(groom, "feathers")), 3)
 
     def test_what_the_teaching_presets_show(self):
         groom = self.head()

@@ -1088,6 +1088,28 @@ class GraphEditorTest(unittest.TestCase):
         self.assertIn("groomMasks", groomlab.list_maps(self.groom))
         self.assertEqual(groomlab.errors(self.groom), [])
 
+    def test_hand_placed_feathers_preset_and_add_feathers_draw_into_their_group(self):
+        # A preset that requires a guide group: made empty, and the Draw tool draws into it, so
+        # every guide drawn is a flight feather.
+        cmds.select(self.groom)
+        self.editor.load_preset("hand_placed_feathers")
+        self.assertIn("feathers", [g["name"] for g in groomlab.list_guide_groups(self.groom)])
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertEqual(cmds.currentCtx(), groomlab.BRUSH_CONTEXT)
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), "draw")
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, group=True), "feathers")
+        self.assertIn("draws into feathers", self.editor.status.text())
+        # Add > Feathers, one per guide in a new group with no guides yet: the Draw tool on it.
+        from groomlab.ui import menu
+        cmds.setToolTo("selectSuperContext")
+        cmds.select(self.groom)
+        menu.add_feathers_dialog(design="flight", source="guides", group="tail", groom=self.groom)
+        self.assertEqual(cmds.currentCtx(), groomlab.BRUSH_CONTEXT)
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), "draw")
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, group=True), "tail")
+        self.assertEqual(groomlab.feather_guide_groups(self.groom), ["feathers", "tail"])
+        cmds.setToolTo("selectSuperContext")
+
     def test_the_presets_menu_has_a_submenu_per_category(self):
         from groomlab import presets
         user = os.environ.get("GROOMLAB_USER_PRESETS")

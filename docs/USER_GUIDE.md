@@ -493,8 +493,11 @@ own paths about `region` apart: box braids with nothing drawn (the **Box braids*
 
 Every strand fed to a **Propagate** node (Add Node > Feathers) is a shaft that grows barbs. The
 barbs are ordinary strands for the nodes after it.
-- **From the menu:** **GroomLab > Add > Feathers...** asks the design and where the shafts come
-  from. With curves selected, each becomes a hand-placed feather.
+- **From the menu:** **GroomLab > Add > Feathers...** asks the design and how they grow:
+  **Scattered feathers (shaped by the guides)**, or **One feather per guide (hand-placed)** in a
+  guide group you pick or name (`feathers`, `flight_left`, `tail`). With curves selected, each joins
+  the group as a hand-placed feather; with none, the Draw tool draws into the group. The preset
+  **Flight feathers (hand-placed)** starts a wing or tail the same way.
 - **From Python:** `groomlab.add_feathers(groom, "contour")` scatters shafts that lie with your
   guides. Designs: `contour`, `down`, `flight`, `afterfeather`, `barred`. Hand-placed:
   `add_feathers(groom, "flight", source="guides", curves=curves)`. Assortments:

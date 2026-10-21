@@ -551,6 +551,8 @@ class GROOMLAB_OT_graph_preset(_GraphOperator):
                 note = graph.preset_maps_note(r)
                 if note:
                     self.report(*note)
+                if r.get("drawGroup"):
+                    graph.draw_into(context, scalp, r["drawGroup"])  # a hand-placed look: draw its guides
             else:
                 node = active_node(context)
                 after = node.gl_name if node is not None and node.select and not node.gl_is_output and _strands_output(node) else None

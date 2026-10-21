@@ -38,14 +38,42 @@ nodes after it: Noise, Curl, Width, HairColor, FeatherColor, Clump and Cards all
 
 ### Add feathers
 
-- **From a scatter:** `groomlab.add_feathers(groom, "contour")` scatters shafts and shapes them
-  with your guides, so combing the guides along the body lays the feathers with them.
-- **Hand-placed:** draw curves from the skin, then
-  `groomlab.add_feathers(groom, "flight", source="guides", curves=curves)`. Each curve becomes a
-  guide you can brush.
-- **Assortments:** `groomlab.add_feathers(groom, ["contour", "down"], weights=[3, 1])` routes the
-  shafts through a **Split** node (outputs `a` to `d`, by fraction or by a painted map), one design
-  per output.
+**GroomLab > Add > Feathers...** asks for a design and how the feathers grow:
+
+- **Scattered feathers (shaped by the guides):** feathers scattered over the skin and laid the way
+  your guides are combed, so combing the guides along the body lays the feathers with them. For a
+  body of contour or down feathers. Python: `groomlab.add_feathers(groom, "contour")`.
+- **One feather per guide (hand-placed):** each guide of a guide group is exactly one feather. For
+  flight feathers and tails, where every feather is placed by hand. See
+  [Hand-placed flight feathers](#hand-placed-flight-feathers).
+- **Assortments:** several designs separated by commas, with their shares
+  (`groomlab.add_feathers(groom, ["contour", "down"], weights=[3, 1])`): a **Split** node (outputs
+  `a` to `d`, by fraction or by a painted map) gives each design its share of the feathers.
+
+### Hand-placed flight feathers
+
+For wings and tails, place every feather yourself: each guide you draw is one feather.
+
+1. Start from the **Flight feathers (hand-placed)** preset (Presets > Feathers), or on an existing
+   groom pick **Add > Feathers...** with **One feather per guide (hand-placed)**.
+2. Pick the **Guide group** the feathers go into: `feathers` by default, or type a new name to keep
+   parts apart (`flight_left`, `flight_right`, `tail`). Run Add > Feathers once per group.
+3. Draw guides from the skin with the **Draw** tool (the preset and Add > Feathers pick it for you,
+   drawing into the group), or select curves drawn from the skin before Add > Feathers: each curve
+   joins the group.
+4. Each guide is one feather. Comb, brush or delete guides to place, shape or remove feathers.
+
+The feather groups are left out of the guides that grow the hair, so hand-placed feathers never
+change the hair or body feathers around them. When the groom already has a feathers group, Add >
+Feathers starts on One feather per guide with that group picked.
+
+Python, one group per part:
+
+```python
+groomlab.add_feathers(groom, "flight", source="guides", curves=left, group="flight_left")
+groomlab.add_feathers(groom, "flight", source="guides", curves=tail, group="tail")
+groomlab.feather_guide_groups(groom)  # ["flight_left", "tail"]
+```
 
 ### Designs
 

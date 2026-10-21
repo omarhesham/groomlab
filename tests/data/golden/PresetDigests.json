@@ -502,6 +502,30 @@
    "strands": 5073,
    "widths": "0330d7a62ba8f282"
   },
+  "hand_placed_feathers": {
+   "channels": {
+    "strand.barbIndex": "a6ae0f821a2cebcc",
+    "strand.clumpId": "8d8b021d7a51c7a1",
+    "strand.featherId": "1793de8dd010aa04",
+    "strand.groupId": "67aa56d9a8e48d5c",
+    "strand.isShaft": "f31ff9c0e20c99f7",
+    "strand.shaftU": "22a6444d33eae0e3",
+    "strand.side": "87992bcaf9ec7408",
+    "strand.vaneNormalX": "00a582b2f40175e4",
+    "strand.vaneNormalY": "9d7bbf5e2a118681",
+    "strand.vaneNormalZ": "c543a016e1236b54",
+    "strand.vaneTipU": "76976ae124c54744",
+    "strand.vaneTipV": "011e6ba912a113e1",
+    "strand.vaneU": "d8b5172718e6ce7b"
+   },
+   "everything": "2ecc34a1e61b257f",
+   "ids": "a5872ccd8e038a9d",
+   "points": 5020,
+   "positions": "c834bb3b4ca443d2",
+   "roots": "11d349cd79470c72",
+   "strands": 705,
+   "widths": "292b8c0f33cb90d1"
+  },
   "layered_feathers": {
    "channels": {
     "strand.barbIndex": "b71a58eb583d8e64",

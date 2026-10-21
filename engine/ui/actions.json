@@ -52,8 +52,8 @@
     "import.alembicCurves": {"label": "Alembic Curves...", "tip": "An Alembic file's curves as the selected groom's guides (an ImportCurves node rooted on the scalp); with a mesh selected and no groom, a groom is made on it first",
                     "tips": {"app": "An Alembic file's curves as the groom's guides (an ImportCurves node rooted on the scalp, in place of the Guides node)"}},
 
-    "add.feathers": {"label": "Feathers...", "tip": "Feathers on the groom: a design (or an assortment) on scattered shafts, or one hand-placed feather per selected curve",
-                    "tips": {"app": "Feathers on the groom: a design (or an assortment) on scattered shafts, or one hand-placed feather per guide of the feathers group"}},
+    "add.feathers": {"label": "Feathers...", "tip": "Feathers on the groom: scattered feathers shaped by the guides (a design, or an assortment), or one hand-placed feather per guide of a guide group (selected curves join it)",
+                    "tips": {"app": "Feathers on the groom: scattered feathers shaped by the guides (a design, or an assortment), or one hand-placed feather per guide of a guide group"}},
     "add.braid": {"label": "Braid on Curves...", "tip": "The selected curves (drawn from the scalp) become braid paths: a Braid node braids the strands along them",
                     "tips": {"app": "A Braid node after the Interpolate braids the strands along the braids group's guides (draw the paths in it with the Draw tool)"}},
     "add.cards.hero": {"label": "Hero", "tip": "A Cards node before the output at the hero level of detail: 6 x 2 cards a clump with flyaways"},

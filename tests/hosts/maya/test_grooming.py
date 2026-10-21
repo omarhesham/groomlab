@@ -2359,6 +2359,75 @@ class GroomingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             groomlab.add_feathers(self.groom, "contour", source="nothing")
 
+    def test_one_feather_per_guide_in_guide_groups_of_their_own(self):
+        from groomlab.ui import menu
+        # Add > Feathers' form: scattered feathers by default, the guide group "feathers" offered
+        # first with the groom's groups after it (a new name typed in makes another).
+        fields, note = menu.feathers_form(self.groom)
+        form = {f[0]: f for f in fields}
+        self.assertEqual(form["source"][2:5], ("choice", "scatter", [
+            ("scatter", "Scattered feathers (shaped by the guides)"), ("guides", "One feather per guide (hand-placed)")]))
+        groups = [g["name"] for g in groomlab.list_guide_groups(self.groom)]
+        self.assertEqual(form["group"][2:5], ("edit", "feathers", ["feathers"] + groups))
+        for text in [note] + [f[1] + " " + f[-1] for f in fields]:
+            self.assertNotIn("shaft", text.lower())  # "scattered feathers", never shafts
+        # Curves selected: one feather per guide.
+        wing = [cmds.curve(degree=1, point=[(0.0, 1.0, 0.0), (0.0, 1.3, 0.6), (0.0, 1.2, 1.4)]),
+                cmds.curve(degree=1, point=[(0.3, 0.95, 0.0), (0.5, 1.2, 0.5), (0.6, 1.1, 1.2)])]
+        fields, note = menu.feathers_form(self.groom, wing)
+        self.assertEqual({f[0]: f for f in fields}["source"][3], "guides")
+        self.assertIn("2 curve(s) selected", note)
+
+        from groomlab import utils
+        interpolate = next(n["name"] for n in groomlab.get_graph(self.groom, True)["nodes"] if n["type"] == "Interpolate")
+
+        def hair_points():
+            made = utils.strands_to_curves(self.groom, node=interpolate, max_curves=40, attributes=False)
+            points = [cmds.xform(c + ".cv[*]", query=True, worldSpace=True, translation=True) for c in made["curves"]]
+            cmds.delete(made["group"])
+            return points
+
+        hair = cmds.getAttr(self.groom + ".outStrandCount")
+        hair_before = hair_points()
+        # The left wing's flight feathers: the selected curves become guide group flight_left, a
+        # flight feather each (70 barbs a side and the shaft).
+        cmds.select(wing)
+        menu.add_feathers_dialog(design="flight", source="guides", group="flight_left", groom=self.groom)
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertEqual(len(groomlab.guide_ids(self.groom, "flight_left")), 2)
+        self.assertEqual(cmds.getAttr(self.groom + ".outStrandCount"), hair + 2 * (1 + 140))
+        self.assertEqual(groomlab.feather_guide_groups(self.groom), ["flight_left"])
+        # The form now starts on one feather per guide, in that group.
+        form = {f[0]: f for f in menu.feathers_form(self.groom)[0]}
+        self.assertEqual((form["source"][3], form["group"][3]), ("guides", "flight_left"))
+        # A tail of three in a group of its own: one feather per guide again.
+        tail = [cmds.curve(degree=1, point=[(x, -0.2, -0.98), (x, -0.4, -1.5), (x, -0.5, -2.1)]) for x in (-0.2, 0.0, 0.2)]
+        groomlab.add_feathers(self.groom, "flight", source="guides", curves=tail, group="tail")
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertEqual(cmds.getAttr(self.groom + ".outStrandCount"), hair + 5 * (1 + 140))
+        self.assertEqual(groomlab.feather_guide_groups(self.groom), ["flight_left", "tail"])
+        # Neither group's guides are hair guides: the hair grows as it did.
+        excluded = {n["name"]: n for n in groomlab.get_graph(self.groom)["nodes"]}["guides"]["params"]["exclude"].split()
+        self.assertTrue({"flight_left", "tail"} <= set(excluded), excluded)
+        hair_after = hair_points()
+        self.assertEqual(len(hair_after), len(hair_before))
+        for after, before in zip(hair_after, hair_before):
+            for a, b in zip(after, before):
+                self.assertAlmostEqual(a, b, places=4)
+        # A new group with no guides yet: its feathers wait for guides drawn into it (the Draw tool
+        # starts on it where there is a viewport); nothing else changes.
+        cmds.select(clear=True)
+        menu.add_feathers_dialog(design="flight", source="guides", group="flight_right", groom=self.groom)
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertIn("flight_right", [g["name"] for g in groomlab.list_guide_groups(self.groom)])
+        self.assertEqual(groomlab.guide_ids(self.groom, "flight_right"), [])
+        self.assertEqual(cmds.getAttr(self.groom + ".outStrandCount"), hair + 5 * (1 + 140))
+        self.assertFalse(menu.draw_guides_into(self.groom, "flight_right"))  # batch: no Draw tool
+        mirrored = [cmds.curve(degree=1, point=[(-x, y, z) for x, y, z in p])
+                    for p in ([(0.0, 1.0, 0.0), (0.0, 1.3, 0.6), (0.0, 1.2, 1.4)], [(0.3, 0.95, 0.0), (0.5, 1.2, 0.5), (0.6, 1.1, 1.2)])]
+        groomlab.guides_from_curves(self.groom, mirrored, group="flight_right")
+        self.assertEqual(cmds.getAttr(self.groom + ".outStrandCount"), hair + 7 * (1 + 140))
+
     def test_two_feather_designs_share_the_shafts(self):
         # A Split sends three quarters of the shafts to contour feathers and the rest to down; the
         # two designs are merged and replace the hair.

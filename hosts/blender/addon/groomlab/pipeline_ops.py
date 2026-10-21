@@ -15,6 +15,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, St
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from . import actions, groom, pipeline, tools
+from . import definitions as defs
 from .helper_client import HelperError, sentence
 from .ops import GroomOperator, _fail, active_groom
 
@@ -406,8 +407,8 @@ _CURVE_KINDS = {"CURVE", "CURVES"}
 
 
 class GROOMLAB_OT_add_feathers(_Tipped, GroomOperator):
-    """Feathers on the groom: a design (or an assortment) on scattered shafts, or one hand-placed
-    feather per selected curve"""
+    """Feathers on the groom: scattered feathers shaped by the guides (a design, or an assortment), or
+    one hand-placed feather per guide of a guide group (selected curves join it)"""
     bl_idname = "groomlab.add_feathers"
     bl_label = "Add Feathers"
     bl_options = {"REGISTER", "UNDO"}
@@ -417,23 +418,36 @@ class GROOMLAB_OT_add_feathers(_Tipped, GroomOperator):
                                        "contour, down, flight, afterfeather, barred, or a feathers_<name> preset of yours")
     weights: StringProperty(name="Weights", default="",
                             description="The assortment's shares, one per design (3, 1); empty: equal")
-    source: EnumProperty(name="Shafts From", items=[
-        ("scatter", "Scatter", "Shafts scattered over the scalp, shaped by the guides"),
-        ("guides", "Guides", "The selected curves (or the feathers group's guides), each one a hand-placed feather")],
-        default="scatter")
+    # engine/ui/choices.json's featherSource: the words every host shows.
+    source: EnumProperty(name=defs.get("choices")["featherSource"]["label"], items=defs.enum_items("featherSource"),
+                         default=defs.enum_default("featherSource"))
+    group: StringProperty(name="Guide Group", default="feathers",
+                          description="One feather per guide: the guide group whose guides are the feathers, left out "
+                                      "of the hair (pick one, or type a new name: flight_left, flight_right, tail)")
 
     def invoke(self, context, event):
-        self.source = "guides" if _selected(context, _CURVE_KINDS, active_groom(context)) else "scatter"
-        return context.window_manager.invoke_props_dialog(self, width=380)
+        scalp = active_groom(context)
+        try:
+            groups = pipeline.feather_guide_groups(scalp)
+        except HelperError:
+            groups = []
+        if groups:
+            self.group = groups[0]
+        self.source = "guides" if (groups or _selected(context, _CURVE_KINDS, scalp)) else defs.enum_default("featherSource")
+        return context.window_manager.invoke_props_dialog(self, width=420)
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "design")
         layout.prop(self, "weights")
-        layout.prop(self, "source")
+        layout.prop(self, "source", expand=True)
+        row = layout.row()
+        row.enabled = self.source == "guides"
+        row.prop_search(self, "group", context.scene.groomlab_tools, "groups", results_are_suggestions=True)
         n = len(_selected(context, _CURVE_KINDS, active_groom(context)))
-        layout.label(text="%d curve object(s) selected: each curve a feather with Guides" % n if n else
-                     "Draw curves from the scalp and select them for hand-placed feathers", icon="INFO")
+        layout.label(text="%d curve object(s) selected: each curve becomes a feather in the guide group" % n if n else
+                     "One feather per guide: each guide of the group is a feather (none yet: draw them with Draw)",
+                     icon="INFO")
 
     def execute(self, context):
         scalp = active_groom(context)
@@ -443,14 +457,22 @@ class GROOMLAB_OT_add_feathers(_Tipped, GroomOperator):
         except ValueError:
             self.report({"ERROR"}, "Weights are numbers, one per design (3, 1)")
             return {"CANCELLED"}
+        group = self.group.strip() or "feathers"
         curves = _selected(context, _CURVE_KINDS, scalp) if self.source == "guides" else None
         try:
-            made = pipeline.add_feathers(scalp, designs if len(designs) > 1 else designs[0], source=self.source,
-                                         weights=weights, curves=curves)
+            pipeline.add_feathers(scalp, designs if len(designs) > 1 else designs[0], source=self.source,
+                                  weights=weights, curves=curves, group=group)
         except HelperError as e:
             return _fail(self, e)
         tools.refresh_info(scalp, context.scene)
-        _say(self, "added %s feathers to %s (%s)" % (", ".join(designs), scalp.name, made["shafts"]))
+        if self.source != "guides":
+            _say(self, "added scattered %s feathers to %s" % (", ".join(designs), scalp.name))
+            return {"FINISHED"}
+        count = next((g.guides for g in context.scene.groomlab_tools.groups if g.name == group), 0)
+        _say(self, "added %s feathers to %s: one per guide of %s (%d now)" % (", ".join(designs), scalp.name, group, count))
+        if not count and not curves:
+            from . import graph
+            graph.draw_into(context, scalp, group)  # none yet: every guide drawn is a feather
         return {"FINISHED"}
 
 

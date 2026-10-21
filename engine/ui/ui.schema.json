@@ -68,7 +68,8 @@
           "items": {"type": "array", "minItems": 1, "items": {
             "type": "object", "additionalProperties": false, "required": ["value", "label"],
             "properties": {"value": {"type": ["string", "number"]}, "label": {"type": "string"}, "tip": {"type": "string"},
-                           "convert": {"type": "string"}, "tag": {"type": "string"}}}}
+                           "convert": {"type": "string"}, "tag": {"type": "string"},
+                           "short": {"type": "string"}}}}
         }
       }
     },

@@ -701,6 +701,39 @@ def _feather_groups(g):
     return groups
 
 
+def feather_guide_groups(scalp):
+    """The guide groups whose guides grow one feather each (Maya's feather_guide_groups): the groups
+    of the Guides nodes feeding a feather design (a Propagate, or a Compound with one), in the
+    graph's order; a "feathers" group the graph does not read yet too."""
+    from . import tools
+    rt = groom.ensure(scalp)
+    graph = process.call("get_graph", session=rt.session)["graph"]
+    nodes = graph.get("nodes") or []
+    designs = {n["name"] for n in nodes if n.get("type") == "Propagate" or
+               (n.get("type") == "Compound" and any(True for _ in _propagates_in(n.get("params") or {})))}
+    feeds = {}
+    for c in graph.get("connections") or []:
+        feeds.setdefault(c["from"], []).append(c["to"])
+    found = []
+    for n in nodes:
+        groups = str((n.get("params") or {}).get("group") or "").replace(",", " ").split() \
+            if n.get("type") == "Guides" else []
+        if not groups:
+            continue
+        seen, todo = set(), [n["name"]]
+        while todo:
+            name = todo.pop()
+            if name not in seen:
+                seen.add(name)
+                todo += feeds.get(name, [])
+        if seen & designs:
+            found += [g for g in groups if g not in found]
+    if "feathers" not in found and tools.is_hierarchy(scalp) and \
+            "feathers" in [g.get("name") for g in (tools.call(scalp, "guides_info").get("groups") or [])]:
+        found.append("feathers")
+    return found
+
+
 def exclude_from_hair_guides(g, group):
     """Braid paths and feather shafts are not hair: Guides nodes reading every guide leave `group` out."""
     for n in g.of_type("Guides"):

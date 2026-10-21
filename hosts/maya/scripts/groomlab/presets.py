@@ -19,7 +19,9 @@ A preset is a graph (graph_io.h) plus a few fields of its own, all optional:
                menu shows (the category as a submenu, CATEGORIES; the description as
                the item's tooltip). Absent: the file's name, no description, no category.
   "requires"   {"maps": [{"name", "kind", "value", "color"}]}: painted maps the graph
-               reads, made (as add_map makes them) when the groom has none of that name.
+               reads, made (as add_map makes them) when the groom has none of that name;
+               "groups": [{"name", "draw"}]: guide groups the graph reads, made empty when
+               missing ("draw": the Graph Editor then picks the Draw tool drawing into it).
   "backdrops"  Graph Editor backdrops framing parts of the graph (layout only):
                [{"title", "x", "y", "w", "h"}].
   "controls"   {"ctl_<name>": value or [x, y, z]}: the values of the groom's controls (Control
@@ -166,6 +168,8 @@ def _apply(groom, data, fit, catalog=None, make_maps=True):
     import groomlab
     from maya import cmds
     made = make_required_maps(groom, required_maps_of(data)) if make_maps else []
+    if make_maps:
+        make_required_groups(groom, required_groups_of(data))  # before the graph reads them
     graph = fitted(data, scalp_size(groom) if (fit and groom) else None, catalog)  # its control values too
     values = graph.get("controls")
     for key in PRESET_FIELDS:
@@ -221,10 +225,45 @@ def required_maps_of(data):
     return [dict(m) for m in maps or [] if isinstance(m, dict) and isinstance(m.get("name"), str) and m["name"]]
 
 
+def required_groups(name):
+    """The guide groups a preset's graph reads ("requires": {"groups": [...]}): [{"name", "draw"}]."""
+    return required_groups_of(read_preset(name))
+
+
+def required_groups_of(data):
+    requires = data.get("requires") or {}
+    groups = requires.get("groups") if isinstance(requires, dict) else None
+    out = []
+    for g in groups or []:
+        if isinstance(g, dict) and isinstance(g.get("name"), str) and g["name"] and \
+                g["name"] not in [o["name"] for o in out]:
+            out.append({"name": g["name"], "draw": g.get("draw") is True})
+    return out
+
+
+def draw_group(name):
+    """The guide group the preset's Draw tool draws into once it is applied ("draw": true), or None."""
+    return next((g["name"] for g in required_groups(name) if g["draw"]), None)
+
+
 def prepare(groom, name):
     """Give `groom` what the preset needs that it lacks: the painted maps it reads, made as
-    add_map makes them (kind, fill value or color). Returns the names of the maps made."""
+    add_map makes them (kind, fill value or color), and the guide groups it reads, made empty.
+    Returns the names of the maps made."""
+    make_required_groups(groom, required_groups(name))
     return make_required_maps(groom, required_maps(name))
+
+
+def make_required_groups(groom, required):
+    """Make the guide groups `required` ([{"name", ...}]) the groom lacks, empty. Returns the names made."""
+    import groomlab
+    have = [g["name"] for g in groomlab.list_guide_groups(groom)]
+    made = []
+    for g in required:
+        if g["name"] not in have:
+            groomlab.add_guide_group(groom, g["name"])
+            made.append(g["name"])
+    return made
 
 
 def make_required_maps(groom, required):
