@@ -230,7 +230,7 @@ std::vector<Scenario> scenarios() {
         s.settings.guideDisplaySegments = 0;
     });
     add("guideGroups", [](Scenario& s) {
-        s.settings.guideColorMode = 2, s.settings.guideGroupColors = "children:#ff8800 nope:#12 primary:#zz0000";
+        s.settings.guideGroupColors = "children:#ff8800 nope:#12 primary:#zz0000";
         s.settings.hiddenGuideGroups = "nothing, children";
     });
     add("noOverlays", [](Scenario& s) { s.settings.guides = false, s.settings.flow = false, s.settings.instances = false; });
@@ -1127,9 +1127,103 @@ TEST(Display, ParsesGroupColorsAndHiddenGroups) {
     EXPECT_EQ(parseHiddenGuideGroups(" a,b  c,"), (std::set<std::string>{"a", "b", "c"}));
 }
 
+TEST(Display, GuideColorHexIsTheParsersReverse) {
+    EXPECT_EQ(guideColorHex({1.0f, 0.0f, 0.2158605f}), "#ff0080");
+    EXPECT_EQ(guideColorHex({-1.0f, 2.0f, 0.0f}), "#00ff00");  // clamped
+    for (const std::string hex : {"#3d7eff", "#000000", "#ffffff", "#808080", "#12ab9c"}) {
+        EXPECT_EQ(guideColorHex(parseGuideGroupColors("g:" + hex).at("g")), hex);
+    }
+}
+
+// The smallest hue distance (around the circle) between two automatic colors.
+float hueApart(const std::array<float, 3>& a, const std::array<float, 3>& b) {
+    auto hue = [](const std::array<float, 3>& c) {
+        const float hi = std::max({c[0], c[1], c[2]}), lo = std::min({c[0], c[1], c[2]}), range = hi - lo;
+        float h = hi == c[0] ? (c[1] - c[2]) / range : hi == c[1] ? 2.0f + (c[2] - c[0]) / range : 4.0f + (c[0] - c[1]) / range;
+        h /= 6.0f;
+        return h - std::floor(h);
+    };
+    const float d = std::abs(hue(a) - hue(b));
+    return std::min(d, 1.0f - d);
+}
+
+// Guides were colored by level unless asked: a groom's child group shared every other child
+// group's color. Now every group, child groups too, is its own hue: a parent and its children
+// and siblings well apart, however many groups were made between them.
+TEST(Display, EveryGuideGroupHasItsOwnColor) {
+    GuideHierarchy h;
+    const GroupId primary = h.addGroup("primary");
+    const GroupId children = h.addGroup("children", primary);
+    const GroupId bangs = h.addGroup("bangs");
+    const GroupId bangKids = h.addGroup("bangKids", bangs);
+    std::vector<GroupId> filler;  // groups made between a parent and its next child
+    for (int i = 0; i < 4; ++i) filler.push_back(h.addGroup("filler" + std::to_string(i)));
+    // 8 ids after their parents: golden-ratio steps alone would land 0.056 from the parent's hue.
+    const GroupId late = h.addGroup("late", primary);
+    const GroupId grandchild = h.addGroup("grandchild", children);
+    ASSERT_EQ(late, primary + 8);
+    ASSERT_EQ(grandchild, children + 8);
+    for (const float seed : {0.0f, guideHueSeed("hair"), guideHueSeed("brows"), guideHueSeed("groom1"), 0.37f}) {
+        const auto colors = autoGuideColors(h, seed);
+        ASSERT_EQ(colors.size(), h.groups().size());
+        for (const auto& [id, c] : colors) {
+            EXPECT_NEAR(std::max({c[0], c[1], c[2]}), 0.95f, 1e-5f);  // bright and saturated, never gray
+            EXPECT_GT(std::max({c[0], c[1], c[2]}) - std::min({c[0], c[1], c[2]}), 0.5f);
+        }
+        auto apart = [&](GroupId a, GroupId b) { return hueApart(colors.at(a), colors.at(b)); };
+        // Parents and their children.
+        for (const auto& [parent, child] : std::vector<std::pair<GroupId, GroupId>>{
+                 {primary, children}, {primary, late}, {bangs, bangKids}, {children, grandchild}}) {
+            EXPECT_GE(apart(parent, child), 0.12f) << "seed " << seed << ": group " << child << " near its parent";
+        }
+        // Siblings.
+        EXPECT_GE(apart(children, late), 0.12f) << seed;
+        EXPECT_GE(apart(primary, bangs), 0.12f) << seed;
+        // The common case, the first group and its first child: as far apart as a golden step.
+        EXPECT_GE(apart(primary, children), 0.3f) << seed;
+    }
+    // Deterministic, and a new group leaves the others' colors as they were.
+    const auto before = autoGuideColors(h, 0.25f);
+    EXPECT_EQ(before, autoGuideColors(h, 0.25f));
+    h.addGroup("newest", bangs);
+    const auto after = autoGuideColors(h, 0.25f);
+    for (const auto& [id, c] : before) EXPECT_EQ(after.at(id), c) << id;
+    // The seed turns every hue: two grooms' first groups differ.
+    EXPECT_GE(hueApart(autoGuideColors(h, guideHueSeed("groom1")).at(primary), autoGuideColors(h, guideHueSeed("groom2")).at(primary)), 0.1f);
+}
+
+// Guide Color Mode: 1 a painted layer (black to white); anything else each group's color.
+TEST(Display, GuideColorModeIsGroupOrPaintedLayer) {
+    const Scenario plain = scenarios()[0];
+    auto guideColors = [&](int mode) {
+        DisplaySettings settings = plain.settings;
+        settings.guideColorMode = mode;
+        settings.guideColorLayer = "len";
+        settings.guideColorSeed = "hair";
+        DisplayBuilder builder;
+        return builder.update(inputsFor(plain), settings).item(DisplayItemId::Guides).geometry->colors;
+    };
+    const std::vector<float> byGroup = guideColors(0);
+    ASSERT_FALSE(byGroup.empty());
+    EXPECT_EQ(guideColors(2), byGroup);   // a value of old: by group
+    EXPECT_EQ(guideColors(-3), byGroup);
+    const std::vector<float> byLayer = guideColors(1);
+    ASSERT_EQ(byLayer.size(), byGroup.size());
+    EXPECT_NE(byLayer, byGroup);
+    const DisplayTheme theme;
+    std::size_t grays = 0;
+    for (std::size_t i = 0; i + 3 < byLayer.size(); i += 4) {  // grays (frozen guides in the theme's color)
+        if (byLayer[i] == theme.frozen[0] && byLayer[i + 1] == theme.frozen[1] && byLayer[i + 2] == theme.frozen[2]) continue;
+        ++grays;
+        EXPECT_FLOAT_EQ(byLayer[i], byLayer[i + 1]);
+        EXPECT_FLOAT_EQ(byLayer[i], byLayer[i + 2]);
+    }
+    EXPECT_GT(grays, 0u);
+}
+
 // Testers saw the first guide group of every groom in the same color: the automatic colors start
 // from a hue seeded by the groom's name (every host passes it as guideColorSeed), deterministic,
-// the theme's own colors without a name, and a group's own color still over them.
+// and a group's own color still over them.
 TEST(Display, GuideColorsStartFromTheGroomsOwnHue) {
     EXPECT_EQ(guideHueSeed(""), 0.0f);
     EXPECT_EQ(guideHueSeed("hair"), guideHueSeed("hair"));
@@ -1141,21 +1235,15 @@ TEST(Display, GuideColorsStartFromTheGroomsOwnHue) {
     }
     EXPECT_NE(hair, brows);
     EXPECT_NE(groom1, groom2);  // names a step apart: hues apart
-    const DisplayTheme theme;
-    auto apart = [](const std::array<float, 3>& a, const std::array<float, 3>& b) {
-        return std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) + std::abs(a[2] - b[2]) > 0.05f;
-    };
-    // By level: no name, the theme's colors as they are; a name turns their hue, the value kept.
-    for (int depth = 0; depth < 5; ++depth) EXPECT_EQ(autoGuideColor(theme, 0.0f, depth, 1, false), theme.level(depth));
-    EXPECT_TRUE(apart(autoGuideColor(theme, groom1, 0, 1, false), autoGuideColor(theme, groom2, 0, 1, false)));
-    const auto turned = autoGuideColor(theme, hair, 0, 1, false);
-    const auto level0 = theme.level(0);
-    EXPECT_NEAR(std::max({turned[0], turned[1], turned[2]}), std::max({level0[0], level0[1], level0[2]}), 1e-5f);
-    EXPECT_EQ(autoGuideColor(theme, hair, 4, 1, false), theme.level(4));  // gray stays gray
-    // By group: the first group starts at the groom's hue, the next a golden-ratio step on.
-    EXPECT_TRUE(apart(autoGuideColor(theme, groom1, 0, 1, true), autoGuideColor(theme, groom2, 0, 1, true)));
-    EXPECT_TRUE(apart(autoGuideColor(theme, hair, 0, 1, true), autoGuideColor(theme, hair, 0, 2, true)));
-    EXPECT_EQ(autoGuideColor(theme, 0.0f, 0, 3, true), hueColor(std::fmod(0.6f + 0.618034f * 3.0f, 1.0f), 0.75f, 0.95f));
+    // The first group starts at the groom's hue, the next a golden-ratio step on.
+    GuideHierarchy h;
+    const GroupId first = h.addGroup("primary"), second = h.addGroup("bangs"), third = h.addGroup("nape");
+    EXPECT_EQ(autoGuideColors(h, 0.0f).at(first), hueColor(std::fmod(0.6f + 0.618034f * static_cast<float>(first), 1.0f), 0.75f, 0.95f));
+    EXPECT_EQ(autoGuideColors(h, 0.0f).at(third), hueColor(std::fmod(0.6f + 0.618034f * static_cast<float>(third), 1.0f), 0.75f, 0.95f));
+    EXPECT_GE(hueApart(autoGuideColors(h, groom1).at(first), autoGuideColors(h, groom2).at(first)), 0.1f);
+    // Maya's own names a digit apart: well apart (FNV alone put them 0.004 of a turn apart).
+    EXPECT_GE(hueApart(autoGuideColors(h, guideHueSeed("groomLab1")).at(first), autoGuideColors(h, guideHueSeed("groomLab2")).at(first)), 0.1f);
+    EXPECT_GE(hueApart(autoGuideColors(h, hair).at(first), autoGuideColors(h, hair).at(second)), 0.3f);
 
     // Drawn: two grooms' guides differ by name alone; a group's own color wins over the seed.
     const Scenario plain = scenarios()[0];

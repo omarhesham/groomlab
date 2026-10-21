@@ -15,7 +15,7 @@ basic workflow:
 <Example
   name="viewport-guides.png"
   alt="A wolf's guides in the viewport over its fur"
-  caption="Guides are colored by level: primaries blue, children emerald, then yellow, red, white (each groom turns these to a hue of its own)."
+  caption="Every guide group, child groups too, is drawn in a hue of its own, starting from a hue of the groom's own."
 />
 
 <Callout title="In the app and in Blender">
@@ -242,7 +242,7 @@ the columns **Group**, a color swatch, **Guides** (count) and **Level**.
 | Make it the active group | Click its row, or pick it in the **Group** menu at the top of the Groom Tools. Brushes only edit the active group's guides, and Place and Draw add guides to it. **All groups** brushes every guide. **Page Up** / **Page Down** step one level up or down. |
 | Rename | Double-click the name, or **rename**. Guides node params that name the group are updated. |
 | Show / hide | The row's checkbox. The guides' eye at the top of the Groom Tools hides or shows every group of the groom at once ([The current groom](#the-current-groom-and-what-shows)). |
-| Color | Click the swatch; right-click it (or **Default Color**) to clear. **Hue per group** gives every group without its own color a distinct hue; off, guides are colored by level. The automatic colors start from a hue of the groom's own, from its name (the Maya transform, the Blender object, the app's file name), so two grooms side by side differ; the same name gives the same colors in Maya, Blender and the app. |
+| Color | The swatch shows the color the group draws in: filled when it has a color of its own, dashed around its automatic one. Click it to pick a color; right-click it (or **Default Color**) to clear. Every group without its own color, child groups too, gets a hue of its own, well apart from its parent's and its siblings'. To see a painted guide layer instead, set **Guide Color** (Display > Guides) to **Painted Layer**. The automatic colors start from a hue of the groom's own, from its name (the Maya transform, the Blender object, the app's file name), so two grooms side by side differ; the same name gives the same colors in Maya, Blender and the app. |
 | Select its guides | **select**, or right-click > **Select Guides**. |
 | Delete | **delete**: the group, its child groups and their guides. The dialog lists graph nodes that use the group. |
 | Mirror | **Edit Guides > Mirror Group...** copies a top-level group to the other side. |

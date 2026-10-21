@@ -22,8 +22,7 @@ std::vector<float> floats(const MString& text) {
     return out;
 }
 
-const char* kFlags[][2] = {{"-lv", "-levels"},       {"-ps", "-pointSize"},
-                           {"-sl", "-selected"},     {"-ss", "-softSelected"}, {"-fz", "-frozen"},
+const char* kFlags[][2] = {{"-ps", "-pointSize"},    {"-sl", "-selected"},   {"-ss", "-softSelected"}, {"-fz", "-frozen"},
                            {"-pa", "-parts"},        {"-fl", "-flow"},       {"-ff", "-flowField"},
                            {"-tb", "-tubes"},        {"-in", "-instances"},  {"-cd", "-cards"},
                            {"-cc", "-clumpCenters"}, {"-rs", "-reset"}};
@@ -31,7 +30,7 @@ const char* kFlags[][2] = {{"-lv", "-levels"},       {"-ps", "-pointSize"},
 }  // namespace
 
 DisplayTheme& displayTheme() {
-    static DisplayTheme theme;  // the defaults: primaries blue, then emerald, yellow, red, white down the levels
+    static DisplayTheme theme;  // the defaults
     return theme;
 }
 
@@ -67,20 +66,12 @@ MStatus DisplayThemeCmd::doIt(const MArgList& args) {
             db.getFlagArgument(flag, 0, out);
             return true;
         };
-        auto triples = [&](const char* flag, std::vector<DisplayTheme::RGB>& out) {
-            MString v;
-            if (!text(flag, v)) return;
-            const std::vector<float> f = floats(v);
-            out.clear();
-            for (std::size_t i = 0; i + 2 < f.size(); i += 3) out.push_back({f[i], f[i + 1], f[i + 2]});
-        };
         auto rgb = [&](const char* flag, auto& out) {
             MString v;
             if (!text(flag, v)) return;
             const std::vector<float> f = floats(v);
             for (std::size_t i = 0; i < 3 && i < f.size(); ++i) out[i] = f[i];
         };
-        triples("-levels", t.levels);
         if (db.isFlagSet("-pointSize")) {
             double size = 6.0;
             db.getFlagArgument("-pointSize", 0, size);

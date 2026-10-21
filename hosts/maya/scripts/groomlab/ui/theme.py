@@ -259,15 +259,11 @@ def apply_viewport(t=None):
     except (ImportError, RuntimeError):
         return False
 
-    def triples(values):
-        return " ".join("%g %g %g" % tuple(t.linear(v)) for v in values)
-
     def one(key, fallback):
         return "%g %g %g" % tuple(t.linear(t.get("viewport." + key, fallback)))
 
     v = "viewport."
     cmds.groomLabDisplayTheme(
-        levels=triples(t.get(v + "guideLevels", ["blue"])),
         pointSize=float(t.get(v + "pointSize", 6)),
         selected=one("selected", "white"), softSelected=one("softSelected", "yellow"),
         frozen=one("frozen", "blue"), parts=one("parts", "red"), flow=one("flow", "yellow"),

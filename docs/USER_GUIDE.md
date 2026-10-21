@@ -191,8 +191,8 @@ Frozen guides draw blue and brushes leave them alone.
 **Guide groups & edits** (Tools tab) lists the groups your guides live in: `primary`, the child
 groups, `braids` for braid paths. It shows each group's count, level and the graph nodes that read
 it, and can select, rename (the graph follows), hide or delete a group. **+ New Group** makes your
-own (say `bangs`); pick it in **Group** and Place and Draw put new guides there. **Hue per group**
-colors each group in the viewport. In the Graph Editor, a Guides node's `group` and `exclude` pick
+own (say `bangs`); pick it in **Group** and Place and Draw put new guides there. Each group is drawn in a
+color of its own (its swatch; click it to pick another). In the Graph Editor, a Guides node's `group` and `exclude` pick
 from these names.
 - **Reparent...** makes selected children follow another parent.
 - **Promote / Demote...** moves a whole group up or down a level, keeping every guide's shape.

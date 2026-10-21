@@ -728,17 +728,12 @@ TEST(AppTheme, EveryShippedThemeIsEmbeddedAndCharcoalIsSolid) {
         return std::array<double, 3>{f(c.redF()), f(c.greenF()), f(c.blueF())};
     };
     const DisplayTheme display = theme::displayTheme();
-    ASSERT_EQ(display.levels.size(), charcoal["viewport"]["guideLevels"].size());
-    for (std::size_t i = 0; i < display.levels.size(); ++i) {
-        const auto want = linear(hex(charcoal["viewport"]["guideLevels"][i]));
-        for (int k = 0; k < 3; ++k) EXPECT_NEAR(display.levels[i][k], want[k], 1e-4) << "level " << i;
-    }
     const auto frozen = linear(hex(charcoal["viewport"]["frozen"]));
     for (int k = 0; k < 3; ++k) EXPECT_NEAR(display.frozen[k], frozen[k], 1e-4);
     const auto parts = linear(hex(charcoal["viewport"]["parts"]));
     for (int k = 0; k < 3; ++k) EXPECT_NEAR(display.parts[k], parts[k], 1e-4);
     EXPECT_FLOAT_EQ(display.pointSize, charcoal["viewport"]["pointSize"].get<float>());
-    EXPECT_NE(display.levels.front(), DisplayTheme().levels.front()) << "not the core's defaults";
+    EXPECT_NE(display.frozen, DisplayTheme().frozen) << "not the core's defaults";
     // An unknown theme changes nothing; a theme without "glass" (Polar) takes Playful's (it extends it).
     EXPECT_FALSE(theme::setTheme(QStringLiteral("no such theme")));
     EXPECT_EQ(theme::currentTheme(), QStringLiteral("charcoal"));

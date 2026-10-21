@@ -490,15 +490,6 @@ DisplayTheme displayTheme() {
         const DisplayTheme::RGB c = color(key, fallback);
         return DisplayTheme::RGBA{c[0], c[1], c[2], 1.0f};
     };
-    std::vector<DisplayTheme::RGB> levels;
-    if (viewport.contains("guideLevels") && viewport["guideLevels"].is_array()) {
-        for (const nlohmann::json& v : viewport["guideLevels"]) {
-            const QColor c = v.is_string() ? resolve(v.get<std::string>()) : QColor();
-            if (c.isValid()) levels.push_back(linear(c));
-        }
-    }
-    if (levels.empty()) levels.push_back(color("", "blue"));
-    t.levels = levels;
     if (viewport.contains("pointSize") && viewport["pointSize"].is_number()) t.pointSize = std::max(0.0f, viewport["pointSize"].get<float>());
     t.selected = rgba("selected", "white");
     t.softSelected = rgba("softSelected", "yellow");

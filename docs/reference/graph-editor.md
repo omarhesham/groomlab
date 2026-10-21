@@ -75,7 +75,8 @@ file, as curves, a turntable), **Transfer...** and **Import** (the GroomLab menu
   `groomlab.set_guide_group_color`; right-click to clear), its guide count and level; the name's
   tooltip lists the graph nodes naming it. **+ New Group** and the small buttons over the list
   make a new group, rename, select the group's guides and delete; right-click a row for the
-  same and Color. **Hue per group** colors groups without their own color by hue. Clicking a
+  same and Color. A group without a color of its own draws in an automatic hue of its own (the
+  swatch shows it, dashed). Clicking a
   group makes it the brush group. **Segments** (a slider under it) shows the selected guides' point count, or every guide's with none
   selected, resamples them live while dragged and applies on release (one undo step). **Edit Guides** holds Children..., Sync +X → -X, Sync -X → +X, Mirror
   Selection, Mirror Group..., Reparent..., Promote / Demote..., From Curves and Clear Selection.

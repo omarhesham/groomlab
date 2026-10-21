@@ -153,6 +153,9 @@ struct ToolState {
     // The guide groups given their own viewport color: name -> "#rrggbb" (the display's
     // guideGroupColors unless the host's display settings give theirs).
     std::map<std::string, std::string> groupColors;
+    // The groom's name the automatic group colors start from (guideHueSeed): the display
+    // settings' guideColorSeed, or guides_info's, as last given.
+    std::string colorSeed;
 
     // The brush overlay: the ring, the guides it would touch, a Part or Flow stroke's path.
     DisplayGeometry overlay;
@@ -1133,15 +1136,20 @@ json guidesInfo(ToolState& t) {
     json groups = json::array();
     std::size_t frozen = 0, primaries = 0;
     if (h) {
+        const std::map<GroupId, std::array<float, 3>> automatic = autoGuideColors(*h, guideHueSeed(t.colorSeed));
         for (const GuideGroup& g : h->groups()) {
             const GuideGroup* parent = g.parent == kNoGroup ? nullptr : h->group(g.parent);
+            // The color it draws in when the host gives it none: its own (a ToGuides node's), else its automatic one.
+            const auto shown = automatic.find(g.id);
+            const std::array<float, 3> drawn = g.hasColor ? g.color : shown != automatic.end() ? shown->second : std::array<float, 3>{};
             groups.push_back({{"id", g.id},
                               {"name", g.name},
                               {"parent", parent ? json(parent->name) : json(nullptr)},
                               {"level", h->groupDepth(g.id)},
                               {"guides", h->guidesInGroup(g.id).size()},
                               {"hidden", t.hidden.count(g.name) > 0},
-                              {"color", t.groupColors.count(g.name) ? json(t.groupColors.at(g.name)) : json(nullptr)}});
+                              {"color", t.groupColors.count(g.name) ? json(t.groupColors.at(g.name)) : json(nullptr)},
+                              {"autoColor", guideColorHex(drawn)}});
         }
         for (const HierarchyGuide& g : h->guides()) {
             if (!g.isChild()) ++primaries;
@@ -1193,8 +1201,8 @@ std::vector<GuideId> targetGuides(ToolState& t, const GuideHierarchy& h, const j
     return ids;
 }
 
-// A guide group's color as given: "#rrggbb", [r, g, b] (0-1), or null / "" for none (the level
-// colors again). Returns "#rrggbb" lowered, or "".
+// A guide group's color as given: "#rrggbb", [r, g, b] (0-1), or null / "" for none (its
+// automatic color again). Returns "#rrggbb" lowered, or "".
 std::string groupColorOf(const json& v) {
     if (v.is_null()) return {};
     if (v.is_array()) {
@@ -1407,7 +1415,7 @@ json guidesEdit(ToolState& t, const json& args) {
         r["selection"] = selectionJson(t);
     } else if (op == "set_group_color") {
         // Maya's set_guide_group_color: the group drawn in its own color (guideGroupColors), or in
-        // the level colors again (color null). One undo step; kept with the tools' state.
+        // its automatic color again (color null). One undo step; kept with the tools' state.
         const std::string group = needString(args, "group");
         const std::shared_ptr<const GuideHierarchy> h = t.session.groom->storedHierarchy();
         if (!h || h->findGroup(group) == kNoGroup) fail("not_found", "no group named '" + group + "'");
@@ -2677,13 +2685,13 @@ DisplaySettings displaySettingsOf(ToolState& t, const json& v) {
         else if (key == "guideColorMode") {
             if (x.is_string()) {
                 const std::string m = x.get<std::string>();
-                s.guideColorMode = m == "layer" ? 1 : m == "group" ? 2 : m == "level" ? 0 : -1;
-                if (s.guideColorMode < 0) fail("bad_request", "guideColorMode is level, layer or group");
+                s.guideColorMode = m == "layer" ? 1 : m == "group" ? 0 : -1;
+                if (s.guideColorMode < 0) fail("bad_request", "guideColorMode is group or layer");
             } else {
-                s.guideColorMode = std::clamp(settingInt(x, k), 0, 2);
+                s.guideColorMode = settingInt(x, k) == 1 ? 1 : 0;
             }
         } else if (key == "guideColorLayer") s.guideColorLayer = settingString(x, k);
-        else if (key == "guideColorSeed") s.guideColorSeed = settingString(x, k);  // the groom's name
+        else if (key == "guideColorSeed") s.guideColorSeed = t.colorSeed = settingString(x, k);  // the groom's name
         else if (key == "displayLevel") s.displayLevel = settingInt(x, k);
         else if (key == "guidePoints") {
             if (x.is_string()) {
@@ -2709,11 +2717,7 @@ DisplaySettings displaySettingsOf(ToolState& t, const json& v) {
             DisplayTheme& th = s.theme;
             for (const auto& [tk, tv] : x.items()) {
                 const char* n = tk.c_str();
-                if (tk == "levels") {
-                    if (!tv.is_array() || tv.empty()) fail("bad_request", "theme.levels is a list of [r, g, b]");
-                    th.levels.clear();
-                    for (const json& c : tv) th.levels.push_back(rgbOf(c, n));
-                } else if (tk == "pointSize") th.pointSize = settingNumber(tv, n);
+                if (tk == "pointSize") th.pointSize = settingNumber(tv, n);
                 else if (tk == "selected") th.selected = rgbaOf(tv, n);
                 else if (tk == "softSelected") th.softSelected = rgbaOf(tv, n);
                 else if (tk == "frozen") th.frozen = rgbOf(tv, n);
@@ -3448,6 +3452,7 @@ bool runToolCommandIn(Session& s, ToolState& t, const std::string& cmd, const js
         return true;
     }
     if (cmd == "guides_info") {
+        if (given(args, "guideColorSeed")) t.colorSeed = settingString(args["guideColorSeed"], "guideColorSeed");
         result = guidesInfo(t);
         return true;
     }
