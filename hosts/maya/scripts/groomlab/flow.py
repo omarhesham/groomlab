@@ -90,8 +90,23 @@ def flow_arrows(groom):
     return [(p["face"], p["u"], p["v"]) for p in _flow_data(groom).get("pins", [])]
 
 
+def flow_counts(groom):
+    """(arrows, sinks): how many flow arrows and sinks the groom keeps (its flowData)."""
+    try:
+        data = _flow_data(groom)
+    except ValueError:  # unreadable: as none
+        return 0, 0
+    return len(data.get("pins", [])), len(data.get("sinks", []))
+
+
+@undoable("clear flow")
 def clear_flow(groom):
-    cmds.setAttr(groom + ".flowData", "", type="string")
+    """Remove every flow arrow and sink from the groom (GroomLab > Utilities > Delete All Flow Arrows,
+    the Flow tool's Clear All); one undo step. Returns (arrows, sinks) removed."""
+    counts = flow_counts(groom)
+    if (cmds.getAttr(groom + ".flowData") or "").strip():
+        cmds.setAttr(groom + ".flowData", "", type="string")
+    return counts
 
 
 @undoable("flow node")

@@ -269,7 +269,7 @@ GroomTools::GroomTools(QWidget* parent) : QWidget(parent) {
     outer_->setContentsMargins(10, 8, 10, 12);
     outer_->setSpacing(8);
 
-    // ---- The header: the groom, the eye, the Graph Editor, More.
+    // ---- The header: the groom, the eyes (its hair, its guides), the Graph Editor, More.
     const ui::json& header = palette.at("header");
     auto* top = new QHBoxLayout();
     top->setSpacing(2);
@@ -279,15 +279,26 @@ GroomTools::GroomTools(QWidget* parent) : QWidget(parent) {
     groomName_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     groomName_->setToolTip(tr("The groom every tool works on: the open one"));
     top->addWidget(groomName_, 1);
-    eye_ = glyphButton("eye", qs(header.at("visible").value("tip", std::string())), content);
-    eye_->setObjectName(QStringLiteral("groomVisible"));
+    // The hair's eye: the strands alone (instances, cards too); the guides are the next eye's.
+    eye_ = glyphButton("eye", tr("Show or hide the hair"), content);
+    eye_->setObjectName(QStringLiteral("hairVisible"));
     eye_->setCheckable(true);
     eye_->setChecked(true);
     connect(eye_, &QToolButton::toggled, this, [this](bool on) {
-        eye_->setToolTip(on ? textAt("palette/header/visible/tip") : tr("The groom is hidden: click to show it"));
-        if (!updating_) emit groomVisibilityToggled(on);
+        eye_->setToolTip(on ? tr("Show or hide the hair") : tr("The hair is hidden: click to show it"));
+        if (!updating_) emit hairVisibilityToggled(on);
     });
     top->addWidget(eye_);
+    // The guides' eye: every guide group at once (Properties > Guides; Maya's displayGuides).
+    guidesEye_ = glyphButton("groups", tr("Show or hide the guides, every guide group"), content);
+    guidesEye_->setObjectName(QStringLiteral("guidesVisible"));
+    guidesEye_->setCheckable(true);
+    guidesEye_->setChecked(true);
+    connect(guidesEye_, &QToolButton::toggled, this, [this](bool on) {
+        guidesEye_->setToolTip(on ? tr("Show or hide the guides, every guide group") : tr("The guides are hidden: click to show them"));
+        if (!updating_) emit guidesVisibilityToggled(on);
+    });
+    top->addWidget(guidesEye_);
     graph_ = glyphButton("graph", withShortcut(qs(header.at("graph").value("tip", std::string())), "view.graph"), content);
     graph_->setObjectName(QStringLiteral("openGraph"));
     connect(graph_, &QToolButton::clicked, this, &GroomTools::graphRequested);
@@ -615,6 +626,7 @@ GroomTools::GroomTools(QWidget* parent) : QWidget(parent) {
         auto* section = new Section(qs(s.value("label", std::string())), body->second, s.value("expanded", false), work_);
         section->setObjectName(QStringLiteral("section_") + qs(id));
         sections_[id] = section;
+        sectionRules_[id] = s;
         work->addWidget(section);
     }
     if (Section* tubes = section("tubes")) {
@@ -773,6 +785,8 @@ void GroomTools::setGroups(const std::vector<GroupRow>& groups) {
 
 void GroomTools::setParts(const std::vector<std::string>& names) { card_->setParts(names); }
 
+void GroomTools::setFlowCount(std::size_t arrows, std::size_t sinks) { card_->setFlowCount(arrows, sinks); }
+
 void GroomTools::setStarterProgress(bool guidesPlaced, bool lookGiven) {
     guidesPlaced_ = guidesPlaced;
     lookGiven_ = lookGiven;
@@ -863,6 +877,7 @@ void GroomTools::refreshCard() {
         tubes_->refresh();
     }
     tubesOpenedFor_ = e && e->hasSetting("tube") ? tool_ : std::string();
+    refreshSections();
 }
 
 void GroomTools::refreshTubes() {
@@ -938,13 +953,21 @@ void GroomTools::symmetryEdited() {
     emit settingsChanged();
 }
 
-void GroomTools::setGroomVisible(bool visible) {
+void GroomTools::setHairVisible(bool visible) {
     updating_ = true;
     eye_->setChecked(visible);
     updating_ = false;
 }
 
-bool GroomTools::groomVisible() const { return eye_->isChecked(); }
+bool GroomTools::hairVisible() const { return eye_->isChecked(); }
+
+void GroomTools::setGuidesVisible(bool visible) {
+    updating_ = true;
+    guidesEye_->setChecked(visible);
+    updating_ = false;
+}
+
+bool GroomTools::guidesVisible() const { return guidesEye_->isChecked(); }
 
 void GroomTools::setStatus(const QString& text) {
     status_->setText(text);
@@ -1043,9 +1066,31 @@ void GroomTools::refreshVisibility() {
     work_->setVisible(open);
     targetRow_->setVisible(open);
     eye_->setEnabled(open);
+    guidesEye_->setEnabled(open);
     graph_->setEnabled(open);
-    // Guide groups & edits belong to the Tools tab (Maya's).
-    if (Section* groups = section("groups")) groups->setVisible(currentTab() == QLatin1String("tools"));
+    refreshSections();
+}
+
+bool GroomTools::sectionShown(const ui::json& section, const std::string& tool, const std::string& tab) {
+    auto lists = [&section](const char* key, const std::string& value) {
+        const ui::json& ids = section.contains(key) ? section.at(key) : ui::json();
+        if (!ids.is_array() || ids.empty()) return true;  // no such condition
+        for (const ui::json& id : ids) {
+            if (id.is_string() && id.get<std::string>() == value) return true;
+        }
+        return false;
+    };
+    return lists("tools", tool) && lists("tabs", tab);
+}
+
+void GroomTools::refreshSections() {
+    // Tubes with Place, Draw, Shape and Select, While sculpting with the brushes that stroke, the guide
+    // groups on the Tools tab, Output always (palette.json's tools and tabs, as Maya and Blender).
+    const std::string tab = currentTab().toStdString();
+    for (auto& [id, section] : sections_) {
+        const auto rule = sectionRules_.find(id);
+        section->setVisible(rule == sectionRules_.end() || sectionShown(rule->second, tool_, tab));
+    }
 }
 
 }  // namespace groomlab::app

@@ -77,6 +77,7 @@
               {"id": "file", "label": "File", "app": "groomFile", "tip": "The groom file this groom is linked to: GroomLab > Groom Files", "tips": {"app": "The groom's file: Reload reads it again (another host's edits), Save writes it"}}
             ]
           },
+          {"id": "scalpSubdivision", "label": "Scalp Subdivision", "hosts": ["app"], "app": "scalpSubdivision", "tip": "Catmull-Clark smoothing of the scalp, so the hair sits on the smoothed surface (the viewport draws it, the brushes and picks hit it; painted maps stay on the scalp's own vertices). Each level makes 4x the triangles. The Scalp node's default (Match Render) follows it; saved with the groom"},
           {
             "id": "followScalp",
             "label": "Follow Scalp",
@@ -158,6 +159,7 @@
         "label": "Display",
         "expanded": true,
         "items": [
+          {"id": "displayHair", "label": "Display Hair", "hosts": ["maya"], "maya": "displayHair", "tip": "The hair in the viewport: the strands, instances, scales, cards and strand meshes (the Groom Tools' eye; the guides stay, renders keep it)"},
           {"id": "displayGuides", "label": "Display Guides", "labels": {"app": "Guides"}, "maya": "displayGuides", "app": "guides", "tip": "The guides in the viewport"},
           {"id": "displayFlow", "label": "Display Flow", "labels": {"app": "Flow"}, "maya": "displayFlow", "app": "flow", "tip": "The flow arrows and the field they make (a pale preview)"},
           {"id": "displayTubes", "label": "Display Tubes", "labels": {"app": "Tubes"}, "maya": "displayTubes", "app": "tubes", "tip": "Each guide's tube, the volume its children and Interpolate's Fill Tubes fill: its shape and sections along it"},

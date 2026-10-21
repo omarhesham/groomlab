@@ -64,6 +64,21 @@ TUBE_CHANNELS = _options("tubeChannel")
 TUBE_SHAPES = _options("tubeShape")
 
 
+def flow_count_text(arrows, sinks):
+    """The Flow card's count line, as every host words it: "34 arrows · 2 sinks", "No flow arrows yet"."""
+    if not arrows and not sinks:
+        return "No flow arrows yet"
+    return "%d arrow%s · %d sink%s" % (arrows, "" if arrows == 1 else "s", sinks, "" if sinks == 1 else "s")
+
+
+def section_shown(section, tool, tab):
+    """Whether a Groom Tools section (palette.json's) shows: its "tools" (the active tool one of
+    them), its "tabs" (the current tab one of them); a section with neither always shows."""
+    if section.get("tools") and tool not in section["tools"]:
+        return False
+    return not section.get("tabs") or tab in section["tabs"]
+
+
 def tools_of(*ids):
     """(tool, label, tooltip) for the catalog's tools `ids`, in the catalog's order."""
     return [(t["id"], t["label"], t["hint"]) for t in CATALOG if t["id"] in ids]
@@ -792,7 +807,8 @@ class ToolPalette(QtWidgets.QWidget):
         outer.setContentsMargins(theme.px(12), theme.px(10), theme.px(12), theme.px(12))
         outer.setSpacing(theme.px(10))
 
-        # What the tools work on: the groom (pinned, or following the selection) and its group.
+        # What the tools work on: the current groom (groomlab.active_groom: the Graph Editor's too
+        # unless pinned) and its group.
         top = QtWidgets.QHBoxLayout()
         top.setSpacing(theme.px(4))
         self.grooms = QtWidgets.QComboBox()
@@ -802,9 +818,18 @@ class ToolPalette(QtWidgets.QWidget):
         self.grooms.setMinimumContentsLength(8)
         self.grooms.activated.connect(self.groom_picked)
         top.addWidget(self.grooms, 1)
+        # The eyes: the groom's hair (the strands alone), and its guides (every guide group);
+        # Shift+click or right-click: every groom's.
         self.visible = self.header_button("eye", header["visible"]["tip"], checkable=True)
-        self.visible.toggled.connect(self.groom_visibility)
+        self.visible.setObjectName("hairVisible")
+        self.visible.toggled.connect(self.hair_visibility)
+        self.eye_menu(self.visible, header["visible"].get("items", []))
         top.addWidget(self.visible)
+        self.guides_eye = self.header_button("guides", header["guides"]["tip"], checkable=True)
+        self.guides_eye.setObjectName("guidesVisible")
+        self.guides_eye.toggled.connect(self.guides_visibility)
+        self.eye_menu(self.guides_eye, header["guides"].get("items", []))
+        top.addWidget(self.guides_eye)
         self.header_icons = {}
         graph = self.header_button(None, header["graph"]["tip"])
         graph.setIcon(widgets.icon("graph"))
@@ -1084,9 +1109,21 @@ class ToolPalette(QtWidgets.QWidget):
         self.flow_sink.currentIndexChanged.connect(self.flow_sink_changed)
         row.addWidget(QtWidgets.QLabel(definitions.get("choices/flowSink")["label"]))
         row.addWidget(self.flow_sink, 1)
+        column.addLayout(row)
+        # How many arrows and sinks the groom keeps, and Clear All (GroomLab > Utilities > Delete All
+        # Flow Arrows): where the arrows live, and how to take them all off.
+        row = QtWidgets.QHBoxLayout()
+        self.flow_count = QtWidgets.QLabel()
+        self.flow_count.setObjectName("flowCount")
+        self.flow_count.setProperty("role", "hint")
+        self.flow_count.setToolTip("The flow arrows and sinks kept on the groom (the Flow node lays the strands "
+                                   "along them)")
+        row.addWidget(self.flow_count, 1)
         clear_flow = QtWidgets.QPushButton("Clear All")
-        clear_flow.setToolTip("Remove every arrow and sink")
+        clear_flow.setObjectName("clearFlow")
+        clear_flow.setToolTip(definitions.get("actions/flow.deleteAll")["tip"])
         clear_flow.clicked.connect(self.clear_flow)
+        self.clear_flow_button = clear_flow
         row.addWidget(clear_flow)
         column.addLayout(row)
         self.flow_hint = QtWidgets.QLabel()
@@ -1216,6 +1253,7 @@ class ToolPalette(QtWidgets.QWidget):
         # Tubes: shapes, sizes and the shape library, a section of its own (open with the Shape
         # brush, Place or Draw; any time from its header).
         sections = dict((section["id"], section) for section in definitions.get("palette/sections"))
+        self.section_rules = sections  # which tool and tab each section shows with (show_sections)
         self.tubes_section = widgets.Section(sections["tubes"]["label"], self.tube_panel)
         self.tubes_section.header.toggled.connect(lambda on: on and self.tube_panel.refresh(self.groom()))
         work.addWidget(self.tubes_section)
@@ -1247,6 +1285,7 @@ class ToolPalette(QtWidgets.QWidget):
         self.timer.start()
         self._scene_jobs = []
         self._watch_scene()
+        groomlab.on_current_groom(self.current_groom_changed)  # (a pick in the Graph Editor: at once)
         self.poll()
         self.tab_changed(self.tabs.currentIndex())
         self.show_tool_settings()
@@ -1275,6 +1314,18 @@ class ToolPalette(QtWidgets.QWidget):
         "parts.remove": "remove_part",
         "parts.clear": "clear_parts",
     }
+
+    @staticmethod
+    def eye_menu(button, items):
+        """An eye's right-click menu: the GroomLab menu's Show / Hide All (palette.json's header items)."""
+        from groomlab.ui import menu
+        popup = QtWidgets.QMenu(button)
+        widgets.fill_menu(popup, items, definitions.binder(menu.ACTIONS))
+        popup.setToolTipsVisible(True)
+        button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        button.customContextMenuRequested.connect(lambda pos: popup.exec_(button.mapToGlobal(pos)))
+        button.eye_menu = popup  # kept (an unowned QMenu is garbage-collected)
+        return popup
 
     def generators(self):
         """The menus' entries the Groom Tools fill themselves: the Theme submenu (menus/theme)."""
@@ -1393,6 +1444,7 @@ class ToolPalette(QtWidgets.QWidget):
         closing, or Maya quitting."""
         self.timer.stop()
         self._unwatch_scene()
+        groomlab.remove_current_groom_listener(self.current_groom_changed)
         for tab in (self.guides_tab, self.paint_tab, self.correctives, self.reference_tab):
             tab.unwatch()
 
@@ -1432,6 +1484,7 @@ class ToolPalette(QtWidgets.QWidget):
                 tab._watch()
                 tab.refresh()
             self._watch_scene()
+            groomlab.on_current_groom(self.current_groom_changed)
             self.timer.start()
         if not getattr(self, "_polled", False):  # the first show: the groom (or the empty state) at once
             QtCore.QTimer.singleShot(0, lambda: widgets.alive(self) and not getattr(self, "_polled", False) and self.poll())
@@ -1508,8 +1561,17 @@ class ToolPalette(QtWidgets.QWidget):
         else:
             self.tabs.setCurrentIndex(TABS.index(TAB_ALIASES.get(name, name)))
 
+    def show_sections(self):
+        """The sections the active tool and tab use (palette.json's "tools" and "tabs"), the rest hidden:
+        Tubes with Place, Draw, Shape and Select, While sculpting with the brushes that stroke, the
+        guide groups on the Tools tab; Output always."""
+        tab = TABS[self.tabs.currentIndex()] if self.tabs.currentIndex() >= 0 else TABS[0]
+        for key, section in (("tubes", self.tubes_section), ("sculptDisplay", self.display_section),
+                             ("groups", self.guides_section), ("output", self.output_section)):
+            section.setVisible(section_shown(self.section_rules[key], self.tool, tab))
+
     def tab_changed(self, index):
-        self.guides_section.setVisible(TABS[index] == "tools")
+        self.show_sections()
         if TABS[index] != "paint" and self.tool == "paint":
             # Leaving the Paint tab (back to the tools) is done painting: the Paint brush stops and
             # the strands and scalp stop showing the map, as the Paint tile pressed again does.
@@ -1522,21 +1584,17 @@ class ToolPalette(QtWidgets.QWidget):
     def groom(self):
         return groomlab.active_groom()
 
-    FOLLOW = "\x00follow"  # the groom list's "Follow selection" row
-
-    def fill_grooms(self, active, pinned):
-        """The groom choice: Follow selection, then each groom; the current one is the pinned
-        groom, or Follow selection. The eye shows or hides the groom the tools work on."""
+    def fill_grooms(self, active):
+        """The groom choice: every groom, the current one picked (the Graph Editor's choice too,
+        unless it is pinned). The eyes show or hide the current groom's hair and its guides."""
         from maya import cmds
         shapes = sorted(cmds.ls(type=groomlab.GROOM_TYPE) or [])
-        shown = active and (cmds.listRelatives(active, parent=True) or [active])[0]
-        rows = [(self.FOLLOW, "Selected: %s" % self._short(shown) if shown and not pinned else "Selected groom")]
-        for shape in shapes:
-            rows.append((shape, self._short((cmds.listRelatives(shape, parent=True) or [shape])[0])))
-        visible = None
+        rows = [(shape, self._short((cmds.listRelatives(shape, parent=True) or [shape])[0])) for shape in shapes]
+        visible = guides = None
         if active and cmds.objExists(active):
-            visible = bool(cmds.getAttr((cmds.listRelatives(active, parent=True) or [active])[0] + ".visibility"))
-        state = (rows, pinned, visible)
+            visible, guides = groomlab.hair_visible(active), groomlab.guides_visible(active)
+        current = (cmds.ls(active) or [active])[0] if active and cmds.objExists(active) else None
+        state = (rows, current, visible, guides)
         if state == getattr(self, "_groom_rows", None):
             return
         self._groom_rows = state
@@ -1544,14 +1602,16 @@ class ToolPalette(QtWidgets.QWidget):
         self.grooms.clear()
         for key, text in rows:
             self.grooms.addItem(text, key)
-        self.grooms.setCurrentIndex(max(0, self.grooms.findData(pinned or self.FOLLOW)))
+        self.grooms.setCurrentIndex(self.grooms.findData(current) if current else -1)
         self.grooms.blockSignals(False)
-        self.visible.blockSignals(True)
-        self.visible.setEnabled(visible is not None)
-        self.visible.setChecked(bool(visible))
-        self.visible.glyph = "eye" if visible or visible is None else "eyeOff"
-        self.visible.setIcon(widgets.glyph(self.visible.glyph))
-        self.visible.blockSignals(False)
+        for button, on, glyphs in ((self.visible, visible, ("eye", "eyeOff")),
+                                   (self.guides_eye, guides, ("guides", "guidesOff"))):
+            button.blockSignals(True)
+            button.setEnabled(on is not None)
+            button.setChecked(bool(on))
+            button.glyph = glyphs[0] if on or on is None else glyphs[1]
+            button.setIcon(widgets.glyph(button.glyph))
+            button.blockSignals(False)
         # Nothing to work on: how to start a groom, in place of the group row.
         self.target_row.setVisible(bool(active))
         self.empty.setVisible(not active)
@@ -1565,22 +1625,50 @@ class ToolPalette(QtWidgets.QWidget):
         return name.split("|")[-1]
 
     def groom_picked(self, index):
-        """Work on the picked groom (pinned), or follow the selection again."""
+        """The picked groom is the current groom: the tools, and the Graph Editor unless it is
+        pinned, work on it (until another groom is picked or selected)."""
         key = self.grooms.itemData(index)
-        groomlab.pin_groom(None if key == self.FOLLOW else key)
+        if key:
+            groomlab.set_current_groom(key)
         self._groom_rows = None
         QtCore.QTimer.singleShot(0, self.poll)  # after the pick: the list may change under it
 
-    def groom_visibility(self, on):
-        """The eye: show or hide the groom the tools work on."""
-        from maya import cmds
-        groom = self.groom()
-        if not groom or not cmds.objExists(groom):
+    def current_groom_changed(self, _groom):
+        """groomlab.on_current_groom: a pick in the Graph Editor, a groom selected or made: the
+        choice follows at once (not at the next tick)."""
+        if not widgets.alive(self):  # deleted without closing
+            groomlab.remove_current_groom_listener(self.current_groom_changed)
             return
-        transform = (cmds.listRelatives(groom, parent=True) or [groom])[0]
-        cmds.setAttr(transform + ".visibility", bool(on))
         self._groom_rows = None
-        self.poll()
+        QtCore.QTimer.singleShot(0, lambda: widgets.alive(self) and self.poll())
+
+    @staticmethod
+    def _every_groom():
+        """Shift held on an eye's click: it is for every groom in the scene."""
+        return bool(QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ShiftModifier)
+
+    def _eye(self, what, on, one):
+        from maya import cmds
+        from groomlab.ui import menu
+        if self._every_groom():
+            menu.show_all(what, on)
+        else:
+            groom = self.groom()
+            if not groom or not cmds.objExists(groom):
+                return
+            one(groom, on)
+        self._groom_rows = None
+        self.fill_grooms(self.groom())  # the eyes' glyphs now
+
+    def hair_visibility(self, on):
+        """The eye: show or hide the current groom's hair, the strands alone (its displayHair;
+        Shift+click: every groom's)."""
+        self._eye("hair", on, groomlab.set_hair_visible)
+
+    def guides_visibility(self, on):
+        """The guides' eye: show or hide every guide group of the current groom (its displayGuides;
+        Shift+click: every groom's guides)."""
+        self._eye("guides", on, groomlab.set_guides_visible)
 
     def apply_isolation(self):
         groom = self.groom()
@@ -1704,15 +1792,13 @@ class ToolPalette(QtWidgets.QWidget):
         self._polled = True
         from maya import cmds
         groom = groomlab.active_groom()
-        # The list picks the pinned groom, or the scene's (adopted) while it is the one worked on.
-        pinned_groom = groomlab.pinned_groom() or (groom if groom and groom == groomlab.adopted_groom() else None)
-        # Levels and layers: on a groom change, and every few seconds for edits made elsewhere.
-        self._ticks = getattr(self, "_ticks", 0) + 1
-        if (groom, pinned_groom) != getattr(self, "_groom_key", None) or self._ticks % 3 == 0:
-            self._groom_key = (groom, pinned_groom)
-            self.fill_grooms(groom, pinned_groom)
         # The node, not just its name: a new scene's groom of the same name is another groom.
         node = (groom, (cmds.ls(groom, uuid=True) or [""])[0] if groom else "")
+        # Levels and layers: on a groom change, and every few seconds for edits made elsewhere.
+        self._ticks = getattr(self, "_ticks", 0) + 1
+        if node != getattr(self, "_groom_key", "?") or self._ticks % 3 == 0:
+            self._groom_key = node
+            self.fill_grooms(groom)
         if node != getattr(self, "_last_groom", "?"):
             self._last_groom = node
             for tab in (self.guides_tab, self.paint_tab, self.correctives, self.reference_tab):
@@ -1727,6 +1813,9 @@ class ToolPalette(QtWidgets.QWidget):
             self.starter.refresh(groom)
         if self.tool == PART:
             self.fill_parts(groom)
+        if self.tool == "flow" and (self._ticks % 2 == 0 or groom != getattr(self, "_flow_groom", None)):
+            self._flow_groom = groom
+            self.fill_flow_count(groom)
         if self.tube_panel.isVisible():  # (the Shape brush, Place, Draw) every selection or solo change
             self.tube_panel.refresh(groom, full=self._ticks % 3 == 0)
         # Weights change with the frame: read them every tick, the stack itself now and then
@@ -1965,9 +2054,12 @@ class ToolPalette(QtWidgets.QWidget):
             self.tubes_section.set_expanded(True)
             self.tube_panel.refresh(self.groom())
         self.flow_box.setVisible("flow" in uses)
+        if "flow" in uses:
+            self.fill_flow_count(self.groom())
         self.select_box.setVisible("selection" in uses)
         self.freeze_box.setVisible("freezeMask" in uses)
         self.level.setEnabled(tool != PART)
+        self.show_sections()
         if tool in self.strengths:
             signed = tool in SIGNED
             self.strength.setRange(-1.0 if signed else 0.0, 1.0)
@@ -2056,6 +2148,16 @@ class ToolPalette(QtWidgets.QWidget):
         groom = self.groom()
         if groom:
             groomlab.clear_flow(groom)
+            self.fill_flow_count(groom)
+
+    def fill_flow_count(self, groom):
+        """The Flow card's count: "34 arrows · 2 sinks" kept on the groom (Clear All off with none)."""
+        arrows, sinks = groomlab.flow_counts(groom) if groom else (0, 0)
+        if (arrows, sinks) == getattr(self, "_flow_counted", None):
+            return
+        self._flow_counted = (arrows, sinks)
+        self.flow_count.setText(flow_count_text(arrows, sinks))
+        self.clear_flow_button.setEnabled(bool(arrows or sinks))
 
     def set_soft_selection(self, radius):
         groom = self.groom()
@@ -2070,7 +2172,7 @@ class ToolPalette(QtWidgets.QWidget):
 
     def open_graph(self):
         from groomlab.ui import graph_editor
-        graph_editor.show(self.groom())
+        graph_editor.show()  # the current groom (a pinned Graph Editor stays on its own)
 
 _window = None
 

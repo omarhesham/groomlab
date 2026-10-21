@@ -106,11 +106,7 @@ void MainWindow::applyDisplayOptions() {
 }
 
 void MainWindow::applyProps() {
-    // The props, and the textured cards among them while they show.
-    std::vector<SurfacePtr> props = props_;
-    if (cardSurface_) props.push_back(cardSurface_);
-    viewport_->renderer().setProps(props);
-    if (headless_) headless_->renderer.setProps(props);
+    setRendererProps();
     // Every prop is a collider by its name (a head loaded beside the scalp): a ColliderMesh node
     // naming it keeps the hair out of it, as Maya's collider inputs do. The groom file's own
     // colliders stay, a prop of the same name in their place.
@@ -121,6 +117,14 @@ void MainWindow::applyProps() {
         }
         document_->session().setMeshes(std::move(meshes));
     }
+}
+
+void MainWindow::setRendererProps() {
+    // The props, and the textured cards among them while they show (and the hair does).
+    std::vector<SurfacePtr> props = props_;
+    if (cardSurface_ && hairVisible_) props.push_back(cardSurface_);
+    viewport_->renderer().setProps(props);
+    if (headless_) headless_->renderer.setProps(props);
 }
 
 Bounds MainWindow::sceneBounds() const {
@@ -352,15 +356,25 @@ void MainWindow::refreshTool() {
     shell_->setTool(mode == Viewport::ToolMode::Brush ? brush_.toolId() : std::string(), mode == Viewport::ToolMode::Select);
 }
 
-void MainWindow::setGroomVisible(bool on) {
-    if (groomVisible_ == on) return;
-    groomVisible_ = on;
-    groomTools_->setGroomVisible(on);
-    viewport_->renderer().setGroomShown(on);
-    if (headless_) headless_->renderer.setGroomShown(on);
-    if (document_) reevaluate();  // the lookdev's strands go (or come back)
+void MainWindow::setHairVisible(bool on) {
+    if (hairVisible_ == on) return;
+    hairVisible_ = on;
+    groomTools_->setHairVisible(on);
+    // The renderers hide the hair's items and the lookdev's strands themselves (the guides and
+    // overlays drawn as ever), the textured cards with the props.
+    viewport_->renderer().setHairShown(on);
+    if (headless_) headless_->renderer.setHairShown(on);
+    if (cardSurface_) setRendererProps();
     viewport_->update();
 }
+
+void MainWindow::setGuidesVisible(bool on) {
+    // Properties > Guides: the Groom Tools' guides eye and GroomLab > Display follow it.
+    if (guides_->isChecked() != on) guides_->setChecked(on);
+    groomTools_->setGuidesVisible(on);
+}
+
+bool MainWindow::guidesVisible() const { return guides_->isChecked(); }
 
 void MainWindow::toggleSymmetry() {
     BrushToolSettings& s = brush_.settings();
@@ -647,6 +661,17 @@ void MainWindow::setToneMap(const QString& name) {
     LightingSetup lighting = look_->lighting();
     const QString n = name.toLower();
     lighting.toneMap = n == QStringLiteral("none") ? ToneMap::None : n == QStringLiteral("agx") ? ToneMap::AgX : ToneMap::ACES;
+    look_->setLighting(lighting);
+    shell_->lookCard()->setLighting(lighting);
+    applyLook();
+}
+
+void MainWindow::setBackground(const QString& name) {
+    LightingSetup lighting = look_->lighting();
+    const QString n = name.toLower();
+    lighting.background = n == QStringLiteral("solid")         ? Background::Solid
+                          : n == QStringLiteral("environment") ? Background::Environment
+                                                               : Background::Gradient;
     look_->setLighting(lighting);
     shell_->lookCard()->setLighting(lighting);
     applyLook();

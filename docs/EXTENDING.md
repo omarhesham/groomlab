@@ -229,5 +229,7 @@ as it lands on the CPU. Porting it is its own later change, with tests comparing
 - `web/content/docs/node-graph.mdx`: the Node categories table row (generated; checked by
   `Docs.NodeGraphListsEveryNode`), and a line in "Other main nodes" or a section of its own for a
   node with params worth explaining.
-- `README.md`'s operator tables and `docs/USER_GUIDE.md` where the node fits a workflow.
+- `docs/reference/nodes.md` (its category line, and a row in the operators table) or the
+  reference file of its area (`docs/reference/README.md` lists them), and `docs/USER_GUIDE.md`
+  where the node fits a workflow.
 - The release notes.

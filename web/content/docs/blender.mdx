@@ -70,8 +70,12 @@ The **GroomLab** tab of the 3D viewport's sidebar (**N**) opens on **Groom Tools
 of Maya's Groom Tools panel, with the same sections, names and order (Maya, Blender and the app
 build their menus and panels from one set of definitions):
 
-- At the top: the **groom** the tools work on, its eye (show or hide the strands), the **Graph
-  Editor** and a **More** menu.
+- At the top: the **groom** the tools work on (the Graph Editor's too; making a groom's scalp the
+  active object makes it the groom), its eyes (show or hide the hair alone, in the viewport: renders
+  keep it; and the guides alone: every guide group; **Shift+click** or right-click: every groom's),
+  the **Graph Editor** and a **More** menu. **GroomLab > Display** shows or hides every groom's hair
+  (**Show All Hair**, **Hide All Hair**) or every groom's guides. The pin in the Graph
+  Editor's header keeps it on its groom while the Groom Tools move on.
 - **Your first groom** walks you through placing guides and giving the groom a look.
 - **Group**: the guide group the brushes edit and new guides go into (**All groups**: every
   guide); **Isolate** dims the other levels.
@@ -88,12 +92,14 @@ build their menus and panels from one set of definitions):
   **Stretch**, what the Shape brush **Paints** on the tubes (Width, Flatness or Twist), what
   shaping brushes act on (Guides, Parts, Flow), what Erase erases, the Part tool's next part name
   and its list of parts (**Remove**, **Clear All**), Flow's arrows or sinks (Whorl, Gather, Part
-  out) and **Clear All**, the Select tool's lasso or box and soft radius, the freeze mask. Each
+  out), how many arrows and sinks the groom keeps and **Clear All** (also **GroomLab > Utilities >
+  Delete All Flow Arrows**), the Select tool's lasso or box and soft radius, the freeze mask. Each
   tool keeps its own strength.
 - **Undo** / **Redo** name the groom's last edit.
-- Folded below, in Maya's order: **Tubes**, **While sculpting** (guides only while a stroke is
-  live; full density), **Guide groups & edits**, **Output** (open: **Export** and **Import**
-  menus) and **Display** (Blender's own).
+- Folded below, in Maya's order: **Tubes** (with Place, Draw, Shape and Select), **While
+  sculpting** (with the brushes that stroke; guides only while a stroke is live; full density),
+  **Guide groups & edits** (Tools tab), **Output** (open: **Export** and **Import** menus) and
+  **Display** (Blender's own).
 
 The lists (guide groups, maps, correctives, photos) have Maya's action bar above them and Maya's
 right-click menu, both on a right-click over an item and behind the arrow button beside the list.

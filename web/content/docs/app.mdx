@@ -153,14 +153,17 @@ runs, **Simulate** reads **Cancel** (the frames made stay in the cache).
 ## Groom Tools
 
 The Groom Tools dock holds the same pieces as Maya's Groom Tools window, from the same shared
-definitions. At the top: the groom's name with its visibility, the Graph Editor and more buttons,
+definitions. At the top: the groom's name with its eyes (the hair alone: the strands, instances
+and cards go and come back at once while the guides stay; and the guides alone: every guide
+group; **View > Guides On/Off** and **Alt+Shift+G** too), the Graph Editor and more buttons,
 the guide **Group** the brushes work on (**Isolate** shows only its level at full color) and
 **Symmetry**. Then four tabs:
 
 - **Tools**: every tool as a tile (Create, Shape, Trim and Paint brushes, then **Select**,
-  **Freeze** and **Unfreeze All**), the active tool's settings card, and the sections **Tubes**,
-  **While Sculpting**, **Guide Groups & Edits** and **Output** (Simulate Range, Export, Render,
-  Studio, Transfer and Import).
+  **Freeze** and **Unfreeze All**), the active tool's settings card, and the sections **Tubes**
+  (with Place, Draw, Shape and Select), **While Sculpting** (with the brushes that stroke),
+  **Guide Groups & Edits** and **Output** (Simulate Range, Export, Render, Studio, Transfer and
+  Import).
 - **Paint**: the painted maps (vertex maps, textures, guide layers) with their bar and right-click
   menu ([Painting maps](#painting-maps)).
 - **Correctives**: shot-sculpt layers ([Correctives](#correctives)).
@@ -330,6 +333,23 @@ The **Properties** dock follows the mode:
   means no limit.
 - **Look** mode: the look card ([Look](#look)).
 - **Cards** mode: the cards panel ([Game cards](#game-cards)).
+
+### Scalp Subdivision
+
+**Inputs > Scalp Subdivision** (**Off**, **1**, **2**, **3**) smooths a low-poly scalp with
+Catmull-Clark subdivision, as Maya's smooth mesh preview (the 3 key) or Arnold's subdivision does.
+The hair grows on the smoothed surface, and the viewport draws that surface instead of the mesh
+itself. Brushes, **Place** and **Draw**, part and flow strokes, map painting, and the picks in
+**Transfer** and **Guides from Photos** all land on the smoothed surface.
+
+- Each level makes four times the triangles. The count beside the setting shows how many the hair
+  grows on; it turns to the warning color past 2 million, where brushes and the viewport slow down.
+- Painted vertex maps stay on the mesh's own vertices and blend smoothly across the smoothed
+  surface, as in Maya.
+- The **Scalp** node's default (**Match Render**) follows this setting. A Scalp node set to a level
+  of its own wins; the count then says so.
+- One undo step. Saved in the `.groom` file as the scalp's subdivision level: a groom saved from
+  Maya with a smoothed scalp opens at its level.
 - **Export** mode: the export panel ([Export](#export)).
 
 ## Look

@@ -51,6 +51,24 @@
       "backdrop.add",
       "node.delete"
     ],
+    "nodeActions": {
+      "label": "Actions",
+      "tip": "What this node does in one click, at the top of its settings (its right-click menu holds the rest)",
+      "items": [
+        {"id": "export.cardMaps", "label": "Export Maps...", "needs": ["type.Cards"]},
+        {"id": "export.unrealCards", "label": "Export Unreal Cards...", "needs": ["type.Cards"]},
+        {"id": "export.unityCards", "label": "Export Unity Cards...", "needs": ["type.Cards"]},
+        {"id": "export.gltfCards", "label": "Export glTF Cards...", "needs": ["type.Cards"]},
+        {"id": "sim.range", "needs": ["type.Simulate"]},
+        {"id": "sim.bake", "needs": ["type.Simulate"]},
+        {"id": "sim.clear", "needs": ["type.Simulate"]},
+        {"id": "node.bake", "needs": ["type.ToGuides"]},
+        {"id": "sculpt.clearEdits", "needs": ["type.Sculpt"]},
+        {"id": "compound.ungroup", "label": "Ungroup Compound", "needs": ["type.Compound"]},
+        {"id": "compound.saveAsNode", "needs": ["type.Compound"]},
+        {"id": "compound.saveToLibrary", "needs": ["type.Compound", "node.library"]}
+      ]
+    },
     "backdropMenu": [
       "backdrop.rename",
       {"submenu": "Color", "id": "color", "items": [{"generator": "backdropColors", "action": "backdrop.color"}]},

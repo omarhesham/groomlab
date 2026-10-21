@@ -567,7 +567,26 @@ class GraphEditorTest(unittest.TestCase):
         self._action("Export Unreal Cards...")
         self._action("Export Unity Cards...")  # present only: a click opens a file dialog
         self._action("Export glTF Cards...")
+        self._action("Export Maps...")
         self._action("Bake Scalp")
+        # Pinned over the params (graph_ui.json's nodeActions and Maya's own): in view however far the
+        # params scroll, not in the scrolled body.
+        panel = self.editor.params
+        self.assertIsNotNone(panel.pinned)
+        self.assertTrue(panel.pinned.isVisibleTo(panel))
+        self.assertIs(self._action("Bake Maps").window(), panel.window())
+        self.assertFalse(panel.widget().isAncestorOf(self._action("Bake Maps")))
+        self.assertTrue(panel.pinned.isAncestorOf(self._action("Export Unreal Cards...")))
+        self.assertGreaterEqual(panel.viewport().geometry().top(), panel.pinned.geometry().bottom())
+        panel.verticalScrollBar().setValue(panel.verticalScrollBar().maximum())
+        self.assertTrue(panel.pinned.isVisibleTo(panel))
+        # Simulate: its range, bake and clear (the GroomLab > Simulate menu's) on the node itself.
+        simulate = self.editor.add_node("Simulate")
+        self._select_node(simulate)
+        for label in ("Simulate Range", "Bake Simulation", "Clear Simulation"):
+            self.assertTrue(panel.pinned.isAncestorOf(self._action(label)), label)
+        self._action("Clear Simulation").click()
+        wait(50)
         # StrandMesh: its mesh shows (displayStrandMesh); Mesh in Scene puts a Maya mesh on outStrandMesh.
         strand_mesh = self.editor.add_node("StrandMesh")
         self._select_node(strand_mesh)
@@ -578,9 +597,12 @@ class GraphEditorTest(unittest.TestCase):
         wait(50)
         self.assertTrue(cmds.listConnections(self.groom + ".outStrandMesh", destination=True, source=False))
         self._select_node("length")
+        wait(10)  # (the last node's pinned actions go once the event is over)
         from PySide2 import QtWidgets
         self.assertFalse([b for b in self.editor.params.findChildren(QtWidgets.QPushButton)
-                          if b.objectName().startswith("nodeAction_")])
+                          if b.objectName().startswith("nodeAction_") and b.isVisibleTo(self.editor.params)])
+        self.assertIsNone(self.editor.params.pinned)
+        self.assertEqual(self.editor.params.viewportMargins().top(), 0)
 
     def test_selecting_a_sculpt_node_brushes_its_guides(self):
         # ToGuides' dense guides -> Sculpt -> Interpolate: selecting the Sculpt node makes it what
@@ -608,7 +630,7 @@ class GraphEditorTest(unittest.TestCase):
         self.assertEqual(sculpts.target(self.groom), sculpt)
         self.assertIn("Brushes shape this node's guides", " ".join(
             l.text() for l in self.editor.params.findChildren(QtWidgets.QLabel)))
-        self._action("Clear Edits")
+        self._action("Clear Sculpt Edits")
         # A stroke: the node's edits, not the guides'.
         guide_data = cmds.getAttr(self.groom + ".guideData")
         groomlab.brush_stroke(self.groom, "comb", [(-0.4, 1.4, 0.0), (0.4, 1.5, 0.4)], radius=0.8)
@@ -1316,10 +1338,10 @@ class GraphEditorTest(unittest.TestCase):
         self.assertEqual(groomlab.adopt_scene_groom(), other)
         self.assertEqual((groomlab.adopted_groom(), groomlab.active_groom()), (other, other))
         self.assertIsNone(groomlab.pinned_groom())
-        cmds.select(self.groom)  # a groom selected leads; nothing selected, the scene's again
+        cmds.select(self.groom)  # a groom selected leads, and stays current with nothing selected
         self.assertEqual(groomlab.active_groom(), self.groom)
         cmds.select(clear=True)
-        self.assertEqual(groomlab.active_groom(), other)
+        self.assertEqual(groomlab.active_groom(), self.groom)
         groomlab.pin_groom(None)
         cmds.optionVar(stringValue=(groomlab.ACTIVE_VAR, "noSuchGroom"))
         self.assertEqual(groomlab.adopt_scene_groom(), sorted([self.groom, other])[0])  # else the first
@@ -3385,7 +3407,7 @@ class DockableWindowsTest(unittest.TestCase):
                       if not cmds.menuItem(i, query=True, divider=True)]
             self.assertEqual(labels, ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Add Sample Mesh",
                                       "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate",
-                                      "Review", "Studio", "Render", "Export", "Utilities", "Theme",
+                                      "Display", "Review", "Studio", "Render", "Export", "Utilities", "Theme",
                                       "Install GroomLab Hotkeys",
                                       "Help"])
 
@@ -3462,7 +3484,8 @@ class DockableWindowsTest(unittest.TestCase):
                        if not cmds.menuItem(i, query=True, divider=True)]
             self.assertEqual([cmds.menuItem(i, query=True, label=True) for i in entries],
                              ["Guides to Curves", "Curves to Guides...", "Strands to Curves...", "Strands to Mesh...",
-                              "Bake Node to Guides...", "Bake Scale Maps", "Transfer Groom to Scalp...",
+                              "Bake Node to Guides...", "Bake Scale Maps", "Delete All Flow Arrows",
+                              "Transfer Groom to Scalp...",
                               "Copy Graph to Other Grooms...", "Find Missing Files..."])
             for entry in entries:
                 self.assertTrue(cmds.menuItem(entry, query=True, annotation=True))  # a tooltip each
@@ -3505,6 +3528,66 @@ class DockableWindowsTest(unittest.TestCase):
             groomlab.pin_groom(None)
             if window is not None:
                 window.close()
+
+    def test_one_current_groom_for_the_groom_tools_and_the_graph_editor(self):
+        # Testers edited the wrong groom: the Groom Tools and the Graph Editor picked their grooms
+        # apart. One current groom: a pick in either list moves both, a groom selected becomes it
+        # (and stays it while other things are selected), and a pinned Graph Editor stays on its own.
+        from groomlab.ui import graph_editor, palette
+        other = groomlab.create_groom(cmds.polySphere(name="otherHead")[0], name="other")
+        groomlab.set_current_groom(None)
+        self.addCleanup(groomlab.set_current_groom, None)
+        cmds.select(self.groom)
+        tools = palette.show()
+        editor = graph_editor.show()
+        try:
+            tools.poll()
+            self.assertEqual((groomlab.active_groom(), editor.groom, tools.grooms.currentData()),
+                             (self.groom, self.groom, self.groom))
+            self.assertFalse(editor.pinned)
+            self.assertEqual(editor.pin_button.glyph, "pin")
+            # Picked in the Graph Editor: the Groom Tools (and the brushes) move too.
+            editor.pick_groom(other)
+            wait(30)
+            tools.poll()
+            self.assertEqual((groomlab.active_groom(), editor.groom, tools.grooms.currentData()), (other, other, other))
+            # Something else selected: the picked groom stays current.
+            cmds.select("otherHead")
+            editor._selection_changed_in_maya()
+            self.assertEqual((groomlab.active_groom(), editor.groom), (other, other))
+            # Picked in the Groom Tools: the Graph Editor follows.
+            tools.groom_picked(tools.grooms.findData(self.groom))
+            wait(30)
+            self.assertEqual((groomlab.active_groom(), editor.groom), (self.groom, self.groom))
+            # A groom selected: it is the current groom for both.
+            cmds.select(other)
+            editor._selection_changed_in_maya()
+            tools.poll()
+            self.assertEqual((groomlab.active_groom(), editor.groom, tools.grooms.currentData()), (other, other, other))
+            cmds.select(clear=True)
+            self.assertEqual(groomlab.active_groom(), other)  # (nothing selected: it stays current)
+            # Pinned: the graph stays while the Groom Tools move on; its own list moves only the graph.
+            editor.pin_button.click()
+            self.assertTrue(editor.pinned)
+            self.assertEqual(editor.pin_button.glyph, "pinned")
+            tools.groom_picked(tools.grooms.findData(self.groom))
+            wait(30)
+            cmds.select(self.groom)
+            editor._selection_changed_in_maya()
+            self.assertEqual((groomlab.active_groom(), editor.groom), (self.groom, other))
+            editor.pick_groom(self.groom)
+            editor.pick_groom(other)
+            self.assertEqual((groomlab.active_groom(), editor.groom), (self.groom, other))
+            graph_editor.show()  # opened again (Groom Tools > Graph): a pinned editor stays on its groom
+            self.assertEqual(editor.groom, other)
+            # Unpinned: back to the current groom.
+            editor.pin_button.click()
+            self.assertFalse(editor.pinned)
+            self.assertEqual(editor.groom, self.groom)
+        finally:
+            editor.set_pinned(False, follow=False)
+            editor.close()
+            tools.close()
 
     def test_graph_editor_and_groom_tools_open_docked(self):
         from groomlab.ui import graph_editor, palette
@@ -3676,19 +3759,62 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, attribute=True), "freeze")
             window.poll()
             self.assertEqual(window.tool, "freeze")
-            window.groom_picked(window.grooms.findData(self.groom))  # picked: the tools work on it (pinned)
+            window.groom_picked(window.grooms.findData(self.groom))  # picked: the current groom
             self.assertEqual(groomlab.pinned_groom(), self.groom)
-            window.visible.setChecked(False)  # the eye hides it
-            self.assertFalse(cmds.getAttr(cmds.listRelatives(self.groom, parent=True)[0] + ".visibility"))
+            transform = cmds.listRelatives(self.groom, parent=True)[0]
+            window.visible.setChecked(False)  # the hair's eye hides the hair alone (displayHair), not the node
+            self.assertFalse(cmds.getAttr(self.groom + ".displayHair"))
+            self.assertTrue(cmds.getAttr(transform + ".visibility"))
+            self.assertTrue(cmds.getAttr(self.groom + ".displayGuides"))
             window.visible.setChecked(True)
-            self.assertTrue(cmds.getAttr(cmds.listRelatives(self.groom, parent=True)[0] + ".visibility"))
-            window.groom_picked(0)  # Follow selection
+            self.assertTrue(cmds.getAttr(self.groom + ".displayHair"))
+            # The guides' eye: every guide group of the groom (displayGuides), one undo step.
+            self.assertTrue(window.guides_eye.isChecked())
+            window.guides_eye.setChecked(False)
+            self.assertFalse(cmds.getAttr(self.groom + ".displayGuides"))
+            self.assertEqual(window.guides_eye.glyph, "guidesOff")
+            cmds.undo()
+            self.assertTrue(cmds.getAttr(self.groom + ".displayGuides"))
+            window.fill_grooms(groomlab.active_groom())  # (the tick's: the eye follows)
+            self.assertTrue(window.guides_eye.isChecked())
+            # Shift+click (or the right-click menu): every groom in the scene.
+            other = groomlab.create_groom(cmds.polySphere(name="otherHead")[0], name="otherGroom")
+            window._every_groom = lambda: True
+            try:
+                window.guides_eye.setChecked(False)
+                self.assertEqual([cmds.getAttr(g + ".displayGuides") for g in (self.groom, other)], [False, False])
+                window.visible.setChecked(False)
+                self.assertEqual([groomlab.hair_visible(g) for g in (self.groom, other)], [False, False])
+                self.assertEqual([cmds.getAttr(g + ".displayGuides") for g in (self.groom, other)], [False, False])
+            finally:
+                del window._every_groom
+            items = [a.text() for a in window.guides_eye.eye_menu.actions()]
+            self.assertEqual(items, ["Show All Guides", "Hide All Guides"])
+            self.assertEqual([a.text() for a in window.visible.eye_menu.actions()], ["Show All Hair", "Hide All Hair"])
+            [a for a in window.visible.eye_menu.actions() if a.text() == "Show All Hair"][0].trigger()
+            [a for a in window.guides_eye.eye_menu.actions() if a.text() == "Show All Guides"][0].trigger()
+            self.assertEqual([groomlab.hair_visible(g) for g in (self.groom, other)], [True, True])
+            self.assertEqual([groomlab.guides_visible(g) for g in (self.groom, other)], [True, True])
+            self.assertIn("Shift+click", window.guides_eye.toolTip())
+            cmds.delete(cmds.listRelatives(other, parent=True), "otherHead")
+            cmds.select(self.groom)
+            groomlab.set_current_groom(None)  # no current groom: the selected one leads
             self.assertIsNone(groomlab.pinned_groom())
+            self.assertEqual(groomlab.active_groom(), self.groom)
             window.buttons["part"].click()  # parts are drawn from the palette too
             self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), "part")
             self.assertTrue(window.part_box.isVisibleTo(window))
+            # Only the sections the tool uses (palette.json's "tools"): Part draws no tubes and strokes no
+            # strands; the guide groups (Tools tab) and Output always there.
+            self.assertFalse(window.tubes_section.isVisibleTo(window))
+            self.assertFalse(window.display_section.isVisibleTo(window))
+            self.assertEqual(window.guides_section.isVisibleTo(window),
+                             palette.TABS[window.tabs.currentIndex()] == "tools")  # (the Tools tab's)
+            self.assertTrue(window.output_section.isVisibleTo(window))
             window.buttons["twist"].click()
             self.assertEqual(window.strength.lo, -1.0)  # signed tools get a signed strength
+            self.assertTrue(window.display_section.isVisibleTo(window))  # While sculpting: with the brushes
+            self.assertFalse(window.tubes_section.isVisibleTo(window))
             # The Shape brush: what it paints (Width, Flatness, Twist), and the selected guides' tubes
             # as a whole with the groom's Fill Tubes (each change one undo step).
             window.groom_picked(window.grooms.findData(self.groom))
@@ -3697,6 +3823,7 @@ class DockableWindowsTest(unittest.TestCase):
             self.assertEqual(window.strength.lo, -1.0)  # Ctrl does the opposite
             self.assertTrue(window.tube_channel_box.isVisibleTo(window))
             self.assertTrue(window.tubes_section.expanded())  # its own section, opened by the Shape brush
+            self.assertTrue(window.tubes_section.isVisibleTo(window))
             self.assertTrue(window.tube_panel.isVisibleTo(window))
             self.assertFalse(window.collide.isVisibleTo(window))  # it moves no guide point
             window.tube_channel_buttons["flatness"].click()
@@ -3759,7 +3886,7 @@ class DockableWindowsTest(unittest.TestCase):
             cmds.undo()
             self.assertFalse(groomlab.fill_tubes(self.groom)["fillTubes"])
             groomlab.clear_guide_selection(self.groom)
-            window.groom_picked(0)  # Follow selection again
+            groomlab.set_current_groom(None)  # the selected groom leads again
             window.radius.setValue(150)
             window.radius.committed.emit(150)
             self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, radius=True), 150)
@@ -3808,9 +3935,23 @@ class DockableWindowsTest(unittest.TestCase):
             box.delete()
             self.assertEqual(box.tree.topLevelItemCount(), 2)
             self.assertFalse(cmds.attributeQuery("shot7", node=self.groom, exists=True))
+            # Flow: the arrows kept on the groom counted beside Clear All, which takes them all off (one step).
+            groomlab.flow_stroke(self.groom, [(-0.3 + 0.1 * i, 0.9, 0.3) for i in range(7)], radius=0.2)
+            window.buttons["flow"].click()
+            self.assertTrue(window.flow_box.isVisibleTo(window))
+            self.assertFalse(window.tubes_section.isVisibleTo(window))
+            arrows = len(groomlab.flow_arrows(self.groom))
+            self.assertEqual(window.flow_count.text(), palette.flow_count_text(arrows, 0))
+            self.assertEqual(window.clear_flow_button.isEnabled(), arrows > 0)
+            window.clear_flow_button.click()
+            self.assertEqual(groomlab.flow_arrows(self.groom), [])
+            self.assertEqual(window.flow_count.text(), "No flow arrows yet")
+            self.assertFalse(window.clear_flow_button.isEnabled())
             window.buttons["select"].click()
             self.assertEqual(cmds.currentCtx(), groomlab.SELECT_CONTEXT)
             self.assertFalse(window.radius.isEnabled())
+            self.assertTrue(window.tubes_section.isVisibleTo(window))  # the selected guides' tubes
+            self.assertFalse(window.flow_box.isVisibleTo(window))
             self.assertTrue(widgets.icon("comb").availableSizes() or not widgets.icon("comb").isNull())
             # Guide groups (a Tools section): the groups, and edits on many guides.
             window.show_tab("guides")

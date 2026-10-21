@@ -7,7 +7,8 @@ and a More menu; how to start a groom, then the first-groom steps; the Group the
 Isolate; the Tools, Paint and Correctives tabs (tiles by the catalog's categories, with Maya's
 icons); the active tool's card with exactly the settings the catalog lists for it, by Maya's labels
 and hints; GroomLab's undo; and, folded, the sections in palette.json's order (Tubes, While
-sculpting, Guide groups & edits, Output), then the groom's Display (Blender's own).
+sculpting, Guide groups & edits, Output), each only with the tools and tabs it lists (Tubes with
+Place, Draw, Shape and Select...), then the groom's Display (Blender's own).
 
 An action shows when actions.py binds it (the rest is hidden). Drawing never writes Blender data:
 the lists (groups, maps, parts, tubes, correctives) are refreshed by the tools after each edit, or
@@ -25,6 +26,7 @@ NO_TOOL = "Pick a tool, then drag over the groom in the viewport."
 GESTURES = ("B + drag: radius · M + drag: strength · Shift+click a guide: solo it (the rest frozen) and brush its "
             "group · Shift+click off a guide: unfreeze all")
 FLOW_HINTS = {"": defs.text("flowArrows"), "*": defs.text("flowSinks")}
+TABS = {"TOOLS": "tools", "PAINT": "paint", "CORRECTIVES": "correctives", "PHOTOS": "photos"}  # palette.json's ids
 STARTER = tuple((s["id"], s["label"], s["tip"]) for s in defs.get("palette/starter/steps"))
 _lists_for = [None]
 
@@ -57,6 +59,23 @@ def _refresh_lists():
             print("GroomLab: %r" % e)
         groom._redraw()
     return None
+
+
+def flow_count_text(arrows, sinks):
+    """The Flow card's count line, as every host words it: "34 arrows · 2 sinks", "No flow arrows yet"."""
+    if not arrows and not sinks:
+        return "No flow arrows yet"
+    return "%d arrow%s \u00b7 %d sink%s" % (arrows, "" if arrows == 1 else "s", sinks, "" if sinks == 1 else "s")
+
+
+def section_shown(section_id, context):
+    """Whether a Groom Tools section shows (palette.json's "tools": the active tool one of them;
+    "tabs": the current tab one of them; neither: always), as Maya's and the app's."""
+    s = defs.section(section_id)
+    t = context.scene.groomlab_tools
+    if s.get("tools") and (t.tool or "") not in s["tools"]:
+        return False
+    return not s.get("tabs") or TABS.get(t.tab, "") in s["tabs"]
 
 
 def tile(layout, tool, active):
@@ -130,12 +149,17 @@ class VIEW3D_PT_groomlab_tools(bpy.types.Panel):
         scene = context.scene
         t = scene.groomlab_tools
         scalp = active_groom(context)
-        # What the tools work on: the groom, its eye, the Graph Editor, More (palette.json's header).
+        # What the tools work on: the current groom (the Graph Editor's too unless pinned; selecting
+        # a groom makes it current), its eyes (the strands, the guides; Shift+click or right-click:
+        # every groom's), the Graph Editor, More (palette.json's header).
         row = layout.row(align=True)
         row.prop(scene.groomlab, "groom", text="")
         if scalp is not None:
             d = scalp.groomlab_tools
-            row.prop(d, "show_strands", text="", icon="HIDE_OFF" if d.show_strands else "HIDE_ON")
+            op = row.operator("groomlab.eye", text="", icon="HIDE_OFF" if d.show_strands else "HIDE_ON")
+            op.what, op.mode = "STRANDS", "TOGGLE"
+            op = row.operator("groomlab.eye", text="", icon="OUTLINER_DATA_CURVES", depress=bool(d.show_guides))
+            op.what, op.mode = "GUIDES", "TOGGLE"
         row.operator("groomlab.graph_open", text="", icon_value=icons.icon("graph"))
         row.menu("GROOMLAB_MT_tools_more", text="", icon="DOWNARROW_HLT")
         if scalp is None:
@@ -325,9 +349,14 @@ class VIEW3D_PT_groomlab_tools(bpy.types.Panel):
         if "flow" in uses:
             box = card.column()
             box.label(text=label("flow", "Flow").upper())
+            box.row(align=True).prop(t, "flow_sink_item")
+            # Where the arrows live (on the groom) and how many, and Clear All (GroomLab > Utilities >
+            # Delete All Flow Arrows).
             row = box.row(align=True)
-            row.prop(t, "flow_sink_item")
-            row.operator("groomlab.flow_clear", text="Clear All")
+            row.label(text=flow_count_text(t.flow_arrows, t.flow_sinks))
+            sub = row.row(align=True)
+            sub.enabled = bool(t.flow_arrows or t.flow_sinks)
+            sub.operator("groomlab.flow_clear", text="Clear All")
             _wrap(box, FLOW_HINTS["" if t.flow_sink_item == "ARROWS" else "*"], width=_chars(context))
         if "stretch" in uses:
             card.prop(t, "stretch", text=label("stretch", "Stretch"))
@@ -377,10 +406,13 @@ class GroomToolsSubpanel(object):
     bl_category = "GroomLab"
     bl_parent_id = "VIEW3D_PT_groomlab_tools"
 
+    section_id = None  # palette.json's: shown with the tools and tabs it lists (section_shown)
+
     @classmethod
     def poll(cls, context):
         s = active_groom(context)
-        return s is not None and tools.is_hierarchy(s)
+        return (s is not None and tools.is_hierarchy(s)
+                and (cls.section_id is None or section_shown(cls.section_id, context)))
 
 
 def _section(section_id):
@@ -391,10 +423,7 @@ def _section(section_id):
 
 class VIEW3D_PT_groomlab_tools_tubes(GroomToolsSubpanel, bpy.types.Panel):
     bl_label, bl_options = _section("tubes")
-
-    @classmethod
-    def poll(cls, context):
-        return GroomToolsSubpanel.poll(context) and context.scene.groomlab_tools.tab == "TOOLS"
+    section_id = "tubes"
 
     def draw(self, context):
         layout = self.layout
@@ -440,6 +469,7 @@ class VIEW3D_PT_groomlab_tools_tubes(GroomToolsSubpanel, bpy.types.Panel):
 
 class VIEW3D_PT_groomlab_tools_sculpting(GroomToolsSubpanel, bpy.types.Panel):
     bl_label, bl_options = _section("sculptDisplay")
+    section_id = "sculptDisplay"
 
     def draw(self, context):
         t = context.scene.groomlab_tools
@@ -511,10 +541,7 @@ class GROOMLAB_UL_correctives(bpy.types.UIList):
 
 class VIEW3D_PT_groomlab_tools_guides(GroomToolsSubpanel, bpy.types.Panel):
     bl_label, bl_options = _section("groups")
-
-    @classmethod
-    def poll(cls, context):
-        return GroomToolsSubpanel.poll(context) and context.scene.groomlab_tools.tab == "TOOLS"
+    section_id = "groups"
 
     def draw(self, context):
         layout = self.layout
@@ -535,10 +562,11 @@ class VIEW3D_PT_groomlab_tools_guides(GroomToolsSubpanel, bpy.types.Panel):
 
 class VIEW3D_PT_groomlab_tools_output(GroomToolsSubpanel, bpy.types.Panel):
     bl_label, bl_options = _section("output")
+    section_id = "output"
 
     @classmethod
     def poll(cls, context):
-        return active_groom(context) is not None
+        return active_groom(context) is not None and section_shown(cls.section_id, context)
 
     def draw(self, context):
         """palette.json's Output strip: what Blender runs of it (actions, and the Export / Import menus)."""

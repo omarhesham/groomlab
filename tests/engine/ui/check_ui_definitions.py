@@ -188,7 +188,7 @@ def containers(doc):
             if isinstance(value, (list, dict)):
                 out.append(("lists/%s/%s" % (name, key), value["items"] if isinstance(value, dict) else value))
     for key, value in doc["graph"].items():
-        if key.endswith("Menu") or key in ("presetItem",):
+        if key.endswith("Menu") or key in ("presetItem", "nodeActions"):
             out.append(("graph/" + key, value["items"] if isinstance(value, dict) else value))
     out.append(("markingMenu/tail", [e for e in doc["markingMenu"]["tail"] if isinstance(e, str)]))
     return out
@@ -213,6 +213,16 @@ def check(doc):
     aliases = [a for t in doc["palette"]["tabs"] for a in t.get("aliases", [])]
     if len(set(ids + aliases)) != len(ids + aliases):
         fail("palette.json: a tab id or alias twice")
+    for section in doc["palette"]["sections"]:
+        for tab in section.get("tabs", []):
+            if tab not in ids:
+                fail("palette.json: section %s shows on tab %r, which is not a tab" % (section["id"], tab))
+        if len(set(section.get("tools", []))) != len(section.get("tools", [])):
+            fail("palette.json: section %s lists a tool twice" % section["id"])
+    # The node actions: each for node types ("type.<operator>" in its needs), as the hosts pin them.
+    for i, entry in enumerate(doc["graph"].get("nodeActions", {}).get("items", [])):
+        if entry != "-" and not any(c.startswith("type.") for c in (entry.get("needs", []) if isinstance(entry, dict) else [])):
+            fail("graph_ui.json: nodeActions[%d] names no node type (needs \"type.<operator>\")" % i)
     radial = [r["position"] for r in doc["markingMenu"]["radial"]]
     if len(set(radial)) != len(radial):
         fail("marking_menu.json: a radial position twice")
@@ -241,6 +251,16 @@ def check_core(doc):
     for entry in menu["radial"] + [e for e in menu["tail"] if isinstance(e, dict)]:
         if entry["tool"] not in tools:
             fail("marking_menu.json: no tool %r in the brush catalog" % entry["tool"])
+    for section in doc["palette"]["sections"]:
+        for name in section.get("tools", []):
+            if name not in tools:
+                fail("palette.json: section %s shows with %r, not in the brush catalog" % (section["id"], name))
+    if hasattr(groomlab_core, "operator_specs_json"):
+        types = set(o["type"] for o in json.loads(groomlab_core.operator_specs_json()))
+        for entry in doc["graph"].get("nodeActions", {}).get("items", []):
+            for c in (entry.get("needs", []) if isinstance(entry, dict) else []):
+                if c.startswith("type.") and c[5:] not in types:
+                    fail("graph_ui.json: nodeActions names %r, not an operator type" % c[5:])
     for name in menu["overflow"].get("exclude", []):
         if name not in tools:
             fail("marking_menu.json: overflow excludes %r, not in the brush catalog" % name)

@@ -165,6 +165,7 @@ GuidesPanel::GuidesPanel(QWidget* parent) : QWidget(parent) {
     hue_->setToolTip(tr("Groups without their own color get a hue each (off: colored by level)"));
     connect(hue_, &QCheckBox::toggled, this, [this](bool on) {
         if (!updating_) emit huePerGroupChanged(on);
+        invalidate();  // the swatches' automatic colors follow
     });
     layout->addLayout(row);
     layout->addWidget(hue_);  // (its own row: a narrow dock keeps Edit Guides and the count whole)
@@ -285,7 +286,9 @@ bool GuidesPanel::huePerGroup() const { return hue_->isChecked(); }
 
 void GuidesPanel::setHuePerGroup(bool on) {
     const QSignalBlocker block(hue_);
+    if (hue_->isChecked() == on) return;
     hue_->setChecked(on);
+    invalidate();
 }
 
 void GuidesPanel::invalidate() {
@@ -317,7 +320,10 @@ void GuidesPanel::refresh() {
         key += "#" + document_->hiddenGroupsText() + "#" + document_->groupColorsText();
     }
     const DisplayTheme look = theme::displayTheme();
-    key += "#" + std::to_string(look.version);
+    // The automatic colors as the viewport draws them: from the groom's own hue, by level or by group.
+    const float seed = guideHueSeed(document_ ? document_->guideColorSeed() : std::string());
+    const bool byGroup = hue_->isChecked();
+    key += "#" + std::to_string(look.version) + "#" + std::to_string(seed) + (byGroup ? "g" : "l");
     if (key != shownKey_) {
         shownKey_ = key;
         ++rebuilds_;
@@ -340,10 +346,11 @@ void GuidesPanel::refresh() {
                 item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEditable);
                 item->setCheckState(0, hidden.count(group.name) ? Qt::Unchecked : Qt::Checked);
                 const auto own = colors.find(group.name);
-                QColor color = own != colors.end() ? QColor(qs(own->second)) : shownColor(group.hasColor ? group.color : look.level(depth));
+                QColor color = own != colors.end() ? QColor(qs(own->second)) : shownColor(group.hasColor ? group.color
+                                                                                        : autoGuideColor(look, seed, depth, static_cast<int>(group.id), byGroup));
                 item->setIcon(1, swatchIcon(color, own != colors.end() || group.hasColor, devicePixelRatioF()));
                 item->setToolTip(1, own != colors.end() ? tr("%1's color: click to pick, right-click > Default Color to clear").arg(qs(group.name))
-                                                        : tr("%1's color is automatic (its level's): click to pick one").arg(qs(group.name)));
+                                                        : tr("%1's color is automatic (its level's or, Hue per group, its own; from the groom's hue): click to pick one").arg(qs(group.name)));
                 QString tip = tr("%1: checked shows it in the viewport; double-click to rename").arg(qs(group.name));
                 QStringList users;
                 for (const auto& [node, param] : document_->groupUsers(group.name)) users << QStringLiteral("%1 (%2)").arg(qs(node), qs(param));
@@ -363,15 +370,7 @@ void GuidesPanel::refresh() {
     for (const std::string& name : partNames()) parts_->addItem(qs(name));
     removePart_->setEnabled(parts_->count() > 0);
     clearParts_->setEnabled(parts_->count() > 0);
-    std::size_t pins = 0, sinks = 0;
-    if (document_) {
-        try {
-            const FlowSet flow = FlowSet::fromJson(document_->storedText(StrokeField::Flow));
-            pins = flow.pins.size();
-            sinks = flow.sinks.size();
-        } catch (const std::exception&) {
-        }
-    }
+    const auto [pins, sinks] = flowCount();
     flow_->setText(pins + sinks == 0 ? tr("No flow") : tr("%1 arrows, %2 sinks").arg(pins).arg(sinks));
     clearFlow_->setEnabled(pins + sinks > 0);
     refreshRows();
@@ -645,6 +644,16 @@ std::vector<std::string> GuidesPanel::partNames() const {
     } catch (const std::exception&) {
     }
     return names;
+}
+
+std::pair<std::size_t, std::size_t> GuidesPanel::flowCount() const {
+    if (!document_) return {0, 0};
+    try {
+        const FlowSet flow = FlowSet::fromJson(document_->storedText(StrokeField::Flow));
+        return {flow.pins.size(), flow.sinks.size()};
+    } catch (const std::exception&) {
+        return {0, 0};
+    }
 }
 
 bool GuidesPanel::removePart(const std::string& name) {

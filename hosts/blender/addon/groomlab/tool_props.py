@@ -458,6 +458,9 @@ class GroomLabTools(bpy.types.PropertyGroup):
     guide_count: IntProperty()
     selected_count: IntProperty()
     frozen_count: IntProperty()
+    # The flow arrows and sinks the groom keeps (the Flow card's count; refresh_parts fills them)
+    flow_arrows: IntProperty()
+    flow_sinks: IntProperty()
     children_count: IntProperty(name="Children", default=5, min=1, max=500,
                                 description="Children per guide for Edit Guides > Children (the selected guides, else the "
                                             "picked group)")

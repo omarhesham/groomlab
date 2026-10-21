@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
     groomlab::registerAlembicOperators(groomlab::OperatorRegistry::instance());
 
     QString liveMode = QStringLiteral("orbit");
-    QString path, screenshot, material, lighting, graph, quality, interactiveQuality, save, tonemap, scalpMaterial;
+    QString path, screenshot, material, lighting, graph, quality, interactiveQuality, save, tonemap, background, scalpMaterial;
     // The headless benchmarks: drags of a param (node.param=from,to[,steps]) and an orbit, each
     // step drawn offscreen; --draw-dabs draws every --stroke dab the same way and prints the
     // times; --gpu-preview on|off picks the GPU look preview (on by default where there is one).
@@ -217,6 +217,8 @@ int main(int argc, char** argv) {
             interactiveQuality = QString::fromLocal8Bit(argv[++i]);
         } else if (std::strcmp(arg, "--tonemap") == 0 && hasValue) {
             tonemap = QString::fromLocal8Bit(argv[++i]);
+        } else if (std::strcmp(arg, "--background") == 0 && hasValue) {
+            background = QString::fromLocal8Bit(argv[++i]);
         } else if (std::strcmp(arg, "--frames") == 0 && hasValue) {
             frames = std::atoi(argv[++i]);
         } else if (std::strcmp(arg, "--benchmark") == 0 && hasValue) {
@@ -403,7 +405,7 @@ int main(int argc, char** argv) {
             std::printf("usage: GroomLab [file.groom | mesh.obj | mesh.abc] [--graph graph.json] [--density d] [--point-budget K] [--set node.param=value]... [--bypass node]...\n"
                         "                [--save out.groom]\n"
                         "                [--material groom|black|brown|blonde|red|white|dyed] [--lighting studio|daylight|overcast|sunset|rim]\n"
-                        "                [--quality interactive|refine] [--interactive-quality adaptive|full] [--tonemap none|aces|agx]\n"
+                        "                [--quality interactive|refine] [--interactive-quality adaptive|full] [--tonemap none|aces|agx] [--background solid|gradient|environment]\n"
                         "                [--scalp-material preset] [--prop mesh.obj [--prop-material preset] [--prop-set name=value]...]...\n"
                         "                [--eye cx,cy,cz,fx,fy,fz,r [--eye-material preset] [--prop-set name=value]...]... [--occlusion-rays N]\n"
                         "                [--no-lookdev] [--hide-scalp] [--orbit yaw pitch] [--dolly f] [--look-at x,y,z] [--distance d]\n"
@@ -474,9 +476,13 @@ int main(int argc, char** argv) {
     if (pointBudget >= 0.0) window.setPointBudget(pointBudget);
     if (!material.isEmpty()) window.applyMaterialPreset(material);
     if (!lighting.isEmpty()) window.applyLightingPreset(lighting);
+    // A screenshot of several frames accumulates them: Refine, unless asked otherwise (the app's
+    // own default is Interactive).
+    if (quality.isEmpty() && frames > 1) quality = QStringLiteral("refine");
     if (!quality.isEmpty()) window.setQuality(quality);
     if (!interactiveQuality.isEmpty()) window.setInteractiveQuality(interactiveQuality);
     if (!tonemap.isEmpty()) window.setToneMap(tonemap);
+    if (!background.isEmpty()) window.setBackground(background);
     window.setLookdev(lookdev);
     window.setShowScalp(showScalp);
     if (!uiScreenshot.isEmpty() || liveBenchmark > 0) {

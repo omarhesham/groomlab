@@ -73,6 +73,28 @@ def on_save_pre(*args):
 @persistent
 def on_load_post(*args):
     groom.forget_all()
+    subscribe_active()  # (a file load clears the message bus)
+
+
+# Selecting a groom (its scalp, its guides or its hair as the active object) makes it the current
+# groom: the Groom Tools and the unpinned Graph Editors show it (Maya's selection does the same).
+_ACTIVE_OWNER = object()
+
+
+def active_changed():
+    context = bpy.context
+    layer = getattr(context, "view_layer", None)
+    scalp = groom.scalp_of(layer.objects.active if layer is not None else None)
+    scene = context.scene
+    if scalp is not None and groom.is_groom(scalp) and scene is not None and scene.groomlab.groom != scalp:
+        scene.groomlab.groom = scalp  # (its update shows its graph)
+    return scalp
+
+
+def subscribe_active():
+    bpy.msgbus.clear_by_owner(_ACTIVE_OWNER)
+    bpy.msgbus.subscribe_rna(key=(bpy.types.LayerObjects, "active"), owner=_ACTIVE_OWNER, args=(),
+                             notify=active_changed)
 
 
 @persistent
@@ -108,6 +130,7 @@ def register():
             lst.append(fn)
     if not bpy.app.background and not bpy.app.timers.is_registered(groom.poll):
         bpy.app.timers.register(groom.poll, first_interval=1.0, persistent=True)
+    subscribe_active()
 
 
 def unregister():
@@ -117,3 +140,4 @@ def unregister():
             lst.remove(fn)
     if bpy.app.timers.is_registered(groom.poll):
         bpy.app.timers.unregister(groom.poll)
+    bpy.msgbus.clear_by_owner(_ACTIVE_OWNER)

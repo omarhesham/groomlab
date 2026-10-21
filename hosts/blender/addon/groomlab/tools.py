@@ -1016,10 +1016,14 @@ def refresh_map_users(scalp, scene=None):
 
 
 def refresh_parts(scalp, scene=None):
+    """The Part card's list and the Flow card's count."""
     scene = scene or groom.scene_of(scalp)
     t = scene.groomlab_tools
-    parts = parts_list(scalp)
+    r = call(scalp, "parts_list")
+    parts, flow = r["parts"], r.get("flow") or {}
     with props.quiet():
+        t.flow_arrows = int(flow.get("arrows", 0))
+        t.flow_sinks = int(flow.get("sinks", 0))
         picked = t.parts[t.part_index].name if 0 <= t.part_index < len(t.parts) else ""
         t.parts.clear()
         for part in parts:

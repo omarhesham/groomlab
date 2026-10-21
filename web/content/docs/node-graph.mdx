@@ -14,6 +14,10 @@ clumping, curl, frizz, width and color applied on top. To edit the graph:
 
 <Example name="graph-editor.png" alt="The Graph Editor" caption="GroomLab > Graph Editor" />
 
+The groom list at the top of the Graph Editor is the Groom Tools' current groom: picking a groom
+in either one, or selecting a groom, moves both. The pin beside it keeps the editor on its groom
+while you groom another ([The current groom](/docs/guides-and-brushes#the-current-groom-and-what-shows)).
+
 <Callout title="In the app and in Blender">
   **App:** **Tab** or the **Graph** pill opens the Graph Editor over the viewport; **Tab** over it
   searches for a node to add. Click a node to edit it in **Node Settings**; **Node List** on the
@@ -50,6 +54,11 @@ follow it.
   Maya.
 - A node that has no effect with its current settings (a Clump with no centers, an Instance whose
   mesh is missing) shows a grey **i** badge with the reason.
+- **Node actions** sit at the top of the node's settings, above its parameters, and stay there
+  however far the parameters scroll: a Cards node's bakes and exports, a Simulate node's
+  **Simulate Range**, **Bake Simulation** and **Clear Simulation**, a ToGuides node's **Bake Node
+  to Guides...**, a Sculpt node's **Clear Sculpt Edits**, a compound's **Ungroup** and **Save as
+  Node...**. The app and Blender show the same ones at the top of their node panels.
 
 ## Node categories
 
@@ -122,7 +131,7 @@ To keep strand lengths after clumping, add a **RestoreLength** after the Clump w
 | **Collide** | Pushes strands out of the scalp and of collision meshes (**Pick** on the Colliders row, or a ColliderMesh node), `offset` above the surface. `softness` ramps the push in over a band above the surface, so hair bends away before contact; `smoothing` spreads the correction up the strand, so hair resting on a surface slides along it instead of folding. Both apply to colliders only, not the scalp; 0 gives a hard projection. Place it last. | `offset`, `softness`, `smoothing` |
 | **SelfCollide** | Resolves hair-hair interpenetration as a volume constraint: where hair is packed denser than `packing` (the fraction of space hair may fill) allows, it is pushed apart, so layers rest on each other and volume builds up behind the ears and at the crown. Hair below that density is not moved, and nothing is pushed into the scalp. Lower `packing` for more volume. Place it near the end, after the shaping nodes. | `strength`, `packing`, `profile` |
 | **Static** | Electrostatic repulsion between strands: the outer layer puffs out, tips lift away from the head, and clumps fray into single strands. The charge increases toward the tips (`profile`); `randomness` lets some strands move farther. | `strength`, `randomness`, `profile` |
-| **Sculpt** | Brushable procedural guides: place it after a ToGuides (dense guides interpolated from your sparse ones), select it in the Graph Editor, and the shaping brushes edit its guides. Edits are stored as bends and length changes along each guide, so upstream changes (combing the sparse guides, changing density) are applied under them. **Clear Edits** in its panel removes them. | `strength` |
+| **Sculpt** | Brushable procedural guides: place it after a ToGuides (dense guides interpolated from your sparse ones), select it in the Graph Editor, and the shaping brushes edit its guides. Edits are stored as bends and length changes along each guide, so upstream changes (combing the sparse guides, changing density) are applied under them. **Clear Sculpt Edits** at the top of its panel removes them. | `strength` |
 | **ToGuides** | Converts strands to guides mid-graph: interpolate dense, even guides from a few hand guides (Scatter + Interpolate, then ToGuides) and feed them to a second Interpolate, to Clump's `centers` or to a Sculpt node. `color` sets their display color while brushing. | `fraction`, `color` |
 | **StrandMesh** | Passes its strands on unchanged and builds a polygon mesh of them, as tubes (`sides` around) or flat ribbons. The mesh follows the animation with a fixed vertex and face count. Its position in the graph decides which strands the mesh shows. The groom draws the mesh in place of the strands (**Show mesh** switches back). **Mesh in Scene** makes a Maya mesh on the groom's `outStrandMesh` for Alembic export or renderers without curves ([Utilities](/docs/utilities#strands-as-a-mesh)). `density` and `maxStrands` keep the mesh light. | `style`, `sides`, `widthScale`, `maxStrands` |
 | **Part** | Opens the hair at parting lines: hair near a part turns away to its side. `partsFrom` `painted` uses lines drawn with the Part tool; `auto` detects parts where the hair splits to both sides of a line (a parting combed into the guides). `splitAngle` sets the minimum split angle; `minLength` discards short ones, such as a whorl's center. | `partsFrom`, `width`, `strength` |

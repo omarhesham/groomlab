@@ -13,6 +13,36 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.23.0 (October 21, 2026)
+
+- **One current groom.** The Groom Tools and the Graph Editor always show the same groom: picking
+  one in either, or selecting a groom, makes it current for both, and brushes work on it. Pin the
+  Graph Editor (its pin button) to keep it on one groom while the Groom Tools move on. The Groom
+  Tools' "Selected groom / follow selection" row is gone: selecting a groom always makes it current
+  ([The current groom and what shows](/docs/guides-and-brushes#the-current-groom-and-what-shows)).
+- **Show the hair or the guides.** The Groom Tools header has two eyes: one hides the hair alone
+  (strands, cards, scales, instances; the viewport only, renders keep it), the other the guides
+  alone. Shift+click either for every groom in the scene; GroomLab > Display has Show/Hide All Hair
+  and Show/Hide All Guides, and Alt+Shift+G toggles the guides. In Maya the hair's eye is the new
+  shape attribute `displayHair`; hide a whole groom as any node (Ctrl+H).
+- **Each groom's guides get their own colors.** Guide groups are colored automatically from a hue
+  that differs per groom, so two grooms no longer share the same blue; a group's own color still
+  wins.
+- **Delete All Flow Arrows.** GroomLab > Utilities > Delete All Flow Arrows clears a groom's painted
+  arrows and sinks in one undo step, and the Flow tool shows how many there are
+  ([Delete All Flow Arrows](/docs/utilities#delete-all-flow-arrows)).
+- **Node actions at the top.** A node's buttons (the Cards node's exports, Simulate Range and Bake,
+  Bake Node to Guides, Clear Sculpt Edits, a compound's Save) sit at the top of its settings, no
+  scrolling needed.
+- **A shorter Groom Tools.** Sections show when the tool at hand uses them: Tubes with Place, Draw,
+  Shape and Select, the sculpting options with the brushes that sculpt.
+- **The app: Properties tabs, a smooth scalp.** The Properties dock has tabs (Attributes,
+  Material, Lighting, Render); GroomLab > Studio lights the viewport without leaving Groom mode;
+  lookdev starts Interactive over a gradient, and lighting presets keep your background.
+  Properties > Inputs > Scalp Subdivision grooms on the Catmull-Clark smoothed scalp
+  ([Scalp Subdivision](/docs/app#scalp-subdivision)). The Dyed swatch dyes the hair violet; the
+  GroomLab swatch puts the default pigment back.
+
 ## 0.22.0 (October 21, 2026)
 
 - **The app looks and works like GroomLab in Maya.** The standalone app has a menu bar with the same

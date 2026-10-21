@@ -573,11 +573,11 @@ void MainWindow::reevaluate(bool quiet) {
     // How the strands differ from the ones shown before (a dab's incremental evaluation): the
     // renderers write only those.
     const HairChanges changes{shown.strandsSerial, shown.changesBase, shown.strandsChanges};
-    // (The Groom Tools' eye off: no strands.)
-    viewport_->renderer().setHairStrands(showCards || !groomVisible_ ? nullptr : shown.strands, shown.versions.strands, changes);
+    // (The Groom Tools' eye off: the renderers hold them, drawing none.)
+    viewport_->renderer().setHairStrands(showCards ? nullptr : shown.strands, shown.versions.strands, changes);
     if (headless_) {
         headless_->renderer.setScalp(scalp);
-        headless_->renderer.setHairStrands(showCards || !groomVisible_ ? nullptr : shown.strands, shown.versions.strands, changes);
+        headless_->renderer.setHairStrands(showCards ? nullptr : shown.strands, shown.versions.strands, changes);
     }
     if (textured) {
         if (!cardSurface_ || cardSurfaceVersion_ != shown.versions.cards || cardSurfaceMap_ != bake->preview) {
@@ -886,6 +886,8 @@ void MainWindow::refreshGroups() {
     }
     groomTools_->setGroups(rows);
     groomTools_->setParts(guidesPanel_->partNames());
+    const auto [arrows, sinks] = guidesPanel_->flowCount();
+    groomTools_->setFlowCount(arrows, sinks);
     refreshStarter();
     groomTools_->refresh();
     guidesPanel_->invalidate();

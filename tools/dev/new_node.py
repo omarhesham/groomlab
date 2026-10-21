@@ -215,7 +215,7 @@ Next:
      then unset it and run the core tests: ctest -C RelWithDebInfo -L core (in build/ninja-maya2022).
      ParamUse.* fails for a param no state reads: read it, or allowlist it with who does
      (tests/engine/core/test_param_use.cpp).
-  5. Docs: its row in {docs}'s Node categories table is in; say more where it helps (README,
+  5. Docs: its row in {docs}'s Node categories table is in; say more where it helps (docs/reference/nodes.md,
      docs/USER_GUIDE.md) and in the release notes.""".format(source=source, list=LIST, build=build, name=name, docs=DOCS))
     if args.gpu:
         print(GPU_STEPS.format(name=name, lower=name[0].lower() + name[1:]))

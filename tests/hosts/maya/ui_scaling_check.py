@@ -180,8 +180,9 @@ def main():
         tree = stack[0]
         top = [label for label, _, _ in tree]
         _expect(top == ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Add Sample Mesh",
-                        "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate", "Review",
-                        "Studio", "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys", "Help"], "top: %r" % top)
+                        "Guides from Photos (experimental)...", "Groom Files", "Import", "Add", "Simulate", "Display",
+                        "Review", "Studio", "Render", "Export", "Utilities", "Theme", "Install GroomLab Hotkeys", "Help"],
+                "top: %r" % top)
         sub = {label: children for label, children, _ in tree}
         _expect([l for l, _, _ in sub["Help"]] == ["Docs", "Keyboard Shortcuts", "Check for Updates...",
                                                    "Discord", "Support GroomLab", "About GroomLab"], "Help")
@@ -217,7 +218,7 @@ def main():
                 ("menu.ACTIONS", menu.ACTIONS, None,
                  (ids("menus/main", studioPresets="studio.preset") - theme_ids)
                  | ids("palette/output", "menus/output.import", "menus/output.export", "menus/output.render",
-                       "menus/output.studio")),
+                       "menus/output.studio", "palette/header/visible/items", "palette/header/guides/items")),
                 ("widgets.theme_actions", widgets.theme_actions(), None, theme_ids),
                 ("ToolPalette.ACTIONS", palette.ToolPalette.ACTIONS, tools,
                  ids("palette/header/more/items", "lists/parts/bar") | set(d.listed_ids(empty))),
@@ -238,6 +239,8 @@ def main():
                  ids("graph/editMenu", "graph/addMenu", "graph/presetMenu", "graph/presetItem")),
                 ("ParamPanel.param_actions", editor.params.param_actions("node", "param"), None,
                  ids("graph/paramMenu")),
+                ("ParamPanel.node_action_table", editor.params.node_action_table("node"), None,
+                 ids("graph/nodeActions")),
                 ("hotkeys.ACTIONS", hotkeys.ACTIONS, None, set(e for e in d.get("markingMenu/tail") if isinstance(e, str))),
             )
             actions = d.get("actions")

@@ -81,6 +81,19 @@ MeshPtr GroomScene::scalpAt(double seconds) {
     return lastScalp_;
 }
 
+void GroomScene::setScalpRenderSubdivision(int levels, const std::string& from) {
+    const MeshPtr& scalp = file_.data.scalp;
+    levels = std::max(0, levels);
+    const std::string source = levels > 0 ? from : std::string();
+    if (!scalp || (scalp->renderSubdivision() == levels && scalp->renderSubdivisionFrom() == source)) return;
+    auto copy = std::make_shared<ScalpMesh>(*scalp);
+    copy->setRenderSubdivision(levels, source);
+    file_.data.scalp = std::move(copy);
+    lastScalp_.reset();  // the cache's frames on the new scalp
+    joinedFrom_.reset();
+    joined_.reset();
+}
+
 MeshPtr GroomScene::rootScalpAt(double seconds) {
     const MeshPtr scalp = scalpAt(seconds);
     if (file_.data.scalps.empty()) return scalp;

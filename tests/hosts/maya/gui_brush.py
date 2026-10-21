@@ -388,7 +388,16 @@ def step_redo():
     cmds.groomLabBrushCtx(ctx, edit=True, debugStroke=" ".join("%d %d" % (gx + 10 * k, gy) for k in range(10)))
     check("a pinned groom is brushed whatever is selected", cmds.getAttr(groom + ".guideData") != data)
     check("active_groom follows the pin", groomlab.active_groom() == groom)
+    # Another groom selected since: it is the current groom, and the brush works on it (not the
+    # picked one) as the Groom Tools and the Graph Editor show it.
+    other = groomlab.create_groom(cmds.polySphere(name="otherScalp", radius=0.2)[0], name="otherGroom")
+    cmds.select(other)
+    data = cmds.getAttr(groom + ".guideData")
+    cmds.groomLabBrushCtx(ctx, edit=True, debugStroke=" ".join("%d %d" % (gx + 10 * k, gy) for k in range(10)))
+    check("a groom selected after the pick is brushed instead", cmds.getAttr(groom + ".guideData") == data)
+    check("active_groom follows the selected groom", groomlab.active_groom() == other)
     groomlab.pin_groom(None)
+    cmds.delete(cmds.listRelatives(other, parent=True), "otherScalp")
     cmds.delete("notTheGroom")
     cmds.select(cmds.listRelatives(groom, parent=True)[0])
 
@@ -679,6 +688,14 @@ def step_redo():
           cmds.hotkey("X", altModifier=True, query=True, name=True) == "GroomLabToggleSymmetryNameCommand")
     check("Alt+X is not GroomLab's (Maya's Walk Tool)",
           cmds.hotkey("x", altModifier=True, query=True, name=True) != "GroomLabToggleSymmetryNameCommand")
+    check("Alt+Shift+G is bound to every groom's guides on or off",
+          cmds.hotkey("G", altModifier=True, query=True, name=True) == "GroomLabToggleAllGuidesNameCommand")
+    shown = groomlab.guides_visible(groom)
+    hotkeys.toggle_all_guides()
+    check("Alt+Shift+G hides every groom's guides", not groomlab.guides_visible(groom))
+    hotkeys.toggle_all_guides()
+    check("Alt+Shift+G again shows them", groomlab.guides_visible(groom))
+    groomlab.set_guides_visible(groom, shown)
     hotkeys.drag_slider("strength", "ModifyDisplacementPress")
     check("M held: the brush drags its strength", cmds.groomLabBrushCtx(ctx, query=True, dragSlider=True) == "strength")
     hotkeys.drag_slider(None, "ModifyDisplacementRelease")

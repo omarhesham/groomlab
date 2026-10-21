@@ -195,6 +195,84 @@ class GroomingTest(unittest.TestCase):
         self.assertEqual(cmds.getAttr(self.groom + ".guideData"), before)
         self.assertEqual(len(groomlab.symmetry_sync(self.groom, "x", from_negative=True)), 3 + 9)
 
+    def test_one_current_groom(self):
+        # The Groom Tools, the Graph Editor and the brushes share one current groom: a pick holds
+        # while other things are selected, a groom selected since takes over (and stays current with
+        # nothing selected), listeners hear each change, a new groom is current.
+        other = groomlab.create_groom(cmds.polySphere(name="otherHead")[0], name="other")
+        heard = []
+        groomlab.on_current_groom(heard.append)
+        self.addCleanup(groomlab.remove_current_groom_listener, heard.append)
+        self.addCleanup(groomlab.set_current_groom, None)
+        cmds.select(self.groom)
+        groomlab.set_current_groom(other)  # picked with another groom selected: the pick leads
+        self.assertEqual((groomlab.active_groom(), groomlab.pinned_groom(), heard[-1]), (other, other, other))
+        cmds.select(self.scalp)  # a scalp, curves, anything else: the pick holds
+        self.assertEqual(groomlab.active_groom(), other)
+        cmds.select(self.groom)  # a groom selected since: current now
+        self.assertEqual((groomlab.active_groom(), groomlab.pinned_groom(), heard[-1]), (self.groom, self.groom, self.groom))
+        cmds.select(clear=True)
+        self.assertEqual(groomlab.active_groom(), self.groom)
+        cmds.select(other)
+        cmds.select(self.groom, add=True)  # two grooms: the first selected
+        self.assertEqual(groomlab.active_groom(), other)
+        groomlab.set_current_groom(None)  # none current: the selected one leads
+        cmds.select(self.groom)
+        self.assertEqual(groomlab.active_groom(), self.groom)
+        cmds.select(clear=True)
+        groomlab.pin_new_groom(other)  # a groom made in the UI
+        self.assertEqual(groomlab.active_groom(), other)
+        n = len(heard)
+        groomlab.remove_current_groom_listener(heard.append)
+        groomlab.set_current_groom(self.groom)
+        self.assertEqual(len(heard), n)
+
+    def test_show_and_hide_the_hair_and_the_guides(self):
+        # The Groom Tools' eyes and GroomLab > Display: one groom or every groom, its hair (displayHair:
+        # the strands alone, the transform and the guides left) or its guides (displayGuides, every
+        # guide group: the hair left), each one undo step.
+        from groomlab.ui import menu
+        other = groomlab.create_groom(cmds.polySphere(name="otherHead")[0], name="other")
+        both = (self.groom, other)
+        transform = cmds.listRelatives(self.groom, parent=True, fullPath=True)[0]
+        self.assertTrue(groomlab.hair_visible(self.groom))
+        groomlab.set_hair_visible(self.groom, False)
+        self.assertEqual([groomlab.hair_visible(g) for g in both], [False, True])
+        self.assertTrue(cmds.getAttr(transform + ".visibility"))  # the groom node stays: its guides draw
+        self.assertTrue(groomlab.guides_visible(self.groom))
+        self.assertGreater(cmds.getAttr(self.groom + ".outStrandCount"), 0)  # a viewport toggle: still evaluated
+        cmds.undo()
+        self.assertTrue(groomlab.hair_visible(self.groom))
+        groomlab.set_guides_visible(self.groom, False)
+        self.assertEqual([groomlab.guides_visible(g) for g in both], [False, True])
+        cmds.undo()
+        self.assertTrue(groomlab.guides_visible(self.groom))
+        menu.ACTIONS["display.hideAllGuides"]()
+        self.assertEqual([cmds.getAttr(g + ".displayGuides") for g in both], [False, False])
+        cmds.undo()  # one step
+        self.assertEqual([groomlab.guides_visible(g) for g in both], [True, True])
+        self.assertFalse(groomlab.toggle_all_guides())  # any shown: all hidden
+        self.assertTrue(groomlab.toggle_all_guides())
+        self.assertEqual([groomlab.hair_visible(g) for g in both], [True, True])  # the guides' eye leaves the hair
+        menu.ACTIONS["display.hideAllHair"]()
+        self.assertEqual([groomlab.hair_visible(g) for g in both], [False, False])
+        self.assertEqual([groomlab.guides_visible(g) for g in both], [True, True])
+        cmds.undo()  # one step
+        self.assertEqual([groomlab.hair_visible(g) for g in both], [True, True])
+        menu.ACTIONS["display.hideAllHair"]()
+        menu.ACTIONS["display.showAllHair"]()
+        self.assertEqual([groomlab.hair_visible(g) for g in both], [True, True])
+        menu.ACTIONS["display.hideAllGuides"]()
+        menu.ACTIONS["display.showAllGuides"]()
+        self.assertEqual([groomlab.guides_visible(g) for g in both], [True, True])
+        cmds.setAttr(other + ".displayHair", lock=True)
+        self.assertEqual(sorted(groomlab.set_all_hair_visible(False)), sorted(both))  # a locked one left as it is
+        self.assertEqual([groomlab.hair_visible(g) for g in both], [False, True])
+        cmds.setAttr(other + ".displayHair", lock=False)
+        # Hardware 2.0 renders draw the hair whatever the viewport's eye says.
+        from groomlab import hardware2_render
+        self.assertIn(("displayHair", True), hardware2_render.GROOM_DISPLAY)
+
     def test_tube_sections_are_set_read_undone_and_filled(self):
         # Tube guides: a primary's tube made a flat, twisting ribbon; its children follow; one undo
         # step; Interpolate's fillTubes then fills it (tubeId on the strands).
@@ -441,8 +519,20 @@ class GroomingTest(unittest.TestCase):
         groomlab.export_groom(self.groom, path_file)
         with open(path_file) as f:
             self.assertIn("flow", json.load(f))
+        # GroomLab > Utilities > Delete All Flow Arrows: every arrow off, one undo step, said with the count.
+        from groomlab.ui import menu
+        arrows = len(groomlab.flow_arrows(self.groom))
+        self.assertGreater(arrows, 0)
+        self.assertEqual(groomlab.flow_counts(self.groom), (arrows, 0))
+        cmds.select(self.groom)
+        self.assertEqual(menu.delete_all_flow_arrows(), (arrows, 0))
+        self.assertEqual(groomlab.flow_arrows(self.groom), [])
+        self.assertEqual(groomlab.flow_counts(self.groom), (0, 0))
+        cmds.undo()
+        self.assertEqual(len(groomlab.flow_arrows(self.groom)), arrows)
         groomlab.clear_flow(self.groom)
         self.assertEqual(groomlab.flow_arrows(self.groom), [])
+        self.assertEqual(menu.delete_all_flow_arrows(self.groom), (0, 0))  # nothing to delete: no step
 
     def test_flow_sinks(self):
         # A whorl on the crown (mirrored across x gives a clockwise twin), then removed.

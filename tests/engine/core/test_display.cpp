@@ -810,6 +810,42 @@ TEST(Display, BuildsAgainOnlyWhatChanged) {
     EXPECT_EQ(rebuiltItems(builder.update(in, s.settings)), (std::set<std::string>{"dimStrands", "strands", "coloredStrands", "ribbons"}));
 }
 
+TEST(Display, HiddenHairBuildsNoHairItemsAndKeepsTheGuides) {
+    // DisplaySettings::hair off (the hosts' hair eye): none of the hair's items (isHairItem) shows,
+    // in any view of it; the guides, their dots, the selection, the parts and the flow do, and are
+    // not built again for it. On again: the hair is back.
+    for (const char* name : {"lit", "ribbons", "roots", "cards"}) {
+        Scenario s;
+        for (const Scenario& each : scenarios()) {
+            if (each.name == name) s = each;
+        }
+        ASSERT_EQ(s.name, name);
+        DisplayInputs in = inputsFor(s);
+        DisplayBuilder builder;
+        const DisplayFrame& shown = builder.update(in, s.settings);
+        bool anyHair = false;
+        for (const DisplayItem& item : shown.items) anyHair = anyHair || (isHairItem(item.id) && item.shown);
+        EXPECT_TRUE(anyHair) << name;
+        s.settings.hair = false;
+        const DisplayFrame& hidden = builder.update(in, s.settings);
+        for (const DisplayItem& item : hidden.items) {
+            if (isHairItem(item.id)) EXPECT_FALSE(item.shown) << name << ": " << item.name;
+        }
+        for (const DisplayItemId id : {DisplayItemId::Guides, DisplayItemId::Selected, DisplayItemId::Parts, DisplayItemId::Flow}) {
+            EXPECT_TRUE(hidden.item(id).shown) << name << ": " << hidden.item(id).name;
+        }
+        EXPECT_FALSE(hidden.dots.points.empty());
+        for (const DisplayItem& item : hidden.items) {
+            if (item.rebuilt) EXPECT_TRUE(isHairItem(item.id)) << name << ": " << item.name << " built again for the hair";
+        }
+        s.settings.hair = true;
+        const DisplayFrame& again = builder.update(in, s.settings);
+        anyHair = false;
+        for (const DisplayItem& item : again.items) anyHair = anyHair || (isHairItem(item.id) && item.shown);
+        EXPECT_TRUE(anyHair) << name;
+    }
+}
+
 TEST(Display, AColorRangeRecolorsTheLinesAlone) {
     const Fixture& f = fixture();
     Scenario s = scenarios()[3];  // attribute colors
@@ -1089,6 +1125,51 @@ TEST(Display, ParsesGroupColorsAndHiddenGroups) {
     EXPECT_FLOAT_EQ(colors.at("b")[1], 1.0f);
     EXPECT_NEAR(colors.at("b")[2], 0.2158605f, 1e-6f);  // sRGB 0x80 in linear
     EXPECT_EQ(parseHiddenGuideGroups(" a,b  c,"), (std::set<std::string>{"a", "b", "c"}));
+}
+
+// Testers saw the first guide group of every groom in the same color: the automatic colors start
+// from a hue seeded by the groom's name (every host passes it as guideColorSeed), deterministic,
+// the theme's own colors without a name, and a group's own color still over them.
+TEST(Display, GuideColorsStartFromTheGroomsOwnHue) {
+    EXPECT_EQ(guideHueSeed(""), 0.0f);
+    EXPECT_EQ(guideHueSeed("hair"), guideHueSeed("hair"));
+    const float hair = guideHueSeed("hair"), brows = guideHueSeed("brows"), groom1 = guideHueSeed("groom1"),
+                groom2 = guideHueSeed("groom2");
+    for (const float h : {hair, brows, groom1, groom2}) {
+        EXPECT_GE(h, 0.0f);
+        EXPECT_LT(h, 1.0f);
+    }
+    EXPECT_NE(hair, brows);
+    EXPECT_NE(groom1, groom2);  // names a step apart: hues apart
+    const DisplayTheme theme;
+    auto apart = [](const std::array<float, 3>& a, const std::array<float, 3>& b) {
+        return std::abs(a[0] - b[0]) + std::abs(a[1] - b[1]) + std::abs(a[2] - b[2]) > 0.05f;
+    };
+    // By level: no name, the theme's colors as they are; a name turns their hue, the value kept.
+    for (int depth = 0; depth < 5; ++depth) EXPECT_EQ(autoGuideColor(theme, 0.0f, depth, 1, false), theme.level(depth));
+    EXPECT_TRUE(apart(autoGuideColor(theme, groom1, 0, 1, false), autoGuideColor(theme, groom2, 0, 1, false)));
+    const auto turned = autoGuideColor(theme, hair, 0, 1, false);
+    const auto level0 = theme.level(0);
+    EXPECT_NEAR(std::max({turned[0], turned[1], turned[2]}), std::max({level0[0], level0[1], level0[2]}), 1e-5f);
+    EXPECT_EQ(autoGuideColor(theme, hair, 4, 1, false), theme.level(4));  // gray stays gray
+    // By group: the first group starts at the groom's hue, the next a golden-ratio step on.
+    EXPECT_TRUE(apart(autoGuideColor(theme, groom1, 0, 1, true), autoGuideColor(theme, groom2, 0, 1, true)));
+    EXPECT_TRUE(apart(autoGuideColor(theme, hair, 0, 1, true), autoGuideColor(theme, hair, 0, 2, true)));
+    EXPECT_EQ(autoGuideColor(theme, 0.0f, 0, 3, true), hueColor(std::fmod(0.6f + 0.618034f * 3.0f, 1.0f), 0.75f, 0.95f));
+
+    // Drawn: two grooms' guides differ by name alone; a group's own color wins over the seed.
+    const Scenario plain = scenarios()[0];
+    auto guideColors = [&](const std::string& seed, const std::string& own) {
+        DisplaySettings settings = plain.settings;
+        settings.guideColorSeed = seed;
+        settings.guideGroupColors = own;
+        DisplayBuilder builder;
+        return builder.update(inputsFor(plain), settings).item(DisplayItemId::Guides).geometry->colors;
+    };
+    EXPECT_NE(guideColors("groom1", ""), guideColors("groom2", ""));
+    EXPECT_EQ(guideColors("groom1", ""), guideColors("groom1", ""));
+    const std::string own = "primary:#ff8800 children:#00ff80";
+    EXPECT_EQ(guideColors("groom1", own), guideColors("groom2", own));
 }
 
 }  // namespace

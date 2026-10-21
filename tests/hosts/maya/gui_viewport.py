@@ -82,6 +82,10 @@ def run():
         gui_hair.hair_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
         finish()
         return
+    if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "eyes":  # the overlays and the Groom Tools' eyes alone
+        overlay_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
+        finish()
+        return
     if os.environ.get("GROOMLAB_VIEWPORT_CASE") == "lod":  # the screen-space level of detail alone
         lod_check(os.environ.get("GROOMLAB_VIEWPORT_SNAPSHOTS"))
         finish()
@@ -1821,7 +1825,50 @@ def overlay_check(snapshots=None):
         % (cmds.getAttr(groom + ".outStrandCount"), api, green, on_top, hidden, under))
     check("guides draw over dense strands on %s (%d guide pixels on top, %d depth-tested)" % (api, green, hidden),
           green > 400 and green > 3 * hidden and not groomlab.errors(groom))
+    eyes_check(groom, folder)
     cmds.file(new=True, force=True)
+
+
+def eyes_check(groom, folder):
+    """The Groom Tools' eyes on overlay_check's groom (green guides in brown hair): the hair's eye
+    (displayHair) hides the strands alone, the guides drawing on; the guides' eye (displayGuides)
+    hides the guides alone, the strands drawing on. Neither hides the groom's transform."""
+    import groomlab
+    from PySide2 import QtGui
+    transform = cmds.listRelatives(groom, parent=True, fullPath=True)[0]
+
+    def shot(name):
+        """The capture's guide pixels (green to cyan) and hair pixels (brown: red over blue, where the
+        gray scalp and background are neither). (Format_RGB32's bytes: blue, green, red.)"""
+        cmds.refresh(currentView=True, force=True)
+        path = os.path.join(folder, "eyes_maya_%s.png" % name)
+        cmds.playblast(frame=[1], format="image", compression="png", viewer=False, showOrnaments=False,
+                       percent=100, widthHeight=(480, 360), completeFilename=path)
+        image = QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
+        data = bytes(image.constBits())[:image.byteCount()]
+        guides = hair = 0
+        for i in range(0, len(data), 4):
+            if data[i + 1] > 90 and data[i + 1] > 1.4 * data[i + 2]:
+                guides += 1
+            elif data[i + 2] > data[i] + 20:
+                hair += 1
+        return guides, hair
+
+    both = shot("both")
+    groomlab.set_hair_visible(groom, False)
+    no_hair = shot("hair_hidden")
+    hidden_attrs = (cmds.getAttr(transform + ".visibility"), groomlab.guides_visible(groom))
+    groomlab.set_hair_visible(groom, True)
+    groomlab.set_guides_visible(groom, False)
+    no_guides = shot("guides_hidden")
+    groomlab.set_guides_visible(groom, True)
+    say("eyes: (guide, hair) pixels %s both, %s hair hidden, %s guides hidden" % (both, no_hair, no_guides))
+    check("the hair's eye hides the strands alone (guide pixels %d -> %d, hair %d -> %d; transform and guides %s)"
+          % (both[0], no_hair[0], both[1], no_hair[1], hidden_attrs),
+          no_hair[0] > 0.5 * both[0] and no_hair[0] > 200 and no_hair[1] < 0.25 * both[1] and hidden_attrs == (True, True))
+    check("the guides' eye hides the guides alone (guide pixels %d -> %d, hair %d -> %d)"
+          % (both[0], no_guides[0], both[1], no_guides[1]),
+          no_guides[0] < 0.1 * both[0] and no_guides[1] > 0.8 * both[1])
 
 
 CLUMP_CENTERS_GRAPH = {

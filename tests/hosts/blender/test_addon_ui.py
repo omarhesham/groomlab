@@ -50,7 +50,7 @@ NOT_IN_BLENDER = {
 
 
 MAIN = ["Groom Tools", "Graph Editor", "Create Groom from Selection", "Add Sample Mesh", "Guides from Photos (experimental)...",
-        "Groom Files", "Import", "Add", "Simulate", "Review", "Export", "Utilities", "Help"]
+        "Groom Files", "Import", "Add", "Simulate", "Display", "Review", "Export", "Utilities", "Help"]
 
 
 def blender_ids():
@@ -230,7 +230,8 @@ class DefinitionsTest(unittest.TestCase):
         self.assertEqual(texts(review), ["Density Heatmap", "Turntable"])
         self.assertIn(("prop", "show_hud"), review)  # Strand Count HUD: a checkbox (checkable)
         self.assertEqual(texts(drawn(bpy.types.GROOMLAB_MT_main_utilities)),
-                         ["Strands to Mesh...", "Bake Node to Guides...", "Bake Scale Maps", "Transfer Groom to Scalp...",
+                         ["Strands to Mesh...", "Bake Node to Guides...", "Bake Scale Maps", "Delete All Flow Arrows",
+                          "Transfer Groom to Scalp...",
                           "Copy Graph to Other Grooms...", "Find Missing Files..."])
         help_ = drawn(bpy.types.GROOMLAB_MT_main_help)
         self.assertEqual(texts(help_), ["Docs", "Keyboard Shortcuts", "Check for Updates...", "Discord",
@@ -368,9 +369,26 @@ class ToolsTest(unittest.TestCase):
         self.assertEqual(bpy.ops.groomlab.parts_clear(), {"FINISHED"})
         self.assertEqual(len(t.parts), 0)
         bpy.ops.groomlab.tool(tool="flow")
-        self.assertIn("Clear All", texts(drawn(palette.VIEW3D_PT_groomlab_tools), "groomlab.flow_clear"))
+        # The Flow card: how many arrows the groom keeps, beside Clear All (Delete All Flow Arrows).
+        hcall(head, "flow_clear")
+        tools.refresh_info(head)
+        self.assertEqual((t.flow_arrows, t.flow_sinks), (0, 0))
+        log = drawn(palette.VIEW3D_PT_groomlab_tools)
+        self.assertIn("Clear All", texts(log, "groomlab.flow_clear"))
+        self.assertIn(("label", "No flow arrows yet"), [e[:2] for e in log])
+        self.assertEqual(palette.flow_count_text(34, 2), "34 arrows \u00b7 2 sinks")
+        self.assertEqual(palette.flow_count_text(1, 1), "1 arrow \u00b7 1 sink")
         self.assertEqual(bpy.ops.groomlab.flow_clear(), {"FINISHED"})
+        # Only the sections the tool uses (palette.json's "tools"): Flow draws no tubes; Select does.
+        self.assertFalse(palette.VIEW3D_PT_groomlab_tools_tubes.poll(bpy.context))
+        self.assertTrue(palette.VIEW3D_PT_groomlab_tools_sculpting.poll(bpy.context))
+        self.assertTrue(palette.VIEW3D_PT_groomlab_tools_guides.poll(bpy.context))
+        self.assertTrue(palette.VIEW3D_PT_groomlab_tools_output.poll(bpy.context))
+        bpy.ops.groomlab.tool(tool="part")
+        self.assertFalse(palette.VIEW3D_PT_groomlab_tools_sculpting.poll(bpy.context))
         bpy.ops.groomlab.tool(tool="comb")
+        self.assertFalse(palette.VIEW3D_PT_groomlab_tools_tubes.poll(bpy.context))
+        self.assertTrue(palette.VIEW3D_PT_groomlab_tools_sculpting.poll(bpy.context))
 
     def test_3_maps(self):
         head, t = self.head, self.t
@@ -440,6 +458,7 @@ class ToolsTest(unittest.TestCase):
 
     def test_4_tubes(self):
         head, t = self.head, self.t
+        bpy.ops.groomlab.tool(tool="select")  # the Tubes section shows with Place, Draw, Shape and Select
         log = drawn(palette.VIEW3D_PT_groomlab_tools_tubes)
         self.assertIn(("prop", "tube_shape"), log)
         self.assertIn("Edit as Custom", texts(log))
@@ -625,6 +644,30 @@ class ToolsTest(unittest.TestCase):
         # The pie: the tail after the catalog's overflow.
         log = drawn(bpy.types.GROOMLAB_MT_pie)
         self.assertEqual(texts(log)[-8:-5], ["Select", "Freeze", "Groom Tools"])
+        # The header's eyes: the strands and the guides (groomlab.eye; Shift+click or right-click:
+        # every groom's), and the right-click menu's Show / Hide All from palette.json.
+        header = [e for e in drawn(palette.VIEW3D_PT_groomlab_tools) if e[0] == "op_text" and e[1] == "groomlab.eye"]
+        self.assertEqual([(e[3].what, e[3].mode) for e in header], [("STRANDS", "TOGGLE"), ("GUIDES", "TOGGLE")])
+
+        class EyeContext(object):
+            scene = bpy.context.scene
+            active_object = head
+
+            class button_operator(object):
+                bl_rna = bpy.types.GROOMLAB_OT_eye.bl_rna
+                what, every = "GUIDES", False
+
+        holder = types.SimpleNamespace(layout=Recorder([]))
+        menu.draw_eye_context(holder, EyeContext())
+        self.assertEqual([e[2] for e in holder.layout.log if e[0] == "op_text"], ["Show All Guides", "Hide All Guides"])
+        self.assertEqual([(e[3].mode, e[3].every) for e in holder.layout.log if e[0] == "op_text"],
+                         [("SHOW", True), ("HIDE", True)])
+        # Selecting a groom (its scalp the active object) makes it the current groom.
+        handlers = importlib.import_module(bu.MODULE + ".handlers")
+        bpy.context.scene.groomlab.groom = None
+        bpy.context.view_layer.objects.active = head
+        self.assertEqual(handlers.active_changed(), head)
+        self.assertEqual(bpy.context.scene.groomlab.groom, head)
 
 
 if __name__ == "__main__":

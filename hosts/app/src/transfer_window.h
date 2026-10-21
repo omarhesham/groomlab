@@ -64,6 +64,9 @@ public:
     // The groom's scalp into the left view and its stored markers into the lists (opening, after a
     // transfer, another groom opened). Unmatched points are dropped.
     void reloadGroom();
+    // The groom's scalp shown again at its subdivision level now (Scalp Subdivision changed), the
+    // camera and the markers kept; nothing when it shows that already.
+    void refreshScalp();
     // The new scalp from a mesh file (.obj, .abc): the right view reloads, the left is kept. False
     // (and why in the status line) when it cannot be read.
     bool setNewScalpPath(const QString& path);

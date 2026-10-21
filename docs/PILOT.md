@@ -39,7 +39,7 @@ For each artist and asset:
 - **Gaps:** what they reached for and could not find, compared with the Tonic, Yeti or XGen
   tools they know.
 - **Speed:** their judgement of interactive speed on their machine, next to the budgets the tests
-  measure (see the README).
+  measure (see [DEVELOPING.md](DEVELOPING.md), "Performance budgets").
 
 ## Sign-off
 

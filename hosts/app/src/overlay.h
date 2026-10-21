@@ -99,6 +99,8 @@ public:
     const SurfaceMaterial* surfaceMaterial(int index) const;
     void setTab(Tab tab);
     Tab tab() const { return static_cast<Tab>(tabs_->current()); }
+    // Its own Material / Lighting / Render switch shown (off: the Properties dock's tabs pick).
+    void setTabsShown(bool shown);
     void setMoreShown(bool shown);  // the material's full settings and the surfaces
     bool moreShown() const { return moreShown_; }
     // The card's height for its content, at most `maxHeight` (the rest scrolls).

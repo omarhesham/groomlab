@@ -30,8 +30,11 @@
           "nhair.simulate", "nhair.bake", "nhair.remove", "-", "nhair.exportGuides", "nhair.loadCache"
         ]}
       ]},
+      {"submenu": "Display", "id": "display", "tip": "Show or hide every groom, or every groom's guides (XGen's Hide All Guides)", "tips": {"app": "Show or hide the groom or its guides"}, "items": [
+        "display.showAllHair", "display.hideAllHair", "-", "display.showAllGuides", "display.hideAllGuides"
+      ]},
       {"submenu": "Review", "id": "review", "items": ["review.heatmap", "review.hud", "review.turntable", "render.turntable"]},
-      {"submenu": "Studio", "id": "studio", "tip": "A backdrop, Arnold area lights and a camera round the groom", "tips": {"app": "Lookdev lighting presets for the viewport (Look mode)"}, "ref": "menus/studio"},
+      {"submenu": "Studio", "id": "studio", "tip": "A backdrop, Arnold area lights and a camera round the groom", "tips": {"app": "Lookdev lighting presets for the viewport, in any mode"}, "ref": "menus/studio"},
       {"submenu": "Render", "id": "render", "ref": "menus/render"},
       {"submenu": "Export", "id": "export", "ref": "menus/export"},
       {"submenu": "Utilities", "id": "utilities", "items": [
@@ -42,6 +45,8 @@
         "strands.toMesh",
         "node.bakeToGuides",
         "scales.bakeMaps",
+        "-",
+        "flow.deleteAll",
         "-",
         "groom.transfer",
         "graph.copyToGrooms",
@@ -177,7 +182,8 @@
       {"submenu": "Mode", "id": "mode", "hosts": ["app"], "items": ["view.mode.groom", "view.mode.look", "view.mode.cards", "view.mode.export"]},
       {"submenu": "Panels", "id": "panels", "hosts": ["app"], "items": [{"generator": "panels"}]},
       "view.railLabels",
-      "view.turntable"
+      "view.turntable",
+      "display.toggleGuides"
     ]
   }
 }

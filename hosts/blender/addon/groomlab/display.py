@@ -122,7 +122,8 @@ def settings_for(scalp, scene):
     t = scene.groomlab_tools
     s = {"guides": bool(d.show_guides), "tubes": bool(d.show_tubes), "flow": bool(d.show_flow),
          "guidePoints": d.guide_points, "guideColorMode": d.guide_color_mode,
-         "theme": tools.theme()}
+         # The automatic guide colors start from the groom's own hue (its name, as Maya's transform).
+         "guideColorSeed": scalp.name, "theme": tools.theme()}
     if d.guide_color_mode == "layer" and d.guide_color_layer:
         s["guideColorLayer"] = d.guide_color_layer
     m = tools.current_map(scene)

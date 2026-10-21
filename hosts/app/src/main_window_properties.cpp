@@ -16,6 +16,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLocale>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -23,6 +24,7 @@
 #include <QVBoxLayout>
 
 #include "groomlab/hair_color.h"
+#include "groomlab/subdivision.h"
 
 #include "glass.h"
 #include "groom_tools.h"
@@ -32,6 +34,7 @@
 #include "properties_panel.h"
 #include "reference_window.h"
 #include "theme.h"
+#include "transfer_window.h"
 #include "viewport.h"
 
 namespace groomlab::app {
@@ -211,6 +214,21 @@ void MainWindow::buildProperties() {
         connect(save, &QPushButton::clicked, this, [this] { this->save(); });
         add("file", {reload, save});
         p->setBlock("inputs", inputsBlock_);
+    }
+    // Scalp Subdivision: the scalp's Catmull-Clark levels, and the triangles that makes.
+    {
+        scalpSubdivision_ = combo({});
+        scalpSubdivision_->setObjectName(QStringLiteral("scalpSubdivision"));
+        scalpSubdivision_->addItem(tr("Off"), 0);
+        for (int level = 1; level <= kMaxSubdivisionLevels; ++level) scalpSubdivision_->addItem(QString::number(level), level);
+        scalpTriangles_ = valueLabel();
+        scalpTriangles_->setObjectName(QStringLiteral("scalpSubdivisionTriangles"));
+        scalpTriangles_->setWordWrap(false);
+        auto* row = hbox({scalpSubdivision_, scalpTriangles_});
+        p->setControl("scalpSubdivision", row);
+        scalpSubdivision_->setToolTip(row->toolTip());
+        connect(scalpSubdivision_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                [this](int) { setScalpSubdivision(scalpSubdivision_->currentData().toInt()); });
     }
     followScalp_ = check(false);
     p->setControl("followScalp", followScalp_);
@@ -409,6 +427,7 @@ void MainWindow::buildProperties() {
         });
     };
     toggle(guides_, &DisplaySettings::guides);
+    connect(guides_, &QCheckBox::toggled, groomTools_, &GroomTools::setGuidesVisible);  // the guides' eye follows
     toggle(flow_, &DisplaySettings::flow);
     toggle(tubes_, &DisplaySettings::tubes);
     toggle(instances_, &DisplaySettings::instances);
@@ -534,6 +553,7 @@ void MainWindow::refreshProperties() {
                        static_cast<QWidget*>(locked_)}) {
         w->setEnabled(open && (w != followScalp_ || followScalp_->isEnabled()));
     }
+    refreshScalpSubdivision();
     // The display's own state as other panels change it (Isolate, Hue per group, While sculpting).
     {
         const QSignalBlocker a(displayLevel_), b(guideColorMode_), c(sculptDisplay_);
@@ -549,6 +569,82 @@ void MainWindow::refreshProperties() {
     properties_->setRowVisible("colorMax", mode == kAttributeColors);
     refreshControlSliders();
     refreshHairColorRows();
+}
+
+namespace {
+
+// Past this many triangles the refined scalp slows the brushes, the picks and the viewport.
+constexpr std::size_t kLargeScalpTriangles = 2000000;
+
+QString triangleCountText(std::size_t n) {
+    if (n >= 1000000) return QString::number(static_cast<double>(n) / 1e6, 'f', 1) + QStringLiteral("M");
+    if (n >= 10000) return QString::number(std::lround(static_cast<double>(n) / 1e3)) + QStringLiteral("k");
+    return QString::number(n);
+}
+
+}  // namespace
+
+void MainWindow::setScalpSubdivision(int levels) {
+    if (!document_ || document_->scalpSubdivision() == levels) return;
+    if (refuseWhileBusy(tr("changing Scalp Subdivision"))) {
+        refreshScalpSubdivision();
+        return;
+    }
+    const std::string error = document_->setScalpSubdivision(levels);
+    if (!error.empty()) {
+        report(QString::fromStdString(error));
+        refreshScalpSubdivision();
+        return;
+    }
+    const MeshPtr& scalp = document_->file().data.scalp;
+    const std::size_t triangles = scalp ? GroomDocument::refinedTriangleCount(*scalp, document_->scalpLevels()) : 0;
+    if (triangles > kLargeScalpTriangles) {
+        report(tr("Scalp Subdivision %1: the scalp has %2 triangles now; brushes, picks and the viewport slow down (a lower level, "
+                  "or a lighter scalp, keeps them quick)")
+                   .arg(levels)
+                   .arg(triangleCountText(triangles)),
+               false);
+    }
+    refreshUndoActions();
+    reevaluate();
+    refreshScalpSubdivision();
+}
+
+void MainWindow::refreshScalpSubdivision() {
+    if (!scalpSubdivision_) return;
+    const MeshPtr scalp = document_ ? document_->file().data.scalp : nullptr;
+    {
+        const QSignalBlocker block(scalpSubdivision_);
+        scalpSubdivision_->setCurrentIndex(std::max(0, scalpSubdivision_->findData(document_ ? document_->scalpSubdivision() : 0)));
+    }
+    scalpSubdivision_->setEnabled(scalp != nullptr);
+    // The Transfer and Guides from Photos windows show (and pick on) the scalp at its level.
+    if (transferWindow_) transferWindow_->refreshScalp();
+    if (referenceWindow_) referenceWindow_->refreshScalp();
+    if (!scalp) {
+        scalpTriangles_->clear();
+        scalpTriangles_->setToolTip(QString());
+        return;
+    }
+    // The triangles the hair grows on: the scalp refined by the levels the groom uses (a Scalp node
+    // may ask for other than this setting).
+    const int levels = document_->scalpLevels();
+    const std::size_t triangles = GroomDocument::refinedTriangleCount(*scalp, levels);
+    QString text = tr("%1 triangles").arg(triangleCountText(triangles));
+    QString tip = tr("The scalp the hair grows on: %1 triangles (the mesh itself: %2)")
+                      .arg(QLocale().toString(static_cast<qulonglong>(triangles)))
+                      .arg(QLocale().toString(static_cast<qulonglong>(scalp->triangleCount())));
+    if (levels != document_->scalpSubdivision()) {
+        text += tr(" (Scalp node: %1)").arg(levels == 0 ? tr("off") : QString::number(levels));
+        tip += tr(". A Scalp node in the graph refines it by %1, not Match Render").arg(levels);
+    }
+    if (triangles > kLargeScalpTriangles) {
+        tip += tr(". That many triangles slow the brushes, the picks and the viewport");
+    }
+    scalpTriangles_->setText(text);
+    scalpTriangles_->setToolTip(tip);
+    scalpTriangles_->setStyleSheet(QStringLiteral("color: %1;").arg(
+        (triangles > kLargeScalpTriangles ? theme::warningText() : theme::textSoft()).name()));
 }
 
 void MainWindow::refreshControlSliders() {

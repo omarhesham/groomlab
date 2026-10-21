@@ -80,7 +80,7 @@ struct Swatch {
     const char* tip;
 };
 const Swatch kSwatches[] = {
-    {"groom", QColor(), "The groom's own pigment (its HairColor node)"},
+    {"groom", QColor(), "GroomLab's own pigment: HairColor's default color, no dye"},
     {"black", QColor(0x1B, 0x17, 0x15), "Black"},
     {"brown", QColor(0x5A, 0x3A, 0x22), "Brown"},
     {"blonde", QColor(0xD9, 0xB9, 0x7A), "Blonde"},
@@ -188,9 +188,10 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
         b->setCheckedRing(theme::text(), 3.0);
         const std::string preset = s.preset;
         connect(b, &QAbstractButton::clicked, this, [this, preset] {
-            if (!groomColor_.node.empty() && preset != "groom") {
-                // The groom's own color: the swatch's pigment onto its HairColor node (saved
-                // with the groom), the viewport showing the groom's channels.
+            if (!groomColor_.node.empty()) {
+                // The groom's own color: the swatch's pigment (and dye) onto its HairColor node
+                // (saved with the groom), the viewport showing the groom's channels; GroomLab's
+                // own swatch puts HairColor's defaults back.
                 const HairMaterial p = hairPreset(preset);
                 groomColor_.melanin = p.melanin;
                 groomColor_.redness = p.melaninRedness;
@@ -537,16 +538,8 @@ LookCard::LookCard(QWidget* parent) : GlassPanel(parent, 24.0) {
         b->setCheckable(true);
         const std::string preset = name;
         connect(b, &QAbstractButton::clicked, this, [this, preset] {
-            // The render settings are the user's, not the preset's.
-            const Quality quality = lighting_.quality;
-            const int frames = lighting_.refineFrames;
-            const float scale = lighting_.resolutionScale;
-            const InteractiveQuality interactive = lighting_.interactiveQuality;
-            lighting_ = lightingPreset(preset);
-            lighting_.quality = quality;
-            lighting_.refineFrames = frames;
-            lighting_.resolutionScale = scale;
-            lighting_.interactiveQuality = interactive;
+            // The background and the render settings are the user's, not the preset's.
+            lighting_ = withLightingPreset(lighting_, preset);
             refresh();
             emit lightingEdited();
         });
@@ -840,6 +833,11 @@ void LookCard::setMaterial(const HairMaterial& material) {
 void LookCard::setLighting(const LightingSetup& lighting) {
     lighting_ = lighting;
     refresh();
+}
+
+void LookCard::setTabsShown(bool shown) {
+    tabs_->setVisible(shown);
+    updateGeometry();
 }
 
 void LookCard::setTab(Tab tab) {

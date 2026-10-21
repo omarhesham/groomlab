@@ -775,6 +775,19 @@ TEST(AppPanels, GuidesPanelMirrorsResamplesAndClearsOverlays) {
     // The parts and flow: listed, removed, cleared.
     EXPECT_TRUE(panel.partNames().empty());
     EXPECT_TRUE(panel.clearFlow() || true);  // nothing to clear: no step
+    // The flow's count (the Flow card's, Delete All Flow Arrows'), then all of it cleared in one step.
+    EXPECT_EQ(doc->editStoredText("add flow", StrokeField::Flow, [](std::string& text) {
+        text = R"({"version": 1, "pins": [{"face": 0, "u": 0.2, "v": 0.2, "dir": [1, 0, 0]},
+                                          {"face": 1, "u": 0.2, "v": 0.2, "dir": [1, 0, 0]}],
+                   "sinks": [{"face": 2, "u": 0.3, "v": 0.3, "angle": 70, "radius": 0.5}]})";
+    }), "");
+    EXPECT_EQ(panel.flowCount(), (std::pair<std::size_t, std::size_t>{2, 1}));
+    EXPECT_TRUE(panel.clearFlow());
+    EXPECT_EQ(panel.flowCount(), (std::pair<std::size_t, std::size_t>{0, 0}));
+    EXPECT_EQ(doc->undoText(), "Undo clear flow stroke");  // one step
+    EXPECT_EQ(doc->undo(), "");
+    EXPECT_EQ(panel.flowCount().first, 2u);
+    EXPECT_TRUE(panel.clearFlow());
     const MeshPtr scalp = doc->file().data.scalp;
     EXPECT_EQ(doc->editStoredText("add part", StrokeField::Parts, [&](std::string& text) {
         PartSet parts = PartSet::fromJson(text);
@@ -1595,6 +1608,36 @@ TEST(AppPanels, LookCardPicksAColorAndWhiteTips) {
     EXPECT_EQ(window.document()->paramOrDefault(node, "mode"), "melanin");
     EXPECT_FALSE(card->groomColor().picked);
     EXPECT_FALSE(card->melaninSlider()->isHidden());
+    // Dyed (the violet swatch) dyes the groom's HairColor; another swatch takes the dye off.
+    card->swatch(6)->click();  // dyed
+    const json dye = window.document()->paramOrDefault(node, "dye");
+    EXPECT_LT(dye[1].get<double>(), 0.5);
+    EXPECT_NEAR(dye[2].get<double>(), 1.0, 1e-6);
+    card->swatch(1)->click();  // black
+    EXPECT_NEAR(window.document()->paramOrDefault(node, "dye")[1].get<double>(), 1.0, 1e-6);
+    // GroomLab's own swatch: HairColor's defaults back.
+    card->swatch(0)->click();
+    EXPECT_NEAR(window.document()->paramOrDefault(node, "melanin").get<double>(), 0.35, 1e-6);
+    EXPECT_NEAR(window.document()->paramOrDefault(node, "redness").get<double>(), 0.2, 1e-6);
+    EXPECT_EQ(window.document()->undoText(), "Undo hair color groom");
+}
+
+// Picking a lighting preset keeps the background and the render settings (a gradient and
+// Interactive by default).
+TEST(AppPanels, LightingPresetsKeepTheBackgroundAndRenderSettings) {
+    const LightingSetup start;
+    EXPECT_EQ(start.background, Background::Gradient);
+    EXPECT_EQ(start.quality, Quality::Interactive);
+    for (const std::string& name : lightingPresetNames()) {
+        const LightingSetup s = withLightingPreset(start, name);
+        EXPECT_EQ(s.background, Background::Gradient) << name;
+        EXPECT_EQ(s.quality, Quality::Interactive) << name;
+        EXPECT_EQ(s.presetName, name);
+        EXPECT_EQ(s.lights.size(), lightingPreset(name).lights.size()) << name;
+    }
+    LookCard card;
+    EXPECT_EQ(card.lighting().background, Background::Gradient);
+    EXPECT_EQ(card.lighting().quality, Quality::Interactive);
 }
 
 // Small screens and large text: Qt scales the app by the display's scale (125%, 150%), so what
@@ -3594,12 +3637,41 @@ TEST(AppPanels, GroomToolsTilesPickToolsAndTheEyeHidesTheGroom) {
         EXPECT_EQ(tools->currentTab(), QStringLiteral("paint"));
         EXPECT_FALSE(tools->status().isEmpty());
     }
-    // The eye: the groom hidden in the viewport and back.
+    // The eye: the hair (the strands alone) hidden in the viewport and back; the guides stay.
     tools->eyeButton()->click();
-    EXPECT_FALSE(window.groomVisible());
-    EXPECT_FALSE(window.overlay()->viewport()->renderer().groomShown());
+    EXPECT_FALSE(window.hairVisible());
+    EXPECT_FALSE(window.overlay()->viewport()->renderer().hairShown());
+    EXPECT_TRUE(window.guidesVisible()) << "the hair's eye leaves the guides";
+    EXPECT_TRUE(tools->guidesEyeButton()->isChecked());
     tools->eyeButton()->click();
-    EXPECT_TRUE(window.groomVisible());
+    EXPECT_TRUE(window.hairVisible());
+    EXPECT_TRUE(window.overlay()->viewport()->renderer().hairShown());
+    // The guides' eye beside it: every guide group (Properties > Guides follows), and back; GroomLab >
+    // Display and View > Guides (Alt+Shift+G) do the same for the app's one groom.
+    ASSERT_TRUE(tools->guidesEyeButton()->isChecked());
+    tools->guidesEyeButton()->click();
+    EXPECT_FALSE(window.guidesVisible());
+    window.setGuidesVisible(true);
+    EXPECT_TRUE(tools->guidesEyeButton()->isChecked());
+    QAction* hideGuides = window.findChild<QAction*>(QStringLiteral("hideAllGuides"));
+    ASSERT_NE(hideGuides, nullptr);
+    hideGuides->trigger();
+    EXPECT_FALSE(window.guidesVisible());
+    EXPECT_FALSE(tools->guidesEyeButton()->isChecked());
+    EXPECT_TRUE(window.hairVisible()) << "the guides' eye leaves the hair";
+    QAction* hideHair = window.findChild<QAction*>(QStringLiteral("hideAllHair"));
+    QAction* showHair = window.findChild<QAction*>(QStringLiteral("showAllHair"));
+    ASSERT_NE(hideHair, nullptr);
+    ASSERT_NE(showHair, nullptr);
+    hideHair->trigger();
+    EXPECT_FALSE(window.hairVisible());
+    EXPECT_FALSE(tools->eyeButton()->isChecked());
+    showHair->trigger();
+    EXPECT_TRUE(window.hairVisible());
+    QAction* toggleGuides = window.findChild<QAction*>(QStringLiteral("toggleGuides"));
+    ASSERT_NE(toggleGuides, nullptr);
+    toggleGuides->trigger();
+    EXPECT_TRUE(window.guidesVisible());
     // GroomLab > Groom Tools brings the dock back.
     window.shell()->groomToolsDock()->hide();
     QAction* open = window.findChild<QAction*>(QStringLiteral("groomTools"));

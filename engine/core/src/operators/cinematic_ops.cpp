@@ -436,7 +436,8 @@ private:
             out->mutablePositions();  // cloned once here: the loop writes points while fields read the set
         }
         const bool arrows = flow && !flow->empty();
-        if (!arrows) ctx.note("no flow arrows: draw some with the Flow tool; strands lie along their own direction");
+        if (!arrows) ctx.note("no flow arrows: lay some with the Flow tool (Groom Tools > Create > Flow); strands lie along their own "
+                                "direction");
         auto lay = [&](std::size_t s) {
             const std::size_t n = out->strandPointCount(s);
             if (n < 2) return;
@@ -790,7 +791,9 @@ void registerCardsOperator(OperatorRegistry& registry) {
 void registerFlowOperator(OperatorRegistry& registry) {
     registry.registerType(op::kFlow,
                           {"shape",
-                           "Lays short hair along the flow arrows painted on the scalp.",
+                           "Lays short hair along the flow arrows on the scalp. The arrows are kept on the groom, laid with "
+                           "the Flow tool (Groom Tools > Create > Flow); GroomLab > Utilities > Delete All Flow Arrows "
+                           "removes them.",
                            "arrows comb short hair direction"},
                           [] { return std::make_unique<FlowOp>(); });
 }

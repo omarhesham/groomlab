@@ -23,6 +23,7 @@
 
 #include "definitions.h"
 #include "marking_menu.h"
+#include "param_panel.h"
 
 class QAction;
 class QMenu;
@@ -67,6 +68,9 @@ struct AppActions {
     static std::set<std::string> paramState(MainWindow& window, const std::string& node, const std::string& param);
     // A param's right-click menu (graph_ui.json's paramMenu) for node.param, filled into `menu`.
     static void fillParamMenu(MainWindow& window, QMenu* menu, const std::string& node, const std::string& param);
+    // The node's actions by its type (graph_ui.json's nodeActions) the param panels pin under its
+    // title: each bound id, run on that node (selected in the graph first).
+    static std::vector<ParamPanel::NodeAction> nodeActions(MainWindow& window, const std::string& node);
     // The canvas's right-click menu: the search, the Add Node menu's entries, then Add Backdrop,
     // Tidy Layout and Frame All (at `at`, view coordinates: where new nodes and backdrops go).
     static ui::json canvasMenu();

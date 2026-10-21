@@ -1294,11 +1294,12 @@ class PresetsTest(unittest.TestCase):
             self.assertLess(len(info["description"]), 400, name + ": one or two sentences")
             seen.add(info["category"])
         self.assertEqual(seen, set(presets.CATEGORIES))  # every category has presets
-        # The README lists them all.
-        with open(os.path.join(os.path.dirname(SCRIPTS_DIR), "..", "..", "README.md"), encoding="utf-8") as f:
-            readme = f.read()
+        # The reference's presets table lists them all.
+        table = os.path.join(os.path.dirname(SCRIPTS_DIR), "..", "..", "docs", "reference", "graph-editor.md")
+        with open(table, encoding="utf-8") as f:
+            reference = f.read()
         for name in shipped_presets():
-            self.assertIn("`%s`" % name, readme, name + " is missing from the README's presets")
+            self.assertIn("`%s`" % name, reference, name + " is missing from docs/reference/graph-editor.md's presets")
 
     def test_every_preset_is_laid_out_left_to_right(self):
         for name in shipped_presets():

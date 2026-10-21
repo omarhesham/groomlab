@@ -366,6 +366,7 @@ std::set<std::string> AppActions::nodeState(MainWindow& w, const std::string& no
         for (const json& p : spec->value("params", json::array())) mappable = mappable || (p.contains("port") && p["port"].is_object());
     }
     if (strands && type != "Output") s.insert({"node.viewable", "node.bakeable"});
+    s.insert("type." + type);  // (graph_ui.json's nodeActions: by the node's type)
     if (type == "Sculpt") s.insert("node.sculpt");
     if (mappable) s.insert("node.mappable");
     if (type == "Script") s.insert("node.script");
@@ -404,6 +405,36 @@ void AppActions::fillParamMenu(MainWindow& w, QMenu* menu, const std::string& no
     options.resolve.state = paramState(w, node, param);
     options.liveShortcuts = false;
     ui::fillMenu(menu, ui::Definitions::shipped().get("graph/paramMenu"), bindings(w), options);
+}
+
+std::vector<ParamPanel::NodeAction> AppActions::nodeActions(MainWindow& w, const std::string& node) {
+    MainWindow* m = &w;
+    std::vector<ParamPanel::NodeAction> out;
+    const ui::Definitions& d = ui::Definitions::shipped();
+    const ui::json* entries = d.find("graph/nodeActions");
+    if (!entries || !m->document_ || node.empty()) return out;
+    const ui::Bindings b = bindings(w);
+    ui::ResolveOptions options;
+    options.state = nodeState(w, node);
+    options.keep = [&b](const std::string& id) { return b.count(id) > 0; };
+    options.dropGenerators = true;
+    for (const ui::Item& item : d.resolve(*entries, options)) {
+        if (item.kind != ui::Item::Kind::Action) continue;
+        const ui::Binding binding = b.at(item.id);
+        ParamPanel::NodeAction a;
+        a.id = item.id;
+        a.label = qs(item.label);
+        a.tip = qs(item.tip);
+        a.enabled = item.enabled;
+        // On this node: the bindings act on the graph's selected one (the node list's panel shows
+        // one the graph may not have selected).
+        a.run = [m, node, binding, value = item.value] {
+            if (m->graph_->selectedNode() != node) m->graph_->selectNode(node);
+            if (binding.trigger) binding.trigger(value, false);
+        };
+        out.push_back(std::move(a));
+    }
+    return out;
 }
 
 void AppActions::askBakeNode(MainWindow& w, const std::string& node) {
@@ -492,6 +523,7 @@ void AppActions::wireGraphEditor(MainWindow& w) {
     // A param's right-click menu, in both param panels.
     for (ParamPanel* panel : {m->graphParams_, m->params_}) {
         panel->setParamMenuFiller([m](QMenu* menu, const std::string& node, const std::string& param) { fillParamMenu(*m, menu, node, param); });
+        panel->setNodeActionsFiller([m](const std::string& node) { return nodeActions(*m, node); });
     }
     // The status line: what the last graph edit did (an error says why it was refused).
     QObject::connect(m->graph_, &NodeGraphView::status, m->shell_, [m](const QString& text) { m->shell_->setGraphStatus(text); });

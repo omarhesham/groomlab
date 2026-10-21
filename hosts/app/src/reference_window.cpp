@@ -619,9 +619,18 @@ const MarkerLists& ReferenceWindow::markerLists() const { return photo() ? photo
 
 void ReferenceWindow::reloadGroom() {
     GroomDocument* doc = main_ ? main_->document() : nullptr;
-    meshView_->setMesh(doc ? doc->file().data.scalp : nullptr);
+    // The scalp smoothed as the groom grows on it (Scalp Subdivision): shown and picked on.
+    meshView_->setMesh(doc ? doc->file().data.scalp : nullptr, doc ? doc->refinedFileScalp() : nullptr);
     meshTitle_->setText(doc ? tr("Mesh: the groom's scalp") : tr("Mesh: (no groom open)"));
     loadPhotos();
+}
+
+void ReferenceWindow::refreshScalp() {
+    GroomDocument* doc = main_ ? main_->document() : nullptr;
+    if (!doc) return;
+    const MeshPtr shown = doc->refinedFileScalp();
+    if (meshView_->mesh() == doc->file().data.scalp && meshView_->shownMesh() == shown) return;
+    meshView_->setMesh(doc->file().data.scalp, shown, false);
 }
 
 void ReferenceWindow::photosChanged() {
@@ -1004,7 +1013,8 @@ bool ReferenceWindow::generate() {
         options.guideCount = guideCount_->value();
         options.maxLength = static_cast<float>(maxLength_->value());
         options.symmetry = referenceSymmetryFromName(symmetry_->currentData().toString().toStdString());
-        result = guidesFromReference(*doc->file().data.scalp, views, options);
+        // On the smoothed scalp the hair grows on (Scalp Subdivision), as the brushes place guides.
+        result = guidesFromReference(*doc->refinedFileScalp(), views, options);
     } catch (const std::exception& e) {
         message_->setText(tr("Cannot grow the guides: %1").arg(QString::fromUtf8(e.what())));
         return false;

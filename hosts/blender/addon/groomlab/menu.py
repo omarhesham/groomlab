@@ -342,6 +342,16 @@ def draw_list_context(self, context):
         draw_root(self.layout, name, context)
 
 
+def draw_eye_context(self, context):
+    """Right-click on the Groom Tools' eyes: Show / Hide for every groom (palette.json's header items)."""
+    op = getattr(context, "button_operator", None)
+    if op is None or getattr(op.bl_rna, "identifier", "") != "GROOMLAB_OT_eye" or op.every:
+        return
+    items = resolve(definitions.get("palette/header/%s/items" % ("guides" if op.what == "GUIDES" else "visible")), context)
+    self.layout.separator()
+    draw_items(self.layout, items, "eye", context)
+
+
 def correctives_menu(context):
     """The Correctives list's right-click menu for the picked row: a corrective's, a Sculpt node's,
     none for the base groom."""
@@ -361,9 +371,11 @@ def register():
         bpy.utils.register_class(c)
     bpy.types.TOPBAR_MT_editor_menus.append(draw_topbar)
     bpy.types.UI_MT_list_item_context_menu.append(draw_list_context)
+    bpy.types.UI_MT_button_context_menu.append(draw_eye_context)
 
 
 def unregister():
+    bpy.types.UI_MT_button_context_menu.remove(draw_eye_context)
     bpy.types.UI_MT_list_item_context_menu.remove(draw_list_context)
     bpy.types.TOPBAR_MT_editor_menus.remove(draw_topbar)
     for c in reversed(_classes):

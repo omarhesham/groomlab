@@ -320,7 +320,7 @@ the symmetry in the **host's axes**; strengths, values and pixels are as in Maya
 | `tube_shape_rename` | `name`, `to` | the same |
 | `tube_shape_remove` | `name` | the same; `users`: the guides that became round |
 | `tube_shape_preview` | `name`, `points`, `smooth` | `{"previewing"}`: the shape's new points shown live (the editor's drag), no undo step; `tube_shape_set` commits, `guides_preview_end` drops it |
-| `parts_list` | | `{"parts": [{name, points}]}` |
+| `parts_list` | | `{"parts": [{name, points}], "flow": {"arrows", "sinks"}}` (the Flow card's count) |
 | `part_add` | `points` (host space, a list or a shared memory array of (n, 3)), `name` ("part") | `{"name", "undo"}`: a part through them bound to the cage, resampled to 64 points, named name, name1... (Maya's `groomLabParts -fromCurves`) |
 | `part_remove` | `name` | `{"removed", "undo"}` |
 | `parts_clear` / `flow_clear` | | `{"cleared", "undo"}` (nothing to clear: no undo step) |
@@ -378,7 +378,8 @@ Blender's stand-in for Maya's masks folder: what `map_remove deleteFile` may del
 are now (`GroomSession::hierarchy()`: a live stroke's preview included), the last evaluation's
 parts and flow, the session's scalp, the selection and the map shown, with Maya's display settings
 (`settings`: `guides`, `tubes`, `tubeWires`, `flow`, `guideWidth`,
-`guideColorMode` (level, layer, group), `guideColorLayer`, `displayLevel`, `guidePoints` (off,
+`guideColorMode` (level, layer, group), `guideColorLayer`, `guideColorSeed` (the groom's name: the
+automatic colors' hue), `displayLevel`, `guidePoints` (off,
 ends, all), `guideSmoothing` (4), `guideDisplaySegments`, `hiddenGuideGroups` (default: the
 session's), `guideGroupColors`, `theme` {levels, pointSize, selected, softSelected, frozen, parts,
 flow, flowField, tubes}). The answer, every array in the session's `display` block (valid until

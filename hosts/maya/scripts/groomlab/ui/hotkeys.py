@@ -9,6 +9,7 @@ makes a "GroomLab" hotkey set (a copy of the current one) with:
     Page Up / Page Down     the brushes' guide level up / down (isolated when isolating)
     B / M (hold) + drag     a GroomLab brush's radius / strength (other tools: Maya's own B / M)
     Alt+Shift+X             the brushes' symmetry on or off (Alt+X is Maya's Walk Tool)
+    Alt+Shift+G             every groom's guides on or off (GroomLab > Display)
 
     import groomlab.ui.hotkeys as hk
     hk.install()             # switches to the GroomLab set
@@ -26,7 +27,8 @@ HOTKEY_SET = "GroomLab"
 # switched from is the first entry when it switched.
 last_changes = []
 # Key names as people read them, for the list of changes.
-_KEY_NAMES = {"y": "Y", "Page_Up": "Page Up", "Page_Down": "Page Down", "b": "B", "m": "M", "X": "Alt+Shift+X"}
+_KEY_NAMES = {"y": "Y", "Page_Up": "Page Up", "Page_Down": "Page Down", "b": "B", "m": "M", "X": "Alt+Shift+X",
+              "G": "Alt+Shift+G"}
 
 # The marking menu's layout, every host's (engine/ui/marking_menu.json; Blender's pie reads the
 # same): the brushes reached for most at radial positions, the rest of the catalog (brush_catalog.h)
@@ -97,6 +99,15 @@ def toggle_symmetry():
     cmds.inViewMessage(amg="GroomLab: symmetry " + ("off" if name == "none" else "on (%s)" % label),
                        pos="topCenter", fade=True)
     return name
+
+
+def toggle_all_guides():
+    """Alt+Shift+G: every groom's guides off when any show, else on, said in the viewport. Returns
+    whether they show now."""
+    import groomlab
+    on = groomlab.toggle_all_guides()
+    cmds.inViewMessage(amg="GroomLab: every groom's guides " + ("shown" if on else "hidden"), pos="topCenter", fade=True)
+    return on
 
 
 def drag_slider(name, fallback):
@@ -170,6 +181,8 @@ def create_runtime_commands():
     _runtime("GroomLabGroomTools", "import groomlab.ui.palette as p; p.show()", "GroomLab Groom Tools")
     _runtime("GroomLabToggleSymmetry", "import groomlab.ui.hotkeys as h; h.toggle_symmetry()",
              "GroomLab: brush symmetry on or off")
+    _runtime("GroomLabToggleAllGuides", "import groomlab.ui.hotkeys as h; h.toggle_all_guides()",
+             "GroomLab: every groom's guides on or off")
     for name, slider, key, maya_press in (("Radius", "radius", "B", "ModifyUpperRadius"),
                                           ("Strength", "strength", "M", "ModifyDisplacement")):
         _runtime("GroomLabBrush%sPress" % name,
@@ -224,7 +237,8 @@ def install(activate=True):
                 ("Page_Up", "GroomLabLevelUp", None), ("Page_Down", "GroomLabLevelDown", None),
                 ("b", "GroomLabBrushRadiusPress", "GroomLabBrushRadiusRelease"),
                 ("m", "GroomLabBrushStrengthPress", "GroomLabBrushStrengthRelease"),
-                ("X", "GroomLabToggleSymmetry", None, {"altModifier": True})]
+                ("X", "GroomLabToggleSymmetry", None, {"altModifier": True}),
+                ("G", "GroomLabToggleAllGuides", None, {"altModifier": True})]
     current = cmds.hotkeySet(query=True, current=True)
     walk = _maya_binding("x", altModifier=True)
     cmds.hotkeySet(HOTKEY_SET, edit=True, current=True)

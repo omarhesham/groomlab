@@ -4,7 +4,7 @@ This guide walks through the six workflows GroomLab is built for, in the order a
 takes shape. Each step works from Maya's UI (the **GroomLab** menu and the windows it opens), and
 most have a Python call for scripts and pipelines. For the full reference (every node, parameter,
 command and file format) see the web docs at https://getgroomlab.com/docs and the
-[README](../README.md).
+[reference](reference/README.md).
 
 **Install.** GroomLab runs in Maya 2022 to 2027 on Windows, with Arnold (MtoA). Maya 2022 is the
 tested version. The builds for 2023 to 2027 are a beta: built for each version, not yet tested

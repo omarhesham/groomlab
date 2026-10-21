@@ -20,6 +20,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <QStringList>
@@ -30,7 +31,9 @@
 class QAbstractButton;
 class QCheckBox;
 class QComboBox;
+class QGridLayout;
 class QLabel;
+class QPushButton;
 class QMenu;
 class QScrollArea;
 class QVBoxLayout;
@@ -90,6 +93,21 @@ public:
     using ParamMenuFiller = std::function<void(QMenu* menu, const std::string& node, const std::string& param)>;
     void setParamMenuFiller(ParamMenuFiller filler) { paramMenuFiller_ = std::move(filler); }
     void fillParamMenu(QMenu* menu, const std::string& param);
+    // The node's actions by its type (graph_ui.json's nodeActions: the Cards exports, Simulate's
+    // range, bake and clear, Bake Node to Guides...), two to a row under its title, over the rows'
+    // scroll area: in view however far the params scroll. The host gives them (AppActions::nodeActions);
+    // without a filler, none.
+    struct NodeAction {
+        std::string id;
+        QString label, tip;
+        std::function<void()> run;
+        bool enabled = true;
+    };
+    using NodeActionsFiller = std::function<std::vector<NodeAction>(const std::string& node)>;
+    void setNodeActionsFiller(NodeActionsFiller filler) { nodeActionsFiller_ = std::move(filler); }
+    std::vector<std::string> actionIds() const;           // the shown node's, in order
+    QPushButton* actionButton(const std::string& id) const;  // null: none
+    QWidget* actionsBar() const { return actions_; }
     // As tall as the node's rows (the floating panel takes this height within the view).
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override { return QSize(200, 120); }
@@ -188,6 +206,9 @@ private:
     QLabel* empty_ = nullptr;  // "No node selected", in place of the rows
     QCheckBox* bypass_ = nullptr;
     QComboBox* evaluation_ = nullptr;  // when the node runs
+    QWidget* actions_ = nullptr;        // the node's actions (NodeAction), over the scroll area
+    QGridLayout* actionsGrid_ = nullptr;
+    std::vector<std::pair<std::string, QPushButton*>> actionButtons_;
     QScrollArea* scroll_ = nullptr;
     // The rows: a name beside a small editor, or a name over a wide one (a ramp, a color, a map source).
     QVBoxLayout* list_ = nullptr;
@@ -201,6 +222,8 @@ private:
     bool sliderDown_ = false;   // a slider's drag is on
     bool rebuildPending_ = false;
     ParamMenuFiller paramMenuFiller_;
+    NodeActionsFiller nodeActionsFiller_;
+    void buildActions();  // the shown node's actions (none: the bar hidden)
 };
 
 }  // namespace groomlab::app

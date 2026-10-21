@@ -379,6 +379,19 @@ GLYPHS = {
     "eyeOff": '<path d="M2.5 12 C5 6.8 8.3 5 12 5 C15.7 5 19 6.8 21.5 12 C19 17.2 15.7 19 12 19 C8.3 19 5 17.2 2.5 12 Z" '
               'fill="none" stroke="{c}" stroke-width="1.8" stroke-linejoin="round" opacity="0.5"/>'
               '<path d="M4 20 L20 4" stroke="{c}" stroke-width="1.8" stroke-linecap="round"/>',
+    # Guides: three strands from their roots (the guides' eye), and struck through when hidden.
+    "guides": '<path d="M6 20 C6 15 4.5 11 5.5 6 M12 20 C12 14 13 10 12 4 M18 20 C18 16 19.5 12 19 8" fill="none" '
+              'stroke="{c}" stroke-width="1.8" stroke-linecap="round"/><circle cx="6" cy="20" r="1.8" fill="{c}"/>'
+              '<circle cx="12" cy="20" r="1.8" fill="{c}"/><circle cx="18" cy="20" r="1.8" fill="{c}"/>',
+    "guidesOff": '<g opacity="0.5"><path d="M6 20 C6 15 4.5 11 5.5 6 M12 20 C12 14 13 10 12 4 M18 20 C18 16 19.5 12 19 8" '
+                 'fill="none" stroke="{c}" stroke-width="1.8" stroke-linecap="round"/><circle cx="6" cy="20" r="1.8" '
+                 'fill="{c}"/><circle cx="12" cy="20" r="1.8" fill="{c}"/><circle cx="18" cy="20" r="1.8" fill="{c}"/></g>'
+                 '<path d="M4 20 L20 4" stroke="{c}" stroke-width="1.8" stroke-linecap="round"/>',
+    # A push pin (Maya's pinned panels): standing up when pinned, leaning (outlined) when not.
+    "pin": '<g transform="rotate(40 12 12)"><path d="M9 4 H15 M10.5 4 V10 L7.5 14 H16.5 L13.5 10 V4 M12 14 V20.5" '
+           'fill="none" stroke="{c}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></g>',
+    "pinned": '<path d="M10.5 4 H13.5 V10 L16.5 14 H7.5 L10.5 10 Z" fill="{c}"/><path d="M9 4 H15 M12 14 V20.5" '
+              'fill="none" stroke="{c}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
     "more": '<circle cx="5.5" cy="12" r="1.9" fill="{c}"/><circle cx="12" cy="12" r="1.9" fill="{c}"/>'
             '<circle cx="18.5" cy="12" r="1.9" fill="{c}"/>',
     "rename": '<path d="M5 19 L5.8 15.4 L15.6 5.6 A1.6 1.6 0 0 1 17.9 5.6 L18.4 6.1 A1.6 1.6 0 0 1 18.4 8.4 '

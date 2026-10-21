@@ -143,6 +143,16 @@ void GroomDocument::attachSide(std::size_t undoBefore, const std::string& label,
 
 void GroomDocument::applySide(const Edit& edit, bool after) {
     if (edit.colors) groupColors_ = after ? edit.colorsAfter : edit.colorsBefore;
+    if (edit.subdivision) {
+        // Scalp Subdivision: the file's scalp takes the level, the session the scalp of the time.
+        const Edit::Subdivision& s = after ? edit.subdivision->second : edit.subdivision->first;
+        scene_->setScalpRenderSubdivision(s.levels, s.from);
+        try {
+            scene_->setTime(time_);
+        } catch (const std::exception&) {
+            // (a cache that cannot be read: the next evaluation says so)
+        }
+    }
     if (edit.files.empty()) return;
     if (after) {
         for (const Edit::FileState& f : edit.files) writeBytes(f.path, f.after);

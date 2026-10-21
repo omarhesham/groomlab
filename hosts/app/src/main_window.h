@@ -281,12 +281,17 @@ public:
     void setInteractiveQuality(const QString& name);
     // "none", "aces" or "agx".
     void setToneMap(const QString& name);
+    void setBackground(const QString& name);  // solid, gradient or environment
     void setLookdev(bool on);
     void setShowScalp(bool on);
-    // The Groom Tools' eye: the groom (its strands, guides and overlays) shown or hidden in the
-    // viewport; the scalp and the props stay.
-    void setGroomVisible(bool on);
-    bool groomVisible() const { return groomVisible_; }
+    // The Groom Tools' eye: the hair (the strands in every form, the instances, the cards) shown
+    // or hidden in the viewport at once (no evaluation); the guides, the overlays, the scalp and
+    // the props stay.
+    void setHairVisible(bool on);
+    bool hairVisible() const { return hairVisible_; }
+    // The guides shown (Properties > Guides, the Groom Tools' guides eye, GroomLab > Display).
+    void setGuidesVisible(bool on);
+    bool guidesVisible() const;
     // The GPU look preview (gpu_preview.h; the Display panel's toggle): drags and brush dabs run
     // on the GPU where the device has an engine. On by default (GROOMLAB_APP_GPU_PREVIEW forces it).
     void setGpuPreview(bool on);
@@ -607,6 +612,7 @@ private:
     void refreshDisplayChoices();  // the color sources and the maps the display panel offers
     void applyDisplayOptions();    // the display panel's choices into the settings and the renderer
     void applyProps();       // the props (and the textured cards) to the renderer
+    void setRendererProps();  // ... the renderers' part alone (the textured cards while the hair shows)
     Bounds sceneBounds() const;  // the document's with the props'
     // An error (stderr and a red toast) or, `error` false, a line for stderr only (evaluations, timings).
     void report(const QString& text, bool error = true);
@@ -727,6 +733,12 @@ private:
     // Scaling with the scalp (GroomDocument::setScaleSource): what it follows and the groom's scale
     // ("1.00x"), refreshed with the display choices; the session's scale notice last shown.
     QComboBox* scaleSource_ = nullptr;
+    // Scalp Subdivision (GroomDocument::setScalpSubdivision): Off, 1 to 3, and the triangles the
+    // refined scalp has (a warning past kLargeScalpTriangles).
+    QComboBox* scalpSubdivision_ = nullptr;
+    QLabel* scalpTriangles_ = nullptr;
+    void setScalpSubdivision(int levels);
+    void refreshScalpSubdivision();
     const void* scaleNoticeSession_ = nullptr;
     std::uint64_t scaleNoticeShown_ = 0;
     QLabel* groomScale_ = nullptr;
@@ -758,7 +770,7 @@ private:
     QString lookPhoto_;         // the photo the viewport looks through ("" none)
     QTimer* lookStore_ = nullptr;  // an unlocked look-through's moves stored once they stop
     bool lookdevWanted_ = true;  // the Lookdev box: the colored modes draw lines while they are on
-    bool groomVisible_ = true;   // the Groom Tools' eye
+    bool hairVisible_ = true;   // the Groom Tools' eye: the hair
     QMenu* presetsMenu_ = nullptr;
     QAction* undo_ = nullptr;
     QAction* redo_ = nullptr;

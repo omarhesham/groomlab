@@ -9,6 +9,8 @@
 #include <QMainWindow>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QSignalBlocker>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -70,6 +72,7 @@ AppShell::AppShell(QMainWindow* window, OverlayHost* overlay) : QObject(window),
     sections_[static_cast<std::size_t>(Panel::Display)] = displayPage_;
     lookCard_ = new LookCard(propertiesStack_);
     lookCard_->setDocked(true);
+    lookCard_->setTabsShown(false);  // the dock's tabs pick its page
     cardsPanel_ = new CardsPanel(propertiesStack_);
     cardsPanel_->setDocked(true);
     exportPanel_ = new ExportPanel(propertiesStack_);
@@ -85,7 +88,27 @@ AppShell::AppShell(QMainWindow* window, OverlayHost* overlay) : QObject(window),
                           static_cast<QWidget*>(exportPanel_), emptyPage_}) {
         propertiesStack_->addWidget(page);
     }
-    properties_ = makeDock(tr("Properties"), "propertiesDock", propertiesStack_);
+    // Groom and Look: tabs over the page, Attributes (the groom's settings) and the look card's
+    // Material, Lighting and Render; Cards and Export show their own panel alone.
+    propertiesTabs_ = new QTabBar();
+    propertiesTabs_->setObjectName(QStringLiteral("propertiesTabs"));
+    propertiesTabs_->setDocumentMode(true);
+    propertiesTabs_->setExpanding(false);
+    propertiesTabs_->setDrawBase(true);
+    propertiesTabs_->setUsesScrollButtons(false);
+    for (const QString& title : {tr("Attributes"), tr("Material"), tr("Lighting"), tr("Render")}) propertiesTabs_->addTab(title);
+    propertiesTabs_->setTabToolTip(0, tr("The groom's settings, in the order of Maya's Attribute Editor"));
+    propertiesTabs_->setTabToolTip(1, tr("The hair's color and shading"));
+    propertiesTabs_->setTabToolTip(2, tr("The viewport's lookdev lighting: studio presets and lights"));
+    propertiesTabs_->setTabToolTip(3, tr("The lookdev render's quality and tone"));
+    connect(propertiesTabs_, &QTabBar::currentChanged, this, [this](int) { refreshPages(); });
+    auto* propertiesBody = new QWidget();
+    auto* propertiesColumn = new QVBoxLayout(propertiesBody);
+    propertiesColumn->setContentsMargins(0, 0, 0, 0);
+    propertiesColumn->setSpacing(0);
+    propertiesColumn->addWidget(propertiesTabs_);
+    propertiesColumn->addWidget(propertiesStack_, 1);
+    properties_ = makeDock(tr("Properties"), "propertiesDock", propertiesBody);
     window_->addDockWidget(Qt::RightDockWidgetArea, properties_);
     // Node List, Look Settings and Help: tabs beside Properties, shown on demand.
     nodesDock_ = makeDock(tr("Node List"), "nodesDock", nullptr);
@@ -244,6 +267,11 @@ void AppShell::setMode(Mode mode) {
     if (mode == Mode::Groom) {
         if (groomToolsWanted_) groomTools_->show();
     } else {
+        // Look opens on the look (its Material tab) unless a look tab is already up.
+        if (mode == Mode::Look && propertiesTab() == PropertiesTab::Attributes) {
+            const QSignalBlocker block(propertiesTabs_);
+            propertiesTabs_->setCurrentIndex(static_cast<int>(PropertiesTab::Material));
+        }
         if (wasGroom) groomToolsWanted_ = !groomTools_->isHidden();
         groomTools_->hide();
         properties_->show();
@@ -254,14 +282,33 @@ void AppShell::setMode(Mode mode) {
 
 void AppShell::refreshPages() {
     QWidget* page = displayPage_;
-    if (mode_ != Mode::Groom) {
-        // No zeros before a groom: the mode's panel waits for one.
+    const bool tabbed = mode_ == Mode::Groom || mode_ == Mode::Look;
+    propertiesTabs_->setVisible(tabbed);
+    if (tabbed) {
+        // Attributes, else the look card on its tab (no zeros before a groom: it waits for one).
+        const PropertiesTab tab = propertiesTab();
+        if (tab != PropertiesTab::Attributes) {
+            lookCard_->setTab(static_cast<LookCard::Tab>(static_cast<int>(tab) - 1));
+            page = groomOpen() ? static_cast<QWidget*>(lookCard_) : emptyPage_;
+        }
+    } else {
         page = !groomOpen() ? emptyPage_
-               : mode_ == Mode::Look ? static_cast<QWidget*>(lookCard_)
                : mode_ == Mode::Cards ? static_cast<QWidget*>(cardsPanel_)
                                       : static_cast<QWidget*>(exportPanel_);
     }
     propertiesStack_->setCurrentWidget(page);
+}
+
+void AppShell::setPropertiesTab(PropertiesTab tab) {
+    properties_->show();
+    properties_->raise();
+    if (mode_ != Mode::Groom && mode_ != Mode::Look) return;  // Cards and Export show their own panel
+    propertiesTabs_->setCurrentIndex(static_cast<int>(tab));
+    refreshPages();
+}
+
+AppShell::PropertiesTab AppShell::propertiesTab() const {
+    return static_cast<PropertiesTab>(std::max(0, propertiesTabs_->currentIndex()));
 }
 
 void AppShell::setFileName(const QString& name, bool dirty) {
@@ -385,8 +432,8 @@ void AppShell::showPanel(Panel which, bool show) {
             break;
         }
         case Panel::Display:
-            properties_->setVisible(show);
-            if (show) properties_->raise();
+            if (show) setPropertiesTab(PropertiesTab::Attributes);
+            else properties_->hide();
             break;
         case Panel::Look:
         case Panel::Nodes:

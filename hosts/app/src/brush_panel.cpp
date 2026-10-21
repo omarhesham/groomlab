@@ -220,14 +220,24 @@ BrushPanel::BrushPanel(QWidget* parent) : QFrame(parent) {
             flowSink_->addItem(QString::fromStdString(item.value("label", std::string())), QString::fromStdString(item.value("value", std::string())));
             flowSink_->setItemData(flowSink_->count() - 1, QString::fromStdString(item.value("tip", std::string())), Qt::ToolTipRole);
         }
-        auto* clear = new QPushButton(tr("Clear All"), flowBox_);
-        clear->setObjectName(QStringLiteral("clearFlow"));
-        clear->setToolTip(tr("Remove every arrow and sink"));
-        connect(clear, &QPushButton::clicked, this, &BrushPanel::clearFlowRequested);
         row->addWidget(label);
         row->addWidget(flowSink_, 1);
-        row->addWidget(clear);
         column->addLayout(row);
+        // Where the arrows live (on the groom) and how many, and Clear All (GroomLab > Utilities >
+        // Delete All Flow Arrows).
+        auto* counted = new QHBoxLayout();
+        counted->setSpacing(6);
+        flowCount_ = hintLabel(flowCountText(0, 0), flowBox_);
+        flowCount_->setObjectName(QStringLiteral("flowCount"));
+        flowCount_->setToolTip(tr("The flow arrows and sinks kept on the groom (the Flow node lays the strands along them)"));
+        clearFlow_ = new QPushButton(tr("Clear All"), flowBox_);
+        clearFlow_->setObjectName(QStringLiteral("clearFlow"));
+        clearFlow_->setToolTip(QString::fromStdString(d.get("actions/flow.deleteAll").value("tip", std::string())));
+        clearFlow_->setEnabled(false);
+        connect(clearFlow_, &QPushButton::clicked, this, &BrushPanel::clearFlowRequested);
+        counted->addWidget(flowCount_, 1);
+        counted->addWidget(clearFlow_);
+        column->addLayout(counted);
         flowHint_ = hintLabel(QString(), flowBox_);
         column->addWidget(flowHint_);
         auto showHint = [this] { flowHint_->setText(text(flowSink_->currentData().toString().isEmpty() ? "flowArrows" : "flowSinks")); };
@@ -522,6 +532,20 @@ void BrushPanel::setParts(const std::vector<std::string>& names) {
     if (!found.isEmpty()) parts_->setCurrentItem(found.front());
     else if (parts_->count() > 0) parts_->setCurrentRow(parts_->count() - 1);
     for (QPushButton* b : partButtons_->findChildren<QPushButton*>()) b->setEnabled(parts_->count() > 0);
+}
+
+QString BrushPanel::flowCountText(std::size_t arrows, std::size_t sinks) {
+    if (arrows == 0 && sinks == 0) return tr("No flow arrows yet");
+    return tr("%1 arrow%2 · %3 sink%4")
+        .arg(arrows)
+        .arg(arrows == 1 ? QString() : QStringLiteral("s"))
+        .arg(sinks)
+        .arg(sinks == 1 ? QString() : QStringLiteral("s"));
+}
+
+void BrushPanel::setFlowCount(std::size_t arrows, std::size_t sinks) {
+    flowCount_->setText(flowCountText(arrows, sinks));
+    clearFlow_->setEnabled(arrows + sinks > 0);
 }
 
 std::string BrushPanel::selectedPart() const { return parts_->currentItem() ? parts_->currentItem()->text().toStdString() : std::string(); }

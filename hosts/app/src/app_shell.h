@@ -38,6 +38,7 @@ class QLabel;
 class QMainWindow;
 class QSplitter;
 class QStackedWidget;
+class QTabBar;
 class QTabWidget;
 class QToolButton;
 class QWidget;
@@ -89,6 +90,13 @@ public:
     // A saved layout was put back (QMainWindow::restoreState): its docks kept as they were, the
     // mode's and the timeline's own visibility applied again over it.
     void layoutRestored();
+
+    // ---- The Properties tabs (Groom and Look): Attributes (the groom's settings in the
+    // Attribute Editor's order), then the look card's Material, Lighting and Render.
+    enum class PropertiesTab { Attributes, Material, Lighting, Render };
+    void setPropertiesTab(PropertiesTab tab);  // shows the dock too
+    PropertiesTab propertiesTab() const;
+    QTabBar* propertiesTabs() const { return propertiesTabs_; }
 
     // ---- Modes (workspaces) -------------------------------------------------------------------
     void setMode(Mode mode);  // the docks and the overlay follow; no signal
@@ -164,6 +172,7 @@ private:
     QDockWidget* lookDock_ = nullptr;
     QDockWidget* helpDock_ = nullptr;
     QStackedWidget* propertiesStack_ = nullptr;
+    QTabBar* propertiesTabs_ = nullptr;
     QWidget* displayPage_ = nullptr;
     QWidget* emptyPage_ = nullptr;
     QSplitter* graphSplit_ = nullptr;

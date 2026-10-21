@@ -22,6 +22,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "groomlab/cards.h"
@@ -126,6 +127,16 @@ constexpr std::array<float, 3> kDefaultStrandColor{0.62f, 0.45f, 0.28f};
 constexpr int kMaxDrawnGuideLevels = 8;
 
 std::array<float, 3> hueColor(float hue, float saturation, float value);
+
+// The automatic guide colors' hue turn for a groom, from its name (Maya's groom transform,
+// Blender's groom object, the app's groom file name): deterministic (FNV-1a of the name), so two
+// grooms' guide groups start from different hues. In [0, 1); 0 for "" (the theme's own colors).
+float guideHueSeed(std::string_view groomName);
+// A guide's automatic color (every host's, through DisplaySettings::guideColorSeed): by level, the
+// theme's color for its depth with its hue turned by the seed; by group, golden-ratio hue steps
+// from the seed in the order the groups were made (`group`: the group's index). A group's own
+// color (GuideGroup::color, DisplaySettings::guideGroupColors) is drawn over it.
+std::array<float, 3> autoGuideColor(const DisplayTheme& theme, float seed, int depth, int group, bool byGroup);
 // Blue, cyan, green, yellow, red over t in [0, 1].
 std::array<float, 3> rampColor(float t);
 // Density heatmap per strand (strands per area around each root on a log scale around the
@@ -342,10 +353,17 @@ struct DisplaySettings {
     int sculptDisplay = 1;   // while a stroke is live: 0 as ever, 1 dimmed and flat, 2 hidden
     bool cardsView = false;  // the Cards nodes' cards show instead of the strands
     bool instances = true;
+    // The hair shown (the hosts' strands eye): off, nothing the groom grows is built (strands,
+    // ribbons, root dots, instances, scales, cards, strand meshes: isHairItem), as sculptDisplay 2
+    // hides them for a stroke; the guides, the selection and the overlays stay. A viewport toggle:
+    // renders and exports never read it.
+    bool hair = true;
     // Guides.
     bool guides = true, tubes = false;
     float guideWidth = 4.0f;
     int guideColorMode = 0;  // 0 by level, 1 by the layer guideColorLayer, 2 by group
+    // The groom's name: the automatic guide colors start from its hue (guideHueSeed); "" the theme's.
+    std::string guideColorSeed;
     std::string guideColorLayer;
     int displayLevel = -1;   // >= 0: that level isolated, the others dimmed
     int guidePoints = 2;     // dots: 0 off, 1 roots and tips, 2 all
@@ -412,6 +430,19 @@ enum class DisplayItemId {
     SoftSelected, Parts, Flow, FlowField, Cards, ScalpMap, StrandMesh, Count
 };
 constexpr std::size_t kDisplayItemCount = static_cast<std::size_t>(DisplayItemId::Count);
+// The hair's items: what the groom grows (the strands in every form, the instances, the scales,
+// the cards, the strand meshes), which the hosts' strands eye hides (DisplaySettings::hair); the
+// guides, tubes, selection, parts, flow and the scalp's map are not.
+constexpr bool isHairItem(DisplayItemId id) {
+    switch (id) {
+    case DisplayItemId::DimStrands: case DisplayItemId::Strands: case DisplayItemId::ColoredStrands:
+    case DisplayItemId::Ribbons: case DisplayItemId::InstanceMarkers: case DisplayItemId::InstanceMeshes:
+    case DisplayItemId::Scales: case DisplayItemId::Cards: case DisplayItemId::StrandMesh:
+        return true;
+    default:
+        return false;
+    }
+}
 constexpr std::size_t kDisplayPartCount = static_cast<std::size_t>(DisplayPart::Count);
 
 // How an item is drawn (its depth priority in Maya): dormant wire, dormant filled (surfaces),

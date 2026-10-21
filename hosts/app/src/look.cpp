@@ -74,10 +74,10 @@ HairMaterial hairPreset(const std::string& name) {
         m.melaninRedness = 0.0f;
         m.melaninRandomize = 0.01f;
     } else if (name == "dyed") {
-        // Bleached, then a vivid blue dye: the base color goes through Chiang's fit.
+        // Bleached, then a vivid violet dye (the swatch's): the base color goes through Chiang's fit.
         m.melanin = 0.02f;
         m.melaninRedness = 0.0f;
-        m.baseColor = {0.08f, 0.25f, 0.9f};
+        m.baseColor = {0.37f, 0.15f, 1.0f};
     } else {
         m.presetName.clear();
     }
@@ -113,8 +113,7 @@ LightingSetup lightingPreset(const std::string& name) {
                     makeLight("fill", 55.0f, 10.0f, {0.85f, 0.9f, 1.0f}, 0.5f, true),
                     makeLight("rim", 160.0f, 30.0f, {1.0f, 1.0f, 1.0f}, 1.5f, true)};
         s.environment = Environment::Studio;
-        s.environmentIntensity = 0.4f;
-        s.background = Background::Solid;  // the default deep charcoal (LightingSetup)
+        s.environmentIntensity = 0.4f;  // over the default gradient (LightingSetup)
     } else if (name == "daylight") {
         s.lights = {makeLight("sun", -40.0f, 50.0f, {1.0f, 0.95f, 0.85f}, 5.0f, true)};
         s.environment = Environment::Sky;
@@ -159,6 +158,17 @@ LightingSetup lightingPreset(const std::string& name) {
         return lightingPreset("studio");
     }
     return s;
+}
+
+LightingSetup withLightingPreset(const LightingSetup& current, const std::string& name) {
+    const LightingSetup preset = lightingPreset(name);
+    LightingSetup out = current;
+    out.lights = preset.lights;
+    out.environment = preset.environment;
+    out.environmentIntensity = preset.environmentIntensity;
+    out.environmentRotation = preset.environmentRotation;
+    out.presetName = preset.presetName;
+    return out;
 }
 
 // ---- Environment --------------------------------------------------------------------------------

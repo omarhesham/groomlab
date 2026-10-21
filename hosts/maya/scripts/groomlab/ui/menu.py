@@ -530,10 +530,10 @@ def _simulate_with_progress(groom, status, end=None):
     return frames
 
 
-def simulate_range():
+def simulate_range(groom=None):
     """The Simulate nodes stepped over the playback range into their cache (scrubbing reads it),
-    the main progress bar counting the frames."""
-    groom = _selected_groom()
+    the main progress bar counting the frames (`groom`, else the active one)."""
+    groom = groom or _selected_groom()
     if groom:
         frames = _simulate_with_progress(groom, "GroomLab: simulating %s" % groom)
         _say("simulated %d frames of %s" % (frames, groom))
@@ -541,12 +541,12 @@ def simulate_range():
     return 0
 
 
-def bake_core_simulation():
+def bake_core_simulation(groom=None):
     """The Simulate nodes simulated over the playback range (the main progress bar counting the
     frames) and baked to the scene's caches folder: renders, exports and groom files read the
-    baked frames."""
+    baked frames (`groom`, else the active one)."""
     from groomlab import sim
-    groom = _selected_groom()
+    groom = groom or _selected_groom()
     if not groom:
         return {}
     frames = _simulate_with_progress(groom, "GroomLab: simulating %s for the bake" % groom)
@@ -561,10 +561,11 @@ def bake_core_simulation():
     return written
 
 
-def clear_core_simulation():
-    """The Simulate nodes' frames and bakes dropped: the next frame shown simulates again."""
+def clear_core_simulation(groom=None):
+    """The Simulate nodes' frames and bakes dropped: the next frame shown simulates again (`groom`,
+    else the active one)."""
     from groomlab import sim
-    groom = _selected_groom()
+    groom = groom or _selected_groom()
     if groom:
         sim.clear_baked_simulation(groom)
         sim.invalidate_simulation(groom)
@@ -1203,6 +1204,22 @@ def _say(text):
         cmds.inViewMessage(amg="GroomLab: " + text, pos="topCenter", fade=True)
 
 
+def delete_all_flow_arrows(groom=None):
+    """GroomLab > Utilities > Delete All Flow Arrows: every flow arrow and sink off the groom (one undo
+    step); said how many. Returns (arrows, sinks) removed, or None with no groom."""
+    import groomlab
+    groom = groom or _selected_groom()
+    if not groom:
+        return None
+    arrows, sinks = groomlab.clear_flow(groom)
+    if arrows or sinks:
+        _say("deleted %d flow arrow%s and %d sink%s from %s" % (arrows, "" if arrows == 1 else "s", sinks,
+                                                              "" if sinks == 1 else "s", groom.split("|")[-1]))
+    else:
+        _say("%s has no flow arrows" % groom.split("|")[-1])
+    return arrows, sinks
+
+
 def _ask(title, fields, note=None):
     """A small form: fields are (key, label, kind, value[, choices][, tip]) with kind "choice"
     (a drop-down), "edit" (a drop-down you may type in), "int", "float" or "bool". Returns
@@ -1777,6 +1794,20 @@ def open_graph_editor():
     graph_editor.show()
 
 
+def show_all(what, on):
+    """GroomLab > Display (and the Groom Tools' eyes, Shift+click or right-click): every groom's hair
+    (`what` "hair": the strands alone) or guides ("guides"), shown or hidden in one undo step; said
+    in the viewport."""
+    import groomlab
+    grooms = (groomlab.set_all_guides_visible if what == "guides" else groomlab.set_all_hair_visible)(on)
+    if cmds.about(batch=True):
+        return grooms
+    cmds.inViewMessage(amg="GroomLab: %s %s" % (
+        "every groom's guides" if what == "guides" else "every groom's hair", "shown" if on else "hidden"),
+        pos="topCenter", fade=True)
+    return grooms
+
+
 def install_hotkeys():
     """GroomLab > Install GroomLab Hotkeys: the GroomLab hotkey set, and a small window (not a dialog)
     listing what it changed: the set switched to and each key it rebound."""
@@ -1854,6 +1885,10 @@ ACTIONS = {
     "nhair.remove": remove_simulation,
     "nhair.exportGuides": export_guides_dialog,
     "nhair.loadCache": load_guide_cache_dialog,
+    "display.showAllHair": lambda: show_all("hair", True),
+    "display.hideAllHair": lambda: show_all("hair", False),
+    "display.showAllGuides": lambda: show_all("guides", True),
+    "display.hideAllGuides": lambda: show_all("guides", False),
     "review.heatmap": toggle_density_heatmap,
     "review.hud": toggle_hud,
     "review.turntable": make_turntable,
@@ -1886,6 +1921,7 @@ ACTIONS = {
     "strands.toMesh": strands_to_mesh_dialog,
     "node.bakeToGuides": bake_node_dialog,
     "scales.bakeMaps": bake_scale_maps_action,
+    "flow.deleteAll": delete_all_flow_arrows,
     "groom.transfer": transfer_dialog,
     "graph.copyToGrooms": copy_graph_dialog,
     "files.findMissing": find_missing_files_dialog,

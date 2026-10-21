@@ -122,6 +122,8 @@ def main():
     os.makedirs(docs, exist_ok=True)
     shutil.copy2(os.path.join(ROOT, "docs", "USER_GUIDE.md"), docs)
     shutil.copy2(os.path.join(ROOT, "README.md"), docs)
+    # The full reference (docs/reference, which USER_GUIDE.md and README.md link), for offline use.
+    shutil.copytree(os.path.join(ROOT, "docs", "reference"), os.path.join(docs, "reference"), dirs_exist_ok=True)
 
     # Which Maya each build is for, and which are beta: the installer and Check for Updates read it.
     builds = {}

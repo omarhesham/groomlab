@@ -1736,9 +1736,13 @@ class ToolsTest(HelperTestCase):
         self.stroke("flow", line((c[0], c[1] - 30.0), (d[0], d[1] - 30.0), 14))
         laid = self.texts()["flowData"]
         self.assertTrue(json.loads(laid))
+        counted = self.call("parts_list")["flow"]  # the Flow card's count
+        self.assertEqual(counted, {"arrows": len(json.loads(laid).get("pins", [])), "sinks": 0})
+        self.assertGreater(counted["arrows"], 0)
         r = self.call("flow_clear")
         self.assertEqual((r["cleared"], r["undo"]["undoLabel"]), (True, "clear flow"))
         self.assertEqual(self.texts()["flowData"], "")
+        self.assertEqual(self.call("parts_list")["flow"], {"arrows": 0, "sinks": 0})
         self.call("undo")
         self.assertEqual(self.texts()["flowData"], laid)
 

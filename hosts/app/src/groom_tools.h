@@ -127,6 +127,11 @@ public:
     };
     void setGroups(const std::vector<GroupRow>& groups);
     void setParts(const std::vector<std::string>& names);
+    // The flow arrows and sinks the groom keeps (the Flow card's count, beside Clear All).
+    void setFlowCount(std::size_t arrows, std::size_t sinks);
+    // Whether a section (palette.sections) shows for a tool on a tab: its "tools" (the tool one of
+    // them) and "tabs" (the tab one of them); one with neither always shows. Maya's and Blender's rule.
+    static bool sectionShown(const ui::json& section, const std::string& tool, const std::string& tab);
     // The first-groom steps' progress (palette.starter): shown while a groom is open, a step is
     // left and they were not dismissed.
     void setStarterProgress(bool guidesPlaced, bool lookGiven);
@@ -144,8 +149,10 @@ public:
     // The tool tiles' names under their icons (View > Rail Labels): off, compact icon tiles.
     void setTileLabels(bool shown);
     bool tileLabels() const { return tileLabels_; }
-    void setGroomVisible(bool visible);  // the eye (no signal)
-    bool groomVisible() const;
+    void setHairVisible(bool visible);  // the hair's eye (no signal)
+    bool hairVisible() const;
+    void setGuidesVisible(bool visible);  // the guides' eye (no signal)
+    bool guidesVisible() const;
     // A line under the header (a tool that could not start, what to do first); "" hides it.
     void setStatus(const QString& text);
     QString status() const;
@@ -184,6 +191,7 @@ public:
     QCheckBox* symmetryBox() const { return symmetry_; }
     QComboBox* symmetryMode() const { return symmetryMode_; }
     QToolButton* eyeButton() const { return eye_; }
+    QToolButton* guidesEyeButton() const { return guidesEye_; }
     QToolButton* graphButton() const { return graph_; }
     QMenu* moreMenu() const { return moreMenu_; }
     QWidget* emptyState() const { return empty_; }
@@ -205,7 +213,8 @@ signals:
     void clearFlowRequested();
     void isolateChanged();        // Isolate or the group: the display's isolated level
     void sculptDisplayChanged();  // While sculpting: the strands' display or Full density
-    void groomVisibilityToggled(bool visible);
+    void hairVisibilityToggled(bool visible);    // the hair's eye: the strands alone
+    void guidesVisibilityToggled(bool visible);  // the guides' eye: every guide group (Properties > Guides)
     void graphRequested();
     void tabChanged(const QString& id);
     void starterStepRequested(const QString& id);  // "guides" or "look"
@@ -220,7 +229,8 @@ private:
     void symmetryEdited();
     void refreshCard();           // the heading, hint and card for the tool
     void refreshStarter();
-    void refreshVisibility();     // empty state vs the work, the groups section's tab
+    void refreshVisibility();     // empty state vs the work, the sections (refreshSections)
+    void refreshSections();       // the sections the tool and tab use (palette.sections' tools, tabs)
     QWidget* outputStrip(const ui::Bindings& bindings, const ui::FillOptions& options);
     QToolButton* menuChip(const ui::Item& item, const ui::Bindings& bindings, const ui::FillOptions& options, QWidget* parent);
     QToolButton* actionChip(const ui::Item& item, const ui::Bindings& bindings, QWidget* parent);
@@ -238,6 +248,7 @@ private:
     // Header.
     QLabel* groomName_ = nullptr;
     QToolButton* eye_ = nullptr;
+    QToolButton* guidesEye_ = nullptr;
     QToolButton* graph_ = nullptr;
     QToolButton* more_ = nullptr;
     QMenu* moreMenu_ = nullptr;
@@ -271,6 +282,7 @@ private:
     QLabel* hint_ = nullptr;
     BrushPanel* card_ = nullptr;
     std::map<std::string, Section*> sections_;
+    std::map<std::string, ui::json> sectionRules_;  // palette.sections by id: the tools and tabs each shows with
     TubePanel* tubes_ = nullptr;
     std::string tubesOpenedFor_;  // the tool that last opened the Tubes section
     QWidget* groupsHolder_ = nullptr;

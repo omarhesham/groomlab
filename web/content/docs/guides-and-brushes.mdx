@@ -15,7 +15,7 @@ basic workflow:
 <Example
   name="viewport-guides.png"
   alt="A wolf's guides in the viewport over its fur"
-  caption="Guides are colored by level: primaries blue, children emerald, then yellow, red, white."
+  caption="Guides are colored by level: primaries blue, children emerald, then yellow, red, white (each groom turns these to a hue of its own)."
 />
 
 <Callout title="In the app and in Blender">
@@ -241,8 +241,8 @@ the columns **Group**, a color swatch, **Guides** (count) and **Level**.
 | Create a group | **+ New Group**: a name and a parent (**None** for a top-level group, or a parent group for a child group). |
 | Make it the active group | Click its row, or pick it in the **Group** menu at the top of the Groom Tools. Brushes only edit the active group's guides, and Place and Draw add guides to it. **All groups** brushes every guide. **Page Up** / **Page Down** step one level up or down. |
 | Rename | Double-click the name, or **rename**. Guides node params that name the group are updated. |
-| Show / hide | The row's checkbox. |
-| Color | Click the swatch; right-click it (or **Default Color**) to clear. **Hue per group** gives every group without its own color a distinct hue; off, guides are colored by level. |
+| Show / hide | The row's checkbox. The guides' eye at the top of the Groom Tools hides or shows every group of the groom at once ([The current groom](#the-current-groom-and-what-shows)). |
+| Color | Click the swatch; right-click it (or **Default Color**) to clear. **Hue per group** gives every group without its own color a distinct hue; off, guides are colored by level. The automatic colors start from a hue of the groom's own, from its name (the Maya transform, the Blender object, the app's file name), so two grooms side by side differ; the same name gives the same colors in Maya, Blender and the app. |
 | Select its guides | **select**, or right-click > **Select Guides**. |
 | Delete | **delete**: the group, its child groups and their guides. The dialog lists graph nodes that use the group. |
 | Mirror | **Edit Guides > Mirror Group...** copies a top-level group to the other side. |
@@ -373,9 +373,55 @@ changed and the hotkey set it switched from.
 
 <Example name="groom-tools.png" alt="The Groom Tools panel" caption="The Groom Tools: brushes as icons, settings below." />
 
+## The current groom and what shows
+
+One groom is **current**: the Groom Tools, the Graph Editor and every brush work on it.
+
+- **Pick it** in the list at the top of the Groom Tools or in the Graph Editor's groom list: both
+  move together. **Selecting a groom** in the viewport or the Outliner makes it current too. A
+  picked groom stays current while you select a scalp, curves or anything else.
+- **Pin the Graph Editor** (the pin beside its groom list) to keep it on its groom while the Groom
+  Tools move on to another one; its list then changes only the graph. Unpin it and it shows the
+  current groom again. The pin lasts for the session.
+- **The eyes** beside the list: the first shows or hides the **hair** (the strands, and whatever
+  the groom grows on them: instances, scales, cards, strand meshes; the groom's **Display Hair**),
+  the second the **guides** (every guide group at once, with their tubes, dots, selection, parts
+  and flow arrows; the groom's **Display Guides**). Each leaves the other as it is: hide the hair
+  to see the guides alone, the guides to judge the hair. Both are viewport switches: renders and
+  exports always have the hair. **Shift+click** an eye, or right-click it for **Show All** /
+  **Hide All**, to do it for every groom in the scene.
+- **GroomLab > Display** has **Show All Hair**, **Hide All Hair**, **Show All Guides** and
+  **Hide All Guides**. With the GroomLab hotkey set, **Alt+Shift+G** turns every groom's guides
+  off, and on again. (To hide a whole groom, hide its node as any other: **Ctrl+H**.)
+
+```python
+groomlab.set_current_groom(groom)        # what a pick in either list does
+groomlab.active_groom()                  # the current groom
+groomlab.set_guides_visible(groom, False)
+groomlab.set_all_guides_visible(True)    # every groom's (GroomLab > Display)
+groomlab.set_hair_visible(groom, False)  # the strands alone (displayHair)
+groomlab.set_all_hair_visible(True)
+```
+
+<Callout title="In the app and in Blender">
+  **App:** one groom per window, so the list is its name; the hair's eye and the guides' eye work
+  the same (the hair goes and comes back at once, without evaluating), and **View > Guides On/Off**
+  (**Alt+Shift+G**) and **GroomLab > Display** show or hide the guides.
+
+  **Blender:** the groom at the top of the Groom Tools is the Graph Editor's too, and making a
+  groom's scalp the active object makes it current. The eyes are the same (Shift+click or
+  right-click: every groom): the hair's eye hides the hair object in the viewport (its render
+  visibility stays), the guides' eye the guides; the node editor's pin keeps a Graph Editor on its
+  groom.
+</Callout>
+
 ## Brush settings
 
 The active brush's settings are shown below the tabs; each brush shows only the settings it uses.
+The sections under them follow the tool too: **Tubes** shows with Place, Draw, Shape and Select,
+**While sculpting** with the brushes that stroke guides, and **Guide groups & edits** on the Tools
+tab. **Output** is always there. Pick a tool to see its sections; with no tool picked, the window
+shows the tiles, the guide groups and Output.
 
 | Setting | Effect |
 | --- | --- |
@@ -416,6 +462,12 @@ For vellus hair, brows and short fur, the **Flow** brush grooms a direction fiel
 the scalp (drag over arrows to comb them, Ctrl to erase), or click to place whorls and other
 singular points that hair turns around. A **Flow** node lays the strands along the field. See
 [Fur & feathers](/docs/fur-and-feathers).
+
+The arrows and sinks are kept on the groom itself, not in the Flow node, so they stay when you
+delete or replace the node. The Flow tool's card counts them ("34 arrows · 2 sinks"). To remove
+them all, click **Clear All** there, or use **GroomLab > Utilities > Delete All Flow Arrows**
+(one undo step). To remove some, use **Erase** with **Flow** ticked, or Ctrl+drag with the Flow
+brush.
 
 ## Scaling a groom
 

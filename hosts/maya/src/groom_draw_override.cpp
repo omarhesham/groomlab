@@ -34,6 +34,7 @@
 #include <maya/MGlobal.h>
 #include <maya/MDagPath.h>
 #include <maya/MDagPathArray.h>
+#include <maya/MFnDagNode.h>
 #include <maya/MFnDependencyNode.h>
 #include <maya/MHWGeometry.h>
 #include <maya/MMessage.h>
@@ -524,6 +525,7 @@ DisplaySettings GroomSubSceneOverride::readSettings() {
     s.strandMeshView = displayFlag(GroomShape::aDisplayStrandMesh);
     s.drawStrandMesh = s.strandMeshView && !shape_->strandMeshConnected();
     s.instances = displayFlag(GroomShape::aDisplayInstances);
+    s.hair = displayFlag(GroomShape::aDisplayHair);  // (the eye: the guides draw either way)
     s.guides = displayFlag(GroomShape::aDisplayGuides);
     s.tubes = displayFlag(GroomShape::aDisplayTubes);
     s.guideWidth = floatPlug(GroomShape::aGuideWidth);
@@ -535,6 +537,15 @@ DisplaySettings GroomSubSceneOverride::readSettings() {
     s.guideDisplaySegments = MPlug(object_, GroomShape::aGuideDisplaySegments).asInt();
     s.hiddenGuideGroups = MPlug(object_, GroomShape::aHiddenGuideGroups).asString().asChar();
     s.guideGroupColors = MPlug(object_, GroomShape::aGuideGroupColors).asString().asChar();  // "name:#rrggbb ..."
+    // The automatic guide colors start from the groom's own hue: its transform's name (as Blender's
+    // object and the app's file name), so two grooms' first groups differ.
+    {
+        MStatus status;
+        MFnDagNode dag(object_, &status);
+        const MObject parent = status ? dag.parent(0, &status) : MObject::kNullObj;
+        const MString name = status && !parent.isNull() ? MFnDependencyNode(parent).name() : dag.name();
+        s.guideColorSeed = name.asChar();
+    }
     s.flow = displayFlag(GroomShape::aDisplayFlow);
     s.theme = displayTheme();
     return s;
@@ -665,7 +676,7 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     in.selection = [this] { return shape_->guideSelectionWeights(); };
     in.selectionHash = shape_->selectionHash();
     // Instances: each its prototype mesh, from the scene by name (refetched when it changed).
-    const int sculpt = in.stroke ? settings.sculptDisplay : 0;
+    const int sculpt = !settings.hair ? 2 : in.stroke ? settings.sculptDisplay : 0;  // (hidden: as the builder's hairDisplay)
     const InstanceSet* instances = strands && sculpt != 2 && settings.instances ? strands->instances().get() : nullptr;
     if (instances) {
         refreshPrototypes(instances->prototypes);

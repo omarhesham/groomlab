@@ -66,6 +66,10 @@ public:
     // The parts the Part brush drew (the Parts box's list) and the one picked ("" none).
     void setParts(const std::vector<std::string>& names);
     std::string selectedPart() const;
+    // The Flow box's count of the arrows and sinks the groom keeps ("34 arrows · 2 sinks"; Clear All
+    // off with none), and its words (every host's).
+    void setFlowCount(std::size_t arrows, std::size_t sinks);
+    static QString flowCountText(std::size_t arrows, std::size_t sinks);
     // The Parts box's buttons from lists.json's parts bar and the window's bindings (parts.remove,
     // parts.clear; an id without a binding is left out).
     void setBindings(const ui::Bindings& bindings);
@@ -126,6 +130,8 @@ private:
     QWidget* flowBox_ = nullptr;
     QComboBox* flowSink_ = nullptr;
     QLabel* flowHint_ = nullptr;
+    QLabel* flowCount_ = nullptr;
+    QPushButton* clearFlow_ = nullptr;
     QWidget* stretchBox_ = nullptr;
     QWidget* tubeChannelBox_ = nullptr;          // Shape: Paints Width / Flatness / Twist
     std::vector<QToolButton*> tubeChannels_;

@@ -29,6 +29,7 @@
 #include <QWidget>
 
 #include "camera.h"
+#include "groomlab/subdivision.h"
 #include "groomlab/transfer_markers_edit.h"
 #include "groomlab/view_projection.h"
 
@@ -74,9 +75,17 @@ public:
     ~MarkerView() override;
 
     MarkerSide side() const { return side_; }
-    // The mesh shown (null: none); a new one is framed.
-    void setMesh(std::shared_ptr<const ScalpMesh> mesh);
+    // The mesh the side's points are stored on (null: none); a new one is framed. `shown`, when
+    // given, is that mesh refined (subdivideScalp, its cage() of mesh's topology: a scalp with Scalp
+    // Subdivision): the view draws it and picks on it, a pick stored on `mesh` where it shows
+    // (SubdivisionPlan::cageRoot; its point the smooth surface's), the points drawn where their
+    // roots show on it (refinedRoot).
+    // `reframe` false keeps the camera (the same scalp at another subdivision level).
+    void setMesh(std::shared_ptr<const ScalpMesh> mesh, std::shared_ptr<const ScalpMesh> shown = nullptr, bool reframe = true);
     const std::shared_ptr<const ScalpMesh>& mesh() const { return mesh_; }
+    const std::shared_ptr<const ScalpMesh>& shownMesh() const { return shown_; }
+    // Where a point of the side shows: on the refined mesh at its root, else its own point.
+    Vec3f shownPoint(const MarkerPoint& p) const;
     void frame();
     OrbitCamera& camera() { return camera_; }
     const OrbitCamera& camera() const { return camera_; }
@@ -110,7 +119,8 @@ private:
     enum class Drag { None, Orbit, Pan, Dolly, Point, Owned };
     MarkerViewHost* host_;
     MarkerSide side_;
-    std::shared_ptr<const ScalpMesh> mesh_;
+    std::shared_ptr<const ScalpMesh> mesh_, shown_;
+    std::shared_ptr<const SubdivisionPlan> plan_;  // mesh_ to shown_ (null: the same mesh)
     OrbitCamera camera_;
     std::unique_ptr<GroomRenderer> renderer_;
     std::unique_ptr<OffscreenView> target_;

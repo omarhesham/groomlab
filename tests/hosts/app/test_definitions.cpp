@@ -185,7 +185,7 @@ TEST(AppUi, TheEmbeddedFilesAreTheSourceTreesAndResolveForTheApp) {
     };
     EXPECT_EQ(find(main, "groom.create").label, "New Groom on Mesh...");
     EXPECT_EQ(find(mayaMain, "groom.create").label, "Create Groom from Selection");
-    EXPECT_EQ(find(main, "studio").tip, "Lookdev lighting presets for the viewport (Look mode)");
+    EXPECT_EQ(find(main, "studio").tip, "Lookdev lighting presets for the viewport, in any mode");
     EXPECT_EQ(find(mayaMain, "studio").tip, "A backdrop, Arnold area lights and a camera round the groom");
     const auto files = find(main, "groomFiles").items;
     EXPECT_EQ(find(files, "file.saveAs").tip.find("playback"), std::string::npos);
@@ -258,15 +258,17 @@ TEST(AppUi, MenuBarFromTheDefinitionsHidesWhatTheAppDoesNotRun) {
     const QMenu* groomlab = bar.actions()[3]->menu();
     EXPECT_EQ(shown(groomlab), (std::vector<std::string>{"Groom Tools", "Graph Editor", "-", "New Groom on Mesh...", "Add Sample Mesh",
                                                          "Guides from Photos (experimental)...", "Groom Files", "Import", "-", "Add", "Simulate",
-                                                         "Review", "Studio", "Render", "Export", "Utilities", "-", "Theme", "Help"}));
+                                                         "Display", "Review", "Studio", "Render", "Export", "Utilities", "-", "Theme", "Help"}));
+    EXPECT_EQ(shown(submenu(groomlab, QStringLiteral("Display"))),
+              (std::vector<std::string>{"Show All Hair", "Hide All Hair", "-", "Show All Guides", "Hide All Guides"}));
     EXPECT_EQ(shown(submenu(groomlab, QStringLiteral("Add Sample Mesh"))), (std::vector<std::string>{"Nika (head)", "Manny (head)", "Wolf"}));
     EXPECT_EQ(shown(submenu(groomlab, QStringLiteral("Add"))),
               (std::vector<std::string>{"Feathers...", "Braid on Curves...", "Cards", "Collider", "Wind", "Jiggle"}));
     EXPECT_EQ(shown(submenu(groomlab, QStringLiteral("Simulate"))),
               (std::vector<std::string>{"Add Simulate Node", "Simulate Range", "Bake Simulation", "Clear Simulation"}));
     EXPECT_EQ(shown(submenu(groomlab, QStringLiteral("Utilities"))),
-              (std::vector<std::string>{"Strands to Mesh...", "Bake Node to Guides...", "Bake Scale Maps", "-", "Transfer Groom to Scalp...", "-",
-                                        "Find Missing Files..."}));
+              (std::vector<std::string>{"Strands to Mesh...", "Bake Node to Guides...", "Bake Scale Maps", "-", "Delete All Flow Arrows", "-",
+                                        "Transfer Groom to Scalp...", "-", "Find Missing Files..."}));
     EXPECT_EQ(shown(submenu(groomlab, QStringLiteral("Export"))),
               (std::vector<std::string>{"Alembic...", "USD...", "V-Ray Scene...", "-", "Unreal Groom...", "Unity Strands (.abc)...", "glTF Cards...",
                                         "Card Maps...", "-", "Scales Instancer (USD)..."}));
@@ -285,7 +287,8 @@ TEST(AppUi, MenuBarFromTheDefinitionsHidesWhatTheAppDoesNotRun) {
     // The actions other tests (and the window) find by name.
     for (const char* name : {"saveAs", "reload", "transfer", "guidesFromReference", "deleteGuides", "railLabels", "addProp", "addEye",
                              "saveImage", "symmetry", "supportGroomLab", "vrayFrame", "vrayTurntable", "vrayLocation", "prmanFrame",
-                             "prmanTurntable", "prmanLocation", "quit", "discord", "mode_groom", "mode_export"}) {
+                             "prmanTurntable", "prmanLocation", "quit", "discord", "mode_groom", "mode_export", "showAllGuides",
+                             "hideAllGuides", "showAllHair", "hideAllHair", "toggleGuides"}) {
         EXPECT_TRUE(bar.findChild<QAction*>(QString::fromLatin1(name))) << name;
     }
     EXPECT_TRUE(bar.findChild<QAction*>(QStringLiteral("theme_") + theme::themeNames().front()));
@@ -296,6 +299,8 @@ TEST(AppUi, MenuBarFromTheDefinitionsHidesWhatTheAppDoesNotRun) {
     EXPECT_EQ(made.at("file.save")->shortcut(), QKeySequence(Qt::CTRL | Qt::Key_S));
     EXPECT_EQ(made.at("edit.redo")->shortcuts(), (QList<QKeySequence>{QKeySequence(Qt::CTRL | Qt::Key_Y), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z)}));
     EXPECT_EQ(made.at("graph.open")->shortcut(), QKeySequence(Qt::Key_Tab));
+    ASSERT_TRUE(made.count("display.toggleGuides"));  // View > Guides: Alt+Shift+G (the core's display.guides)
+    EXPECT_EQ(made.at("display.toggleGuides")->shortcut(), QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_G));
     EXPECT_FALSE(made.at("file.save")->isEnabled());
     EXPECT_FALSE(made.at("edit.undo")->isEnabled());
     EXPECT_EQ(made.at("edit.undo")->text(), QStringLiteral("Undo"));

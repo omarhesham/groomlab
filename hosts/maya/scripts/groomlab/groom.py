@@ -401,25 +401,85 @@ def inputs_summary(groom):
 
 
 # ---------------------------------------------------------------------------
-# The active groom
+# The current groom: one for the Groom Tools, the Graph Editor (unless pinned) and the brushes
 
 
 PIN_VAR, ACTIVE_VAR = "groomLabPinGroom", "groomLabActiveGroom"
+# The grooms selected when the current groom was set (their UUIDs): a groom selected since leads.
+SEEN_VAR = "groomLabCurrentSelection"
+_listeners = []
 
 
-def pin_groom(groom):
-    """Make every GroomLab tool work on `groom` whatever is selected; None unpins."""
+def on_current_groom(fn):
+    """Call fn(groom) whenever the current groom changes (a pick in the Groom Tools or the Graph
+    Editor, a groom selected, made or adopted); remove_current_groom_listener(fn) stops it."""
+    if fn not in _listeners:
+        _listeners.append(fn)
+    return fn
+
+
+def remove_current_groom_listener(fn):
+    if fn in _listeners:
+        _listeners.remove(fn)
+
+
+def _notify(groom):
+    for fn in list(_listeners):
+        try:
+            fn(groom)
+        except Exception:  # noqa: BLE001 (a window gone, a listener's bug: never the caller's problem)
+            import traceback
+            traceback.print_exc()
+
+
+def _selected_grooms():
+    """The grooms selected (a groom shape, or the groom shapes right under a selected transform), in
+    the selection's order, and their key (UUIDs sorted): what the brushes read (active_groom.cpp)."""
+    selection = cmds.ls(selection=True, objectsOnly=True, long=True) or []
+    if not selection:
+        return [], ""
+    # A few calls for the whole selection (it can be thousands of objects), its order kept.
+    shapes = set(cmds.ls(selection, type=GROOM_TYPE, long=True) or [])
+    under = {}
+    for child in cmds.listRelatives(selection, children=True, fullPath=True, type=GROOM_TYPE) or []:
+        under.setdefault(child.rsplit("|", 1)[0], []).append(child)
+    found = []
+    for node in selection:
+        found += [node] if node in shapes else under.get(node, [])
+    key = " ".join(sorted(set(cmds.ls(found, uuid=True) or []))) if found else ""
+    return [cmds.ls(g)[0] for g in found], key
+
+
+def _seen():
+    return cmds.optionVar(query=SEEN_VAR) if cmds.optionVar(exists=SEEN_VAR) else ""
+
+
+def _record(groom, state, key):
+    cmds.optionVar(stringValue=[(ACTIVE_VAR, groom), (SEEN_VAR, key)], intValue=(PIN_VAR, state))
+
+
+def set_current_groom(groom):
+    """Make `groom` the current groom: every GroomLab tool, the Groom Tools and the Graph Editor
+    (unless pinned) work on it, whatever else is selected, until another groom is picked or
+    selected. None: no current groom (the selected one leads)."""
+    previous = active_groom()
+    key = _selected_grooms()[1]
     if groom:
-        cmds.optionVar(stringValue=(ACTIVE_VAR, groom), intValue=(PIN_VAR, 1))
+        _record(groom, 1, key)
     else:
-        cmds.optionVar(intValue=(PIN_VAR, 0))
+        cmds.optionVar(intValue=(PIN_VAR, 0), stringValue=(SEEN_VAR, key))
+    now = active_groom()
+    if now != previous or groom:
+        _notify(now)
+
+
+pin_groom = set_current_groom  # (its name before the Graph Editor had a pin of its own)
 
 
 def pin_new_groom(groom):
-    """A groom just made in the UI (Create Groom from Selection, Import Groom File): when a groom
-    is pinned, the pin moves to the new one, so the tools and the Graph Editor work on it."""
-    if cmds.optionVar(query=PIN_VAR) == 1:
-        pin_groom(groom)
+    """A groom just made in the UI (Create Groom from Selection, Import Groom File) is the current
+    groom: the tools and the Graph Editor work on it."""
+    set_current_groom(groom)
 
 
 def _groom_var(pin):
@@ -431,32 +491,41 @@ def _groom_var(pin):
 
 
 def pinned_groom():
-    """The pinned groom, or None."""
+    """The groom made current by a pick (set_current_groom), a selection or a new groom, or None."""
     return _groom_var(1)
 
 
 def adopted_groom():
-    """The groom a scene opened with (adopt_scene_groom), or None: the tools work on it while no
-    groom is pinned or selected."""
+    """The groom a scene opened with (adopt_scene_groom), or None: the tools work on it until a
+    groom is picked or selected."""
     return _groom_var(2)
 
 
 def active_groom():
-    """The groom tools work on: the pinned one, else the first selected one, else the scene's
-    (adopted_groom)."""
-    pinned = pinned_groom()
-    if pinned:
-        return pinned
-    found = cmds.ls(selection=True, dag=True, type=GROOM_TYPE)
-    return found[0] if found else adopted_groom()
+    """The current groom, the one the tools work on: the groom last picked (set_current_groom),
+    selected or made, else the scene's (adopted_groom), else the first selected one. Selecting a
+    groom makes it current (recorded here, so it stays current while other things are selected)."""
+    selected, key = _selected_grooms()
+    if key != _seen():
+        if selected:  # a groom selected since the current groom was set: it is current now
+            groom = selected[0]
+            changed = groom != (_groom_var(1) or _groom_var(2))
+            _record(groom, 1, key)
+            if changed:
+                _notify(groom)
+            return groom
+        cmds.optionVar(stringValue=(SEEN_VAR, key))  # (selecting that groom again picks it again)
+    return _groom_var(1) or _groom_var(2) or (selected[0] if selected else None)
+
+
+current_groom = active_groom
 
 
 def adopt_scene_groom():
     """A scene just opened (or the Groom Tools opening) with grooms but none to work on (none
-    pinned, none selected): the tools work on one of them, the groom last worked on when this
-    scene has it, else the first, until a groom is selected or pinned (PIN_VAR 2: not a pin, which
-    would hold through selecting another groom). The Groom Tools and the Graph Editor show it rather
-    than "Start a groom". Returns the active groom."""
+    current, none selected): the tools work on one of them, the groom last worked on when this
+    scene has it, else the first, until a groom is picked or selected (PIN_VAR 2). The Groom Tools
+    and the Graph Editor show it rather than "Start a groom". Returns the current groom."""
     active = active_groom()
     if active:
         return active
@@ -466,13 +535,77 @@ def adopt_scene_groom():
     last = cmds.optionVar(query=ACTIVE_VAR) if cmds.optionVar(exists=ACTIVE_VAR) else ""
     found = cmds.ls(last, type=GROOM_TYPE) if last and cmds.objExists(last) else []
     groom = found[0] if found else grooms[0]
-    cmds.optionVar(stringValue=(ACTIVE_VAR, groom), intValue=(PIN_VAR, 2))
+    _record(groom, 2, _selected_grooms()[1])
+    _notify(groom)
     return groom
 
 
 def list_grooms():
     """Every groom in the scene."""
     return cmds.ls(type=GROOM_TYPE) or []
+
+
+# ---------------------------------------------------------------------------
+# Showing and hiding in the viewport: the hair (displayHair) and the guides (displayGuides), one
+# or every groom. Viewport toggles: renders and exports draw the hair whatever they say.
+
+
+def hair_visible(groom):
+    """Whether the groom's hair shows in the viewport (displayHair: the strands, instances, scales,
+    cards and strand meshes; the Groom Tools' eye). The guides are guides_visible's."""
+    return bool(cmds.getAttr(groom + ".displayHair"))
+
+
+def set_hair_visible(groom, on):
+    """Show or hide the groom's hair in the viewport (displayHair; its guides stay), one undo step."""
+    cmds.setAttr(groom + ".displayHair", bool(on))
+
+
+def guides_visible(groom):
+    """Whether the groom's guides show in the viewport (displayGuides: every guide group at once;
+    the groups' own checkboxes hide single groups)."""
+    return bool(cmds.getAttr(groom + ".displayGuides"))
+
+
+def set_guides_visible(groom, on):
+    """Show or hide every guide group of the groom (displayGuides), one undo step."""
+    cmds.setAttr(groom + ".displayGuides", bool(on))
+
+
+def set_all_hair_visible(on):
+    """Show or hide every groom's hair in the viewport (GroomLab > Display; Shift+click the Groom
+    Tools' eye), one undo step. Returns the grooms."""
+    grooms = list_grooms()
+    with undo_chunk("%s all hair" % ("show" if on else "hide")):
+        for groom in grooms:
+            try:
+                if hair_visible(groom) != bool(on):
+                    set_hair_visible(groom, on)
+            except RuntimeError:  # locked, keyed or driven: left as it is
+                pass
+    return grooms
+
+
+def set_all_guides_visible(on):
+    """Show or hide every groom's guides (GroomLab > Display; Shift+click the Groom Tools' guides
+    eye), one undo step. Returns the grooms."""
+    grooms = list_grooms()
+    with undo_chunk("%s all guides" % ("show" if on else "hide")):
+        for groom in grooms:
+            try:
+                if guides_visible(groom) != bool(on):
+                    set_guides_visible(groom, on)
+            except RuntimeError:  # locked, keyed or driven: left as it is
+                pass
+    return grooms
+
+
+def toggle_all_guides():
+    """Every groom's guides off when any show, else on (Alt+Shift+G with the GroomLab hotkey set).
+    Returns whether they show now."""
+    on = not any(guides_visible(g) for g in list_grooms())
+    set_all_guides_visible(on)
+    return on
 
 
 def lock_groom(groom, locked=True):

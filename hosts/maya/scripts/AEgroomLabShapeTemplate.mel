@@ -73,6 +73,7 @@ global proc AEgroomLabShapeTemplate(string $nodeName)
 
         // What shows in the viewport: the everyday switches open, the fine tuning folded.
         editorTemplate -beginLayout "Display" -collapse 0;
+            editorTemplate -addControl "displayHair";
             editorTemplate -addControl "displayGuides";
             editorTemplate -addControl "displayFlow";
             editorTemplate -addControl "displayTubes";

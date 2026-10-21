@@ -111,12 +111,12 @@ struct LightingSetup {
     float environmentRotation = 0.0f;  // degrees around y
     float exposure = 0.0f;             // EV
     ToneMap toneMap = ToneMap::ACES;
-    Background background = Background::Solid;
+    Background background = Background::Gradient;
     // Linear, before the display transform: deep charcoal, #17181B on screen through the default
     // ACES at exposure 0 (the line view clears to the same #17181B).
     RGB backgroundColor{0.0175f, 0.0183f, 0.0206f};
     float backgroundIntensity = 1.0f;          // the environment as background, dimmed
-    Quality quality = Quality::Refine;
+    Quality quality = Quality::Interactive;
     // Refine mode stops accumulating at this many frames (1 to LookdevRenderer::kMaxAccumulatedFrames).
     int refineFrames = 256;
     // The lookdev passes render at this fraction of the view's size (0.25 to 2: a faster
@@ -132,6 +132,9 @@ struct LightingSetup {
 // overcast, sunset, rim (a dark backdrop with two rims).
 std::vector<std::string> lightingPresetNames();
 LightingSetup lightingPreset(const std::string& name);
+// A preset picked in the UI: its lights and environment over `current`, whose background, exposure,
+// tone mapping and render settings stay the user's.
+LightingSetup withLightingPreset(const LightingSetup& current, const std::string& name);
 
 // ---- The environment -----------------------------------------------------------------------------
 

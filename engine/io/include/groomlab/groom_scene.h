@@ -44,6 +44,11 @@ public:
     // strands' roots index, for what reads the scalp at them (root UVs in exports, scales, LOD).
     // scalpAt itself for a groom of one scalp.
     MeshPtr rootScalpAt(double seconds);
+    // The scalp's render subdivision (ScalpMesh::setRenderSubdivision: what a Scalp node set to
+    // match render refines it by; a groom file's scalp "subdivision"), a host's own setting of it
+    // (the standalone app's Scalp Subdivision): the file's scalp takes it, and every time's scalp
+    // after it (the cache's frames are read on it again). The same level and source: nothing.
+    void setScalpRenderSubdivision(int levels, const std::string& from);
 
     // The scalp's points at the `frames` frames before `seconds` (1 / framesPerSecond apart), for
     // the graph's Jiggle nodes; null without an animated scalp cache (nothing moves). Frames read

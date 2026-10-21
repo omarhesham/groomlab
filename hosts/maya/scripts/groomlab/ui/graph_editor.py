@@ -1944,6 +1944,7 @@ class ParamPanel(QtWidgets.QScrollArea):
         form.setVerticalSpacing(theme.px(8))
         form.setContentsMargins(theme.px(10), theme.px(4), theme.px(10), theme.px(10))
         self.error_line = None
+        actions = None
         if name is None:
             empty = QtWidgets.QLabel("Select a node to edit it.\n\nTab or right-click the canvas to add one; "
                                      "drag from a port to wire it." if self.editor.model is not None else
@@ -1954,7 +1955,12 @@ class ParamPanel(QtWidgets.QScrollArea):
         else:
             model = self.editor.model
             op_type = model.node_type(name)
-            form.addRow(self.header(name, op_type))
+            # The node's actions (graph_ui.json's nodeActions and Maya's own: bake, export, simulate...)
+            # pinned over the params with its name, in view however far they scroll.
+            actions = self.node_actions(name)
+            if actions is not None:
+                actions.layout().insertWidget(0, self.title_row(name, op_type))
+            form.addRow(self.header(name, op_type, title=actions is None))
             # The node's error (or warning) from the last evaluation, in plain words under its header.
             self.error_line = QtWidgets.QLabel()
             self.error_line.setObjectName("nodeError")
@@ -2058,9 +2064,6 @@ class ParamPanel(QtWidgets.QScrollArea):
             self.add_sections(form, op_type, rows)
             if not model.node_spec(name)["params"]:
                 form.addRow(QtWidgets.QLabel("No parameters."))
-            actions = self.node_actions(name)
-            if actions:
-                form.addRow(actions)
         # The old panel may hold the button or menu whose click got us here:
         # it is deleted once that event is over, not now.
         old = self.takeWidget()
@@ -2068,6 +2071,7 @@ class ParamPanel(QtWidgets.QScrollArea):
             old.hide()
             old.deleteLater()
         self.setWidget(body)
+        self.set_pinned(actions)
         self.editor.watch_text_edits(body)
         shrinkable(body)
         self.align_labels()
@@ -2203,6 +2207,7 @@ class ParamPanel(QtWidgets.QScrollArea):
         self.expression = None
         self.script_panel = script_editor.ScriptNodePanel(self.editor, name)
         self.setWidget(self.script_panel)
+        self.set_pinned(None)
         return self.script_panel
 
     def show_save_node(self, name):
@@ -2323,19 +2328,37 @@ class ParamPanel(QtWidgets.QScrollArea):
         save.clicked.connect(accept)
         cancel.clicked.connect(lambda _=False: self.show_node(name))
         self.setWidget(body)
+        self.set_pinned(None)
         body.fields = {"label": label, "category": category, "description": description, "author": author,
                        "id": node_id, "version": version, "license": license_, "params": dict(checks),
                        "save": save, "cancel": cancel, "error": error}
         self.save_form = body
         return body
 
-    def header(self, name, op_type):
-        """The node's name, its type in its category's color, and what it does."""
+    def header(self, name, op_type, title=True):
+        """The node's name (title_row; `title` False: pinned with its actions instead) and what it does."""
         box = QtWidgets.QWidget()
         column = QtWidgets.QVBoxLayout(box)
         column.setContentsMargins(0, 0, 0, theme.px(6))
         column.setSpacing(theme.px(4))
-        row = QtWidgets.QHBoxLayout()
+        if title:
+            column.addWidget(self.title_row(name, op_type))
+        library = self.editor.model.library_info(name) if op_type in ("Compound", "Script") else None
+        about = library["description"] if library else describe(op_type, self.editor.catalog)
+        if about:
+            text = QtWidgets.QLabel(about)
+            text.setWordWrap(True)
+            text.setProperty("role", "about")
+            column.addWidget(text)
+        # Its own height, never squeezed when the params below overflow the panel.
+        box.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        return box
+
+    def title_row(self, name, op_type):
+        """The node's name, its type in its category's color, Upgrade and Update when they apply."""
+        box = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(theme.px(8))
         title = QtWidgets.QLabel(name)
         title.setProperty("role", "title")
@@ -2374,15 +2397,6 @@ class ParamPanel(QtWidgets.QScrollArea):
                               % (library["latest"], library["label"], library["version"]))
             update.clicked.connect(lambda _=False, n=name: self.editor.update_library_node(n))
             row.addWidget(update)
-        column.addLayout(row)
-        about = library["description"] if library else describe(op_type, self.editor.catalog)
-        if about:
-            text = QtWidgets.QLabel(about)
-            text.setWordWrap(True)
-            text.setProperty("role", "about")
-            column.addWidget(text)
-        # Its own height, never squeezed when the params below overflow the panel.
-        box.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         return box
 
     def set_expression_param(self, node, param, value):
@@ -2612,43 +2626,151 @@ class ParamPanel(QtWidgets.QScrollArea):
 
     # -- Node actions: what a node needs from the scene, on the node itself -------
 
+    # -- The pinned actions: over the params, in view however far they scroll ---------------
+
+    pinned = None  # the node's actions (set_pinned), or None
+
+    def set_pinned(self, widget):
+        """`widget` (the node's actions) pinned over the params, in the scroll area's top margin; None
+        takes the old one away (deleted once the click that got here is over)."""
+        old = self.pinned
+        if old is not None and widgets.alive(old) and old is not widget:
+            old.hide()
+            old.setParent(None)  # (out of the panel now, as takeWidget does with the params)
+            old.deleteLater()
+            self._retired = old  # kept until then: its button may be the one clicked
+        self.pinned = widget
+        if widget is not None:
+            widget.setParent(self)
+            shrinkable(widget)
+            widget.show()
+        self.place_pinned()
+
+    def place_pinned(self):
+        """The pinned actions across the top, as tall as they need at the panel's width; the params
+        below them (the viewport's top margin)."""
+        w = self.pinned
+        if w is None or not widgets.alive(w):
+            self.setViewportMargins(0, 0, 0, 0)
+            return
+        frame = self.frameWidth()
+        # Clear of the vertical scroll bar's place whether it shows or not (no width that changes as
+        # the params' length does).
+        width = max(1, self.width() - 2 * frame - self.verticalScrollBar().sizeHint().width())
+        height = w.heightForWidth(width) if w.hasHeightForWidth() else -1
+        if height <= 0:
+            height = w.sizeHint().height()
+        w.setGeometry(frame, frame, width, height)
+        self.setViewportMargins(0, height, 0, 0)
+
+    def resizeEvent(self, event):
+        super(ParamPanel, self).resizeEvent(event)
+        self.place_pinned()
+
+    def action_runner(self, fn, done=None, busy=None):
+        """A button's click: `fn` run once the click is over, its changes into the editor's graph,
+        then onto the groom (reloading rebuilds this panel, and the button that was clicked with it).
+        `done`: what to report (a text, or a function of the result); `busy`: what a long one says
+        while it runs (the panel disabled, the wait cursor)."""
+        def act():
+            try:
+                if busy:
+                    with widgets.busy([self], self.editor.status, busy):
+                        result = fn()
+                else:
+                    result = fn()
+            except (RuntimeError, ValueError) as e:
+                self.editor.report(plain_message(e), trouble=True)
+                return
+            except Exception as e:  # noqa: BLE001 (a button never ends in a bare traceback)
+                import traceback
+                traceback.print_exc()  # the Script Editor: the details
+                self.editor.report("%s (details in the Script Editor)" % plain_message(e), trouble=True)
+                return
+            if not self.editor.apply():
+                return
+            self.editor.reload()
+            if done:
+                self.editor.report(done(result) if callable(done) else done)
+
+        def go(_=False):
+            later(act)
+        return go
+
+    def node_action_table(self, name):
+        """What graph_ui.json's nodeActions run in Maya for node `name`, on the editor's groom
+        ({action id: a callable}): the Cards exports, Simulate's range, bake and clear, Bake Node to
+        Guides, a Sculpt node's Clear, a compound's Ungroup and saves."""
+        import groomlab
+        from maya import cmds
+        from groomlab.ui import menu
+        editor = self.editor
+        run = self.action_runner
+
+        def card_maps():
+            from groomlab.ui import card_maps_window
+            try:
+                card_maps_window.show(editor.groom)
+            except Exception as e:  # noqa: BLE001 (a button never ends in a bare traceback)
+                import traceback
+                traceback.print_exc()
+                editor.report("%s (details in the Script Editor)" % plain_message(e), trouble=True)
+
+        def unreal():
+            folder = cmds.fileDialog2(fileMode=3, dialogStyle=2, caption="Folder for the Unreal cards",
+                                      startingDirectory=groomlab.asset_folder("exports"))
+            return groomlab.export_cards_unreal(editor.groom, folder[0]) if folder else None
+
+        def unity():
+            folder = cmds.fileDialog2(fileMode=3, dialogStyle=2, caption="Folder for the Unity cards",
+                                      startingDirectory=groomlab.asset_folder("exports"))
+            return groomlab.export_cards_unity(editor.groom, folder[0]) if folder else None
+
+        def gltf():
+            path = cmds.fileDialog2(fileFilter="glTF binary (*.glb);;glTF (*.gltf)", dialogStyle=2, fileMode=0,
+                                    caption="Export glTF Cards",
+                                    startingDirectory="%s/%s_cards.glb" % (groomlab.asset_folder("exports"),
+                                                                            groomlab.asset_name(editor.groom)))
+            if not path:
+                return None
+            return groomlab.export_cards_gltf(editor.groom, path[0], binary=not path[0].lower().endswith(".gltf"))
+
+        return {
+            "export.cardMaps": lambda: later(card_maps),
+            "export.unrealCards": run(unreal, lambda r: "wrote %s" % r["fbx"] if r else ""),
+            "export.unityCards": run(unity, lambda r: "wrote %s" % r["fbx"] if r else ""),
+            "export.gltfCards": run(gltf, lambda r: "wrote %s" % r[0] if r else ""),
+            "sim.range": lambda: later(lambda: menu.simulate_range(groom=editor.groom)),
+            "sim.bake": lambda: later(lambda: menu.bake_core_simulation(groom=editor.groom)),
+            "sim.clear": lambda: later(lambda: menu.clear_core_simulation(groom=editor.groom)),
+            "node.bake": lambda: later(lambda: editor.bake_to_guides(name)),
+            "sculpt.clearEdits": lambda: later(lambda: (editor.clear_sculpt_edits(name), editor.reload())),
+            "compound.ungroup": lambda: later(lambda: editor.expand([name])),
+            "compound.saveAsNode": lambda: later(lambda: editor.show_save_node(name)),
+            "compound.saveToLibrary": lambda: later(lambda: editor.save_to_library(name)),
+        }
+
+    def node_action_state(self, name):
+        """The conditions graph_ui.json's nodeActions need for node `name`: "type.<its type>", and
+        "node.library" for a node from the library."""
+        model = self.editor.model
+        state = {"type." + model.node_type(name)}
+        if model.library_info(name):
+            state.add("node.library")
+        return state
+
     def node_actions(self, name):
-        """Buttons under a node's params: Cards (show, mesh, bake), Simulate (presets), Braid (paths from curves),
-        HairColor (hair shader), Instance (prototype from the selection). None for other nodes."""
+        """A node's actions, pinned over its params (set_pinned): Maya's own first (Cards: stats, show,
+        LOD, bake; Simulate: presets; Map: what it reads, Feed Param, Paint; Braid, Instance, HairColor,
+        StrandMesh, Script), then graph_ui.json's nodeActions for its type (the Cards exports, Simulate's
+        range, bake and clear, Bake Node to Guides, Clear Sculpt Edits, a compound's). None when it has
+        none (or there is no groom)."""
         import groomlab
         from maya import cmds
         node_type = self.editor.model.node_type(name)
         groom = self.editor.groom
         buttons = []
-
-        def run(fn, done=None, busy=None):
-            # Changes go into the editor's graph, then onto the groom. After the click is over:
-            # reloading rebuilds this panel, and the button (or menu) that was clicked with it.
-            # `busy`: what a long one says while it runs (the panel disabled, the wait cursor).
-            def act():
-                try:
-                    if busy:
-                        with widgets.busy([self], self.editor.status, busy):
-                            result = fn()
-                    else:
-                        result = fn()
-                except (RuntimeError, ValueError) as e:
-                    self.editor.report(plain_message(e), trouble=True)
-                    return
-                except Exception as e:  # noqa: BLE001 (a button never ends in a bare traceback)
-                    import traceback
-                    traceback.print_exc()  # the Script Editor: the details
-                    self.editor.report("%s (details in the Script Editor)" % plain_message(e), trouble=True)
-                    return
-                if not self.editor.apply():
-                    return
-                self.editor.reload()
-                if done:
-                    self.editor.report(done(result) if callable(done) else done)
-
-            def go(_=False):
-                later(act)
-            return go
+        run = self.action_runner
 
         if node_type == "Cards":
             # What this node's cards cost now: cards, triangles, textures (its own share).
@@ -2720,50 +2842,6 @@ class ParamPanel(QtWidgets.QScrollArea):
                             run(lambda: groomlab.bake_scalp(groom),
                                 lambda paths: "baked %d scalp maps and a hair cap" % len(paths),
                                 busy="Baking the scalp maps and the hair cap...")))
-
-            def export_maps(_=False):
-                from groomlab.ui import card_maps_window
-                try:
-                    card_maps_window.show(groom)
-                except Exception as e:  # noqa: BLE001 (a button never ends in a bare traceback)
-                    import traceback
-                    traceback.print_exc()
-                    self.editor.report("%s (details in the Script Editor)" % plain_message(e), trouble=True)
-            maps = QtWidgets.QPushButton("Export Maps...")
-            maps.setObjectName("nodeAction_ExportMaps")
-            maps.setToolTip("The card maps as an engine wants them, in one click: a preset (Unreal, Unity HDRP, every "
-                            "map on its own, your own packing), any resolution up to 8K, PNG, TGA, TIFF or EXR, "
-                            "8, 16 or 32 bits")
-            maps.clicked.connect(export_maps)
-            buttons.append(maps)
-
-            def unreal():
-                folder = cmds.fileDialog2(fileMode=3, dialogStyle=2, caption="Folder for the Unreal cards",
-                                          startingDirectory=groomlab.asset_folder("exports"))
-                return groomlab.export_cards_unreal(groom, folder[0]) if folder else None
-            buttons.append(("Export Unreal Cards...", "The card mesh (FBX) and its maps, with a manifest of the "
-                            "channels", run(unreal, lambda r: "wrote %s" % r["fbx"] if r else "")))
-
-            def unity():
-                folder = cmds.fileDialog2(fileMode=3, dialogStyle=2, caption="Folder for the Unity cards",
-                                          startingDirectory=groomlab.asset_folder("exports"))
-                return groomlab.export_cards_unity(groom, folder[0]) if folder else None
-            buttons.append(("Export Unity Cards...", "The card mesh (FBX, meters, Y up) and PNG maps for HDRP/URP "
-                            "(base color with coverage in alpha, mask, AO, tangent), with a manifest of the "
-                            "channels and material settings",
-                            run(unity, lambda r: "wrote %s" % r["fbx"] if r else "")))
-
-            def gltf():
-                path = cmds.fileDialog2(fileFilter="glTF binary (*.glb);;glTF (*.gltf)", dialogStyle=2, fileMode=0,
-                                        caption="Export glTF Cards",
-                                        startingDirectory="%s/%s_cards.glb" % (groomlab.asset_folder("exports"),
-                                                                                groomlab.asset_name(groom)))
-                if not path:
-                    return None
-                return groomlab.export_cards_gltf(groom, path[0], binary=not path[0].lower().endswith(".gltf"))
-            buttons.append(("Export glTF Cards...", "The cards as glTF 2.0 (.glb with the maps inside, or .gltf): "
-                            "PBR material, coverage as alpha mask, AO, meters, Y up, with the hair cap",
-                            run(gltf, lambda r: "wrote %s" % r[0] if r else "")))
         elif node_type == "Braid":
             def paths():
                 curves = cmds.ls(selection=True, dag=True, type="nurbsCurve")
@@ -2864,17 +2942,6 @@ class ParamPanel(QtWidgets.QScrollArea):
             buttons.append(("Save to Library", "Write this script node to your node library (Add Node, Tab search; "
                             "the standalone app and Blender too), one version up when the library has it",
                             lambda _=False: later(lambda: self.editor.save_script_to_library(name))))
-        elif node_type == "Compound":
-            buttons.append(("Ungroup Compound", "Put this compound's nodes back in the graph, to see and edit "
-                            "them (Ctrl+Shift+G; Ctrl+Z groups them again)",
-                            lambda _=False: later(lambda: self.editor.expand([name]))))
-            buttons.append(("Save as Node...", "Save this compound to your node library (Add Node, Tab search; "
-                            "the standalone app and Blender too)",
-                            lambda _=False: later(lambda: self.editor.show_save_node(name))))
-            if self.editor.model.library_info(name):
-                buttons.append(("Save to Library", "Write this node as it is now (its values as the new defaults) "
-                                "over its library file, one version up",
-                                lambda _=False: later(lambda: self.editor.save_to_library(name))))
         elif node_type == "Sculpt" and groom:
             from groomlab import sculpts
             edited = sculpts.edited_guides(groom, name)
@@ -2883,9 +2950,6 @@ class ParamPanel(QtWidgets.QScrollArea):
                 "%s. %s" % ("%d guides sculpted" % edited if edited else "No strokes yet",
                             "Brushes shape this node's guides (shaping brushes)" if brushing else
                             "Select this node (or its row in Sculpt > Correctives) to brush its guides")))
-            buttons.append(("Clear Edits", "Drop every stroke kept in this node: its guides as it is fed them "
-                            "(one undo step)",
-                            lambda _=False: later(lambda: (self.editor.clear_sculpt_edits(name), self.editor.reload()))))
         elif node_type == "Simulate":
             # One click to a preset's settings (the core's, every host's), into the editor's graph.
             from groomlab import sim
@@ -2932,13 +2996,24 @@ class ParamPanel(QtWidgets.QScrollArea):
                 return groomlab.set_instance_prototype(groom, name, picked[0], model=self.editor.model)
             buttons.append(("Prototype from Selection", "Instance the selected mesh (hide it: only its "
                             "instances render)", run(prototype, lambda m: "instancing %s" % m)))
+        # The shared ones (graph_ui.json's nodeActions) for its type, two to a row.
+        table = self.node_action_table(name)
+        shared = [item for item in definitions.resolve(definitions.get("graph/nodeActions")["items"],
+                                                       self.node_action_state(name))
+                  if item["kind"] == "action"]
+        if shared:
+            buttons.append(None)
+        for item in shared:
+            buttons.append((item["label"], item["tip"], lambda _=False, fn=table[item["id"]]: fn()))
         if not buttons or not groom:
             return None
-        box = QtWidgets.QWidget()
+        box = QtWidgets.QFrame()
+        box.setObjectName("nodeActions")
+        box.setToolTip(definitions.get("graph/nodeActions").get("tip", ""))
         rows = QtWidgets.QVBoxLayout(box)
-        rows.setContentsMargins(0, 6, 0, 0)
-        rows.setSpacing(4)
-        row = None
+        rows.setContentsMargins(theme.px(10), theme.px(6), theme.px(10), theme.px(4))
+        rows.setSpacing(theme.px(4))
+        row, pushed = None, 0
         for b in buttons:
             if b is None:  # a new row
                 row = None
@@ -2948,11 +3023,12 @@ class ParamPanel(QtWidgets.QScrollArea):
                 rows.addWidget(b)
                 row = None
                 continue
-            if row is None:
-                row = QtWidgets.QHBoxLayout()
+            if row is None or (pushed >= 2 and not isinstance(b, QtWidgets.QCheckBox)):
+                row, pushed = QtWidgets.QHBoxLayout(), 0  # two buttons to a row: a narrow panel keeps them whole
                 rows.addLayout(row)
             if isinstance(b, QtWidgets.QWidget):
                 row.addWidget(b)
+                pushed += isinstance(b, QtWidgets.QPushButton)
                 continue
             label, tip, fn = b
             button = QtWidgets.QPushButton(label)
@@ -2960,6 +3036,13 @@ class ParamPanel(QtWidgets.QScrollArea):
             button.setToolTip(tip)
             button.clicked.connect(fn)
             row.addWidget(button)
+            pushed += 1
+        # A line under them: the params scroll below it.
+        line = QtWidgets.QFrame()
+        line.setFrameShape(QtWidgets.QFrame.HLine)
+        line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        rows.addSpacing(theme.px(2))
+        rows.addWidget(line)
         return box
 
     def relink_map_image(self, map_name, path=None):
@@ -3848,11 +3931,22 @@ class GraphEditor(QtWidgets.QWidget):
         self.status = QtWidgets.QLabel()
 
         toolbar = QtWidgets.QToolBar()
+        # The groom: the current one (the Groom Tools' too: picking one here makes it current, as
+        # selecting a groom does), unless pinned: then the graph stays on its groom.
+        self.pinned = False
+        self._followed = None  # the current groom last followed: the graph moves when it changes
         self.groom_box = QtWidgets.QComboBox()
         self.groom_box.setMinimumWidth(theme.px(180))
-        self.groom_box.setToolTip("The groom whose graph this is (selecting a groom shows its graph)")
-        self.groom_box.activated.connect(lambda i: self.set_groom(self.groom_box.itemText(i)))
+        self.groom_box.activated.connect(lambda i: self.pick_groom(self.groom_box.itemText(i)))
         toolbar.addWidget(self.groom_box)
+        self.pin_button = QtWidgets.QToolButton()
+        self.pin_button.setObjectName("graphPin")
+        self.pin_button.setCheckable(True)
+        self.pin_button.setAutoRaise(True)
+        self.pin_button.setProperty("role", "glyph")
+        self.pin_button.toggled.connect(self.set_pinned)
+        toolbar.addWidget(self.pin_button)
+        self._show_pin()
         toolbar.addSeparator()
 
         def popup(text, menu, tip):
@@ -3952,6 +4046,9 @@ class GraphEditor(QtWidgets.QWidget):
         self._scene_jobs = []       # callbacks: File > New and Open
         self._watch_selection()
         self._watch_scene()
+        import groomlab
+        groomlab.on_current_groom(self.current_groom_changed)
+        self._followed = groomlab.active_groom()
         self.refresh_grooms()
         if groom:
             self.set_groom(groom)
@@ -4206,6 +4303,9 @@ class GraphEditor(QtWidgets.QWidget):
         if self.model is not None and shown is not None and shown == getattr(self, "_groom_uuid", None):
             return  # (showing one of this scene's grooms already: picked since)
         groom = groomlab.adopt_scene_groom()
+        if self.pinned:  # the pinned groom went with the old scene
+            self.set_pinned(False, follow=False)
+        self._followed = groom
         self.refresh_grooms()
         if groom:
             self.set_groom(cmds.ls(groom)[0])
@@ -4213,29 +4313,86 @@ class GraphEditor(QtWidgets.QWidget):
             self.clear_groom()
 
     def _selection_changed_in_maya(self):
-        """Selecting another groom (or its transform) shows its graph, unless a groom is pinned
-        (groomlab.pin_groom): then the tools, and this editor, stay on it (and move with the pin:
-        a groom made while one is pinned takes the pin)."""
-        import groomlab
-        from maya import cmds
+        """Selecting another groom (or its transform) makes it the current groom, and the graph
+        shows it, unless the editor is pinned. A groom picked (groomlab.set_current_groom) stays
+        current while other things are selected (a groom made takes it over)."""
         try:
             if not self.isVisible():
                 return
         except RuntimeError:  # the widget is gone
             self._kill_job(self._selection_job)
             return
-        pinned = groomlab.pinned_groom()
-        grooms = [pinned] if pinned else cmds.ls(selection=True, dag=True, type="groomLabShape", long=False) or []
-        if len(grooms) == 1 and not _same_node(grooms[0], self.groom):
+        self.follow_current()
+
+    def follow_current(self):
+        """Show the current groom's graph (groomlab.active_groom) when it changed since the editor
+        last followed it, unless the editor is pinned."""
+        import groomlab
+        from maya import cmds
+        if self.pinned:
+            return
+        groom = groomlab.active_groom()
+        if groom == self._followed and self.groom is not None:
+            return  # (a groom shown by name, graph_editor.show(groom), stays until the current one changes)
+        self._followed = groom
+        if groom and not _same_node(groom, self.groom):
             self.refresh_grooms()
-            self.set_groom(cmds.ls(grooms[0])[0])
+            self.set_groom(cmds.ls(groom)[0])
+
+    def current_groom_changed(self, _groom):
+        """groomlab.on_current_groom: a pick in the Groom Tools, a groom made or selected: the graph
+        follows (once things settle), unless pinned."""
+        import groomlab
+        if not widgets.alive(self):  # deleted without closing
+            groomlab.remove_current_groom_listener(self.current_groom_changed)
+            return
+        if not self.pinned:
+            QtCore.QTimer.singleShot(0, lambda: widgets.alive(self) and self.isVisible() and self.follow_current())
+
+    def pick_groom(self, groom):
+        """The groom list's pick: the current groom for the Groom Tools too, unless the editor is
+        pinned (then only the graph moves)."""
+        import groomlab
+        if not groom:
+            return
+        if not self.pinned:
+            groomlab.set_current_groom(groom)
+            self._followed = groomlab.active_groom()
+        if not _same_node(groom, self.groom):
+            self.set_groom(groom)
+
+    def set_pinned(self, on, follow=True):
+        """Pin the graph to its groom (the Groom Tools may move on to another), or unpin it: it
+        shows the current groom again. For this session (not saved)."""
+        self.pinned = bool(on)
+        self._show_pin()
+        if not self.pinned and follow:
+            self._followed = None
+            self.follow_current()
+
+    def _show_pin(self):
+        button = self.pin_button
+        button.blockSignals(True)
+        button.setChecked(self.pinned)
+        button.blockSignals(False)
+        button.glyph = "pinned" if self.pinned else "pin"
+        button.setIcon(widgets.glyph(button.glyph))
+        button.setToolTip("Pinned: the graph stays on this groom while the Groom Tools move on (click to unpin: it "
+                          "shows the current groom again)" if self.pinned else
+                          "Pin the graph to this groom: it stays on it while the Groom Tools move on to another. "
+                          "Unpinned, it shows the current groom (the Groom Tools')")
+        self.groom_box.setToolTip(
+            "The groom whose graph this is (pinned: picking another moves only the graph)" if self.pinned else
+            "The current groom, the Groom Tools' too: picking one here makes it current, as selecting a groom does")
 
     def showEvent(self, event):
         super(GraphEditor, self).showEvent(event)
         if self._selection_job is None:  # closed and shown again
+            import groomlab
             self._watch_selection()
             self._watch_scene()
             self._watch_graph()
+            groomlab.on_current_groom(self.current_groom_changed)
             self._sync_from_groom()
 
     def closeEvent(self, event):
@@ -4245,10 +4402,12 @@ class GraphEditor(QtWidgets.QWidget):
     def stop_following(self):
         """Stop following Maya (the groom's callback, the time and selection scriptJobs, the status
         timer): closing, or Maya quitting."""
+        import groomlab
         self._unwatch_graph()
         self._unwatch_scene()
         self._kill_job(self._selection_job)
         self._graph_job = self._selection_job = None
+        groomlab.remove_current_groom_listener(self.current_groom_changed)
         timer = getattr(self, "_status_timer", None)
         if timer is not None and widgets.alive(timer):
             timer.stop()
@@ -5617,11 +5776,13 @@ def _same_node(a, b):
 
 
 def show(groom=None):
-    """Open (or raise) the dockable graph editor for `groom`, else the pinned or selected groom."""
+    """Open (or raise) the dockable graph editor for `groom`, else the current groom (a pinned
+    editor stays on its groom)."""
     global _window
     from maya import cmds
 
-    if groom is None:  # the groom the tools work on (pinned, else selected), else the scene's first
+    explicit = groom is not None
+    if groom is None:  # the groom the tools work on, else the scene's first
         import groomlab
         groom = groomlab.active_groom() or (cmds.ls(type="groomLabShape") or [None])[0]
 
@@ -5635,7 +5796,7 @@ def show(groom=None):
         # opens docked under the viewport instead (drag its tab out to float it).
         if not widgets.into_dock(_window, UI_SCRIPT):
             docked = open_docked((_window.width(), _window.height()), widgets.available_geometry(_window))
-    elif groom:
+    elif groom and (explicit or not _window.pinned):
         _window.set_groom(groom)
     if docked:
         _window.show(dockable=True, floating=False, area="bottom", uiScript=UI_SCRIPT)

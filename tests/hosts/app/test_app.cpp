@@ -2123,6 +2123,7 @@ TEST(AppRender, DrawsTheSampleGroomOffscreen) {
     renderer.setLookdev(true);
     LightingSetup lighting = lightingPreset("studio");
     lighting.quality = Quality::Interactive;
+    lighting.background = Background::Solid;  // the pixels below read a plain backdrop (the app's default is a gradient)
     renderer.setLighting(lighting);
     const OffscreenResult interactive = renderOffscreen(renderer, camera, size, 1, rhi.get());
     const bool lookdev = renderer.lookdevActive();
@@ -2147,7 +2148,7 @@ TEST(AppRender, DrawsTheSampleGroomOffscreen) {
     ASSERT_TRUE(lookdev) << "a Direct3D 11 device runs the lookdev path";
     ASSERT_FALSE(interactive.image.isNull());
     ASSERT_FALSE(refined.image.isNull());
-    // The default backdrop is a solid deep charcoal, the same top and bottom; the groom is lit
+    // A solid backdrop is a deep charcoal, the same top and bottom; the groom is lit
     // (not black) and covers some of the view; the refined frames stay close to the interactive
     // one (the same scene, converging), yet differ (jitter, stochastic coverage, more lights).
     const QColor bottom = interactive.image.pixelColor(2, size.height() - 2), top = interactive.image.pixelColor(2, 2);
@@ -2602,6 +2603,111 @@ TEST(AppRender, DrawsGuideDotsAndToolOverlay) {
     renderer.releaseResources();
 }
 
+TEST(AppRender, HairEyeHidesTheStrandsAloneAtOnce) {
+    // The Groom Tools' hair eye (GroomRenderer::setHairShown): the hair's items and the lookdev's
+    // strands go at once (no new frame, no strands handed again), the guides and their dots stay;
+    // shown again, the strands held come back. The guides' eye (DisplaySettings::guides) is the
+    // other way round.
+    EXPECT_TRUE(isHairItem(DisplayItemId::Strands));
+    EXPECT_TRUE(isHairItem(DisplayItemId::Cards));
+    EXPECT_FALSE(isHairItem(DisplayItemId::Guides));
+    EXPECT_FALSE(isHairItem(DisplayItemId::Parts));
+    std::unique_ptr<QRhi> rhi = createOffscreenRhi();
+    ASSERT_TRUE(rhi);
+    auto doc = GroomDocument::open(kSampleGroom);
+    ViewRequest request;
+    request.density = 0.5f;
+    const ViewResult& view = doc->evaluate(request);
+    ASSERT_TRUE(view.strands);
+    DisplaySettings settings;
+    settings.guidePoints = 2;
+    const DisplayFrame& frame = doc->updateDisplay(settings);
+    ASSERT_TRUE(frame.item(DisplayItemId::Strands).shown);
+    ASSERT_TRUE(frame.item(DisplayItemId::Guides).shown);
+    ASSERT_FALSE(frame.dots.points.empty());
+
+    GroomRenderer renderer;
+    renderer.setFrame(frame);
+    renderer.setScalp(doc->file().data.scalp);
+    renderer.setHairLook(doc->session().hairLook());
+    renderer.setHairStrands(view.strands, view.versions.strands);
+    renderer.setClumpLod(false);  // (one draw for the strands)
+    OrbitCamera camera;
+    camera.frame(doc->sceneBounds());
+    const QSize size(320, 240);
+    const QString dir = qEnvironmentVariable("GROOMLAB_EYES_DIR", QDir::temp().path());
+    auto save = [&](const QImage& image, const char* name) {
+        if (!image.isNull()) image.save(QDir(dir).filePath(QStringLiteral("eyes_%1.png").arg(QLatin1String(name))));
+    };
+
+    // The line path: the scalp, the strands, the guides, the dots; the hair hidden, one draw fewer.
+    renderer.setLookdev(false);
+    const OffscreenResult all = renderOffscreen(renderer, camera, size, 1, rhi.get());
+    const int calls = renderer.lastDrawCalls();
+    EXPECT_GE(calls, 4);
+    renderer.setHairShown(false);
+    EXPECT_FALSE(renderer.hairShown());
+    const OffscreenResult hairHidden = renderOffscreen(renderer, camera, size, 1, rhi.get());
+    EXPECT_EQ(renderer.lastDrawCalls(), calls - 1) << "the strands alone go: the scalp, the guides and their dots stay";
+    // The guides hidden too (their eye: the builder's frame without them): fewer still.
+    settings.guides = false;
+    renderer.setFrame(doc->updateDisplay(settings));
+    const OffscreenResult bothHidden = renderOffscreen(renderer, camera, size, 1, rhi.get());
+    const int scalpOnly = renderer.lastDrawCalls();
+    EXPECT_LT(scalpOnly, calls - 1) << "the guides drew while the hair was hidden";
+    EXPECT_GE(scalpOnly, 1);
+    // The guides hidden, the hair shown: the strands draw again (their buffers kept).
+    renderer.setHairShown(true);
+    const OffscreenResult guidesHidden = renderOffscreen(renderer, camera, size, 1, rhi.get());
+    EXPECT_EQ(renderer.lastDrawCalls(), scalpOnly + 1);
+    settings.guides = true;
+    renderer.setFrame(doc->updateDisplay(settings));
+
+    // The lookdev path: its strands go without being handed again, and come back from the ones held.
+    renderer.setLookdev(true);
+    LightingSetup lighting = lightingPreset("studio");
+    lighting.quality = Quality::Interactive;
+    lighting.background = Background::Solid;
+    renderer.setLighting(lighting);
+    const OffscreenResult lookAll = renderOffscreen(renderer, camera, size, 1, rhi.get());
+    const bool lookdev = renderer.lookdevActive();
+    if (lookdev) {
+        EXPECT_EQ(renderer.lookdevRenderer().pointCount(), view.strands->pointCount());
+        EXPECT_GE(renderer.lookdevRenderer().lastHairDraws(), 1);
+    }
+    renderer.setHairShown(false);
+    const OffscreenResult lookHairHidden = renderOffscreen(renderer, camera, size, 1, rhi.get());
+    if (lookdev) {
+        EXPECT_EQ(renderer.lookdevRenderer().pointCount(), 0u) << "no strands in the lookdev while the hair is hidden";
+        EXPECT_EQ(renderer.lookdevRenderer().lastHairDraws(), 0);
+    }
+    // Strands handed meanwhile (an evaluation while hidden) are held, not drawn.
+    renderer.setHairStrands(view.strands, view.versions.strands);
+    renderOffscreen(renderer, camera, size, 1, rhi.get());
+    if (lookdev) EXPECT_EQ(renderer.lookdevRenderer().pointCount(), 0u);
+    renderer.setHairShown(true);
+    renderOffscreen(renderer, camera, size, 1, rhi.get());
+    if (lookdev) EXPECT_EQ(renderer.lookdevRenderer().pointCount(), view.strands->pointCount()) << "back without an evaluation";
+
+    if (rhi->backend() == QRhi::Null) {
+        renderer.releaseResources();
+        GTEST_SKIP() << "no GPU device: the pixels are not checked";
+    }
+    save(all.image, "lines_all");
+    save(hairHidden.image, "lines_hair_hidden");
+    save(guidesHidden.image, "lines_guides_hidden");
+    save(bothHidden.image, "lines_both_hidden");
+    save(lookAll.image, "lookdev_all");
+    save(lookHairHidden.image, "lookdev_hair_hidden");
+    const QColor backdrop(23, 24, 27);
+    EXPECT_GT(meanDifference(all.image, hairHidden.image), 0.0) << "the strands went";
+    EXPECT_GT(meanDifference(hairHidden.image, bothHidden.image), 0.0) << "the guides drew with the hair hidden";
+    EXPECT_GT(meanDifference(all.image, guidesHidden.image), 0.0);
+    EXPECT_GT(pixelsNot(guidesHidden.image, backdrop), pixelsNot(bothHidden.image, backdrop)) << "the strands drew with the guides hidden";
+    if (lookdev) EXPECT_GT(meanDifference(lookAll.image, lookHairHidden.image), 0.5) << "the lookdev's strands went";
+    renderer.releaseResources();
+}
+
 // The mean color of the pixels inside a centered box of the image (a fraction of its size).
 QColor meanColorInside(const QImage& image, double fraction) {
     double r = 0.0, g = 0.0, b = 0.0;
@@ -2630,6 +2736,7 @@ TEST(AppRender, DrawsSurfacesInEveryMaterial) {
     renderer.setProps({sphere});
     LightingSetup lighting = lightingPreset("studio");
     lighting.quality = Quality::Interactive;
+    lighting.background = Background::Solid;  // the pixels below read a plain backdrop (the app's default is a gradient)
     renderer.setLighting(lighting);
     OrbitCamera camera;
     Bounds b;
@@ -3353,6 +3460,7 @@ TEST(AppCards, BakedCardsAreCutOutByTheirCoverage) {
     renderer.setLookdev(true);
     LightingSetup lighting = lightingPreset("studio");
     lighting.quality = Quality::Interactive;
+    lighting.background = Background::Solid;  // the pixels below read a plain backdrop (the app's default is a gradient)
     renderer.setLighting(lighting);
     Bounds b;
     for (const Vec3f& p : shownCards->positions) {

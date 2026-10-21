@@ -16,6 +16,8 @@
 #include <QCoreApplication>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QPushButton>
+#include <QScrollArea>
 #include <QToolButton>
 
 #include <gtest/gtest.h>
@@ -425,6 +427,40 @@ TEST(AppGraphEditor, BakeNodeToGuidesAsksTheGroupInTheViewport) {
     EXPECT_EQ(doc->undoText(), "Undo bake " + scatter);
     std::size_t count = 0;
     EXPECT_NE(doc->bakeNodeToGuides(scatter, "", 1.0f, &count), "") << "a group needs a name";
+}
+
+TEST(AppGraphEditor, ANodesActionsSitOverItsParams) {
+    // graph_ui.json's nodeActions by the node's type, under its title and over the rows' scroll area
+    // (in view however far they scroll), as Maya's and Blender's node panels pin them.
+    Window w;
+    GroomDocument* doc = w.doc();
+    std::string sim;
+    ASSERT_EQ(doc->addNode("Simulate", 0.0f, 600.0f, &sim), "");
+    w.graph()->refresh();
+    w.graph()->selectNode(sim);
+    QCoreApplication::processEvents();
+    ParamPanel* panel = nullptr;
+    for (ParamPanel* p : w.window.findChildren<ParamPanel*>()) {
+        if (p->node() == sim) panel = p;
+    }
+    ASSERT_NE(panel, nullptr);
+    EXPECT_EQ(panel->actionIds(), (std::vector<std::string>{"sim.range", "sim.bake", "sim.clear"}));
+    EXPECT_FALSE(panel->actionsBar()->isHidden());
+    QPushButton* clear = panel->actionButton("sim.clear");
+    ASSERT_NE(clear, nullptr);
+    EXPECT_EQ(clear->text(), QStringLiteral("Clear Simulation"));
+    auto* scroll = panel->findChild<QScrollArea*>();
+    ASSERT_NE(scroll, nullptr);
+    EXPECT_FALSE(scroll->isAncestorOf(clear)) << "over the scroll area, not in it";
+    clear->click();
+    QCoreApplication::processEvents();
+    // A Scatter has none: the bar goes.
+    const std::string scatter = nodeOf(*doc, "Scatter");
+    w.graph()->selectNode(scatter);
+    QCoreApplication::processEvents();
+    ASSERT_EQ(panel->node(), scatter);
+    EXPECT_TRUE(panel->actionIds().empty());
+    EXPECT_TRUE(panel->actionsBar()->isHidden());
 }
 
 TEST(AppGraphEditor, UnitsShowRealMeasures) {

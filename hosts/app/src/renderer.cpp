@@ -382,7 +382,16 @@ void GroomRenderer::setShowScalp(bool show) {
 }
 
 void GroomRenderer::setHairStrands(StrandsPtr strands, std::uint64_t version, const HairChanges& changes) {
-    lookdev_.setHair(std::move(strands), scalpMesh_, version, changes);
+    hairStrands_ = strands;
+    hairVersion_ = version;
+    if (hairShown_) lookdev_.setHair(std::move(strands), scalpMesh_, version, changes);
+}
+
+void GroomRenderer::setHairShown(bool shown) {
+    if (shown == hairShown_) return;
+    hairShown_ = shown;
+    // The lookdev's strands go at once, or come back (written whole) from the ones held.
+    lookdev_.setHair(shown ? hairStrands_ : nullptr, scalpMesh_, shown ? hairVersion_ : 0);
 }
 
 void GroomRenderer::setPartialUploads(bool on) {
@@ -492,6 +501,8 @@ void GroomRenderer::clear() {
     tool_->release();
     tool_->pending.reset();
     tool_->shown = false;
+    hairStrands_.reset();
+    hairVersion_ = 0;
     lookdev_.setHair(nullptr, nullptr, 0);
 }
 
@@ -1236,22 +1247,22 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
     // these copies.
     prepare(*scalp_, !showScalp_ || lookdev);
     for (auto& item : propItems_) prepare(*item, lookdev);
-    // (The groom hidden: none of its items, nor the guide dots.)
-    const bool groom = groomShown_;
-    for (std::size_t i = 0; i < items_.size(); ++i) prepare(*items_[i], (lookdev && i == strandsIndex) || !groom);
-    prepare(*dots_, !groom);
+    // (The hair hidden: none of its items; the guides, their dots and the overlays as ever.)
+    const bool hair = hairShown_;
+    auto hidden = [&](std::size_t i) { return !hair && isHairItem(static_cast<DisplayItemId>(i)); };
+    for (std::size_t i = 0; i < items_.size(); ++i) prepare(*items_[i], (lookdev && i == strandsIndex) || hidden(i));
+    prepare(*dots_, false);
     prepare(*tool_, false);
     // The GPU preview's run, once this frame's uploads are recorded (its targets exist) and
     // before anything draws them.
     runGpuPreview(rhi, lookdev);
     // The overlays over everything, in order: the frame's, the guide dots, the tools'.
     auto drawOverlays = [&](QRhiCommandBuffer* passCb) {
-        if (groom) {
-            for (auto& item : items_) {
-                if (item->shown && isOverlay(item->kind)) draw(passCb, *item, main_, false);
-            }
-            if (dots_->shown) draw(passCb, *dots_, main_, false);
+        for (std::size_t i = 0; i < items_.size(); ++i) {
+            const GpuItem& item = *items_[i];
+            if (!hidden(i) && item.shown && isOverlay(item.kind)) draw(passCb, item, main_, false);  // (a Scatter's root dots: hair)
         }
+        if (dots_->shown) draw(passCb, *dots_, main_, false);
         if (tool_->shown) draw(passCb, *tool_, main_, false);
     };
 
@@ -1265,7 +1276,7 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
             passViewport_ = lookdev_.passViewport();  // the HDR pass's (a reduced frame's corner)
             for (std::size_t i = 0; i < items_.size(); ++i) {
                 const GpuItem& item = *items_[i];
-                if (groom && item.shown && i != strandsIndex && !isOverlay(item.kind)) draw(passCb, item, hdr_, true);
+                if (!hidden(i) && item.shown && i != strandsIndex && !isOverlay(item.kind)) draw(passCb, item, hdr_, true);
             }
         };
         lookdevActive_ = lookdev_.render(rhi, cb, target, camera, hdrMvp, depthItems);
@@ -1287,7 +1298,7 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
         // (the GPU preview's run, if any, waits for a frame where the lines are drawn as such).
         batch = rhi->nextResourceUpdateBatch();
         GpuItem& strands = *items_[strandsIndex];
-        if (strands.shown && groom) {
+        if (strands.shown && hair) {
             upload(rhi, batch, strands);
             writeUniforms(batch, strands, mvp, eye, size, false, pixelScale);
         }
@@ -1302,8 +1313,9 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
             writeUniforms(batch, *item, mvp, eye, size, false, pixelScale);
         }
     }
-    // The level of detail: the strand lines by class (its uploads with this frame's).
-    prepareLod(rhi, batch, camera, mvp, size, pixelScale);
+    // The level of detail: the strand lines by class (its uploads with this frame's; none while the
+    // hair is hidden).
+    if (hair) prepareLod(rhi, batch, camera, mvp, size, pixelScale);
     const QColor bg = background_;
     cb->beginPass(target, QColor::fromRgbF(bg.redF(), bg.greenF(), bg.blueF(), 1.0f), {1.0f, 0}, batch);
     passViewport_ = QRhiViewport(0, 0, static_cast<float>(size.width()), static_cast<float>(size.height()));
@@ -1314,15 +1326,16 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
         if (item->shown) draw(cb, *item, main_, false);
     }
     // The builder's order is the drawing order: hair, instances, then the overlays over them.
-    for (auto& item : items_) {
-        if (!groom || !item->shown || isOverlay(item->kind)) continue;
-        if (item.get() == lod_->item) {
+    for (std::size_t i = 0; i < items_.size(); ++i) {
+        GpuItem& item = *items_[i];
+        if (hidden(i) || !item.shown || isOverlay(item.kind)) continue;
+        if (&item == lod_->item) {
             drawLod(cb, false);
         } else {
-            draw(cb, *item, main_, false);
+            draw(cb, item, main_, false);
         }
     }
-    if (groom) drawLod(cb, true);  // (the blendable segments' blended fragments, after everything, depth not written)
+    if (hair) drawLod(cb, true);  // (the blendable segments' blended fragments, after everything, depth not written)
     if (photo && photo_.front) drawPhoto(cb);  // over the strands and the meshes, under the overlays
     drawOverlays(cb);
     cb->endPass();

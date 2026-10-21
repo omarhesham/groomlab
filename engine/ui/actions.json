@@ -76,6 +76,12 @@
     "nhair.exportGuides": {"label": "Export Guides for Simulation...", "tip": "A guide group as Alembic curves (strandId = guide ID), to simulate in another package", "hosts": ["maya"]},
     "nhair.loadCache": {"label": "Load Guide Cache...", "tip": "Guide poses from an Alembic cache, by guide ID", "hosts": ["maya"]},
 
+    "display.showAllHair": {"label": "Show All Hair", "tip": "Show the hair of every groom in the scene, the strands alone (as Shift+click on the Groom Tools' eye)", "tips": {"app": "Show the hair"}},
+    "display.hideAllHair": {"label": "Hide All Hair", "tip": "Hide the hair of every groom in the scene, the strands alone: the guides stay (as Shift+click on the Groom Tools' eye)", "tips": {"app": "Hide the hair"}},
+    "display.showAllGuides": {"label": "Show All Guides", "tip": "Show the guides of every groom in the scene (as Shift+click on the Groom Tools' guides eye)", "tips": {"app": "Show the guides"}},
+    "display.hideAllGuides": {"label": "Hide All Guides", "tip": "Hide the guides of every groom in the scene, every guide group (as Shift+click on the Groom Tools' guides eye)", "tips": {"app": "Hide the guides"}},
+    "display.toggleGuides": {"label": "Guides On/Off", "tip": "Show or hide the guides (Maya's GroomLab hotkey set: every groom's)", "shortcut": "display.guides", "hosts": ["app"]},
+
     "review.heatmap": {"label": "Density Heatmap", "tip": "Color strands by root density: blue sparse, green typical, red bunched", "checkable": true},
     "review.hud": {"label": "Strand Count HUD", "tip": "The active groom's strand, render strand and guide counts in the viewport", "checkable": true},
     "review.turntable": {"label": "Turntable", "tip": "A camera orbiting the groom over 120 frames, with a key, fill and rim light (the viewport looks through it)",
@@ -126,6 +132,7 @@
     "node.bakeToGuides": {"label": "Bake Node to Guides...", "tip": "A graph node's strands or guides (ToGuides, a Scatter...) become guides you can brush"},
     "scales.bakeMaps": {"label": "Bake Scale Maps", "tip": "The scales baked into the skin's uvs as normal, height and color maps (PNG, UDIM tiles too), in the groom's bake folder: distant or tiny scales without their geometry",
                     "tips": {"app": "The scales baked into the scalp's uvs as normal, height and color maps (PNG, UDIM tiles too), in <groom>_scales beside the groom: distant or tiny scales without their geometry"}},
+    "flow.deleteAll": {"label": "Delete All Flow Arrows", "tip": "Remove every flow arrow and sink from the groom (one undo step). They are kept on the groom, laid with the Flow tool (Groom Tools > Create > Flow), and the Flow node lays the strands along them"},
     "groom.transfer": {"label": "Transfer Groom to Scalp...", "tip": "Move the groom onto another mesh (a new sculpt, a retopologized head, another character): guides, parts and flow re-rooted"},
     "graph.copyToGrooms": {"label": "Copy Graph to Other Grooms...", "tip": "The active groom's graph (its look) onto the other selected grooms; their guides kept or replaced"},
     "files.findMissing": {"label": "Find Missing Files...", "tip": "Relink the selected grooms' (else every groom's) missing texture maps, images, Alembic files and caches to files of the same name in a folder you pick",

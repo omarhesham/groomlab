@@ -1679,10 +1679,21 @@ void commitParts(ToolState& t, const std::string& label, const PartSet& set) {
     commitEdit(t, std::move(edit));
 }
 
+// The parts by name, and the flow's count (the Flow card's "34 arrows, 2 sinks"; unreadable: none).
 json partsList(ToolState& t) {
     json parts = json::array();
     for (const Part& p : storedParts(t.session).parts) parts.push_back({{"name", p.name}, {"points", p.points.size()}});
-    return {{"parts", parts}};
+    std::size_t arrows = 0, sinks = 0;
+    const std::string& flow = t.session.groom->data().flowJson;
+    if (!flow.empty()) {
+        try {
+            const FlowSet set = FlowSet::fromJson(flow);
+            arrows = set.pins.size();
+            sinks = set.sinks.size();
+        } catch (const std::exception&) {
+        }
+    }
+    return {{"parts", parts}, {"flow", {{"arrows", arrows}, {"sinks", sinks}}}};
 }
 
 // A part through points on or near the scalp (a curve drawn in the host): bound to the cage (as
@@ -2672,6 +2683,7 @@ DisplaySettings displaySettingsOf(ToolState& t, const json& v) {
                 s.guideColorMode = std::clamp(settingInt(x, k), 0, 2);
             }
         } else if (key == "guideColorLayer") s.guideColorLayer = settingString(x, k);
+        else if (key == "guideColorSeed") s.guideColorSeed = settingString(x, k);  // the groom's name
         else if (key == "displayLevel") s.displayLevel = settingInt(x, k);
         else if (key == "guidePoints") {
             if (x.is_string()) {

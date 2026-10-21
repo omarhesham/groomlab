@@ -27,7 +27,7 @@ Install
 Start
   GroomLab > Create Groom from Selection with a head mesh selected, then GroomLab >
   Groom Tools and GroomLab > Graph Editor. The user guide and full reference are in GroomLab\docs
-  (USER_GUIDE.md, README.md).
+  (USER_GUIDE.md, reference\README.md), and online at https://www.getgroomlab.com/docs.
 
 Update
   GroomLab > Check for Updates...: Update Now downloads the new version, checks it and installs

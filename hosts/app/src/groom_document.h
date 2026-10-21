@@ -139,6 +139,8 @@ public:
     GroomDocument& operator=(const GroomDocument&) = delete;
 
     const std::string& path() const { return path_; }  // "" until saved
+    // What the automatic guide colors start from (DisplaySettings::guideColorSeed): the file's name.
+    std::string guideColorSeed() const;
     const GroomFile& file() const { return scene_->file(); }
     GroomSession& session() { return scene_->session(); }
     const GroomSession& session() const { return scene_->session(); }
@@ -166,6 +168,23 @@ public:
     // now is 1x).
     void setScaleSource(ScaleSource source);
     void setScaleReference();
+    // Properties > Inputs > Scalp Subdivision: the scalp's render subdivision (0 off, 1 to 3
+    // Catmull-Clark levels; ScalpMesh::renderSubdivision, the groom file's scalp "subdivision"),
+    // which the Scalp node's default (match render) refines the scalp by: the hair sits on the
+    // smoothed surface, the viewport draws it, the brushes and picks hit it. One undo step; "" or
+    // why not.
+    int scalpSubdivision() const;
+    std::string setScalpSubdivision(int levels);
+    // The Catmull-Clark levels the groom's own scalp is refined by now (the Scalp nodes may ask for
+    // other than its render level: GroomSession::scalpSubdivisions).
+    int scalpLevels() const;
+    // The triangles `cage` has refined `levels` times (each level makes a quad per face corner, two
+    // triangles each): what Scalp Subdivision's count and its warning say.
+    static std::size_t refinedTriangleCount(const ScalpMesh& cage, int levels);
+    // The groom's own scalp (the file's: file().data.scalp) refined as the groom refines it
+    // (scalpLevels), its cage() the file's scalp: what the Transfer and Guides from Photos windows
+    // show and pick on. Kept per level (switching back costs nothing); the file's scalp at 0.
+    MeshPtr refinedFileScalp() const;
 
     // ---- The graph ---------------------------------------------------------------------------
     struct NodeInfo {
@@ -806,6 +825,12 @@ private:
         bool side = false;
         bool colors = false;
         std::map<std::string, std::string> colorsBefore, colorsAfter;
+        // Scalp Subdivision before and after (levels, where they came from), with `side`.
+        struct Subdivision {
+            int levels = 0;
+            std::string from;
+        };
+        std::optional<std::pair<Subdivision, Subdivision>> subdivision;
     };
     void record(Edit edit);
     // The files and colors an edit changed, onto the step it recorded (the history held
@@ -868,6 +893,9 @@ private:
     double time_ = 0.0;
     std::optional<CardBakeFiles> bake_;
     std::map<std::string, SimCacheRef> simBakes_;  // the Simulate nodes' bakes the file names, by node
+    // refinedFileScalp's meshes by level, for the file's scalp they were refined from.
+    mutable MeshPtr refinedFrom_;
+    mutable std::map<int, MeshPtr> refinedByLevel_;
 };
 
 }  // namespace groomlab::app

@@ -111,6 +111,9 @@ public:
     // The groom's scalp into the mesh view and its stored photos into the tabs (opening, another
     // groom opened, after a transfer).
     void reloadGroom();
+    // The groom's scalp shown again at its subdivision level now (Scalp Subdivision changed), the
+    // camera and the landmarks kept; nothing when it shows that already.
+    void refreshScalp();
     // The groom's photos read again (the Photos tab changed them), the current one kept by name.
     void photosChanged();
 

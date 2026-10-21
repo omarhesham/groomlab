@@ -71,10 +71,12 @@ public:
     void setBackground(const QColor& color) { background_ = color; }
     void setShowScalp(bool show);
     bool showScalp() const { return showScalp_; }
-    // The groom shown (the Groom Tools' eye): off, the frame's items (strands, guides, overlays)
-    // and the guide dots are not drawn; the host hands the lookdev no strands meanwhile.
-    void setGroomShown(bool shown) { groomShown_ = shown; }
-    bool groomShown() const { return groomShown_; }
+    // The hair shown (the Groom Tools' strands eye): off, the frame's hair items (isHairItem: the
+    // strands in every form, the instances, the scales, the cards, the strand meshes) are not
+    // drawn (their buffers kept) and the lookdev path draws no strands (the ones handed meanwhile
+    // held for when the hair shows again); the guides, their dots and the overlays draw as ever.
+    void setHairShown(bool shown);
+    bool hairShown() const { return hairShown_; }
     // Width as coverage (DisplaySettings::widthCoverage, on by default): the strand lines cover
     // each point's width's share of a pixel (display.h lineCoverage), the widths times `widthScale`
     // (DisplaySettings::ribbonWidthScale), at the render's density from a preview at `density`
@@ -264,7 +266,10 @@ private:
     std::unique_ptr<LodDraw> lod_;
     LodStats lodStats_;
     bool showScalp_ = true;
-    bool groomShown_ = true;
+    bool hairShown_ = true;
+    // The strands last handed (setHairStrands), held while the hair is hidden.
+    StrandsPtr hairStrands_;
+    std::uint64_t hairVersion_ = 0;
     int drawCalls_ = 0;
     LookdevRenderer lookdev_;
     bool lookdevWanted_ = true;

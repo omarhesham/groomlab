@@ -49,6 +49,7 @@ VIEWPORT_LIGHT_TYPES = ("ambientLight", "directionalLight", "pointLight", "spotL
 # What a groom shows while it renders (its own values put back after).
 GROOM_DISPLAY = (
     ("renderView", True),              # renderDensity, renderOnly nodes, the render's width and length scales
+    ("displayHair", True),             # the hair hidden in the viewport still renders
     ("displayGuides", False), ("displayFlow", False), ("displayTubes", False), ("scalpMapDisplay", ""),
     ("displayLevel", -1), ("displayCards", False),
     ("displayClumpLod", False),        # renders never thin

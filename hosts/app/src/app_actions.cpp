@@ -144,6 +144,14 @@ ui::Bindings AppActions::bindings(MainWindow& w) {
     b["view.turntable"] = {[m](const json&, bool on) { m->setTurntable(on); }, [m](const json&) { return m->turntable(); }, {}, {}, {},
                            QStringLiteral("turntable")};
 
+    // GroomLab > Display: the open groom (the app's one groom is every groom), and View > Guides
+    // (Alt+Shift+G, Maya's GroomLab hotkey set's key for every groom's guides).
+    b["display.showAllHair"] = {run([m] { m->setHairVisible(true); }), {}, groomOpen, {}, {}, QStringLiteral("showAllHair")};
+    b["display.hideAllHair"] = {run([m] { m->setHairVisible(false); }), {}, groomOpen, {}, {}, QStringLiteral("hideAllHair")};
+    b["display.showAllGuides"] = {run([m] { m->setGuidesVisible(true); }), {}, groomOpen, {}, {}, QStringLiteral("showAllGuides")};
+    b["display.hideAllGuides"] = {run([m] { m->setGuidesVisible(false); }), {}, groomOpen, {}, {}, QStringLiteral("hideAllGuides")};
+    b["display.toggleGuides"] = {run([m] { m->setGuidesVisible(!m->guidesVisible()); }), {}, groomOpen, {}, {}, QStringLiteral("toggleGuides")};
+
     // ---- The GroomLab menu ----
     // Groom Tools: the dock shown and raised (Groom mode, where it lives).
     b["tools.open"] = {run([m] {
@@ -159,6 +167,17 @@ ui::Bindings AppActions::bindings(MainWindow& w) {
                          }),
                          {}, groomOpen};
     b["parts.clear"] = {run([m] { m->guidesPanel_->clearParts(); }), {}, groomOpen};
+    // Utilities > Delete All Flow Arrows (the Flow card's Clear All): every arrow and sink, one undo step.
+    b["flow.deleteAll"] = {run([m] {
+                               const auto [arrows, sinks] = m->guidesPanel_->flowCount();
+                               if (arrows + sinks == 0) {
+                                   m->notify(QObject::tr("The groom has no flow arrows"));
+                                   return;
+                               }
+                               if (m->guidesPanel_->clearFlow())
+                                   m->notify(QObject::tr("Deleted %1 flow arrows and %2 sinks").arg(arrows).arg(sinks));
+                           }),
+                           {}, groomOpen};
     b["photos.guides"] = {run([m] { m->openReferenceWindow(); }), {}, groomOpen, {}, {}, QStringLiteral("guidesFromReference")};
     b["groom.transfer"] = {run([m] { m->openTransferWindow(); }), {}, groomOpen, {}, {}, QStringLiteral("transfer")};
     b["sim.range"] = {run([m] { m->simulateTo(); }), {}, groomOpen};
@@ -182,8 +201,11 @@ ui::Bindings AppActions::bindings(MainWindow& w) {
                            [m](const json&) { return m->colorMode_ && m->colorMode_->currentIndex() == 5; }};
     b["review.turntable"] = {run([m] { m->setTurntable(!m->turntable()); })};
     b["studio.lighting"] = {[m](const json& value, bool) {
+                                // In the current mode (switching to Look hid the Groom Tools): the
+                                // Properties' Lighting tab, with lookdev on so the lights show.
                                 m->applyLightingPreset(str(value));
-                                m->setUiMode(QStringLiteral("look"));
+                                if (m->lookdev_ && !m->lookdev_->isChecked()) m->lookdev_->setChecked(true);
+                                m->shell_->setPropertiesTab(AppShell::PropertiesTab::Lighting);
                             },
                             [m](const json& value) { return value.is_string() && m->look_->lighting().presetName == value.get<std::string>(); }};
 

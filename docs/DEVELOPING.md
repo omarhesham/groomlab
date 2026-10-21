@@ -2,7 +2,7 @@
 
 The handbook for anyone (or any model) picking the code up cold: how it is put together, how
 to build, test and install it, how to find out why Maya crashed or hung, and the rules the code
-follows. The [README](../README.md) is the feature reference; the [user guide](USER_GUIDE.md)
+follows. [reference/](reference/README.md) is the feature reference; the [user guide](USER_GUIDE.md)
 is the artist's walkthrough; [SPEC.md](SPEC.md) and [PILOT.md](PILOT.md) hold the decisions and
 the 1.0 gate.
 
@@ -164,7 +164,39 @@ build/win-maya2022/tests/RelWithDebInfo/groomlab_tests.exe
 `--gtest_filter="ScalpPaint.*:Maps.*"` narrows them. After an intended change of any
 operator's output, re-record goldens with `GROOMLAB_UPDATE_GOLDEN=1` in the environment and
 review the diff of `tests/data/golden/*.json`; every operator type must have a golden case
-(`test_golden.cpp` checks that).
+(`test_golden.cpp` checks that). Strand counts and IDs must match exactly; sampled points, widths
+and channels within 1e-4, so the files hold on every compiler. Stored formats change in place
+(no migrations, section 6): the fixtures under `tests/data/compat/v1` (written by
+`tools/make_compat_fixtures.py`) are loaded by the compatibility tests to catch a format change
+nobody meant to make; update them with an intended one.
+
+**What the full run covers:** the core unit tests; the `groomlab_core` Python tests under
+`mayapy`; `mayapy` standalone tests that load `GroomLab.mll` and groom a sphere; an Arnold test
+that exports a 100k-strand groom through MtoA to `.ass` and checks the curves, deformation blur
+keys, and a groom-file `.ass` rendered by `kick` through the procedural; Alembic round trips,
+through the core reader and through Maya's `AbcImport`; groom files evaluated by `groomlab-cli`
+against Maya's own export, and USD checked with MayaUSD's `pxr`; the Python graph API and presets;
+and the 1.0 hardening (golden output for every operator, the same output with one thread and with
+many, the v1 compatibility fixtures and bad-input sweeps, errors on the node, referenced grooms in
+a moved project, and the performance budgets below). The Arnold translator builds when
+`MTOA_LOCATION` points at an MtoA install (the Windows presets set it); turn it off with
+`-DGROOMLAB_BUILD_ARNOLD=OFF`.
+
+**Performance budgets** are measured by the `Budget.*` tests, `maya.hardening` and the GUI
+session's `viewport` suite (`maya.gui`) on a 24-core machine. CI reports them without failing.
+
+| Budget | Target | Measured |
+| --- | --- | --- |
+| Full graph, 100k strands x 16 points | < 100 ms | ~80 ms |
+| One parameter tweak at preview density | < 33 ms | ~5 ms |
+| Brush dab on 2k guides + interpolation preview | < 16 ms | ~14 ms (~20 ms with a full look graph) |
+| Viewport orbit, 200k preview strands | >= 24 fps | ~120 fps |
+| Render expansion, 1M strands x 24 points | < 5 s, < 1 GB | ~1 s, ~800 MB |
+| Groom file, graph + 5k guides | < 10 MB | ~6 MB |
+| Scene open with 3 grooms | < 3 s added | ~20 ms |
+
+**Coverage.** The `linux-coverage` preset builds the core with gcov. CI's coverage job reports
+line coverage of `engine/core/` in its summary; the target is 80%.
 
 **Maya tests** run through ctest, which gives them a `MAYA_APP_DIR` of their own under the build
 folder (one per mayapy suite, `tests/maya_app_dirs/<test>`, so the suites running side by side never
@@ -243,8 +275,17 @@ themes, icons, the Python module, the Arnold extension and procedural, the CLI):
 cmake --install build/win-maya2022 --config RelWithDebInfo --component GroomLab --prefix "C:/Users/<you>/Documents/maya/modules"
 ```
 
-Always pass `--component GroomLab`. Maya then loads the installed build; a Maya that is open
-keeps the old plugin until it restarts.
+Always pass `--component GroomLab`; without it the install also copies Alembic and Imath headers
+and libraries. Maya then loads the installed build; a Maya that is open keeps the old plugin until
+it restarts. It writes `GroomLab.mod` and, under `GroomLab/`: `plug-ins/GroomLab.mll`,
+`scripts/groomlab`, `python/groomlab_core.cp37-win_amd64.pyd`, `presets`, `expressions`, `themes`,
+`icons`, `extensions/groomLabTranslator.dll`, `procedurals/groomlab_procedural.dll` and
+`bin/groomlab-cli.exe`. Another Maya version's build (`build/ninja-maya2025`...) installs its
+binaries under `GroomLab/maya<year>/` (`plug-ins`, `python`, `extensions`) and its own section of
+`GroomLab.mod`; the packaged release holds them all. Put the long form of the path on
+`MAYA_MODULE_PATH`: Maya's plugin lookup fails on 8.3 short paths like `C:/Users/ABCDEF~1/...`.
+TBB comes from the Maya's own (TBB 2020 in Maya 2022 to 2025, oneTBB `tbb12` in 2026 and 2027);
+without Maya a system TBB package is used if found, otherwise loops run serially.
 
 **The SDK** (the C API for third-party bridges: `groomlab.dll` with its TBB, the import library,
 `groomlab_c.h` / `groomlab.hpp`, a CMake package and the MIT samples; layout in

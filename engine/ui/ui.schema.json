@@ -34,7 +34,9 @@
                   "properties": {"title": {"type": "string"}, "items": {"$ref": "#/$defs/entries"}}},
         "sections": {"type": "array", "items": {
           "type": "object", "additionalProperties": false, "required": ["id", "label"],
-          "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "expanded": {"type": "boolean"}}}},
+          "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "expanded": {"type": "boolean"},
+                         "tools": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                         "tabs": {"type": "array", "minItems": 1, "items": {"type": "string"}}}}},
         "output": {"$ref": "#/$defs/entries"},
         "starter": {
           "type": "object", "additionalProperties": false, "required": ["steps"],

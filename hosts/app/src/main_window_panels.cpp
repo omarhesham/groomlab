@@ -144,7 +144,8 @@ void MainWindow::buildPanels() {
         refreshProperties();  // (Sculpt Display and Sculpt Density follow)
         redisplay();
     });
-    connect(groomTools_, &GroomTools::groomVisibilityToggled, this, [this](bool on) { setGroomVisible(on); });
+    connect(groomTools_, &GroomTools::hairVisibilityToggled, this, [this](bool on) { setHairVisible(on); });
+    connect(groomTools_, &GroomTools::guidesVisibilityToggled, this, [this](bool on) { setGuidesVisible(on); });
     connect(groomTools_, &GroomTools::graphRequested, this, [this] { setGraphShown(true); });
     connect(groomTools_, &GroomTools::tabChanged, this, [this](const QString& tab) {
         // Leaving the Paint tab is done painting (Maya's): the camera again.
@@ -318,6 +319,8 @@ void MainWindow::wireOverlay() {
                 n["params"]["mode"] = "melanin";  // a swatch is a pigment
                 n["params"]["melanin"] = p.melanin;
                 n["params"]["redness"] = p.melaninRedness;
+                // Its dye too (white: none), so Dyed shows and the other swatches undo it.
+                n["params"]["dye"] = {p.baseColor[0], p.baseColor[1], p.baseColor[2]};
             }
         });
         if (!error.empty()) {

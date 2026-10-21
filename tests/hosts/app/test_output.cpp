@@ -19,12 +19,16 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
+#include <QTabBar>
+#include <QDockWidget>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
 #include "app_actions.h"
+#include "app_shell.h"
 #include "groom_document.h"
+#include "look.h"
 #include "main_window.h"
 #include "mesh_io.h"
 #include "overlay.h"
@@ -563,6 +567,41 @@ TEST(AppOutput, ThemesSwitchLiveWithTheUsersFolder) {
     qunsetenv("GROOMLAB_THEME_PATH");
     ASSERT_TRUE(window.chooseTheme(theme::defaultTheme()));
     EXPECT_EQ(window.styleSheet(), theme::styleSheet());
+}
+
+// GroomLab > Studio lights the viewport in the mode at hand: it no longer switches to Look mode,
+// which hid the Groom Tools; the Properties dock shows its Lighting tab, lookdev on.
+TEST(AppOutput, StudioLightingKeepsTheModeAndTheGroomTools) {
+    MainWindow window;
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(sampleCopy("groomlab_app_output_studio"))));
+    window.show();
+    ASSERT_TRUE(window.setUiMode(QStringLiteral("groom")));
+    QCoreApplication::processEvents();
+    AppShell* shell = window.shell();
+    ASSERT_FALSE(shell->groomToolsDock()->isHidden());
+    // The Properties dock's tabs: Attributes, then the look's Material, Lighting and Render.
+    QTabBar* tabs = shell->propertiesTabs();
+    ASSERT_TRUE(tabs);
+    ASSERT_EQ(tabs->count(), 4);
+    EXPECT_EQ(tabs->tabText(0), QStringLiteral("Attributes"));
+    EXPECT_EQ(tabs->tabText(2), QStringLiteral("Lighting"));
+    EXPECT_FALSE(tabs->isHidden());
+    EXPECT_EQ(shell->propertiesTab(), AppShell::PropertiesTab::Attributes);
+    const ui::Bindings bindings = AppActions::bindings(window);
+    ASSERT_TRUE(bindings.count("studio.lighting"));
+    const std::string preset = lightingPresetNames().back();
+    bindings.at("studio.lighting").trigger(json(preset), false);
+    QCoreApplication::processEvents();
+    EXPECT_EQ(shell->mode(), OverlayHost::Mode::Groom);
+    EXPECT_FALSE(shell->groomToolsDock()->isHidden());
+    EXPECT_EQ(shell->propertiesTab(), AppShell::PropertiesTab::Lighting);
+    EXPECT_EQ(shell->lookCard()->tab(), LookCard::Tab::Lighting);
+    EXPECT_TRUE(bindings.at("studio.lighting").checked(json(preset)));
+    // Back to Attributes: the groom's settings again; Cards mode shows its own panel, no tabs.
+    shell->setPropertiesTab(AppShell::PropertiesTab::Attributes);
+    EXPECT_TRUE(shell->panelShown(AppShell::Panel::Display));
+    ASSERT_TRUE(window.setUiMode(QStringLiteral("cards")));
+    EXPECT_TRUE(tabs->isHidden());
 }
 
 }  // namespace

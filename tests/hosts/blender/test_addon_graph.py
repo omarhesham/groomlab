@@ -407,6 +407,12 @@ class GraphEditorTest(unittest.TestCase):
         log = []
         ge.draw_node_panel(PanelLayout(log), bpy.context, look)
         self.assertIn(("prop", "value_length"), log)
+        # Its actions (graph_ui.json's nodeActions for a Compound) at the top, before any param.
+        self.assertEqual(ge.draw_pinned_actions(PanelLayout([]), bpy.context, look)[:2],
+                         ["compound.ungroup", "compound.saveAsNode"])
+        ungroup = log.index(("operator", "groomlab.graph_ungroup"))
+        self.assertLess(ungroup, log.index(("prop", "value_length")))
+        self.assertEqual(ge.draw_pinned_actions(PanelLayout([]), bpy.context, node_of(tree, after)), [])  # a Curl: none
         settle(head)
         self.assertEqual(groom.runtime(head).errors, [])
 

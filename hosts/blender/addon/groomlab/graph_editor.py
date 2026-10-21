@@ -21,6 +21,7 @@ from .helper_client import HelperError, sentence
 
 _folded = {}       # (operator type, section) -> folded, for the session (Maya: unset = Advanced folded)
 _deferred = {}     # key -> (fn, args): run once from a timer (not while Blender draws)
+_pinned_spaces = set()  # the node editors (as_pointer) pinned when last drawn: unpinned, they follow again
 _status = {}       # scalp uid -> {"serial", "times"}: the node timings the overlay shows
 _channels = {}     # scalp uid -> {"graph", "channels"}: the attributes per node (graph_channels)
 _catalog = {"presets": [], "categories": []}
@@ -156,7 +157,8 @@ def node_notes(scalp):
 
 
 def show_groom(context, scalp):
-    """The scene's groom changed: the node editors showing a GroomLab graph show this groom's."""
+    """The scene's groom changed: the node editors showing a GroomLab graph show this groom's
+    (a pinned one stays on its own)."""
     if not groom.is_groom(scalp):
         return
     wm = getattr(context, "window_manager", None) or bpy.context.window_manager
@@ -165,7 +167,7 @@ def show_groom(context, scalp):
         for area in window.screen.areas:
             if area.type == "NODE_EDITOR":
                 space = area.spaces.active
-                if space.tree_type == TREE:
+                if space.tree_type == TREE and not space.pin:
                     spaces.append((area, space))
     if not spaces:
         return
@@ -639,6 +641,32 @@ def draw_node_actions(layout, context):
         draw_node_menu(layout, context, node)
 
 
+def draw_pinned_actions(layout, context, node):
+    """The node's actions by its type (graph_ui.json's nodeActions: the Cards exports, Simulate's
+    range, bake and clear, Bake Node to Guides, a Sculpt node's Clear, a compound's), two to a row
+    at the top of its panel, as Maya and the app pin them. Returns the ids drawn."""
+    from . import actions, menu
+    state, values = node_state(node)
+    state.add("type." + node.gl_type)
+    container = graph_ui.get("graph/nodeActions", {}) or {}
+    items = [i for i in graph_ui.resolve(container.get("items", []), state, values) if i["kind"] == "action"]
+    items = [i for i in items if i["id"] in graph_ui.ACTIONS or i["id"] in actions.BINDINGS]
+    if not items:
+        return []
+    col = layout.column(align=True)
+    ctx = menu_context(context, node)
+    row = None
+    for i, item in enumerate(items):
+        if i % 2 == 0:
+            row = col.row(align=True)
+        if item["id"] in graph_ui.ACTIONS:
+            graph_ui.draw_prepared(row, graph_ui.prepare([item], ctx, "nodeActions"))
+        else:
+            menu.draw_action(row, item, context)
+    col.separator()
+    return [i["id"] for i in items]
+
+
 def _preset_entries(entry):
     """The Presets menu's presets (its "presets" generator): a submenu per category (your own last,
     not in one), each preset a submenu of Apply and Insert After Selected Node (presetItem)."""
@@ -704,11 +732,26 @@ def draw_header(self, context):
         return
     layout = self.layout
     scene = context.scene
-    if tree.gl_scalp is not None and scene.groomlab.groom != tree.gl_scalp:
+    space = context.space_data
+    pinned = bool(getattr(space, "pin", False))
+    # Unpinned, the editor shows the current groom (the Groom Tools'): another tree picked here makes
+    # its groom current. Pinned, it stays on its groom while the Groom Tools move on.
+    key = space.as_pointer() if hasattr(space, "as_pointer") else id(space)
+    if pinned:
+        _pinned_spaces.add(key)
+    elif key in _pinned_spaces:  # just unpinned: back to the current groom
+        _pinned_spaces.discard(key)
+        defer(("unpinned", key), lambda: show_groom(bpy.context, bpy.context.scene.groomlab.groom))
+    elif tree.gl_scalp is not None and scene.groomlab.groom != tree.gl_scalp:
         defer(("follow", tree.name), _follow_editor, tree)
     check_tree(tree)
     row = layout.row(align=True)
-    row.prop(scene.groomlab, "groom", text="", icon="CURVES")
+    if pinned:
+        row.label(text=tree.gl_scalp.name if tree.gl_scalp is not None else tree.name, icon="CURVES")
+    else:
+        row.prop(scene.groomlab, "groom", text="", icon="CURVES")
+    if hasattr(space, "pin"):
+        row.prop(space, "pin", text="", icon="PINNED" if pinned else "UNPINNED", emboss=False)
     layout.menu("GROOMLAB_MT_graph_edit")
     layout.menu("GROOMLAB_MT_graph_presets")
     scalp = tree.gl_scalp
@@ -932,6 +975,8 @@ def draw_node_panel(layout, context, node):
     if info.get("updateAvailable"):
         op = row.operator("groomlab.graph_update_node", text="Update", icon="SORT_DESC")
         op.node, op.action = node.gl_name, "node.update"
+    # Its actions (bake, export, simulate...) at the top, in view before any param.
+    draw_pinned_actions(layout.column(), context, node)
     about = (json.loads(node.gl_spec_json).get("description") if node.gl_spec_json else None) or node.gl_spec.get("description", "")
     if about:
         wrap(layout.column(), about)

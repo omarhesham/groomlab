@@ -26,6 +26,7 @@
 #include "groomlab/scales.h"
 #include "groomlab/operators.h"
 #include "groomlab/sculpt.h"
+#include "groomlab/subdivision.h"
 #include "groomlab/texture.h"
 #include "groomlab/transfer.h"
 #include "graph_presets.h"
@@ -471,6 +472,70 @@ void GroomDocument::setScaleReference() {
     if (!(session().scaleArea() > 0.0) || session().scaleReference() == session().scaleArea()) return;
     session().setScaleReference(session().scaleArea());
     dirty_ = true;
+}
+
+int GroomDocument::scalpSubdivision() const {
+    const MeshPtr& scalp = scene_->file().data.scalp;
+    return scalp ? std::clamp(scalp->renderSubdivision(), 0, kMaxSubdivisionLevels) : 0;
+}
+
+std::string GroomDocument::setScalpSubdivision(int levels) {
+    const MeshPtr& scalp = scene_->file().data.scalp;
+    if (!scalp) return "the groom has no scalp";
+    if (levels < 0 || levels > kMaxSubdivisionLevels) return "Scalp Subdivision is off or 1 to " + std::to_string(kMaxSubdivisionLevels);
+    const Edit::Subdivision before{scalp->renderSubdivision(), scalp->renderSubdivisionFrom()};
+    const Edit::Subdivision after{levels, levels > 0 ? std::string("Scalp Subdivision") : std::string()};
+    if (before.levels == after.levels) return {};
+    commitPreview();
+    Edit edit;
+    edit.side = true;
+    edit.label = "scalp subdivision";
+    edit.subdivision = std::make_pair(before, after);
+    applySide(edit, true);
+    record(std::move(edit));
+    dirty_ = true;
+    return {};
+}
+
+int GroomDocument::scalpLevels() const {
+    const std::map<std::string, int> levels = session().scalpSubdivisions();
+    const auto it = levels.find(kMainScalpName);
+    return it == levels.end() ? 0 : it->second;
+}
+
+std::size_t GroomDocument::refinedTriangleCount(const ScalpMesh& cage, int levels) {
+    levels = std::clamp(levels, 0, kMaxSubdivisionLevels);
+    if (levels == 0) return cage.triangleCount();
+    // Level 1 makes a quad per corner of each face (a polygon of n triangles has n + 2 corners; a
+    // mesh without polygons is its triangles); each further level makes four of each quad.
+    std::size_t corners = 0;
+    if (cage.polygons().empty()) {
+        corners = 3 * cage.triangleCount();
+    } else {
+        for (const std::int32_t n : cage.polygons()) corners += n > 0 ? static_cast<std::size_t>(n) + 2 : 0;
+    }
+    std::size_t triangles = 2 * corners;
+    for (int l = 1; l < levels; ++l) triangles *= 4;
+    return triangles;
+}
+
+MeshPtr GroomDocument::refinedFileScalp() const {
+    const MeshPtr& scalp = scene_->file().data.scalp;
+    const int levels = scalpLevels();
+    if (!scalp || levels == 0) return scalp;
+    // Kept by the scalp's surface (its render level changes the mesh object, not the surface).
+    if (!refinedFrom_ || refinedFrom_->surfaceHash() != scalp->surfaceHash() || refinedFrom_->polygonHash() != scalp->polygonHash()) {
+        // The surface alone: points, triangles, polygons and UVs (the views neither show nor pick
+        // the color sets).
+        auto cage = std::make_shared<ScalpMesh>(scalp->points(), scalp->triangles());
+        if (scalp->hasUVs()) cage->setCornerUVs(scalp->cornerUVs());
+        cage->setPolygons(scalp->polygons());
+        refinedFrom_ = std::move(cage);
+        refinedByLevel_.clear();
+    }
+    MeshPtr& refined = refinedByLevel_[levels];
+    if (!refined) refined = subdivideScalp(refinedFrom_, levels);
+    return refined;
 }
 
 void GroomDocument::loadGraph(const std::string& text) {
@@ -1511,6 +1576,10 @@ std::string GroomDocument::transferToScalp(MeshPtr scalp, const TransferOptions&
     // The new scalp with the projected vertex maps as its color sets, as the file keeps them.
     auto mesh = std::make_shared<ScalpMesh>(scalp->points(), scalp->triangles());
     if (scalp->hasUVs()) mesh->setCornerUVs(scalp->cornerUVs());
+    mesh->setPolygons(scalp->polygons());  // what Catmull-Clark refines
+    // Scalp Subdivision as it was (the new scalp's own level when the old one had none).
+    if (from->renderSubdivision() > 0) mesh->setRenderSubdivision(from->renderSubdivision(), from->renderSubdivisionFrom());
+    else mesh->setRenderSubdivision(scalp->renderSubdivision(), scalp->renderSubdivisionFrom());
     for (const std::string& set : scalp->colorSetNames()) {
         if (const auto* colors = scalp->cornerColors(set)) mesh->setCornerColors(set, *colors);
     }
@@ -2041,13 +2110,22 @@ const DisplayFrame& GroomDocument::updateDisplay(const DisplaySettings& settings
         };
         inputs.selectionHash = selectionVersion_;
     }
-    if (!groupColors_.empty() && settings.guideGroupColors.empty()) {
-        // The groups' own colors (the rest automatic: their level's).
+    const bool ownColors = !groupColors_.empty() && settings.guideGroupColors.empty();
+    const std::string seed = settings.guideColorSeed.empty() ? guideColorSeed() : std::string();
+    if (ownColors || !seed.empty()) {
+        // The groups' own colors (the rest automatic: their level's, from the groom's own hue).
         DisplaySettings colored = settings;
-        colored.guideGroupColors = groupColorsText();
+        if (ownColors) colored.guideGroupColors = groupColorsText();
+        if (!seed.empty()) colored.guideColorSeed = seed;
         return display_.update(inputs, colored);
     }
     return display_.update(inputs, settings);
+}
+
+std::string GroomDocument::guideColorSeed() const {
+    // The file's name without its extension: Maya's groom "hair" exported as hair.groom starts its
+    // guide colors from the same hue in the app ("" untitled: the theme's own colors).
+    return path_.empty() ? std::string() : std::filesystem::path(path_).stem().string();
 }
 
 Bounds GroomDocument::sceneBounds() const {
@@ -2174,7 +2252,8 @@ void GroomDocument::save(const std::string& path) {
 }
 
 void GroomDocument::writeRenderGroom(const std::string& path, MeshPtr* scalp) {
-    if (scalp) *scalp = scene_->rootScalpAt(time_);
+    // The scalp as the hair grows on it: refined as the groom refines it (Scalp Subdivision).
+    if (scalp) *scalp = session().refineAsScalp(scene_->rootScalpAt(time_));
     GroomFile file = currentFile();
     const std::string folder = std::filesystem::u8path(path).parent_path().u8string();
     file.cardBake = {};

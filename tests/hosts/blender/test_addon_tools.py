@@ -583,6 +583,41 @@ class ToolsTest(unittest.TestCase):
         self.assertNotIn("guides", [e[0] for e in display.draw_list(head)])
         d.show_guides = True
         display.refresh(head)
+        # The Groom Tools' guides eye (groomlab.eye): this groom's guides, every guide group; Shift+click
+        # (or GroomLab > Display) every groom's, as the strands' eye does with the hair.
+        bpy.context.scene.groomlab.groom = head
+        bpy.ops.groomlab.eye(what="GUIDES")
+        self.assertFalse(d.show_guides)
+        bpy.ops.groomlab.eye(what="GUIDES")
+        self.assertTrue(d.show_guides)
+        groom_mod = importlib.import_module(bu.MODULE + ".groom")
+        bpy.ops.groomlab.eye(what="GUIDES", mode="HIDE", every=True)
+        self.assertEqual([s.groomlab_tools.show_guides for s in groom_mod.scalps()], [False] * len(groom_mod.scalps()))
+        bpy.ops.groomlab.eye(what="GUIDES", mode="SHOW", every=True)
+        self.assertTrue(all(s.groomlab_tools.show_guides for s in groom_mod.scalps()))
+        bpy.ops.groomlab.eye(what="STRANDS")
+        self.assertFalse(d.show_strands)
+        bpy.ops.groomlab.eye(what="STRANDS", mode="SHOW", every=True)
+        self.assertTrue(d.show_strands)
+        # Each eye its own: the strands' hides the hair object in the viewport alone (renders keep it,
+        # the guides still draw); the guides' leaves the hair as it is.
+        bpy.ops.groomlab.eye(what="STRANDS")
+        self.assertTrue(head.groomlab.hair.hide_viewport)
+        self.assertFalse(head.groomlab.hair.hide_render)
+        self.assertTrue(d.show_guides)
+        display.refresh(head)
+        self.assertIn("guides", [e[0] for e in display.draw_list(head)])
+        bpy.ops.groomlab.eye(what="STRANDS")
+        self.assertFalse(head.groomlab.hair.hide_viewport)
+        bpy.ops.groomlab.eye(what="GUIDES")
+        self.assertFalse(head.groomlab.hair.hide_viewport)
+        self.assertTrue(d.show_strands)
+        display.refresh(head)
+        self.assertNotIn("guides", [e[0] for e in display.draw_list(head)])
+        bpy.ops.groomlab.eye(what="GUIDES")
+        # The automatic guide colors start from the groom's own hue (its name, as Maya's transform).
+        self.assertEqual(display.settings_for(head, bpy.context.scene)["guideColorSeed"], head.name)
+        display.refresh(head)
         # Drawn into an offscreen with the camera's matrices, when the gpu module starts headless.
         self._draw_offscreen(head)
         # Strand color modes: the hair's active color attribute (the viewport shows it).

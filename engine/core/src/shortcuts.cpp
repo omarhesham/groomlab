@@ -43,6 +43,7 @@ const std::vector<Shortcut>& shortcuts() {
         {"view.pan", "Viewport", "Alt+middle-drag / Alt+right-drag", "Pan / dolly the camera", kApp},
         {"view.wheel", "Viewport", "Mouse wheel", "Dolly the camera (over the graph: zoom it)", kApp},
         {"view.delete", "Viewport", "Delete", "The selected guides, node or wire", kApp},
+        {"display.guides", "Viewport", "Alt+Shift+G", "Every groom's guides on or off (GroomLab > Display)", kMaya | kApp, kSet},
         {"graph.add", "Graph", "Tab", "Add a node at the cursor", kMaya | kBlender},
         {"graph.duplicate", "Graph", "Ctrl+D", "Duplicate the selected nodes", kMaya | kApp},
         {"graph.group", "Graph", "Ctrl+G / Ctrl+Shift+G", "Group into a Compound / ungroup", kMaya | kApp},

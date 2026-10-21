@@ -386,8 +386,75 @@ TEST(AppTubes, ShapeBrushCardPaintsAChannelAndOpensTheTubesSection) {
     EXPECT_FALSE(tubes->expanded());
     tools.setTool("comb");
     EXPECT_TRUE(box->isHidden());
+    EXPECT_TRUE(tubes->isHidden()) << "Tubes only with Place, Draw, Shape and Select (palette.json's tools)";
     tools.setTool("place");
+    EXPECT_FALSE(tubes->isHidden());
     EXPECT_TRUE(tubes->expanded()) << "Place opens it too";
+}
+
+TEST(AppGroomTools, SectionsFollowTheToolAndTheTab) {
+    // palette.json's sections: Tubes with Place, Draw, Shape and Select; While sculpting with the
+    // brushes that stroke; the guide groups on the Tools tab; Output always (Maya's and Blender's rule).
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    BrushSession session;
+    session.setDocument(doc.get());
+    GroomTools tools;
+    tools.setSession(&session);
+    tools.setGroomName(QStringLiteral("sample"));
+    Section* tubes = tools.section("tubes");
+    Section* sculpting = tools.section("sculptDisplay");
+    Section* groups = tools.section("groups");
+    Section* output = tools.section("output");
+    ASSERT_TRUE(tubes && sculpting && groups && output);
+    tools.setTool({});
+    EXPECT_TRUE(tubes->isHidden());
+    EXPECT_TRUE(sculpting->isHidden());
+    EXPECT_FALSE(groups->isHidden());
+    EXPECT_FALSE(output->isHidden());
+    tools.setTool("part");
+    EXPECT_TRUE(tubes->isHidden());
+    EXPECT_TRUE(sculpting->isHidden());
+    tools.setTool("comb");
+    EXPECT_TRUE(tubes->isHidden());
+    EXPECT_FALSE(sculpting->isHidden());
+    tools.setTool("select");
+    EXPECT_FALSE(tubes->isHidden()) << "the selected guides' tubes";
+    EXPECT_TRUE(sculpting->isHidden());
+    ASSERT_TRUE(tools.showTab(QStringLiteral("paint")));
+    EXPECT_TRUE(groups->isHidden()) << "the guide groups: the Tools tab's";
+    EXPECT_FALSE(output->isHidden());
+    ASSERT_TRUE(tools.showTab(QStringLiteral("tools")));
+    EXPECT_FALSE(groups->isHidden());
+    const ui::json rule = {{"id", "x"}, {"tools", {"place"}}, {"tabs", {"tools"}}};
+    EXPECT_TRUE(GroomTools::sectionShown(rule, "place", "tools"));
+    EXPECT_FALSE(GroomTools::sectionShown(rule, "place", "paint"));
+    EXPECT_FALSE(GroomTools::sectionShown(rule, "", "tools"));
+    EXPECT_TRUE(GroomTools::sectionShown({{"id", "output"}}, "", "photos"));
+}
+
+TEST(AppGroomTools, TheFlowCardCountsTheArrows) {
+    auto doc = GroomDocument::open(kSampleGroom);
+    ASSERT_TRUE(doc);
+    BrushSession session;
+    session.setDocument(doc.get());
+    GroomTools tools;
+    tools.setSession(&session);
+    tools.setGroomName(QStringLiteral("sample"));
+    session.setTool("flow");
+    tools.setTool("flow");
+    BrushPanel* card = tools.card();
+    auto* count = card->findChild<QLabel*>(QStringLiteral("flowCount"));
+    auto* clear = card->findChild<QPushButton*>(QStringLiteral("clearFlow"));
+    ASSERT_TRUE(count && clear);
+    tools.setFlowCount(34, 2);
+    EXPECT_EQ(count->text(), QStringLiteral("34 arrows \u00b7 2 sinks"));
+    EXPECT_TRUE(clear->isEnabled());
+    EXPECT_EQ(BrushPanel::flowCountText(1, 1), QStringLiteral("1 arrow \u00b7 1 sink"));
+    tools.setFlowCount(0, 0);
+    EXPECT_EQ(count->text(), QStringLiteral("No flow arrows yet"));
+    EXPECT_FALSE(clear->isEnabled());
+    EXPECT_NE(clear->toolTip().indexOf(QStringLiteral("one undo step")), -1) << "the tip of GroomLab > Utilities > Delete All Flow Arrows";
 }
 
 TEST(AppTubes, WidthFollowsTheLengthUnit) {

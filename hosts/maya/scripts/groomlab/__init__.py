@@ -71,8 +71,8 @@ from groomlab.painting import (  # noqa: F401
     set_map_channels, set_map_texture, setting_targets, show_map_on_scalp, texture_map, unfreeze_all, use_map, view_map,
     _map_texture_default)
 from groomlab.flow import (  # noqa: F401
-    FLOW_SINKS, add_flow_node, add_part, add_part_node, clear_flow, clear_parts, draw_part_tool, flow_arrows, flow_sink,
-    flow_sinks, flow_stroke, flow_tool, list_parts, remove_part)
+    FLOW_SINKS, add_flow_node, add_part, add_part_node, clear_flow, clear_parts, draw_part_tool, flow_arrows, flow_counts,
+    flow_sink, flow_sinks, flow_stroke, flow_tool, list_parts, remove_part)
 from groomlab.motion import add_jiggle, add_wind, motion_anchor  # noqa: F401
 from groomlab.shading import (  # noqa: F401
     assign_shading_group, color_nodes, create_hair_shader, hair_color_node, hair_color_params, hair_look,
@@ -82,6 +82,9 @@ from groomlab.groom import (  # noqa: F401
     clear_rest_mesh, create_groom, errors, gpu_preview,
     guides_text,
     groom_scale, inputs_summary, list_grooms, lock_groom, pin_groom, pin_new_groom, pinned_groom, rest_mesh, scalp_mesh,
+    SEEN_VAR, current_groom, on_current_groom, remove_current_groom_listener, set_current_groom,
+    hair_visible, guides_visible, set_all_hair_visible, set_all_guides_visible, set_hair_visible,
+    set_guides_visible, toggle_all_guides,
     set_follow_scalp, set_scale_reference, set_scale_source, scale_source, set_scale_with_scalp, store_scale_references,
     set_rest_mesh, set_scalp)
 from groomlab.transfer import (transfer_groom, get_transfer_markers, set_transfer_markers,  # noqa: F401

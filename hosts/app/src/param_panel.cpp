@@ -10,6 +10,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QGridLayout>
 #include <QLayoutItem>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -194,6 +195,15 @@ ParamPanel::ParamPanel(QWidget* parent) : QWidget(parent) {
     connect(presets_, &QAbstractButton::clicked, this, [this] { showPresets(); });
     titleRow->addWidget(presets_);
     layout->addLayout(titleRow);
+    // The node's actions (buildActions): right under its title, outside the rows' scroll area.
+    actions_ = new QWidget(this);
+    actions_->setObjectName(QStringLiteral("nodeActions"));
+    actionsGrid_ = new QGridLayout(actions_);
+    actionsGrid_->setContentsMargins(0, 0, 0, 0);
+    actionsGrid_->setHorizontalSpacing(6);
+    actionsGrid_->setVerticalSpacing(4);
+    actions_->hide();
+    layout->addWidget(actions_);
     // The node's error from the last evaluation, red under its title (the graph's badge says it too).
     error_ = new QLabel(this);
     error_->setObjectName(QStringLiteral("nodeError"));
@@ -526,6 +536,7 @@ void ParamPanel::build() {
     upgrade_->hide();
     presets_->hide();
     type_.clear();
+    buildActions();
     if (!spec) {
         title_->setText(node_.empty() ? tr("No node") : QString::fromStdString(node_));
         bypass_->setEnabled(false);
@@ -1048,11 +1059,51 @@ void ParamPanel::showPresets() {
     emit edited();
 }
 
+void ParamPanel::buildActions() {
+    for (auto& [id, b] : actionButtons_) {
+        actionsGrid_->removeWidget(b);
+        b->hide();
+        b->deleteLater();  // (one may be the button whose click got here)
+    }
+    actionButtons_.clear();
+    const bool shown = document_ && !node_.empty() && document_->nodeSpec(node_) && nodeActionsFiller_;
+    if (shown) {
+        for (const NodeAction& a : nodeActionsFiller_(node_)) {
+            auto* b = new QPushButton(a.label, actions_);
+            b->setObjectName(QStringLiteral("nodeAction_") + QString::fromStdString(a.id));
+            b->setToolTip(a.tip);
+            b->setEnabled(a.enabled);
+            // After the click is over: the action may rebuild this panel (and this button).
+            connect(b, &QPushButton::clicked, this, [run = a.run] {
+                if (run) QTimer::singleShot(0, run);
+            });
+            const int at = static_cast<int>(actionButtons_.size());
+            actionsGrid_->addWidget(b, at / 2, at % 2);
+            actionButtons_.emplace_back(a.id, b);
+        }
+    }
+    actions_->setVisible(!actionButtons_.empty());
+}
+
+std::vector<std::string> ParamPanel::actionIds() const {
+    std::vector<std::string> ids;
+    for (const auto& [id, b] : actionButtons_) ids.push_back(id);
+    return ids;
+}
+
+QPushButton* ParamPanel::actionButton(const std::string& id) const {
+    for (const auto& [i, b] : actionButtons_) {
+        if (i == id) return b;
+    }
+    return nullptr;
+}
+
 QSize ParamPanel::sizeHint() const {
     // As tall as the rows (the host sizes the floating panel to this, within the view; the rows
     // scroll past that): the title, the description and the bypass box over the form.
     int height = 12;
-    for (QWidget* w : {static_cast<QWidget*>(title_), static_cast<QWidget*>(bypass_), static_cast<QWidget*>(evaluation_), static_cast<QWidget*>(empty_)}) {
+    for (QWidget* w : {static_cast<QWidget*>(title_), static_cast<QWidget*>(actions_), static_cast<QWidget*>(bypass_), static_cast<QWidget*>(evaluation_),
+                       static_cast<QWidget*>(empty_)}) {
         if (w->isVisibleTo(const_cast<ParamPanel*>(this))) height += w->sizeHint().height() + 6;
     }
     // The wrapped lines (the error, the description, the note) at the panel's width, every line.

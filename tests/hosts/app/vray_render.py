@@ -88,7 +88,7 @@ def main(exe, vray, work):
     assert "(V-Ray)" in log, log
     for path in (frame, os.path.join(work, "frame_groom.vrscene"), os.path.join(work, "frame_scene.vrscene")):
         assert os.path.isfile(path), path
-    run(exe, groom + ["--screenshot", view, "--tonemap", "none", "--frames", "32"], vray)  # refined: whole strands
+    run(exe, groom + ["--screenshot", view, "--tonemap", "none", "--background", "solid", "--quality", "refine", "--frames", "32"], vray)  # refined: whole strands
 
     w, h, rows = read_png(frame)
     assert (w, h) == (160, 120), (w, h)

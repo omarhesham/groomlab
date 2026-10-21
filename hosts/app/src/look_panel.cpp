@@ -469,7 +469,7 @@ void LookPanel::applyMaterialPreset(const QString& name) {
 }
 
 void LookPanel::applyLightingPreset(const QString& name) {
-    lighting_ = lightingPreset(name.toStdString());
+    lighting_ = withLightingPreset(lighting_, name.toStdString());
     refreshLighting();
     emit lightingChanged();
 }

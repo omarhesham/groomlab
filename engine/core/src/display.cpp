@@ -207,6 +207,37 @@ std::array<float, 3> rampColor(float t) {
     return hueColor((1.0f - t) * (2.0f / 3.0f), 0.85f, 0.95f);
 }
 
+float guideHueSeed(std::string_view groomName) {
+    if (groomName.empty()) return 0.0f;
+    std::uint32_t h = 2166136261u;  // FNV-1a: the same on every platform and host
+    for (const char c : groomName) {
+        h ^= static_cast<unsigned char>(c);
+        h *= 16777619u;
+    }
+    return static_cast<float>(h >> 8) / 16777216.0f;  // 24 bits: exact in a float, in [0, 1)
+}
+
+std::array<float, 3> autoGuideColor(const DisplayTheme& theme, float seed, int depth, int group, bool byGroup) {
+    if (byGroup) {
+        // A hue per group, in the order groups were made (golden-ratio steps stay apart).
+        const float hue = std::fmod(0.6f + seed + 0.618034f * static_cast<float>(std::max(group, 0)), 1.0f);
+        return hueColor(hue, 0.75f, 0.95f);
+    }
+    const DisplayTheme::RGB c = theme.level(depth);
+    if (seed == 0.0f) return c;
+    // The theme's level color, its hue turned by the seed (saturation and value kept: the levels
+    // stay apart from each other as the theme made them; grays stay gray).
+    const float hi = std::max({c[0], c[1], c[2]}), lo = std::min({c[0], c[1], c[2]});
+    if (hi <= 0.0f || hi - lo < 1e-4f) return c;
+    const float range = hi - lo;
+    float hue;
+    if (hi == c[0]) hue = (c[1] - c[2]) / range;
+    else if (hi == c[1]) hue = 2.0f + (c[2] - c[0]) / range;
+    else hue = 4.0f + (c[0] - c[1]) / range;
+    hue /= 6.0f;
+    return hueColor(hue + seed, range / hi, hi);
+}
+
 void densityColors(const StrandSet& s, std::vector<std::array<float, 3>>& out) {
     constexpr std::size_t kNeighbors = 8;
     const std::size_t count = s.strandCount();
@@ -1367,6 +1398,13 @@ std::vector<std::size_t> instancedStrands(const StrandSet& strands) {
     return out;
 }
 
+// How the hair shows now: 0 as ever, 1 dimmed and flat for a stroke, 2 hidden (for a stroke,
+// sculptDisplay 2, or the hair hidden: DisplaySettings::hair).
+int hairDisplay(const DisplayInputs& in, const DisplaySettings& s) {
+    if (!s.hair) return 2;
+    return in.stroke ? s.sculptDisplay : 0;
+}
+
 }  // namespace
 
 DisplayInputs DisplayInputs::fromView(const ViewResult& view, bool stroke) {
@@ -1475,7 +1513,7 @@ void DisplayBuilder::buildStrands(const DisplayInputs& in, const DisplaySettings
     item(DisplayItemId::DimStrands).color = dim;
     for (const DisplayItemId id : {DisplayItemId::Strands, DisplayItemId::ColoredStrands, DisplayItemId::Ribbons}) item(id).color = solid;
     // Sculpting: while a stroke is live, strands step back so the guides read.
-    const int sculpt = in.stroke ? s.sculptDisplay : 0;
+    const int sculpt = hairDisplay(in, s);
     const int colorMode = s.colorMode;
     // Solid color mode draws lit (the look); the color modes are for reading data and stay flat.
     const bool lit = colorMode == kSolidColors && s.lighting;
@@ -1508,7 +1546,8 @@ void DisplayBuilder::buildStrands(const DisplayInputs& in, const DisplaySettings
     }
     if (!rebuild(DisplayPart::Strands, strandKey)) return;
     strandShape_ = strandShape;
-    // Strands hidden for a stroke (sculptDisplay 2), by the cards or by scales: nothing to build.
+    // Strands hidden (for a stroke, sculptDisplay 2, or the hair: hairDisplay), by the cards or by
+    // scales: nothing to build.
     const StrandSet* shown = cardsView || scaleLayout || sculpt == 2 ? nullptr : strands.get();
     std::vector<std::array<float, 3>> colors;
     if (shown && !rootDots && (colorMode != kSolidColors || s.ribbons)) {
@@ -1614,7 +1653,7 @@ void DisplayBuilder::buildInstances(const DisplayInputs& in, const DisplaySettin
     for (const DisplayItemId id : {DisplayItemId::InstanceMarkers, DisplayItemId::InstanceMeshes}) item(id).color = s.theme.instances;
     // Each instance its prototype mesh (by name, from the host's scene), shaded in the instance
     // color; a small wire octahedron where the mesh is missing or past the triangle budget.
-    const int sculpt = in.stroke ? s.sculptDisplay : 0;
+    const int sculpt = hairDisplay(in, s);
     const bool showInstances = sculpt != 2 && s.instances;
     const InstanceSet* instances = in.strands && showInstances ? in.strands->instances().get() : nullptr;
     auto prototypeOf = [&](const std::string& name) -> const InstancePrototype* {
@@ -1717,6 +1756,7 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     key = hashChars(key, s.guideGroupColors);
     key = hashCombine(key, static_cast<std::uint64_t>(s.displayLevel + 1));
     key = hashChars(key, s.guideColorLayer);
+    key = hashChars(key, s.guideColorSeed);
     if (in.clumpCenters) {
         // Hashed once per set of centers (the same pointer: the same centers, held here so no
         // other set takes its address), not on every update.
@@ -1746,9 +1786,11 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     GuideDots& dots = frame_.dots;
     dots.points.clear();
     dots.colors.clear();
+    // The automatic colors start from the groom's own hue (guideColorSeed: two grooms' first groups differ).
+    const float seed = guideHueSeed(s.guideColorSeed);
     std::array<std::array<float, 3>, kMaxDrawnGuideLevels> levelColors{};
     for (int level = 0; level < kMaxDrawnGuideLevels; ++level) {
-        levelColors[static_cast<std::size_t>(level)] = theme.level(level);
+        levelColors[static_cast<std::size_t>(level)] = autoGuideColor(theme, seed, level, 0, false);
     }
     // "all" points on many guides would be noise: every stride-th point, roots and tips always.
     constexpr std::size_t kPointBudget = 2500;
@@ -1768,11 +1810,7 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
             if (s.tubes) appendTubeSurface(tubes, g, hierarchy->scale());
             if (!s.guides || g.points.size() < 2) continue;
             std::array<float, 3> c = levelColors[static_cast<std::size_t>(level)];
-            if (byGroup) {
-                // A hue per group, in the order groups were made (golden-ratio steps stay apart).
-                const float hue = std::fmod(0.6f + 0.618034f * static_cast<float>(g.group), 1.0f);
-                c = hueColor(hue, 0.75f, 0.95f);
-            }
+            if (byGroup) c = autoGuideColor(theme, seed, level, static_cast<int>(g.group), true);
             const GuideGroup* grp = hierarchy->group(g.group);
             if (grp && grp->hasColor) c = grp->color;  // its own (a ToGuides node's), whatever the mode
             if (!groupColors.empty()) {  // the host's color for the group, over everything
@@ -1895,7 +1933,7 @@ void DisplayBuilder::buildCards(const DisplayInputs& in, const DisplaySettings& 
     // The Cards nodes' cards in cards view (where no card mesh shows them): hair shading with
     // their baked maps, or solid in the theme's card color without them.
     item(DisplayItemId::Cards).color = s.theme.cards;
-    const int sculpt = in.stroke ? s.sculptDisplay : 0;
+    const int sculpt = hairDisplay(in, s);
     const bool textured = s.drawCards && s.cardTextures;
     const std::uint64_t key =
         hashCombine(hash64(in.cardsVersion), (sculpt == 2 ? 1u : 0u) + (s.drawCards ? 2u : 0u) + (textured ? 4u : 0u));
@@ -1909,7 +1947,7 @@ void DisplayBuilder::buildStrandMesh(const DisplayInputs& in, const DisplaySetti
     // The StrandMesh nodes' meshes, lit in the strands' own colors (hidden for a stroke as the
     // strands are, sculptDisplay 2).
     item(DisplayItemId::StrandMesh).color = rgba(s.hairColor);
-    const int sculpt = in.stroke ? s.sculptDisplay : 0;
+    const int sculpt = hairDisplay(in, s);
     const bool draw = s.strandMeshView && s.drawStrandMesh && sculpt != 2;
     std::uint64_t key = hashCombine(hash64(in.strandMeshVersion), draw ? 1u : 0u);
     if (draw && !in.strandMeshes.empty()) {  // (the color of strands without their own: in the vertices)

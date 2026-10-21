@@ -272,6 +272,7 @@ public:
     // Display only
     static MObject aDisplayGuides;  // draw hierarchy guides, colored by level
     static MObject aDisplayTubes;   // draw guide tubes as rings
+    static MObject aDisplayHair;    // draw the hair (strands, instances, cards): the Groom Tools' eye
 
     // Internal: bumped by the brush tool to re-evaluate with its preview.
     static MObject aBrushTick;

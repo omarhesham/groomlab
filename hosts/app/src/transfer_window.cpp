@@ -222,11 +222,21 @@ QRhi* TransferWindow::rhi() {
 
 void TransferWindow::reloadGroom() {
     GroomDocument* doc = main_ ? main_->document() : nullptr;
-    left_->setMesh(doc ? doc->file().data.scalp : nullptr);
+    // The scalp smoothed as the groom grows on it (Scalp Subdivision): shown and picked on, the
+    // markers stored on the scalp itself.
+    left_->setMesh(doc ? doc->file().data.scalp : nullptr, doc ? doc->refinedFileScalp() : nullptr);
     editor_.reset(doc ? doc->transferMarkers() : std::vector<TransferMarker>{});
     hover_.reset();
     leftTitle_->setText(tr("Groom's scalp"));
     edited(false);
+}
+
+void TransferWindow::refreshScalp() {
+    GroomDocument* doc = main_ ? main_->document() : nullptr;
+    if (!doc) return;
+    const MeshPtr shown = doc->refinedFileScalp();
+    if (left_->mesh() == doc->file().data.scalp && left_->shownMesh() == shown) return;
+    left_->setMesh(doc->file().data.scalp, shown, false);
 }
 
 bool TransferWindow::setNewScalpPath(const QString& path) {

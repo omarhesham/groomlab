@@ -49,8 +49,8 @@ def export_unreal_groom(groom, path, start=None, end=None, step=1.0, density=1.0
       by 1/sqrt(share) so the vanes keep their look. barb_density / barb_width_scale set them
       directly. Hair keeps `density`.
     iridescence_as_ao: a FeatherColor's iridescence (always written as groom_iridescence) goes in
-      groom_ao too, where Unreal's Hair Attributes node hands it to a material (the README's
-      Unreal hair material recipe).
+      groom_ao too, where Unreal's Hair Attributes node hands it to a material (the Unreal hair
+      material recipe, docs/UNREAL_HAIR_MATERIAL.md).
     scales: a groom with scales (has_scales) also writes them beside the .abc as
       <name>_scales.fbx (export_scales: a static mesh for Unreal, or a skeletal one once skinned),
       unless False. Unreal's groom importer takes curves only.

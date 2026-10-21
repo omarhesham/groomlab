@@ -41,7 +41,8 @@ def main(exe, prman, work):
     assert "(RenderMan)" in log, log
     for path in (frame, os.path.join(work, "frame_groom.groom"), os.path.join(work, "frame_scene.rib")):
         assert os.path.isfile(path), path
-    run(exe, groom + ["--screenshot", view, "--tonemap", "none", "--frames", "32"], prman)  # refined: whole strands
+    # Refined (whole strands), over a solid backdrop so the corner pixel is the background's.
+    run(exe, groom + ["--screenshot", view, "--tonemap", "none", "--background", "solid", "--quality", "refine", "--frames", "32"], prman)
 
     w, h, rows = read_png(frame)
     assert (w, h) == (160, 120), (w, h)

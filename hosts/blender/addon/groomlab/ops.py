@@ -544,7 +544,59 @@ class GROOMLAB_OT_bake_card_maps(GroomOperator):
         return {"FINISHED"}
 
 
-classes = (GROOMLAB_OT_add_groom, GROOMLAB_OT_remove_groom, GROOMLAB_OT_sculpt_guides, GROOMLAB_OT_update,
+_EYE_PROPS = {"STRANDS": "show_strands", "GUIDES": "show_guides"}
+
+
+def set_shown(what, on, scalps=None):
+    """Show or hide the strands or the guides (every guide group) of `scalps` (default: every groom
+    in the file). Returns the grooms changed."""
+    prop = _EYE_PROPS[what]
+    changed = []
+    for scalp in (groom.scalps() if scalps is None else scalps):
+        d = scalp.groomlab_tools
+        if getattr(d, prop) != bool(on):
+            setattr(d, prop, bool(on))  # (its update redraws and hides the hair)
+            changed.append(scalp)
+    return changed
+
+
+class GROOMLAB_OT_eye(bpy.types.Operator):
+    """Show or hide the groom's strands or its guides. Shift+click (or right-click): every groom in the file"""
+    bl_idname = "groomlab.eye"
+    bl_label = "Show or Hide"
+    bl_options = {"REGISTER", "UNDO"}
+
+    what: EnumProperty(name="What", items=[("STRANDS", "Strands", "The hair"), ("GUIDES", "Guides", "Every guide group")])
+    mode: EnumProperty(name="Mode", items=[("TOGGLE", "Toggle", "Shown: hide; hidden: show"),
+                                           ("SHOW", "Show", "Show"), ("HIDE", "Hide", "Hide")])
+    every: BoolProperty(name="Every Groom", default=False, description="Every groom in the file, not only the current one")
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.every and properties.mode != "TOGGLE":
+            return "%s the %s of every groom in the file" % (properties.mode.capitalize(),
+                                                             "guides" if properties.what == "GUIDES" else "strands")
+        return ("Show or hide the groom's guides, every guide group" if properties.what == "GUIDES" else
+                "Show or hide the groom's strands") + ". Shift+click (or right-click): every groom in the file"
+
+    def invoke(self, context, event):
+        if event.shift:
+            self.every = True
+        return self.execute(context)
+
+    def execute(self, context):
+        current = active_groom(context)
+        if self.mode == "TOGGLE":
+            if current is None:
+                return {"CANCELLED"}
+            on = not getattr(current.groomlab_tools, _EYE_PROPS[self.what])
+        else:
+            on = self.mode == "SHOW"
+        set_shown(self.what, on, None if self.every else [current] if current is not None else [])
+        return {"FINISHED"}
+
+
+classes = (GROOMLAB_OT_eye, GROOMLAB_OT_add_groom, GROOMLAB_OT_remove_groom, GROOMLAB_OT_sculpt_guides, GROOMLAB_OT_update,
            GROOMLAB_OT_refresh_presets, GROOMLAB_OT_apply_preset, GROOMLAB_OT_insert_preset, GROOMLAB_OT_node_add,
            GROOMLAB_OT_node_remove, GROOMLAB_OT_node_move, GROOMLAB_OT_toggle_group, GROOMLAB_OT_save_groom,
            GROOMLAB_OT_load_groom, GROOMLAB_OT_save_groom_linked, GROOMLAB_OT_reload_groom,

@@ -49,6 +49,10 @@ BINDINGS = {
     "sim.range": ("groomlab.simulate_range", {"bake": False}),
     "sim.bake": ("groomlab.simulate_range", {"bake": True}),
     "sim.clear": ("groomlab.simulate_clear", {}),
+    "display.showAllHair": ("groomlab.eye", {"what": "STRANDS", "mode": "SHOW", "every": True}),
+    "display.hideAllHair": ("groomlab.eye", {"what": "STRANDS", "mode": "HIDE", "every": True}),
+    "display.showAllGuides": ("groomlab.eye", {"what": "GUIDES", "mode": "SHOW", "every": True}),
+    "display.hideAllGuides": ("groomlab.eye", {"what": "GUIDES", "mode": "HIDE", "every": True}),
     "review.heatmap": ("groomlab.review_heatmap", {}),
     "review.hud": ("prop:groomlab_tools.show_hud", {}),
     "review.turntable": ("groomlab.turntable", {}),
@@ -67,6 +71,7 @@ BINDINGS = {
     # Utilities (pipeline_ops.py)
     "strands.toMesh": ("groomlab.strands_to_mesh", {}),
     "scales.bakeMaps": ("groomlab.bake_scale_maps", {}),
+    "flow.deleteAll": ("groomlab.flow_clear", {}),
     "groom.transfer": ("groomlab.transfer_groom", {}),
     "graph.copyToGrooms": ("groomlab.copy_graph_to_grooms", {}),
     "files.findMissing": ("groomlab.find_missing_files", {}),

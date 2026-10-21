@@ -96,14 +96,27 @@ void MarkerView::releaseGpu() {
     renderer_.reset();
 }
 
-void MarkerView::setMesh(std::shared_ptr<const ScalpMesh> mesh) {
+void MarkerView::setMesh(std::shared_ptr<const ScalpMesh> mesh, std::shared_ptr<const ScalpMesh> shown, bool reframe) {
     mesh_ = std::move(mesh);
-    if (renderer_) renderer_->setScalp(mesh_);
-    frame();
+    shown_ = mesh_ && shown ? std::move(shown) : mesh_;
+    plan_.reset();
+    if (shown_ != mesh_ && shown_->subdivisionLevel() > 0 && shown_->cage() && shown_->cage()->triangleCount() == mesh_->triangleCount()) {
+        plan_ = refinementPlan(*shown_->cage(), *shown_);
+    }
+    if (!plan_) shown_ = mesh_;  // not this mesh refined: the mesh itself
+    if (renderer_) renderer_->setScalp(shown_);
+    if (reframe) frame();
+    else cameraChanged();
+}
+
+Vec3f MarkerView::shownPoint(const MarkerPoint& p) const {
+    if (!plan_ || !mesh_->contains(p.root)) return p.point;
+    const StrandRoot r = plan_->refinedRoot(p.root);
+    return shown_->contains(r) ? shown_->position(r) : p.point;
 }
 
 void MarkerView::frame() {
-    if (mesh_) camera_.frame(boundsOf(*mesh_));
+    if (shown_) camera_.frame(boundsOf(*shown_));
     cameraChanged();
 }
 
@@ -120,7 +133,14 @@ bool MarkerView::pick(const QPointF& position, MarkerPoint* hit) const {
     const auto port = toPort(position, std::max(height(), 1));
     Vec3f origin, direction;
     if (!view.ray(port[0], port[1], origin, direction)) return false;
-    return pickMarkerPoint(*mesh_, origin, direction, hit);
+    if (!pickMarkerPoint(*shown_, origin, direction, hit)) return false;
+    if (plan_) {
+        // Hit on the smooth surface: stored on the mesh where it shows (the point the one hit).
+        const StrandRoot onMesh = plan_->cageRoot(hit->root);
+        if (!mesh_->contains(onMesh)) return snapMarkerPoint(*mesh_, hit->point, hit);
+        hit->root = onMesh;
+    }
+    return true;
 }
 
 bool MarkerView::project(const Vec3f& p, QPointF* position) const {
@@ -148,7 +168,7 @@ int MarkerView::pointNear(const QPointF& position, float pixels) const {
 }
 
 bool MarkerView::hidden(const Vec3f& p) const {
-    if (!mesh_) return false;
+    if (!shown_) return false;
     const QVector3D e = camera_.eye();
     const Vec3f eye(e.x(), e.y(), e.z());
     const Vec3f d = p - eye;
@@ -156,7 +176,7 @@ bool MarkerView::hidden(const Vec3f& p) const {
     if (distance <= 0.0f) return false;
     SurfacePoint hit;
     float t = 0.0f;
-    if (!mesh_->intersectRay(eye, d * (1.0f / distance), &hit, &t)) return false;
+    if (!shown_->intersectRay(eye, d * (1.0f / distance), &hit, &t)) return false;
     return t < distance * (1.0f - 1e-3f);
 }
 
@@ -173,7 +193,7 @@ QImage MarkerView::meshImage() {
         renderer_ = std::make_unique<GroomRenderer>();
         renderer_->setLookdev(false);
         renderer_->setBackground(kBackground);
-        renderer_->setScalp(mesh_);
+        renderer_->setScalp(shown_);
     }
     if (!target_ || target_->size() != size) {
         target_.reset();
@@ -209,10 +229,10 @@ void MarkerView::paintEvent(QPaintEvent*) {
     const auto& hover = host_->hover();
     for (std::size_t i = 0; i < points.size(); ++i) {
         QPointF at;
-        if (!project(points[i].point, &at)) continue;
+        const Vec3f p = shownPoint(points[i]);
+        if (!project(p, &at)) continue;
         const bool lit = hover && hover->second == i && (hover->first == side_ || lists.matched(hover->first, i));
-        paintMarkerDot(painter, at, static_cast<int>(i) + 1, host_->markerColor(side_), lists.matched(side_, i), lit,
-                       hidden(points[i].point));
+        paintMarkerDot(painter, at, static_cast<int>(i) + 1, host_->markerColor(side_), lists.matched(side_, i), lit, hidden(p));
     }
 }
 

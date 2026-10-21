@@ -17,6 +17,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <QString>
@@ -99,6 +100,8 @@ public:
     std::vector<std::string> siblingsOf(const std::string& name) const;
     // The parts the Part brush drew, by name; one removed, every one cleared; the flow cleared.
     std::vector<std::string> partNames() const;
+    // The flow arrows and sinks the groom keeps (an unreadable flow: none).
+    std::pair<std::size_t, std::size_t> flowCount() const;
     bool removePart(const std::string& name);
     bool clearParts();
     bool clearFlow();

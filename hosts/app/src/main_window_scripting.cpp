@@ -203,7 +203,7 @@ bool MainWindow::setUiLookTab(const QString& name) {
         return false;
     }
     setUiMode(QStringLiteral("look"));
-    shell_->lookCard()->setTab(tab);
+    shell_->setPropertiesTab(static_cast<AppShell::PropertiesTab>(static_cast<int>(tab) + 1));
     shell_->lookCard()->setMoreShown(words.contains(QStringLiteral("more")));
     return true;
 }
