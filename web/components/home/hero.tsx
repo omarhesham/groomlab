@@ -12,8 +12,8 @@ const delay = (s: number) => ({ '--d': `${s}s` }) as CSSProperties;
 
 // The artwork fills the screen behind the text. A light frosted band softens its bottom edge (a
 // backdrop blur masked to the band) with a faint glow along it.
-// A placeholder (not in the public repository) until a render of the wolf sample replaces it.
-const artwork = '/landing.webp';
+// A render of the wolf sample's fur, made with GroomLab.
+const artwork = '/examples/hero.png';
 const edgeBand = 'linear-gradient(to bottom, transparent 78%, #000 100%)';
 // A soft blur over the whole artwork, under the text (the frosted band at the bottom is its own).
 const artworkBlur = 'blur(16px)';
