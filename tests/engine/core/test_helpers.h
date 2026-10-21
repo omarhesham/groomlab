@@ -5,10 +5,13 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "groomlab/groom.h"
 #include "groomlab/guide_set.h"
 #include "groomlab/portable_math.h"
+#include "groomlab/presets.h"
 #include "groomlab/scalp_mesh.h"
 
 namespace groomlab::test {
@@ -143,6 +146,37 @@ inline std::array<double, 16> lookAtProjection(Vec3f eye, Vec3f target, double f
 inline float curlEase(float arc, float t, float frequency) {
     const float x = std::min(1.0f, std::max(4.0f * std::fabs(frequency) * arc, 4.0f * t));
     return x * x * (3.0f - 2.0f * x);
+}
+
+// The painted maps a preset reads ("requires"), made as a host makes them on applying it, but
+// painted: each a vertex map over the scalp, its channels triangle waves across the scalp's bounds
+// (bands of 0 to 1, from basic arithmetic alone, so the same bits on every platform), so what
+// reads them reads something varying (both looks of a Blend by a map, for one).
+inline void paintRequiredMaps(const std::string& presetJson, GroomData& data) {
+    const std::vector<PresetMap> maps = presetRequiredMaps(presetJson);
+    if (maps.empty() || !data.scalp) return;
+    auto scalp = std::make_shared<ScalpMesh>(*data.scalp);
+    Vec3f lo = scalp->points().front(), hi = lo;
+    for (const Vec3f& p : scalp->points()) {
+        lo = Vec3f(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
+        hi = Vec3f(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
+    }
+    const Vec3f extent(std::max(hi.x - lo.x, 1e-6f), std::max(hi.y - lo.y, 1e-6f), std::max(hi.z - lo.z, 1e-6f));
+    for (const PresetMap& m : maps) {
+        std::vector<ScalpMesh::Color> colors(scalp->triangleCount() * 3);
+        for (std::size_t c = 0; c < colors.size(); ++c) {
+            const Vec3f p = scalp->points()[static_cast<std::size_t>(scalp->triangles()[c / 3][c % 3])];
+            const float u = (p.x - lo.x) / extent.x, v = (p.y - lo.y) / extent.y, w = (p.z - lo.z) / extent.z;
+            for (int k = 0; k < 3; ++k) {
+                const float t = 1.5f * u + static_cast<float>(k + 1) * v + 0.5f * w;
+                colors[c][static_cast<std::size_t>(k)] = std::fabs(2.0f * (t - std::floor(t)) - 1.0f);
+            }
+            colors[c][3] = 1.0f;
+        }
+        scalp->setCornerColors(m.name, colors);
+        data.maps[m.name] = MapInfo{"vertices", "", m.color.empty() ? 1 : 4};
+    }
+    data.scalp = scalp;
 }
 
 }  // namespace groomlab::test

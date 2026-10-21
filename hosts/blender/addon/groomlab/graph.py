@@ -361,12 +361,51 @@ def move_node(scalp, name, direction):
 
 
 def apply_preset(scalp, name):
+    """The preset's graph on the groom (fitted, its control values set), with the painted maps it
+    reads made when the groom has none of that name, as Maya and the app make them (its "requires":
+    kind, fill value or color), so it evaluates at once: `mapsMade` in the answer; `missingMaps` the
+    ones that could not be made."""
     rt = groom.ensure(scalp)
     r = _call("apply_preset", session=rt.session, name=name)
+    r["mapsMade"], r["missingMaps"] = make_required_maps(scalp, r.get("missingMaps") or [])
     from . import graph_tree
     graph_tree.mark_replaced(scalp)  # the preset's layout, not the tree's
     _changed(scalp, rt)
     return r
+
+
+def preset_maps_note(r):
+    """What an applied preset's answer says of its maps, for the operator's report: (level, text),
+    or None when it reads none it lacked."""
+    missing = [m["name"] for m in r.get("missingMaps") or []]
+    if missing:
+        return {"WARNING"}, "The preset reads maps this groom has not painted: %s. Paint them in Groom Tools > Paint" % ", ".join(missing)
+    if r.get("mapsMade"):
+        return {"INFO"}, "Made the map %s the preset reads: paint it in Groom Tools > Paint" % ", ".join(r["mapsMade"])
+    return None
+
+
+def make_required_maps(scalp, wanted):
+    """Make the maps `wanted` ([{name, kind, value, color}], the helper's missingMaps), each one
+    undo step on the helper's stack. Returns (the names made, the entries that could not be)."""
+    from . import tools
+    made, failed = [], []
+    for m in wanted:
+        args = {"name": m["name"], "kind": m.get("kind") or "guides", "value": float(m.get("value") or 0.0)}
+        color = [float(c) for c in m.get("color") or []][:4]
+        if len(color) >= 3:  # a color map filled with it (else gray)
+            args["color"] = True
+            args["fill"] = color
+        try:
+            r = tools.call(scalp, "map_create", **args)
+        except HelperError:  # no scalp to paint on, no guides to carry a layer
+            failed.append(m)
+            continue
+        tools.after_edit(scalp, groom.scene_of(scalp), r.get("undo"), refresh=False)
+        made.append(m["name"])
+    if made:
+        tools.refresh_info(scalp)
+    return made, failed
 
 
 def insert_preset(scalp, name, after=None):

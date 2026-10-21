@@ -26,13 +26,8 @@
 #include "groom_shape.h"
 #include "hair_shading.h"
 
-namespace MHWRender {
-class MIndexBuffer;
-class MShaderInstance;
-class MTexture;
-class MVertexBuffer;
-class MVertexBufferArray;
-}  // namespace MHWRender
+#include <maya/MApiNamespace.h>  // Maya's classes declared (MHWRender's are using-declarations of a
+                                  // versioned namespace's: a plain forward declaration conflicts, Clang/GCC)
 
 namespace groomlab::gpu {
 class LineFrames;

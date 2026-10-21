@@ -2,6 +2,7 @@
 #include "groomlab/engine_export.h"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 #include "groomlab/alembic_io.h"
@@ -15,6 +16,8 @@ std::string EngineExportOptions::problem() const {
     if (!(scale > 0.0f)) return "the scale must be positive";
     if (pointsPerStrand != 0 && (pointsPerStrand < 2 || pointsPerStrand > 4096)) return "points per strand must be 0 or 2 to 4096";
     if (barbPoints != 0 && (barbPoints < 2 || barbPoints > 4096)) return "barb points must be 0 or 2 to 4096";
+    if (upAxis != "Y" && upAxis != "Z") return "the up axis must be Y or Z";
+    if (!(centimetersPerUnit > 0.0) || !std::isfinite(centimetersPerUnit)) return "the centimeters per unit must be positive";
     return {};
 }
 
@@ -128,6 +131,7 @@ EngineGroomWriter::EngineGroomWriter(const std::string& path, const std::string&
     if (options.engine == EngineExportOptions::Engine::Unreal) {
         impl_->unreal = std::make_unique<UnrealGroomWriter>(path, name, name, startSeconds, secondsPerFrame);
         impl_->unreal->setIridescenceAsAo(options.iridescenceAo);
+        impl_->unreal->setSourceSpace(options.upAxis, options.centimetersPerUnit);
     } else {
         AlembicCurvesWriter::Options abc;
         abc.scale = options.scale;

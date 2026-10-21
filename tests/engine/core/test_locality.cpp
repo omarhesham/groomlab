@@ -62,6 +62,7 @@ const std::map<std::string, std::string> kGlobal = {
 // Presets this scalp cannot grow, and why.
 const std::map<std::string, std::string> kCannot = {
     {"painted_maps", "needs a painted map the sphere has none of"},
+    {"flow_with_guides", "needs a painted map (guideAreas) the sphere has none of"},
     {"parity_nodes", "its uvGrid Scatter needs UVs the sphere has none of"},
 };
 

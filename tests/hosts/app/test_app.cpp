@@ -29,6 +29,7 @@
 #include <nlohmann/json.hpp>
 
 #include "groomlab/brush_catalog.h"
+#include "groomlab/display.h"
 #include "brush_session.h"
 #include "camera.h"
 #include "card_preview.h"
@@ -57,6 +58,9 @@
 #include "theme.h"
 #include "tool_view.h"
 #include "update_check.h"
+
+#include "groomlab/alembic_operators.h"
+#include "groomlab/graph.h"
 
 namespace groomlab::app {
 namespace {
@@ -600,6 +604,11 @@ TEST(AppTheme, FontsBrushesAndColors) {
     EXPECT_EQ(theme::brush("clump"), nullptr) << "the Paint brush paints the clump attribute";
     EXPECT_EQ(theme::brush("no such brush"), nullptr);
     EXPECT_EQ(theme::brush("select"), nullptr) << "the rail's own tool";
+    // Playful's colors (the categories in the primaries; Charcoal, the default, tints its icons alike).
+    ASSERT_TRUE(theme::setTheme(QStringLiteral("playful")));
+    struct Restore {
+        ~Restore() { theme::setTheme(theme::defaultTheme()); }
+    } restore;
     EXPECT_EQ(theme::categoryColor(theme::BrushCategory::Shape), theme::blue());
     EXPECT_EQ(theme::categoryColor(theme::BrushCategory::Create), theme::emerald());
     EXPECT_EQ(theme::categoryColor(theme::BrushCategory::Guides), theme::white());
@@ -636,9 +645,10 @@ TEST(AppTheme, FontsBrushesAndColors) {
 }
 
 TEST(AppTheme, EveryShippedThemeIsEmbeddedAndCharcoalIsSolid) {
-    // Every theme file the Maya host ships is a resource; Playful is the default (glass, round
-    // filled headers); Charcoal is solid: opaque panels with a thin edge, its own text tones, an
-    // accent pill for the chosen segment and the Render button, tinted node headers.
+    // Every theme file the Maya host ships is a resource; Charcoal is the app's default, solid:
+    // opaque panels with a thin edge, its own text tones, an accent pill for the chosen segment and
+    // the Render button, tinted node headers; Playful (glass, round filled headers) is still the
+    // theme the others extend.
     const std::string folder = std::string(GROOMLAB_TEST_DATA) + "/../../hosts/maya/themes";
     QStringList files;
     for (const auto& entry : std::filesystem::directory_iterator(folder)) {
@@ -649,7 +659,10 @@ TEST(AppTheme, EveryShippedThemeIsEmbeddedAndCharcoalIsSolid) {
     EXPECT_TRUE(theme::themeNames().contains(QStringLiteral("charcoal")));
     EXPECT_EQ(theme::themeLabel(QStringLiteral("charcoal")), QStringLiteral("Charcoal"));
     EXPECT_EQ(theme::themeLabel(QStringLiteral("my_theme")), QStringLiteral("My Theme"));
-    ASSERT_EQ(theme::currentTheme(), QStringLiteral("playful"));
+    EXPECT_EQ(theme::defaultTheme(), QStringLiteral("charcoal"));
+    ASSERT_EQ(theme::currentTheme(), theme::defaultTheme());
+    EXPECT_FALSE(theme::glassy());
+    ASSERT_TRUE(theme::setTheme(QStringLiteral("playful")));
     EXPECT_TRUE(theme::glassy());
     EXPECT_FALSE(theme::glassEdge().isValid());
     EXPECT_EQ(theme::nodeRadius(), 14.0);
@@ -664,7 +677,7 @@ TEST(AppTheme, EveryShippedThemeIsEmbeddedAndCharcoalIsSolid) {
     auto hex = [&](const json& value) { return QColor(QString::fromStdString(value.get<std::string>())); };
     ASSERT_TRUE(theme::setTheme(QStringLiteral("charcoal")));
     struct Restore {
-        ~Restore() { theme::setTheme(QStringLiteral("playful")); }
+        ~Restore() { theme::setTheme(theme::defaultTheme()); }
     } restore;
     EXPECT_FALSE(theme::glassy());
     EXPECT_EQ(theme::blue(), hex(charcoal["palette"]["blue"]));
@@ -696,6 +709,36 @@ TEST(AppTheme, EveryShippedThemeIsEmbeddedAndCharcoalIsSolid) {
     EXPECT_TRUE(sheet.contains(hex(charcoal["ui"]["selection"]).name()));
     EXPECT_FALSE(sheet.contains(QStringLiteral("@")));
     EXPECT_FALSE(sheet.contains(QStringLiteral("#F3F1EC"), Qt::CaseInsensitive)) << "the glass text tone";
+    // The window's chrome: solid docks, the menu bar, the tool bar, tabs and separators in the
+    // theme's tones; no white washes on a solid theme (its raised tone instead).
+    for (const char* selector : {"QDockWidget::title", "QMenuBar", "QToolBar", "QTabBar::tab", "QMainWindow::separator", "QSplitter::handle", "#dockBody"}) {
+        EXPECT_TRUE(sheet.contains(QLatin1String(selector))) << selector;
+    }
+    EXPECT_TRUE(sheet.contains(hex(charcoal["ui"]["background"]).name()));
+    EXPECT_TRUE(sheet.contains(hex(charcoal["ui"]["raised"]).name()));
+    EXPECT_TRUE(sheet.contains(hex(charcoal["ui"]["outline"]).name()));
+    EXPECT_FALSE(sheet.contains(QStringLiteral("rgba(255,255,255"))) << "a glass wash on a solid theme";
+    EXPECT_EQ(theme::chip(), hex(charcoal["ui"]["raised"]));
+    EXPECT_EQ(theme::graphCanvas(), hex(charcoal["graph"]["canvas"]));
+    EXPECT_EQ(theme::graphGrid(), hex(charcoal["graph"]["grid"]));
+    // The viewport's overlays in the theme's viewport colors, linear as the Maya host sends them
+    // (groomLabDisplayTheme).
+    auto linear = [](const QColor& c) {
+        auto f = [](double v) { return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+        return std::array<double, 3>{f(c.redF()), f(c.greenF()), f(c.blueF())};
+    };
+    const DisplayTheme display = theme::displayTheme();
+    ASSERT_EQ(display.levels.size(), charcoal["viewport"]["guideLevels"].size());
+    for (std::size_t i = 0; i < display.levels.size(); ++i) {
+        const auto want = linear(hex(charcoal["viewport"]["guideLevels"][i]));
+        for (int k = 0; k < 3; ++k) EXPECT_NEAR(display.levels[i][k], want[k], 1e-4) << "level " << i;
+    }
+    const auto frozen = linear(hex(charcoal["viewport"]["frozen"]));
+    for (int k = 0; k < 3; ++k) EXPECT_NEAR(display.frozen[k], frozen[k], 1e-4);
+    const auto parts = linear(hex(charcoal["viewport"]["parts"]));
+    for (int k = 0; k < 3; ++k) EXPECT_NEAR(display.parts[k], parts[k], 1e-4);
+    EXPECT_FLOAT_EQ(display.pointSize, charcoal["viewport"]["pointSize"].get<float>());
+    EXPECT_NE(display.levels.front(), DisplayTheme().levels.front()) << "not the core's defaults";
     // An unknown theme changes nothing; a theme without "glass" (Polar) takes Playful's (it extends it).
     EXPECT_FALSE(theme::setTheme(QStringLiteral("no such theme")));
     EXPECT_EQ(theme::currentTheme(), QStringLiteral("charcoal"));
@@ -705,122 +748,60 @@ TEST(AppTheme, EveryShippedThemeIsEmbeddedAndCharcoalIsSolid) {
     EXPECT_EQ(theme::sliderFill(theme::yellow()), theme::uiColor("accent")) << "Polar's sliders: [\"accent\"]";
 }
 
-TEST(AppTheme, OverlayLayoutFollowsTheMockup) {
-    // At the mockup's 1440x900: the top row on one line, the mode pill centered, the rail
-    // between the top row and the stats (its buttons shrunk to fit every brush), the bar at the
-    // bottom center, the stats bottom-left, the look card at the right.
-    theme::OverlayRequest request;
-    request.view = QSize(1440, 900);
-    request.railButtons = 19;  // Select, Freeze and the 17 brushes (the catalog)
-    request.railDividers = 4;
-    request.panelButtons = 6;  // the panels and frame all
-    request.modesWidth = 330;
-    request.topRightWidth = 220;
-    request.barWidth = 740;
+TEST(AppTheme, ViewportOverlayFollowsTheCorners) {
+    // What stays over the viewport once the window has docks: the tool's name top-left, Undo and
+    // Redo top-right, the stats bottom-left, the refine line
+    // bottom-right, the toast centered above them, the prompt a little above the middle, the
+    // empty card in the middle.
+    theme::ViewportOverlayRequest request;
+    request.view = QSize(1000, 700);
+    request.toolLabel = QSize(90, 26);
+    request.history = QSize(60, 34);
     request.stats = QSize(300, 18);
-    request.lookCardHeight = 316;
-    const theme::OverlayLayout layout = theme::layoutOverlay(request);
-    EXPECT_EQ(layout.logo.left(), 28);
-    EXPECT_NEAR(layout.modes.center().x(), 720, 1);  // QRect centers round down
-    EXPECT_EQ(layout.modes.center().y(), layout.topRight.center().y());
-    EXPECT_EQ(layout.topRight.right(), 1440 - 28 - 1);
-    EXPECT_EQ(layout.rail.left(), 24);
-    EXPECT_GE(layout.rail.top(), 72);
-    EXPECT_LT(layout.railButton, 44);
-    EXPECT_GE(layout.railButton, 30);
-    EXPECT_NEAR(layout.rail.center().y(), (72 + layout.stats.top() - 12) / 2, 1) << "centered between the top row and the stats";
-    EXPECT_EQ(layout.panelRail.right(), 1440 - 24 - 1);
-    EXPECT_EQ(layout.panelRail.height(), 6 * 48 + 5 * 8);
-    EXPECT_NEAR(layout.bar.center().x(), 720, 1);
-    EXPECT_EQ(layout.bar.bottom(), 900 - 17 - 1);
-    EXPECT_EQ(layout.stats.left(), 28);
-    EXPECT_EQ(layout.stats.bottom(), layout.graphPill.top() - 12 - 1) << "the stats sit above the pills, which show in every mode";
-    EXPECT_EQ(layout.lookCard, QRect(1440 - 24 - 272, 92, 272, 316));
-    EXPECT_EQ(layout.graphPill.left(), 28);
-    EXPECT_EQ(layout.graphPill.bottom(), 900 - 28 - 1);
-    EXPECT_EQ(layout.refine.right(), 1440 - 28 - 1);
-    EXPECT_LT(layout.rail.bottom(), layout.stats.top());
-
-    // With the graph up: the Presets pill and the close button after the Graph pill, the bar
-    // moved right of them (it would overlap the close button), the rail clear of the stats.
-    request.graphShown = true;
-    request.graphToolsWidth = 150;
-    const theme::OverlayLayout withGraph = theme::layoutOverlay(request);
-    EXPECT_EQ(withGraph.graphTools.left(), withGraph.graphPill.right() + 1 + 8);
-    EXPECT_EQ(withGraph.graphTools.width(), 150);
-    EXPECT_EQ(withGraph.graphTools.top(), withGraph.graphPill.top());
-    EXPECT_EQ(withGraph.stats.bottom(), withGraph.graphPill.top() - 12 - 1);
-    EXPECT_LT(withGraph.rail.bottom(), withGraph.stats.top());
-    EXPECT_EQ(withGraph.rail, layout.rail) << "the stats sit above the pills either way";
-    EXPECT_FALSE(withGraph.bar.intersects(withGraph.graphTools)) << "the bar keeps clear of the pills";
-    EXPECT_EQ(withGraph.bar.bottom(), layout.bar.bottom()) << "there was room beside them";
-    request.graphShown = false;
-
-    // A tall view keeps the mockup's 44 px buttons; a short one never goes under 30.
-    request.view = QSize(1440, 1300);
-    EXPECT_EQ(theme::layoutOverlay(request).railButton, 44);
-    request.view = QSize(800, 500);
-    EXPECT_GE(theme::layoutOverlay(request).railButton, 22) << "a very short one squeezes further rather than leave the view";
+    request.refine = QSize(160, 18);
+    request.toast = QSize(380, 36);
+    request.prompt = QSize(440, 160);
+    request.emptyCard = QSize(376, 300);
+    const theme::ViewportOverlayLayout l = theme::layoutViewportOverlay(request);
+    EXPECT_EQ(l.toolLabel.topLeft(), QPoint(12, 12));
+    EXPECT_EQ(l.history.topRight(), QPoint(1000 - 12 - 1, 12));
+    EXPECT_EQ(l.stats.left(), 12);
+    EXPECT_EQ(l.stats.bottom(), 700 - 12 - 1);
+    EXPECT_EQ(l.refine.right(), 1000 - 12 - 1);
+    EXPECT_EQ(l.refine.bottom(), 700 - 12 - 1);
+    EXPECT_NEAR(l.toast.center().x(), 500, 1);
+    EXPECT_LT(l.toast.bottom(), l.stats.top());
+    EXPECT_NEAR(l.prompt.center().x(), 500, 1);
+    EXPECT_LT(l.prompt.center().y(), 350) << "a little above the middle";
+    EXPECT_NEAR(l.emptyCard.center().y(), 350, 1);
+    // Nothing asked, nothing placed.
+    const theme::ViewportOverlayLayout none = theme::layoutViewportOverlay({QSize(1000, 700)});
+    EXPECT_TRUE(none.toolLabel.isNull() && none.history.isNull() && none.stats.isNull() && none.toast.isNull());
 }
 
-TEST(AppTheme, OverlayLayoutHasNoOverlapsAtSmallSizes) {
-    // 1280x720 with the graph up (the audit's worst case): the rail starts under the menu
-    // button and ends above the window's bottom, with the stats and the pills beside it; the
-    // brush bar never meets the Presets pill or the close button; nothing leaves the view.
-    for (const QSize& size : {QSize(1280, 720), QSize(1024, 640), QSize(960, 600)}) {
-        theme::OverlayRequest request;
+TEST(AppTheme, ViewportOverlayHasNoOverlapsAtSmallSizes) {
+    // A viewport squeezed between docks (or a small screen at 150%): the pieces stay inside it and
+    // never meet; the refine line goes above the stats when both cannot share the bottom line.
+    for (const QSize& size : {QSize(1280, 720), QSize(700, 420), QSize(480, 320), QSize(360, 260)}) {
+        SCOPED_TRACE(std::to_string(size.width()) + "x" + std::to_string(size.height()));
+        theme::ViewportOverlayRequest request;
         request.view = size;
-        request.railButtons = 19;
-        request.railDividers = 4;
-        request.panelButtons = 7;
-        request.modesWidth = 330;
-        request.topRightWidth = 220;
-        request.barWidth = 740;
+        request.toolLabel = QSize(120, 26);
+        request.history = QSize(60, 34);
         request.stats = QSize(300, 18);
-        request.graphPill = QSize(170, 44);
-        request.graphToolsWidth = 110 + 8 + 44;
-        request.graphShown = true;
-        const theme::OverlayLayout l = theme::layoutOverlay(request);
+        request.refine = QSize(160, 18);
+        request.toast = QSize(std::min(560, size.width() - 48), 36);
+        const theme::ViewportOverlayLayout l = theme::layoutViewportOverlay(request);
         const QRect view(QPoint(0, 0), size);
-        const QRect menuButton(28, 22, 36, 36);
-        EXPECT_FALSE(l.rail.intersects(menuButton)) << size.width() << "x" << size.height() << ": the rail under the menu button";
-        EXPECT_TRUE(view.contains(l.rail)) << size.width() << "x" << size.height() << ": the rail leaves the view";
-        EXPECT_FALSE(l.rail.intersects(l.stats)) << "the rail over the stats";
-        EXPECT_FALSE(l.rail.intersects(l.graphPill)) << "the rail over the Graph pill";
-        EXPECT_FALSE(l.bar.intersects(l.graphPill)) << "the bar over the Graph pill";
-        EXPECT_FALSE(l.bar.intersects(l.graphTools)) << "the bar over the Presets pill";
-        EXPECT_FALSE(l.bar.intersects(l.stats)) << "the bar over the stats";
-        EXPECT_TRUE(view.contains(l.bar)) << "the bar leaves the view";
-        EXPECT_TRUE(view.contains(l.graphTools)) << "the pills leave the view";
-        EXPECT_GE(l.railButton, 22);
-    }
-    // At 1280x720 the rail needs the whole height: tighter gaps, the stats and pills beside it.
-    theme::OverlayRequest request;
-    request.view = QSize(1280, 720);
-    request.railButtons = 19;
-    request.railDividers = 4;
-    request.graphShown = true;
-    request.graphToolsWidth = 162;
-    const theme::OverlayLayout l = theme::layoutOverlay(request);
-    EXPECT_LT(l.railGap, 4);
-    EXPECT_GT(l.stats.left(), l.rail.right());
-    EXPECT_GT(l.graphPill.left(), l.rail.right());
-    EXPECT_GE(l.rail.top(), 60);
-    // A first run's rail labels (the rail as wide as its names): the stats and the pills go
-    // right of the names, the brush bar still clear of them.
-    for (const bool graph : {false, true}) {
-        theme::OverlayRequest labels = request;
-        labels.graphShown = graph;
-        labels.graphToolsWidth = graph ? 162 : 110;
-        labels.barWidth = 740;
-        labels.stats = QSize(300, 18);
-        labels.railLabelsWidth = 140;
-        const theme::OverlayLayout k = theme::layoutOverlay(labels);
-        const QRect named(k.rail.topLeft(), QSize(140, k.rail.height()));
-        EXPECT_FALSE(named.intersects(k.stats)) << "the names over the stats";
-        EXPECT_FALSE(named.intersects(k.graphPill)) << "the names over the Graph pill";
-        EXPECT_FALSE(k.bar.intersects(k.graphPill) || k.bar.intersects(k.graphTools) || k.bar.intersects(k.stats)) << "the bar over the pills";
-        EXPECT_TRUE(QRect(QPoint(0, 0), labels.view).contains(k.bar)) << "the bar leaves the view";
+        for (const QRect& r : {l.toolLabel, l.history, l.stats, l.refine, l.toast}) {
+            EXPECT_TRUE(view.contains(r)) << r.x() << "," << r.y() << " " << r.width() << "x" << r.height();
+        }
+        for (const QRect& r : {l.toolLabel, l.stats, l.refine, l.toast}) {
+            EXPECT_FALSE(l.history.intersects(r)) << "Undo and Redo over another piece at " << r.x() << "," << r.y();
+        }
+        EXPECT_FALSE(l.stats.intersects(l.refine)) << "the refine line over the stats";
+        EXPECT_FALSE(l.toast.intersects(l.stats)) << "the toast over the stats";
+        EXPECT_FALSE(l.toast.intersects(l.refine)) << "the toast over the refine line";
     }
 }
 
@@ -850,6 +831,22 @@ TEST(AppPresets, ShippedPresetsApplySaveCopyAndPaste) {
     // Fitted: the sample's scalp is not 20 units, so a length scaled by the ratio.
     EXPECT_TRUE(applied.fitted);
     EXPECT_NE(applied.fitFactor, 1.0);
+    // flow_with_guides' Blend reads the guideAreas map: made black (a gray vertex map), so the
+    // groom evaluates at once, all fur until it is painted.
+    PresetApplied flow;
+    EXPECT_EQ(applyPresetFile(*doc, presetPath("flow_with_guides", presetDirectories()), &flow), "");
+    ASSERT_EQ(flow.mapsMade, std::vector<std::string>{"guideAreas"});
+    ASSERT_TRUE(doc->map("guideAreas"));
+    EXPECT_EQ(doc->map("guideAreas")->kind, "vertices");
+    EXPECT_EQ(doc->map("guideAreas")->channels, kGrayMap);
+    {
+        ViewRequest request;
+        request.density = 0.05f;
+        const ViewResult& view = doc->evaluate(request);
+        EXPECT_TRUE(view.errors.empty()) << view.errors.front();
+        ASSERT_TRUE(view.strands);
+        EXPECT_GT(view.strands->strandCount(), 0u);
+    }
     // Every shipped preset applies to this groom (the session takes each graph).
     for (const PresetInfo& p : presets) EXPECT_EQ(applyPresetFile(*doc, p.path), "") << p.name;
     EXPECT_NE(applyPresetFile(*doc, "C:/no/such/preset.json"), "");
@@ -3132,6 +3129,7 @@ TEST(AppExports, EveryTargetWritesAReadableFile) {
     EXPECT_NEAR(frames[0].seconds, 1.0 / 24.0, 1e-9);
     EXPECT_NEAR(frames[2].strands.positions()[0].x - frames[0].strands.positions()[0].x, 0.2f, 0.02f);
     EXPECT_FALSE(frames[0].uvs.empty());
+    const Vec3f firstRoot = frames[0].strands.positions()[0];  // frame 1, the app's space (Y up, cm)
     std::remove(abc.c_str());
 
     // Cancelled after the first frame: a one-frame file.
@@ -3171,6 +3169,11 @@ TEST(AppExports, EveryTargetWritesAReadableFile) {
     const StrandSet ueGuides = AlembicCurvesReader(unreal, "guides").at(1.0 / 24.0);
     EXPECT_GT(ueGuides.strandCount(), 0u) << "the sample's primary guides";
     EXPECT_LT(ueGuides.strandCount(), ueStrands.strandCount());
+    // In Unreal's space (Z up, left-handed, cm), as its FBX importer brings in the app's Y-up
+    // scalp: (x, y, z) -> (x, z, y), so the importer's defaults line the groom up with it.
+    EXPECT_NEAR(ueStrands.positions()[0].x, firstRoot.x, 1e-5f);
+    EXPECT_NEAR(ueStrands.positions()[0].y, firstRoot.z, 1e-5f);
+    EXPECT_NEAR(ueStrands.positions()[0].z, firstRoot.y, 1e-5f);
     std::remove(unreal.c_str());
 
     // Unity's strands: root UVs per point, every root width positive, resampled to 8 points.
@@ -4237,6 +4240,12 @@ TEST(AppPrman, ReadsPrmansProgress) {
     std::filesystem::remove_all(tree.parent_path(), ignored);
 }
 
+// The suite's settings folder (main sets QSettings there; a test with its own goes back to it).
+QString testSettingsFolder() {
+    const QString given = qEnvironmentVariable("GROOMLAB_SETTINGS_DIR");
+    return given.isEmpty() ? QDir::tempPath() + QStringLiteral("/groomlab_app_tests_settings") : given;
+}
+
 }  // namespace groomlab::app
 
 int main(int argc, char** argv) {
@@ -4245,11 +4254,15 @@ int main(int argc, char** argv) {
     if (qgetenv("QT_QPA_PLATFORM").isEmpty()) qputenv("QT_QPA_PLATFORM", "offscreen");
     std::setvbuf(stderr, nullptr, _IONBF, 0);  // a crash loses nothing said before it (ctest pipes stderr)
     QApplication app(argc, argv);
-    // The window remembers recent files in QSettings: an ini of this run's own under %TEMP%.
+    // The window remembers recent files, the theme, autosaves and units in QSettings: an ini of this
+    // run's own (GROOMLAB_SETTINGS_DIR, as ctest sets it, else under %TEMP%), never the user's
+    // %APPDATA%\GroomLab\GroomLab.ini (another application name, and another folder).
     QApplication::setApplicationName(QStringLiteral("GroomLabTests"));
     QApplication::setOrganizationName(QStringLiteral("GroomLab"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
-    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QDir::tempPath() + QStringLiteral("/groomlab_app_tests_settings"));
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, groomlab::app::testSettingsFolder());
+    // The ImportCurves node (Alembic guides), as the app's main() registers it.
+    groomlab::registerAlembicOperators(groomlab::OperatorRegistry::instance());
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -14,20 +14,27 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
+#include <QDockWidget>
 #include <QListWidget>
 #include <QMenu>
+#include <QMenuBar>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
 
-#include "brush_panel.h"
+#include "app_actions.h"
+#include "app_shell.h"
+#include "groom_tools.h"
 #include "cards_panel.h"
+#include "correctives_panel.h"
 #include "export_panel.h"
+#include "maps_panel.h"
 #include "glass.h"
 #include "guides_panel.h"
 #include "node_graph.h"
 #include "overlay.h"
+#include "photos_panel.h"
 #include "theme.h"
 #include "update_check.h"
 #include "viewport.h"
@@ -41,20 +48,30 @@ MainWindow::MainWindow() {
     setWindowTitle(QStringLiteral("GroomLab"));
     resize(1440, 900);
     theme::loadFonts();
+    // The theme on the whole window: the menu bar and its menus, the tool bar, the docks.
+    setStyleSheet(theme::styleSheet());
+    // The viewport's overlays (guide levels, selection, frozen, parts...) in the theme's colors.
+    settings_.theme = theme::displayTheme();
     viewport_ = new Viewport();
     host_ = new OverlayHost(viewport_, this);
     setCentralWidget(host_);
-    graph_ = host_->graph();
+    shell_ = new AppShell(this, host_);
+    graph_ = shell_->graph();
     viewport_->setBrushSession(&brush_);
-    graph_->setViewport(viewport_);
     // The GPU look preview runs in the viewport's frames (and the headless benchmarks'), on by
     // default where the device has an engine.
     gpu_.setEnabled(GpuLookPreview::preference(true));
     viewport_->renderer().setGpuPreview(&gpu_);
-    buildMenu();
+    // Tools > Turntable (View > Review): the camera turns a degree a frame while on.
+    turntable_ = new QTimer(this);
+    turntable_->setInterval(16);
+    connect(turntable_, &QTimer::timeout, this, [this] { adjustCamera(1.0f, 0.0f, 0.0f); });
     buildPanels();
     wireOverlay();
     wireTimelineCardsAndExport();
+    // The menu bar once every panel its bindings read exists; then the menus' states.
+    buildMenuBar();
+    refreshUndoActions();
     // The stats line follows the frames at most a few times a second and once they stop: the
     // floating widgets sit over the viewport's texture, and while one of them changes Qt paints
     // and uploads the whole window's widgets again (about 10 ms at 1440p), so a line changed every
@@ -115,24 +132,32 @@ MainWindow::MainWindow() {
     connect(viewport_, &Viewport::strokeReleasing, this, [this] { dabWanted_ = false; });
     connect(viewport_, &Viewport::strokeEnded, this, [this] { guidesEdited(); });
     connect(viewport_, &Viewport::brushSettingsChanged, this, [this] {
-        brushPanel_->refresh();
-        refreshBrushBar();
+        groomTools_->refresh();
+        refreshTool();
     });
     connect(viewport_, &Viewport::selectionChanged, this, [this] {
         redisplay();
-        guidesPanel_->refresh();
+        guidesPanel_->invalidate();
+        groomTools_->refreshTubes();  // the Tubes section's targets
     });
     connect(viewport_, &Viewport::deleteRequested, this, [this] { guidesPanel_->deleteSelected(); });
     connect(viewport_, &Viewport::message, this, [this](const QString& text) { report(text); });
     connect(viewport_, &Viewport::toolModeChanged, this, [this](Viewport::ToolMode mode) {
+        if (mode == Viewport::ToolMode::Brush && locked_ && locked_->isChecked()) {
+            // A locked groom ignores brushes (Maya's locked attribute): the camera again.
+            report(tr("The groom is locked: unlock it (Properties > Groom > Locked) to brush it"));
+            viewport_->setToolMode(Viewport::ToolMode::Camera);
+            return;
+        }
         cameraMode_->setChecked(mode == Viewport::ToolMode::Camera);
         brushMode_->setChecked(mode == Viewport::ToolMode::Brush);
         selectMode_->setChecked(mode == Viewport::ToolMode::Select);
-        refreshBrushBar();
+        refreshTool();
         if (mode == Viewport::ToolMode::Brush) {
             notify(tr("Brush: drag to stroke, Ctrl the opposite, Shift smooths, Shift+click a guide solos it (off a guide: "
                       "unfreeze all); "
-                      "B+drag (or middle-drag) sets the radius, M+drag the strength; Alt+Shift+X symmetry; Alt orbits; Esc leaves"));
+                      "B+drag (or middle-drag) sets the radius, M+drag the strength; Alt+Shift+X symmetry; Y+click the "
+                      "marking menu; Alt orbits; Esc leaves"));
             if (document_) reevaluate();  // warms the stroke document
         } else if (mode == Viewport::ToolMode::Select) {
             notify(tr("Select: click or box guides (the rest freeze; nothing picked unfreezes all); Shift toggles, Ctrl "
@@ -142,210 +167,117 @@ MainWindow::MainWindow() {
     // Tab in a text field moves the focus rather than opening the graph (eventFilter).
     qApp->installEventFilter(this);
     refreshTitle();
-    refreshBrushBar();
+    refreshTool();
     refreshStats();
     viewport_->setFocus();
 }
 
 MainWindow::~MainWindow() = default;
 
-void MainWindow::buildMenu() {
-    // One menu behind the top-left button; its shortcuts work from anywhere in the window. A child
-    // of the overlay, it wears the overlay's style sheet (the theme), as its submenus do.
-    menu_ = new QMenu(host_);
-    auto add = [this](QMenu* menu, const QString& text, const QKeySequence& key, auto slot) {
-        QAction* a = menu->addAction(text, this, slot);
-        if (!key.isEmpty()) {
-            a->setShortcut(key);
-            a->setShortcutContext(Qt::WindowShortcut);
-            addAction(a);
-        }
-        return a;
-    };
-    QMenu* file = menu_->addMenu(tr("&File"));
-    add(file, tr("&Open Groom..."), QKeySequence::Open, [this] { chooseOpen(); });
-    add(file, tr("&New Groom on Mesh..."), QKeySequence::New, [this] { chooseMesh(); });
-    file->addSeparator();
-    save_ = add(file, tr("&Save"), QKeySequence::Save, [this] { save(); });
-    // (Spelled out: QKeySequence::SaveAs has no binding on Windows.)
-    saveAs_ = add(file, tr("Save &As..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), [this] { saveAs(); });
-    saveAs_->setObjectName(QStringLiteral("saveAs"));
-    reload_ = add(file, tr("&Reload from File"), QKeySequence(Qt::CTRL | Qt::Key_R), [this] { askReload(); });
-    reload_->setObjectName(QStringLiteral("reload"));
-    // Ctrl+E: Export mode with its panel (no dialog of its own: no ellipsis).
-    export_ = add(file, tr("&Export"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] { exportAlembic(); });
-    saveImage_ = add(file, tr("Save &Image..."), QKeySequence(), [this] { chooseSaveImage(); });
-    saveImage_->setObjectName(QStringLiteral("saveImage"));
-    file->addSeparator();
-    // Props and eyes beside the groom (a head, a body; the eyes for a portrait): the look judged in place.
-    add(file, tr("Add &Prop Mesh..."), QKeySequence(), [this] { chooseProp(); })->setObjectName(QStringLiteral("addProp"));
-    add(file, tr("Add E&ye..."), QKeySequence(), [this] { askEye(); })->setObjectName(QStringLiteral("addEye"));
-    file->addSeparator();
-    // Quit asks first when the groom has unsaved edits (an interactive window).
-    QAction* quit = add(file, tr("&Quit"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] {
-        confirmDiscard(tr("quitting"), [this] {
-            closing_ = true;
-            qApp->quit();
-        });
-    });
-    quit->setObjectName(QStringLiteral("quit"));
-
-    QMenu* edit = menu_->addMenu(tr("&Edit"));
-    undo_ = add(edit, tr("&Undo"), QKeySequence::Undo, [this] { undo(); });
-    redo_ = add(edit, tr("&Redo"), QKeySequence::Redo, [this] { redo(); });
-    auto* redoToo = new QAction(this);  // Ctrl+Shift+Z as well as Ctrl+Y
-    redoToo->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z));
-    connect(redoToo, &QAction::triggered, this, [this] { redo(); });
-    addAction(redoToo);
-
-    QMenu* view = menu_->addMenu(tr("&View"));
-    add(view, tr("&Frame All"), QKeySequence(Qt::Key_F), [this] {
-        // F over the graph frames its selected node (none: the whole graph), as Maya's Graph
-        // Editor does; anywhere else the camera frames the scene.
-        if (graphShown() && graph_->hasFocus()) graph_->frameSelected();
-        else frameAll();
-    });
-    graphAction_ = add(view, tr("&Graph Editor"), QKeySequence(Qt::Key_Tab), [this] {
-        // Tab shows the graph; shown, the graph's own Tab opens its search (the view has the focus).
-        if (!graphShown()) setGraphShown(true);
-        else graph_->openSearch();
-    });
-    graphAction_->setCheckable(true);
-    presetsMenu_ = view->addMenu(tr("Graph &Presets"));
-    presetsMenu_->setToolTipsVisible(true);  // each preset's description
-    connect(presetsMenu_, &QMenu::aboutToShow, this, [this] { fillPresetsMenu(); });
-    QMenu* modes = view->addMenu(tr("&Mode"));
-    auto* modeGroup = new QActionGroup(this);
-    static const char* const modeNames[] = {"Groom", "Look", "Cards", "Export"};
-    for (int i = 0; i < 4; ++i) {
-        // Ctrl+1..4, as the mode pills' tooltips say.
-        QAction* a = add(modes, tr(modeNames[i]), QKeySequence(Qt::CTRL | Qt::Key(Qt::Key_1 + i)),
-                         [this, i] { setUiMode(QLatin1String(modeNames[i])); });
-        a->setObjectName(QStringLiteral("mode_") + QString::fromLatin1(modeNames[i]).toLower());
-        a->setCheckable(true);
-        a->setChecked(i == 0);
-        modeGroup->addAction(a);
+void MainWindow::setInteractive(bool on) {
+    interactive_ = on;
+    if (on) {
+        maps_->setDeleteFiles(QSettings().value(QStringLiteral("maps/deleteFiles"), true).toBool());
+        setHud(QSettings().value(QStringLiteral("ui/hud"), true).toBool());  // Review > Strand Count HUD as left
     }
-    QMenu* panels = view->addMenu(tr("&Panels"));
-    panels->addAction(tr("&Guide Groups"), this, [this] { showUiPanel(QStringLiteral("guides")); });
-    panels->addAction(tr("&Node List"), this, [this] { showUiPanel(QStringLiteral("nodes")); });
-    panels->addAction(tr("&Maps"), this, [this] { showUiPanel(QStringLiteral("maps")); });
-    panels->addAction(tr("&Correctives"), this, [this] { showUiPanel(QStringLiteral("correctives")); });
-    panels->addAction(tr("&Look Settings"), this, [this] { showUiPanel(QStringLiteral("look")); });
-    panels->addAction(tr("&Display"), this, [this] { showUiPanel(QStringLiteral("display")); });
-    panels->addAction(tr("&Brush"), this, [this] { showUiPanel(QStringLiteral("brush")); });
-    railLabels_ = view->addAction(tr("Rail &Labels"), this, [this](bool on) { setRailLabels(on); });
-    railLabels_->setCheckable(true);
-    railLabels_->setObjectName(QStringLiteral("railLabels"));
-    railLabels_->setToolTip(tr("The tools' and panels' names beside the rails' icons"));
-    // The themes (the Maya host's files): the choice is saved and the window wears it from the
-    // next start (its widgets take their colors when they are made).
-    QMenu* themes = view->addMenu(tr("&Theme"));
-    themes->setObjectName(QStringLiteral("themeMenu"));
-    auto* themeGroup = new QActionGroup(this);
-    for (const QString& name : theme::themeNames()) {
-        QAction* a = themes->addAction(theme::themeLabel(name), this, [this, name] { chooseTheme(name); });
-        a->setObjectName(QStringLiteral("theme_") + name);
-        a->setCheckable(true);
-        a->setChecked(name == theme::savedTheme());
-        themeGroup->addAction(a);
+    restartAutosave();  // (an interactive window's alone)
+}
+
+void MainWindow::buildMenuBar() {
+    // The menu bar from the shared UI definitions (menus.json "app.menuBar": File, Edit, View, the
+    // GroomLab menu, Help) with the window's bindings (app_actions.h); its shortcuts work from
+    // anywhere in the window, and it and its menus wear the window's style sheet (the theme).
+    QMenuBar* bar = menuBar();
+    bar->setObjectName(QStringLiteral("menuBar"));
+    const std::map<std::string, QAction*> made = buildDefinitionsMenuBar(bar, *this);
+    undo_ = made.at("edit.undo");
+    redo_ = made.at("edit.redo");
+    save_ = made.at("file.save");
+    saveAs_ = made.at("file.saveAs");
+    reload_ = made.at("file.reload");
+    export_ = made.at("file.export");
+    saveImage_ = made.at("file.saveImage");
+    cameraMode_ = made.at("tool.camera");
+    brushMode_ = made.at("tool.brush");
+    selectMode_ = made.at("tool.select");
+    graphAction_ = made.at("graph.open");
+    railLabels_ = made.at("view.railLabels");
+    transfer_ = made.at("groom.transfer");
+    reference_ = made.at("photos.guides");
+    deleteGuides_ = made.at("guides.deleteSelected");
+    symmetryAction_ = made.at("brush.symmetry");
+    // The Groom Tools' More menu, empty state, Output strip and Parts buttons: the same bindings.
+    groomTools_->setBindings(AppActions::bindings(*this), AppActions::fillOptions(*this));
+    // The lists' bars and right-click menus (lists.json: guide groups, maps, correctives).
+    {
+        const ui::Bindings bindings = AppActions::bindings(*this);
+        const ui::FillOptions options = AppActions::fillOptions(*this);
+        guidesPanel_->setActions(bindings, options);
+        maps_->setActions(bindings, options);
+        correctives_->setActions(bindings, options);
+        photos_->setActions(bindings, options);
     }
+    // The Graph Editor's bar and menus (graph_ui.json: Add Node, Presets, Edit, the right-click
+    // menus), once every binding they read exists.
+    AppActions::wireGraphEditor(*this);
+}
 
-    // The tools: the viewport's modes (its keys B, S and Escape work when it has the focus).
-    QMenu* tools = menu_->addMenu(tr("&Tools"));
-    auto* toolGroup = new QActionGroup(this);
-    toolGroup->setExclusive(true);
-    cameraMode_ = tools->addAction(tr("&Camera"), this, [this] { viewport_->setToolMode(Viewport::ToolMode::Camera); });
-    brushMode_ = tools->addAction(tr("&Brush"), this, [this] { viewport_->setToolMode(Viewport::ToolMode::Brush); });
-    selectMode_ = tools->addAction(tr("&Select Guides"), this, [this] { viewport_->setToolMode(Viewport::ToolMode::Select); });
-    for (QAction* a : {cameraMode_, brushMode_, selectMode_}) {
-        a->setCheckable(true);
-        toolGroup->addAction(a);
+void MainWindow::fillPanelsMenu(QMenu* menu) {
+    // View > Panels: the docks shown and hidden; then the sections inside them, raised; the layout
+    // put back as it was at first.
+    for (QDockWidget* dock : shell_->docks()) {
+        QAction* toggle = dock->toggleViewAction();
+        toggle->setObjectName(QStringLiteral("toggle_") + dock->objectName());
+        menu->addAction(toggle);
     }
-    cameraMode_->setChecked(true);
-    tools->addSeparator();
-    deleteGuides_ = tools->addAction(tr("&Delete Selected Guides"), this, [this] { guidesPanel_->deleteSelected(); });
-    // Alt+Shift+X: the brush's symmetry on or off (Maya's GroomLab hotkey set binds the same).
-    symmetryAction_ = add(tools, tr("S&ymmetry On/Off"), QKeySequence(Qt::ALT | Qt::SHIFT | Qt::Key_X), [this] { toggleSymmetry(); });
-    symmetryAction_->setObjectName(QStringLiteral("symmetry"));
-    tools->addSeparator();
-    // The utilities every host offers over the core: the groom onto another mesh (Maya's
-    // Transfer Groom to Scalp), the turntable (the camera turning on its own).
-    transfer_ = tools->addAction(tr("&Transfer Groom to Scalp..."), this, [this] {
-        if (!document_) {
-            report(tr("No groom open to transfer"));
-            return;
-        }
-        openTransferWindow();  // the new mesh is picked there (New Scalp...)
-    });
-    reference_ = tools->addAction(tr("&Guides from Photos (Experimental)..."), this, [this] {
-        if (!document_) {
-            report(tr("No groom open: open one to grow guides from photos of it"));
-            return;
-        }
-        openReferenceWindow();
-    });
-    transfer_->setObjectName(QStringLiteral("transfer"));
-    reference_->setObjectName(QStringLiteral("guidesFromReference"));
-    deleteGuides_->setObjectName(QStringLiteral("deleteGuides"));
-    QAction* turntable = tools->addAction(tr("T&urntable"), this, [this](bool on) { setTurntable(on); });
-    turntable->setCheckable(true);
-    turntable_ = new QTimer(this);
-    turntable_->setInterval(16);
-    connect(turntable_, &QTimer::timeout, this, [this] { adjustCamera(1.0f, 0.0f, 0.0f); });
+    menu->addSeparator();
+    const std::pair<const char*, const char*> sections[] = {{"guides", "Guide Groups"}, {"maps", "Maps"}, {"correctives", "Correctives"},
+                                                            {"brush", "Brush Settings"}, {"display", "Display"}};
+    for (const auto& [name, label] : sections) {
+        QAction* a = menu->addAction(tr(label), this, [this, n = QString::fromLatin1(name)] { showUiPanel(n); });
+        a->setObjectName(QStringLiteral("panel_") + QLatin1String(name));
+    }
+    menu->addSeparator();
+    menu->addAction(tr("Reset Layout"), this, [this] {
+        for (QDockWidget* dock : shell_->docks()) dock->setFloating(false);
+        setUiMode(QStringLiteral("groom"));
+        shell_->groomToolsDock()->show();
+        shell_->propertiesDock()->show();
+        shell_->propertiesDock()->raise();
+        shell_->resetLayout();
+    })->setObjectName(QStringLiteral("resetLayout"));
+}
 
-    // Render: RenderMan (prman) and V-Ray Standalone renders of the groom as the viewport frames
-    // and lights it (the images in the temp folder: the window saves them elsewhere).
-    QMenu* render = menu_->addMenu(tr("&Render"));
-    auto renderImage = [this](const QString& renderer, const QString& kind) {
-        const QString name = document_ && !document_->path().empty()
-                                 ? QFileInfo(QString::fromStdString(document_->path())).completeBaseName()
-                                 : QStringLiteral("groom");
-        return QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
-            .filePath(QStringLiteral("GroomLab-%3/%1_%2/%1.png").arg(name, kind, renderer));
-    };
-    QAction* prmanFrame = render->addAction(tr("Render Frame in &RenderMan"), this, [this, renderImage] {
-        renderPrman(renderImage(QStringLiteral("prman"), QStringLiteral("frame")), 0, QSize(), false);
-    });
-    prmanFrame->setObjectName(QStringLiteral("prmanFrame"));
-    prmanFrame->setToolTip(tr("This frame in RenderMan's prman (free for non-commercial use) through GroomLab's RenderMan "
-                              "procedural: every strand, the viewport's camera, lights and scalp"));
-    QAction* prmanTurntable = render->addAction(tr("Render Turntable in Render&Man"), this, [this, renderImage] {
-        renderPrman(renderImage(QStringLiteral("prman"), QStringLiteral("turntable")), 36, QSize(), false);
-    });
-    prmanTurntable->setObjectName(QStringLiteral("prmanTurntable"));
-    prmanTurntable->setToolTip(tr("36 frames of the camera around the groom in RenderMan's prman"));
-    render->addSeparator();
-    auto vrayImage = [renderImage](const QString& kind) { return renderImage(QStringLiteral("vray"), kind); };
-    QAction* vrayFrame = render->addAction(tr("Render Frame in &V-Ray"), this, [this, vrayImage] {
-        renderVray(vrayImage(QStringLiteral("frame")), 0, QSize(), false);
-    });
-    vrayFrame->setObjectName(QStringLiteral("vrayFrame"));
-    vrayFrame->setToolTip(tr("This frame in V-Ray Standalone: every strand, the viewport's camera, lights and scalp"));
-    QAction* vrayTurntable = render->addAction(tr("Render &Turntable in V-Ray"), this, [this, vrayImage] {
-        renderVray(vrayImage(QStringLiteral("turntable")), 36, QSize(), false);
-    });
-    vrayTurntable->setObjectName(QStringLiteral("vrayTurntable"));
-    vrayTurntable->setToolTip(tr("36 frames of the camera around the groom in V-Ray Standalone"));
-    render->addSeparator();
-    render->addAction(tr("RenderMan L&ocation..."), this, [this] { choosePrman(); })
-        ->setObjectName(QStringLiteral("prmanLocation"));
-    render->addAction(tr("V-Ray Standalone &Location..."), this, [this] { chooseVrayStandalone(); })
-        ->setObjectName(QStringLiteral("vrayLocation"));
-    render->setToolTipsVisible(true);
+namespace {
 
-    // Help: the docs (the web docs, else the docs folder beside the executable or in the source
-    // tree), the shortcuts and About as floating pages over the viewport (no dialogs).
-    QMenu* help = menu_->addMenu(tr("&Help"));
-    help->addAction(tr("&Docs"), this, [this] { openDocs(); });
-    help->addAction(tr("&Keyboard Shortcuts"), this, [this] { showHelp(QStringLiteral("shortcuts")); });
-    help->addAction(tr("Check for &Updates..."), this, [this] { checkForUpdates(); });
-    help->addAction(tr("D&iscord"), this, [] { QDesktopServices::openUrl(QUrl(QString::fromLatin1(kDiscordUrl))); })
-        ->setObjectName(QStringLiteral("discord"));
-    help->addAction(tr("&Support GroomLab"), this, [this] { openDonate(); })->setObjectName(QStringLiteral("supportGroomLab"));
-    help->addAction(tr("&About GroomLab"), this, [this] { showHelp(QStringLiteral("about")); });
-    host_->setMenu(menu_);
-    refreshUndoActions();
+// The saved docks' layout: a new version (docks added, renamed or moved) starts from the default.
+constexpr int kLayoutVersion = 1;
+
+}  // namespace
+
+void MainWindow::saveLayout() {
+    QSettings settings;
+    settings.setValue(QStringLiteral("ui/windowGeometry"), saveGeometry());
+    settings.setValue(QStringLiteral("ui/windowState"), saveState(kLayoutVersion));
+}
+
+bool MainWindow::restoreLayout() {
+    const QSettings settings;
+    const QByteArray state = settings.value(QStringLiteral("ui/windowState")).toByteArray();
+    if (state.isEmpty()) return false;
+    const QByteArray geometry = settings.value(QStringLiteral("ui/windowGeometry")).toByteArray();
+    if (!geometry.isEmpty()) restoreGeometry(geometry);
+    if (!restoreState(state, kLayoutVersion)) return false;
+    layoutShown_ = true;  // the saved sizes, not the defaults
+    shell_->layoutRestored();
+    return true;
+}
+
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    if (layoutShown_) return;
+    layoutShown_ = true;
+    shell_->resetLayout();
 }
 
 void MainWindow::openDocs() {
@@ -380,42 +312,37 @@ bool MainWindow::chooseTheme(const QString& name) {
         report(tr("No theme named %1").arg(name));
         return false;
     }
-    theme::saveTheme(name);
-    if (menu_) {
-        if (QAction* a = menu_->findChild<QAction*>(QStringLiteral("theme_") + name)) a->setChecked(true);
+    // Worn at once (every widget restyled) and saved for the next start.
+    if (name != theme::currentTheme()) {
+        const std::vector<QColor> before = theme::namedColors();
+        const QString sheet = theme::styleSheet();
+        theme::setTheme(name);
+        restyle(before, sheet);
     }
-    if (name == theme::currentTheme()) notify(tr("Theme: %1").arg(theme::themeLabel(name)));
-    else notify(tr("Theme: %1 from the next start of GroomLab (restart to see it)").arg(theme::themeLabel(name)));
+    theme::saveTheme(name);
+    for (QAction* a : findChildren<QAction*>()) {
+        if (a->objectName().startsWith(QStringLiteral("theme_"))) a->setChecked(a->objectName() == QStringLiteral("theme_") + name);
+    }
+    notify(tr("Theme: %1").arg(theme::themeLabel(name)));
     return true;
 }
 
 void MainWindow::setRailLabels(bool shown, bool save) {
-    host_->setRailLabels(shown);
+    shell_->setRailLabels(shown);
     if (railLabels_) railLabels_->setChecked(shown);
-    if (save) QSettings().setValue(QStringLiteral("ui/railLabels"), shown);
+    if (save) QSettings().setValue(QStringLiteral("ui/toolLabels"), shown);
 }
 
-bool MainWindow::railLabels() const { return host_->railLabels(); }
+bool MainWindow::railLabels() const { return shell_->railLabels(); }
 
-void MainWindow::firstRunRailLabels() {
-    // No choice saved yet: the first run shows the names; later runs hide them unless View >
-    // Rail Labels turned them on (which saves that).
-    QSettings settings;
-    const QString key = QStringLiteral("ui/railLabels");
-    if (!settings.contains(key)) {
-        setRailLabels(true, false);
-        settings.setValue(key, false);
-    } else {
-        setRailLabels(settings.value(key).toBool(), false);
-    }
-}
+void MainWindow::restoreRailLabels() { setRailLabels(QSettings().value(QStringLiteral("ui/toolLabels"), true).toBool(), false); }
 
 void MainWindow::checkForUpdates() {
     const QString current = QCoreApplication::applicationVersion().isEmpty() ? QStringLiteral("0") : QCoreApplication::applicationVersion();
     const auto show = [this](const QString& text) {
         help_->setText(QString(text).replace(QStringLiteral("@link@"), theme::linkText().name()));
-        host_->setPanelTitle(OverlayHost::Panel::Help, tr("Updates"), theme::blue());
-        host_->showPanel(OverlayHost::Panel::Help, true);
+        shell_->setPanelTitle(AppShell::Panel::Help, tr("Updates"), theme::blue());
+        shell_->showPanel(AppShell::Panel::Help, true);
     };
     show(tr("<p>Checking for updates...</p>"));
     if (!updates_) updates_ = new UpdateChecker(this);
@@ -467,8 +394,8 @@ bool MainWindow::showHelp(const QString& page) {
         return false;
     }
     help_->setText(text.replace(QStringLiteral("@link@"), theme::linkText().name()));
-    host_->setPanelTitle(OverlayHost::Panel::Help, title, theme::blue());
-    host_->showPanel(OverlayHost::Panel::Help, true);
+    shell_->setPanelTitle(AppShell::Panel::Help, title, theme::blue());
+    shell_->showPanel(AppShell::Panel::Help, true);
     return true;
 }
 
@@ -494,32 +421,27 @@ void MainWindow::refreshNodes() {
 void MainWindow::refreshUndoActions() {
     const bool has = document_ != nullptr;
     const bool canUndo = has && document_->canUndo(), canRedo = has && document_->canRedo();
-    undo_->setEnabled(canUndo);
-    redo_->setEnabled(canRedo);
-    undo_->setText(canUndo ? QString::fromStdString(document_->undoText()) : tr("Undo"));
-    redo_->setText(canRedo ? QString::fromStdString(document_->redoText()) : tr("Redo"));
-    save_->setEnabled(has);
-    saveAs_->setEnabled(has);
-    export_->setEnabled(has);
-    saveImage_->setEnabled(has);
-    for (QAction* a : {transfer_, reference_, deleteGuides_}) a->setEnabled(has);
-    reload_->setEnabled(has && !document_->path().empty());
-    host_->setUndoRedo(canUndo, canRedo, undo_->text() + QStringLiteral(" (Ctrl+Z)"), redo_->text() + QStringLiteral(" (Ctrl+Y)"));
+    // The menus' enabled states, texts and checks from their bindings (Undo's text, what needs a groom).
+    ui::refreshActions(menuBar());
+    // The viewport's Undo and Redo: the step's label and keys in the tips.
+    host_->setUndoRedo(canUndo, canRedo, undo_->text().section(QLatin1Char('\t'), 0, 0) + QStringLiteral(" (Ctrl+Z)"),
+                       redo_->text().section(QLatin1Char('\t'), 0, 0) + QStringLiteral(" (Ctrl+Y)"));
     refreshTitle();
 }
 
 void MainWindow::refreshTitle() {
+    // The groom's file first, a * while it has unsaved edits ("strokes.groom * — GroomLab"): the
+    // window has no tool bar to show it in.
     QString title = QStringLiteral("GroomLab");
     QString name;
     bool dirty = false;
     if (document_) {
         name = document_->path().empty() ? tr("untitled.groom") : QFileInfo(QString::fromStdString(document_->path())).fileName();
         dirty = document_->dirty();
-        title += QStringLiteral(" - ") + name;
-        if (dirty) title += QStringLiteral(" *");
+        title = name + (dirty ? QStringLiteral(" *") : QString()) + QStringLiteral(" — GroomLab");
     }
     setWindowTitle(title);
-    host_->setFileName(name, dirty);
+    shell_->setFileName(name, dirty);
     refreshExportState();
 }
 

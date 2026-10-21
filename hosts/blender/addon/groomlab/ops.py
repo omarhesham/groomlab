@@ -178,9 +178,9 @@ class GROOMLAB_OT_apply_preset(GroomOperator):
             r = graph.apply_preset(scalp, context.scene.groomlab.preset)
         except HelperError as e:
             return _fail(self, e)
-        missing = [m["name"] for m in r.get("missingMaps", [])]
-        if missing:
-            self.report({"WARNING"}, "The preset reads maps this groom has not painted: %s. Paint them in Groom Tools > Paint" % ", ".join(missing))
+        note = graph.preset_maps_note(r)
+        if note:
+            self.report(*note)
         return {"FINISHED"}
 
 

@@ -59,6 +59,7 @@ struct ReferencePhoto {
     std::optional<RefCamera> camera;  // solved (or as stored)
     ReferenceLandmarkSolve solve;     // the last solve
     QImage picture;                   // the photo as read
+    std::string display;              // the Photos tab's "display" (opacity, depth, locked, visible) as JSON text, kept
 };
 
 // The photo, 2D.
@@ -110,6 +111,8 @@ public:
     // The groom's scalp into the mesh view and its stored photos into the tabs (opening, another
     // groom opened, after a transfer).
     void reloadGroom();
+    // The groom's photos read again (the Photos tab changed them), the current one kept by name.
+    void photosChanged();
 
     // ---- Photos ----
     // A photo from a file (its size read; stored with the groom); its index, or -1 (why in the
@@ -185,6 +188,7 @@ public:
 
 signals:
     void guidesChanged();  // Generate made or replaced the fromReference group
+    void photosStored();   // the photos were stored with the groom (an edit here)
 
 private:
     friend class PhotoView;

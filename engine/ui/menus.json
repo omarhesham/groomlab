@@ -31,7 +31,7 @@
         ]}
       ]},
       {"submenu": "Review", "id": "review", "items": ["review.heatmap", "review.hud", "review.turntable", "render.turntable"]},
-      {"submenu": "Studio", "id": "studio", "tip": "A backdrop, Arnold area lights and a camera round the groom", "ref": "menus/studio"},
+      {"submenu": "Studio", "id": "studio", "tip": "A backdrop, Arnold area lights and a camera round the groom", "tips": {"app": "Lookdev lighting presets for the viewport (Look mode)"}, "ref": "menus/studio"},
       {"submenu": "Render", "id": "render", "ref": "menus/render"},
       {"submenu": "Export", "id": "export", "ref": "menus/export"},
       {"submenu": "Utilities", "id": "utilities", "items": [
@@ -71,8 +71,14 @@
       "export.scalesFbx",
       "export.scalesUsd"
     ],
-    "render": ["render.fromGroomFile", "render.asCurves", "-", "render.hardware2", "-", "render.prman", "-", "render.vrayStandalone", "render.vrayHook", "render.vrayLoadScene"],
+    "render": [
+      "render.fromGroomFile", "render.asCurves", "-", "render.hardware2", "-",
+      "render.prman", "render.prmanFrame", "render.prmanTurntable", "-",
+      "render.vrayStandalone", "render.vrayFrame", "render.vrayTurntable", "render.vrayHook", "render.vrayLoadScene", "-",
+      "render.prmanLocation", "render.vrayLocation"
+    ],
     "studio": [
+      {"generator": "lightingPresets", "action": "studio.lighting", "hosts": ["app"]},
       {"generator": "studioPresets", "action": "studio.preset", "hosts": ["maya"], "tip": "Studio lighting in Arnold: {description}. A backdrop, area lights and a camera round the groom, the head in a matte grey (one undo step; another preset relights in place)"},
       "-",
       "studio.lookThrough",
@@ -105,7 +111,7 @@
       "import.yeti",
       "import.alembicCurves",
       "-",
-      {"id": "file.import", "label": "Groom File...", "tip": "A groom from a .groom file (exported from Maya or saved by the standalone app)"}
+      {"id": "file.import", "label": "Groom File...", "tip": "A groom from a .groom file (exported from Maya or saved by the standalone app)", "tips": {"app": "A groom from a .groom file (saved by the app, exported from Maya or Blender)"}}
     ],
     "output.export": [
       "export.alembic",
@@ -118,9 +124,60 @@
       "export.gltfCards",
       "export.cardMaps",
       "-",
-      {"id": "file.saveAs", "tip": "Write the groom to a new groom file (the standalone app, groomlab-cli, the Arnold procedural)"}
+      {"id": "file.saveAs", "tip": "Write the groom to a new groom file (the standalone app, groomlab-cli, the Arnold procedural)", "tips": {"app": "Write the groom to a new groom file (Maya, Blender, groomlab-cli, the renderers' procedurals)"}}
     ],
-    "output.render": ["render.fromGroomFile", "render.asCurves", "-", "render.turntable", "-", "render.hardware2", "render.prman", "render.vrayStandalone", "render.vrayHook", "render.vrayLoadScene"],
-    "output.studio": [{"include": "menus/studio"}]
+    "output.render": [
+      "render.fromGroomFile", "render.asCurves", "-", "render.turntable", "-",
+      "render.hardware2", "render.prman", "render.prmanFrame", "render.prmanTurntable",
+      "render.vrayStandalone", "render.vrayFrame", "render.vrayTurntable", "render.vrayHook", "render.vrayLoadScene"
+    ],
+    "output.studio": [{"include": "menus/studio"}],
+
+    "app.menuBar": [
+      {"submenu": "File", "id": "file", "hosts": ["app"], "ref": "menus/app.file"},
+      {"submenu": "Edit", "id": "edit", "hosts": ["app"], "ref": "menus/app.edit"},
+      {"submenu": "View", "id": "view", "hosts": ["app"], "ref": "menus/app.view"},
+      {"submenu": "GroomLab", "id": "groomlab", "hosts": ["app"], "tip": "What the GroomLab menu holds in Maya and Blender, in the same order", "ref": "menus/main"},
+      {"submenu": "Help", "id": "help", "hosts": ["app"], "ref": "menus/help"}
+    ],
+    "app.file": [
+      "file.open",
+      {"submenu": "Open Recent", "id": "openRecent", "hosts": ["app"], "tip": "The grooms and meshes opened last (one no longer there greyed)", "items": [{"generator": "recentFiles"}]},
+      "file.new",
+      "-",
+      {"id": "file.save", "label": "Save", "hosts": ["app"]},
+      {"id": "file.saveAs", "label": "Save As...", "hosts": ["app"]},
+      {"id": "file.reload", "label": "Reload from File", "hosts": ["app"]},
+      {"submenu": "Autosave", "id": "autosave", "hosts": ["app"], "tip": "How often a groom with unsaved changes is written to a .groom~ copy (offered at the next start after a crash)", "items": [{"generator": "autosaveIntervals", "action": "file.autosave"}]},
+      "-",
+      "file.export",
+      "file.saveImage",
+      "-",
+      "file.addProp",
+      "file.addEye",
+      "-",
+      "file.quit"
+    ],
+    "app.edit": [
+      "edit.undo",
+      "edit.redo",
+      "-",
+      "tool.camera",
+      "tool.brush",
+      "tool.select",
+      "-",
+      "guides.deleteSelected",
+      "brush.symmetry"
+    ],
+    "app.view": [
+      "view.frameAll",
+      {"id": "graph.open", "hosts": ["app"]},
+      {"submenu": "Graph Presets", "id": "graphPresets", "hosts": ["app"], "tip": "Looks to start from (Apply replaces the graph, Insert adds one after the selected node), Save as Preset, Copy and Paste Graph", "ref": "graph/presetMenu"},
+      "-",
+      {"submenu": "Mode", "id": "mode", "hosts": ["app"], "items": ["view.mode.groom", "view.mode.look", "view.mode.cards", "view.mode.export"]},
+      {"submenu": "Panels", "id": "panels", "hosts": ["app"], "items": [{"generator": "panels"}]},
+      "view.railLabels",
+      "view.turntable"
+    ]
   }
 }

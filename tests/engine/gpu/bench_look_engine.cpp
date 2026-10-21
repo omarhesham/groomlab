@@ -577,6 +577,7 @@ GroomData presetGroom(const std::string& name, std::size_t strands) {
     parts.parts.push_back(PartSet::fromPoints("meridian", meridian, *d.scalp));
     d.partsJson = parts.toJson();
     d.graphJson = presetGraphJson(text.str(), presetScalpSize(*d.scalp));
+    test::paintRequiredMaps(text.str(), d);  // the maps a host makes on applying it, painted
     // The Scatter's density scaled to the count wanted (strands grow with it).
     GroomSession probe(d);
     const StrandsPtr made = probe.evaluate(ViewRequest{}).strands;
@@ -923,6 +924,7 @@ TEST(GpuBenchPresets, WhereEachPresetRunsOnTheGpu) {
         nlohmann::json row{{"bench", "preset"}, {"preset", file.stem().u8string()}};
         try {
             d.graphJson = presetGraphJson(text.str(), presetScalpSize(*d.scalp));
+            test::paintRequiredMaps(text.str(), d);
         } catch (const std::exception& e) {
             row["error"] = e.what();
             record(row);

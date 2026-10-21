@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// The painted widgets the floating UI is made of, where a style sheet is not enough: glass
-// panels (a translucent rounded rectangle; the viewport shows through), round and pill buttons
-// with tinted icons, sliders with a colored fill and a mono value, the segmented mode switcher,
-// text drawn straight on the viewport with a shadow, and a floating panel with a title row
-// that hosts one of the ordinary panels. Every widget paints with alpha and no background of
+// The painted widgets the app's UI is made of, where a style sheet is not enough: glass panels
+// (a translucent rounded rectangle over the viewport, or nothing at all docked), round and pill
+// buttons with tinted icons, sliders with a colored fill and a mono value, the segmented mode
+// switcher, and text drawn straight on the viewport with a shadow. Every widget paints with alpha and no background of
 // its own, so whatever is under it shows: a true blur of the 3D frame is not possible for
 // widgets over a QRhiWidget (they cannot sample its texture), so the glass is translucency alone.
 //
@@ -53,6 +52,10 @@ public:
     void setRadius(qreal radius);
     void setColor(const QColor& color);  // the glass by default
     QColor color() const { return color_; }
+    // Docked (a dock's section, app_shell.h): nothing painted, the dock's solid panel shows
+    // through; its fixed widths are lifted so the dock sizes it.
+    void setDocked(bool docked);
+    bool docked() const { return docked_; }
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -60,6 +63,7 @@ protected:
 private:
     qreal radius_;
     QColor color_;
+    bool docked_ = false;
 };
 
 // ---- Windows on small screens -------------------------------------------------------------------
@@ -157,7 +161,7 @@ public:
     double minimum() const { return min_; }
     double maximum() const { return max_; }
     void setFill(const QColor& color);
-    void setTrackWidth(int width);  // a row's track alone; the value text comes after
+    void setTrackWidth(int width);  // a row's track alone (0: as wide as the row leaves); the value text comes after
     void setValueWidth(int width);  // room for the text (0: none shown)
     void setFormat(std::function<QString(double)> format);
     void setDecimals(int decimals);  // the default format's and the inline edit's precision
@@ -285,6 +289,7 @@ public:
     // The same runs as shown change nothing (a stats line set every frame repaints nothing);
     // false then, true when they changed.
     bool setRuns(std::vector<Run> runs);
+    const std::vector<Run>& runs() const { return runs_; }
     void setShadow(bool shadow);
     QSize sizeHint() const override;
 
@@ -294,22 +299,6 @@ protected:
 private:
     std::vector<Run> runs_;
     bool shadow_ = true;
-};
-
-// ---- FloatingPanel -------------------------------------------------------------------------------
-// A glass panel with a title row (a colored dot, the title, a close button) over one of the
-// ordinary panels, shown on demand beside the button that opens it.
-class FloatingPanel : public GlassPanel {
-    Q_OBJECT
-public:
-    explicit FloatingPanel(const QString& title, const QColor& dot, QWidget* content, QWidget* parent = nullptr);
-    QWidget* content() const { return content_; }
-
-signals:
-    void closed();
-
-private:
-    QWidget* content_;
 };
 
 }  // namespace groomlab::app

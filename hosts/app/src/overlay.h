@@ -1,34 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// The floating UI over the viewport: the whole window is the viewport, edge to edge, and every
-// control floats over it as glass (glass.h). OverlayHost is the window's central widget: the
-// viewport fills it and the pieces are its children, placed by theme::layoutOverlay on every
-// resize; where no piece is, the mouse reaches the viewport. The pieces:
+// The pieces the app's docked window is made of (app_shell.h places them) and what stays over the
+// viewport. OverlayHost is the window's central widget: the viewport fills it, and the few things
+// that belong on the picture float over it, placed by theme::layoutViewportOverlay:
 //
-//   top-left     the menu button (every File, Edit, View and Tools action), the logo, the file
-//                name (a yellow dot when edited), drawn on the viewport, no panel
-//   top-center   the mode switcher (Groom, Look, Cards, Export)
-//   top-right    undo, redo, Render (the refine quality: the viewport converges on the picture)
-//   left         the brush rail (Groom): the Select tool, then every brush by category, the
-//                active one filled and named beside it; under the mouse the rail widens and
-//                names every tool
-//   right        round buttons that open floating panels on demand (guide groups, nodes,
-//                lighting and look, display, frame all); under the mouse each grows its name
-//   bottom       the active brush's settings as one pill (Groom); the stats (Groom, left)
-//   Look mode    the look card (material and lighting, the hair color presets, the main
-//                sliders), the Graph pill (left) and the refine stats (right)
-//   the graph    while it shows (any mode): the Graph pill, the Presets pill and a close
-//                button at the bottom left (the stats above them); a click on a mode closes it
-//   Cards mode   the cards panel (cards_panel.h) at the right: the Cards node, the preview,
-//                the LOD, its settings, the bake and the atlas
-//   Export mode  the export panel (export_panel.h) at the right: the targets, the frames and
-//                options, the output, progress; save and save as
-//   timeline     one pill at the bottom in every mode (above the brush bar in Groom) when the
-//                groom animates (timeline.h): transport, scrub, range, fps, loop, follow
+//   top-left     the active tool's name ("Comb  B", Groom mode)
+//   bottom-left  the stats (Groom: strands, the time per dab, the GPU or LINES badge)
+//   bottom-right the refine line (Look: frames accumulated of the target)
+//   bottom       a toast above them (an error tinted and longer, an info message brief)
+//   center       a prompt (never a dialog), the empty-state card (no groom open: open, new,
+//                a preset, the recent files); a .groom, .obj or .abc dropped opens
 //
-// The node graph (node_graph.h) is another child of the host, between the viewport and the
-// pieces, shown by Tab or the Graph pill.
+// The other piece here lives in a dock: LookCard (Look mode's material, lighting and render
+// settings, in the Properties dock). The brush tiles and the active tool's card are the Groom
+// Tools' (groom_tools.h).
 
 #include <functional>
 #include <string>
@@ -37,6 +23,7 @@
 
 #include <QColor>
 #include <QString>
+#include <QStringList>
 #include <QWidget>
 
 #include "glass.h"
@@ -54,161 +41,7 @@ class QVariantAnimation;
 namespace groomlab::app {
 
 class ColorEditor;
-class CardsPanel;
-class ExportPanel;
-class Timeline;
 class Viewport;
-class NodeGraphView;
-
-// ---- BrushRail ---------------------------------------------------------------------------------
-// The slim rail of circle buttons. Under the mouse it widens to the right (150 ms) and names
-// each tool beside its icon; it floats over the viewport, so nothing else moves. The tooltips stay.
-class BrushRail : public GlassPanel {
-    Q_OBJECT
-public:
-    explicit BrushRail(QWidget* parent = nullptr);
-    int buttonCount() const;   // the Select tool and every brush
-    int dividerCount() const;  // between the groups
-    // Lays the buttons out at a size with the gaps and dividers (theme::layoutOverlay's
-    // railButton, railGap, railDivider); the rail's size follows.
-    void setButtonSize(int size, int gap = 4, int divider = 9);
-    // The active tool: a brush mode ("" none, the camera), or the Select tool.
-    void setActive(const std::string& mode, bool select);
-    // Where the active button's row is (host coordinates), for the label beside it.
-    QRect activeRect() const;
-    // The names shown (the hover state); `animate` false lands at once (a screenshot).
-    void setExpanded(bool expanded, bool animate = true);
-    bool expanded() const { return expanded_; }
-    // The names kept shown (the labels on a first run, View > Rail Labels): the mouse leaving
-    // does not fold the rail.
-    void setPinned(bool pinned);
-    bool pinned() const { return pinned_; }
-    int collapsedWidth() const { return collapsedWidth_; }
-    int expandedWidth() const;
-
-signals:
-    void brushChosen(const std::string& mode);
-    void selectChosen();
-    void expansionChanged();  // the width changed (the host hides its own label meanwhile)
-
-protected:
-    void paintEvent(QPaintEvent* event) override;  // the dividers and the names over the glass
-    void enterEvent(QEnterEvent* event) override;
-    void leaveEvent(QEvent* event) override;
-
-private:
-    struct Entry {
-        RoundButton* button = nullptr;
-        std::string mode;  // "" for Select
-        QString name;
-        bool dividerAfter = false;
-    };
-    void applyExpansion();  // the width from expand_
-    std::vector<Entry> entries_;
-    int buttonSize_ = 44;
-    int gap_ = 4, divider_ = 9;
-    bool laidOut_ = false;  // setButtonSize ran once
-    int collapsedWidth_ = 56;
-    int labelWidth_ = 0;  // the widest name
-    int active_ = -1;
-    std::string toolMode_;
-    bool toolSelect_ = false;
-    bool expanded_ = false;
-    bool pinned_ = false;
-    qreal expand_ = 0.0;  // 0 collapsed .. 1 the names fully shown
-    QVariantAnimation* animation_ = nullptr;
-};
-
-// ---- PanelRail ----------------------------------------------------------------------------------
-// The right-hand column of round glass buttons (the panels, frame all). Under the mouse it
-// grows a label to the left of each button (150 ms), a glass pill with the panel's name,
-// without moving the buttons; it floats, so nothing else moves. A label is part of its
-// button's target: it lights with it and a click on it clicks the button. The tooltips stay.
-class PanelRail : public QWidget {
-    Q_OBJECT
-public:
-    explicit PanelRail(QWidget* parent = nullptr);
-    // Takes the button (reparented) with the name shown beside it.
-    void addButton(RoundButton* button, const QString& name);
-    int buttonCount() const { return static_cast<int>(entries_.size()); }
-    // Places the rail with its buttons' column at `right` (host coordinates) from `top` down;
-    // expanded, it reaches further left.
-    void place(int right, int top);
-    // A button's vertical center in host coordinates (a panel opens beside it).
-    int buttonCenterY(int index) const;
-    void setExpanded(bool expanded, bool animate = true);
-    bool expanded() const { return expanded_; }
-    void setPinned(bool pinned);  // as BrushRail's
-    bool pinned() const { return pinned_; }
-    int collapsedWidth() const;
-    int expandedWidth() const;
-
-protected:
-    void paintEvent(QPaintEvent* event) override;  // the label pills
-    void enterEvent(QEnterEvent* event) override;
-    void leaveEvent(QEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
-    void mousePressEvent(QMouseEvent* event) override;
-    void mouseReleaseEvent(QMouseEvent* event) override;
-    bool eventFilter(QObject* watched, QEvent* event) override;  // a button's hover
-
-private:
-    struct Entry {
-        RoundButton* button = nullptr;
-        QString name;
-    };
-    void applyExpansion();
-    int rowAt(const QPoint& at) const;  // the row under a point of the rail (-1 none)
-    int hovered_ = -1;
-    int pressed_ = -1;
-    std::vector<Entry> entries_;
-    int right_ = 0, top_ = 0;
-    int labelWidth_ = 0;
-    bool expanded_ = false;
-    bool pinned_ = false;
-    qreal expand_ = 0.0;
-    QVariantAnimation* animation_ = nullptr;
-};
-
-// ---- BrushBar ------------------------------------------------------------------------------------
-// The active brush's settings as one pill: the name with its category dot, the radius and
-// strength sliders, the falloff (hardness) button, the Symmetry chip (on for any symmetry: World
-// X, Y, Z or Topology, which its tooltip names), the pen pressure toggle and a "..." that opens
-// the full brush panel.
-class BrushBar : public GlassPanel {
-    Q_OBJECT
-public:
-    explicit BrushBar(QWidget* parent = nullptr);
-    struct Values {
-        std::string mode;
-        float radius = 60.0f;
-        float strength = 1.0f;
-        float hardness = 0.5f;
-        int mirrorAxis = -1;  // the symmetry: -1 off, 0 1 2 a world axis (X Y Z), 3 topology
-        bool pressure = true;
-    };
-    void setValues(const Values& values);  // no signals
-    const Values& values() const { return values_; }
-
-signals:
-    // The user changed something (values() has it); `live` while a slider drags.
-    void edited(bool live);
-    void moreRequested();
-
-private:
-    void refresh();
-    Values values_;
-    QLabel* dot_ = nullptr;
-    QLabel* name_ = nullptr;
-    ValueSlider* radius_ = nullptr;
-    ValueSlider* strength_ = nullptr;
-    RoundButton* falloff_ = nullptr;
-    RoundButton* symmetry_ = nullptr;
-    RoundButton* pressure_ = nullptr;
-    RoundButton* more_ = nullptr;
-    int lastSymmetry_ = 0;  // what the chip turns on again (World X at first)
-    bool updating_ = false;
-};
 
 // ---- LookCard ------------------------------------------------------------------------------------
 // Look mode's card, three tabs. Material: the hair color presets as swatches, melanin, redness
@@ -360,57 +193,39 @@ private:
 class OverlayHost : public QWidget {
     Q_OBJECT
 public:
+    // The window's modes (app_shell.h switches the docks; here: the stats, the refine line, the
+    // empty card's sentence, the tool's name).
     enum class Mode { Groom, Look, Cards, Export };
-    // The first six have a button in the right rail (in this order). Help is the Help menu's
-    // floating page (the shortcuts, About, updates), centered.
-    enum class Panel { Guides, Nodes, Maps, Correctives, Look, Display, Brush, Node, Help, Count };
 
     explicit OverlayHost(Viewport* viewport, QWidget* parent = nullptr);
 
     Viewport* viewport() const { return viewport_; }
-    void setMode(Mode mode);  // shows the mode's pieces; no signal
+    void setMode(Mode mode);  // no signal
     Mode mode() const { return mode_; }
-    void setMenu(QMenu* menu);  // what the top-left button pops up
-    // The file name ("" no groom open: the empty-state card shows in the middle, the brush rail
-    // and bar dim until one is).
+    // A groom is open (its file name; "" none: the empty-state card shows in the middle).
     void setFileName(const QString& name, bool dirty);
     bool groomOpen() const { return !name_.isEmpty(); }
     // The empty-state card's recent files (at most five shown), newest first.
     void setRecentFiles(const QStringList& paths);
     GlassPanel* emptyCard() const { return emptyCard_; }
     // The card's sentence for the current mode (Groom: what to drop or pick; Look, Cards and
-    // Export: what the mode does, once a groom is open). Render, the modes, Graph and Presets
-    // are disabled, and the mode's panel and numbers hidden, until a groom is open.
+    // Export: what the mode does, once a groom is open).
     QString emptyText() const;
-    // After New Groom on Mesh (a bald scalp): a card under the modes with the next step (pick
-    // Place, click the scalp) and Pick Place, Presets and Got it. Hidden by any of them, by the
-    // first guide, by another groom.
-    void setStartHintShown(bool shown);
-    bool startHintShown() const;
-    GlassPanel* startHint() const { return startHint_; }
     int recentCount() const { return static_cast<int>(recentButtons_.size()); }
-    RoundButton* graphPill() const { return graphPill_; }
-    RoundButton* presetsPill() const { return presetsPill_; }
-    void setUndoRedo(bool canUndo, bool canRedo, const QString& undoText, const QString& redoText);
-    // The brush rail's label: the tool's name beside the active button ("Comb" with the key).
+    // The active tool's name at the top-left ("Comb" with the key that brings it back), Groom mode.
     void setTool(const std::string& brushMode, bool select);
-    // The stats line (Groom): strands, the time per dab (0: the evaluation's), the path's badge.
-    void setStats(std::size_t strands, double msPerDab, const QString& badge, const QColor& badgeColor);
+    QString toolText() const;  // "" when hidden
+    // The stats line (Groom): strands, the guides (npos: not said), the time per dab (0: the
+    // evaluation's), the path's badge.
+    void setStats(std::size_t strands, double msPerDab, const QString& badge, const QColor& badgeColor,
+                  std::size_t guides = static_cast<std::size_t>(-1));
+    QString statsText() const;  // the stats line's words ("" hidden)
+    // GroomLab > Review > Strand Count HUD: the stats line shown (on by default) or not.
+    void setStatsWanted(bool on);
+    bool statsWanted() const { return statsWanted_; }
+    bool statsShown() const;
     // The refine line (Look): frames accumulated of the target, or the time per frame.
     void setRefine(bool refining, int frames, int target, double msPerFrame);
-    void setGraphShown(bool shown, int nodeCount);
-    void setNodeCount(int nodeCount);  // the Graph pill's "N nodes" (after a preset, an edit)
-    // A floating panel's content (the ordinary panels); shown and hidden by the right rail's
-    // buttons, the brush bar's "..." and the node graph's selection.
-    void setPanelContent(Panel panel, const QString& title, const QColor& dot, QWidget* content);
-    void showPanel(Panel panel, bool show);
-    void togglePanel(Panel panel);
-    bool panelShown(Panel panel) const;
-    // A panel's title row changed (the node panel takes the node's name, the help page its
-    // subject): the floating panel is remade around the same content.
-    void setPanelTitle(Panel panel, const QString& title, const QColor& dot);
-    void setNodePanelTitle(const QString& title, const QColor& dot) { setPanelTitle(Panel::Node, title, dot); }
-    FloatingPanel* panel(Panel panel) const { return panels_[static_cast<std::size_t>(panel)]; }
     // A message over the viewport for a few seconds (the stderr line stays the record): an error
     // tinted red and shown longer (its length's reading time), an info message (saved, opened,
     // a preset applied, a hint) plain and brief. Wrapped to the view's width; one timer, restarted
@@ -420,7 +235,7 @@ public:
     QString toastText() const;
     bool toastIsError() const { return toastError_; }
     int toastMilliseconds() const;  // the shown toast's time on screen
-    // A question over the viewport in the app's own glass, never a dialog (the rest stays usable):
+    // A question over the viewport in the app's own panel, never a dialog (the rest stays usable):
     // a title, a sentence and its choices left to right, the primary one filled; any choice
     // closes it, then runs its action. Another prompt replaces the shown one.
     struct PromptChoice {
@@ -433,6 +248,10 @@ public:
     // text to `done`, Cancel or Escape drops it.
     void showTextPrompt(const QString& title, const QString& text, const QString& initial, const QString& accept,
                         std::function<void(const QString&)> done);
+    // The same with several ways to take the line (New Group: top-level, or under the picked
+    // group), left to right after Cancel; the last is the primary one (Enter).
+    using TextChoice = std::pair<QString, std::function<void(const QString&)>>;
+    void showTextPrompt(const QString& title, const QString& text, const QString& initial, std::vector<TextChoice> accepts);
     QString promptLine() const;  // the text prompt's line ("" without one)
     void setPromptLine(const QString& text);
     void hidePrompt();
@@ -440,43 +259,26 @@ public:
     GlassPanel* prompt() const { return prompt_; }
     // Clicks the shown prompt's choice by its label (tests, scripted runs); false when none is.
     bool choosePrompt(const QString& label);
-    // The node graph view (made by the host, wired by the window).
-    NodeGraphView* graph() const { return graph_; }
-    // The rails' hover state held (a screenshot of the names), no animation.
-    void setRailsExpanded(bool brushRail, bool panelRail);
-    // The rails' names kept shown beside their icons (a first run's labels, View > Rail Labels).
-    void setRailLabels(bool shown);
-    bool railLabels() const;
-    // Where the Presets pill is (host coordinates): the window pops its menu there.
-    QRect presetsPillRect() const;
-    // The pieces the window wires.
-    BrushRail* rail() const { return rail_; }
-    PanelRail* panelRail() const { return panelRail_; }
-    BrushBar* bar() const { return bar_; }
-    LookCard* lookCard() const { return lookCard_; }
-    CardsPanel* cardsPanel() const { return cardsPanel_; }
-    ExportPanel* exportPanel() const { return exportPanel_; }
-    Timeline* timeline() const { return timeline_; }
-    Segmented* modes() const { return modes_; }
-    // The timeline shows (the groom animates): placed in every mode; hidden otherwise.
-    void setTimelineShown(bool shown);
-    bool timelineShown() const { return timelineShown_; }
+    // The viewport's size follows the host at once, except while a mouse button is held (a dock's
+    // or a splitter's drag resizes the host every move): then it catches up a moment after the
+    // last move, so the QRhiWidget's texture is not made again for every pixel of the drag.
+    bool viewportResizePending() const;
+    // Undo and Redo at the top-right (the window's only buttons for them besides Edit and the keys):
+    // enabled as the history allows, their tips the step's label and keys ("Undo comb stroke (Ctrl+Z)").
+    void setUndoRedo(bool canUndo, bool canRedo, const QString& undoTip, const QString& redoTip);
+    RoundButton* undoButton() const { return undo_; }
+    RoundButton* redoButton() const { return redo_; }
+    GlassPanel* history() const { return history_; }
 
 signals:
-    void undoRequested();
-    void redoRequested();
-    void renderRequested();
-    void frameAllRequested();
-    void graphToggleRequested();
-    void graphCloseRequested();  // the close button beside the Graph pill, or a mode clicked while the graph shows
-    void presetsRequested();     // the Presets pill (and the empty card's "Start from a preset"): the window pops the presets menu
-    void modeChanged(Mode mode);
-    // The empty-state card: Open groom, New groom on mesh, a recent file; and a .groom, .obj or
-    // .abc dropped on the window (any time).
+    // The empty-state card: Open groom, New groom on mesh, Start from a preset, a recent file; and
+    // a .groom, .obj or .abc dropped on the window (any time).
     void openRequested();
     void newRequested();
-    void placeRequested();  // the start hint's Pick Place: the Place brush
+    void presetsRequested();
     void fileDropped(const QString& path);
+    void undoRequested();
+    void redoRequested();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -486,73 +288,44 @@ protected:
 
 private:
     void relayout();
-    void placePanel(Panel panel);
-    void refreshToolLabel();
+    void placeViewport();
     void refreshEmptyCard();
+    void refreshToolLabel();
 
     Viewport* viewport_;
-    NodeGraphView* graph_ = nullptr;
     bool built_ = false;  // every piece exists: relayout may place them
     Mode mode_ = Mode::Groom;
-    QMenu* menu_ = nullptr;
-    // Top-left.
-    RoundButton* menuButton_ = nullptr;
-    QLabel* logo_ = nullptr;
-    ShadowText* fileName_ = nullptr;
     QString name_;
     bool dirty_ = false;
-    // Top-center and top-right.
-    Segmented* modes_ = nullptr;
-    RoundButton* undo_ = nullptr;
-    RoundButton* redo_ = nullptr;
-    RoundButton* render_ = nullptr;
-    // Left.
-    BrushRail* rail_ = nullptr;
+    QTimer* viewportTimer_ = nullptr;  // the viewport's deferred resize (placeViewport)
+    // Top-left: the tool's name.
     GlassPanel* toolLabel_ = nullptr;
     QLabel* toolName_ = nullptr;
     std::string toolMode_;
     bool toolSelect_ = false;
+    // Top-right: Undo and Redo.
+    GlassPanel* history_ = nullptr;
+    RoundButton* undo_ = nullptr;
+    RoundButton* redo_ = nullptr;
     // The middle, with no groom open.
     GlassPanel* emptyCard_ = nullptr;
     QLabel* emptyHint_ = nullptr;  // emptyText
-    GlassPanel* startHint_ = nullptr;
-    void placeStartHint();
     QBoxLayout* recentLayout_ = nullptr;
     QLabel* recentCaption_ = nullptr;
     std::vector<RoundButton*> recentButtons_;
     QStringList recentFiles_;
-    // Right.
-    PanelRail* panelRail_ = nullptr;
-    std::vector<RoundButton*> panelButtons_;  // the rail's, in Panel's order (then frame all)
-    std::vector<FloatingPanel*> panels_;
-    std::vector<QString> panelTitles_;
-    std::vector<QColor> panelDots_;
     // Bottom.
-    BrushBar* bar_ = nullptr;
     ShadowText* stats_ = nullptr;
+    bool statsWanted_ = true;
     ShadowText* refine_ = nullptr;
-    RoundButton* graphPill_ = nullptr;
-    RoundButton* presetsPill_ = nullptr;  // with the graph: the presets menu
-    RoundButton* graphClose_ = nullptr;   // ... and the close button
-    int nodeCount_ = 0;
-    bool graphShown_ = false;
     GlassPanel* toast_ = nullptr;
     QLabel* toastText_ = nullptr;
     QLabel* toastDot_ = nullptr;
     QTimer* toastTimer_ = nullptr;
     bool toastError_ = false;
-    void placeToast();
+    void sizeToast();
     // The prompt (showPrompt): centered, over everything.
     GlassPanel* prompt_ = nullptr;
-    void placePrompt();
-    // The file name as set, elided to the room between the logo and the modes when shown.
-    void refreshFileName();
-    // Look, Cards, Export, the timeline.
-    LookCard* lookCard_ = nullptr;
-    CardsPanel* cardsPanel_ = nullptr;
-    ExportPanel* exportPanel_ = nullptr;
-    Timeline* timeline_ = nullptr;
-    bool timelineShown_ = false;
 };
 
 }  // namespace groomlab::app

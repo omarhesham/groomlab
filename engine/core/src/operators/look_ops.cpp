@@ -2520,7 +2520,8 @@ public:
     std::vector<PortSpec> inputs() const override { return {{"a", PortType::Strands}, {"b", PortType::Strands}}; }
     std::vector<ParamSpec> paramSpecs() const override {
         return {
-            ParamSpec{"mix", 0.5, "0: a, 1: b (mappable, per point)", "fraction"}.soft(0, 1),
+            // 1 by default: a plugged mask multiplies it, so the mask alone is the mix (0.5 halved it)
+            ParamSpec{"mix", 1.0, "0: a, 1: b (mappable, per point)", "fraction"}.soft(0, 1),
             {"profile", Ramp::constant(1.0f), "Mix along the length, root to tip"},
             {"include", std::string("shapeAndLook"),
              "What moves toward b: the shape (points, widths) and the look (HairColor's color, melanin, redness, "

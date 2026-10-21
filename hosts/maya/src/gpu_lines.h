@@ -28,10 +28,8 @@
 
 struct ID3D11Buffer;
 
-namespace MHWRender {
-class MIndexBuffer;
-class MVertexBuffer;
-}
+#include <maya/MApiNamespace.h>  // Maya's classes declared (MHWRender's are using-declarations of a
+                                  // versioned namespace's: a plain forward declaration conflicts, Clang/GCC)
 
 namespace groomlab::maya {
 

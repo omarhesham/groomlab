@@ -6,6 +6,11 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#ifdef __APPLE__
+#include <cstdlib>
+#include <string>
+#include <xlocale.h>  // strtod_l
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -29,6 +34,19 @@ using json = nlohmann::json;
 namespace fs = std::filesystem;
 
 constexpr const char* kFormat = "groomlab.groom";
+
+// The double that text (std::to_chars's) reads as. Apple's libc++ has no floating-point
+// std::from_chars: there strtod in the C locale, which reads it the same (to_chars text is plain).
+double readDouble(const char* begin, const char* end) {
+#ifdef __APPLE__
+    static const locale_t c = newlocale(LC_ALL_MASK, "C", nullptr);
+    return strtod_l(std::string(begin, end).c_str(), nullptr, c);
+#else
+    double read = 0.0;
+    std::from_chars(begin, end, read);
+    return read;
+#endif
+}
 
 // Float arrays are written in the shortest form that reads back to the same
 // float (std::to_chars), half the size of a double's 17 digits and still
@@ -59,8 +77,7 @@ public:
             // first (JSON), then rounds that to a float: for a very few values (7.038531e-26) the
             // two roundings land on the neighbour, and those are written as their double's text.
             auto r = std::to_chars(buf, buf + sizeof(buf), values[i]);
-            double read = 0.0;
-            std::from_chars(buf, r.ptr, read);
+            const double read = readDouble(buf, r.ptr);
             if (static_cast<float>(read) != values[i]) r = std::to_chars(buf, buf + sizeof(buf), static_cast<double>(values[i]));
             text.append(buf, r.ptr);
         }
@@ -481,6 +498,8 @@ std::string groomFileToJson(const GroomFile& file) {
         json photos = json::parse(file.referencePhotos, nullptr, false);
         if (photos.is_array() && !photos.empty()) root["referencePhotos"] = std::move(photos);
     }
+    if (!file.guideGroupColors.empty()) root["guideGroupColors"] = file.guideGroupColors;
+    if (!file.hiddenGuideGroups.empty()) root["hiddenGuideGroups"] = file.hiddenGuideGroups;
     return arrays.resolve(root.dump());
 }
 
@@ -563,6 +582,12 @@ GroomFile groomFileFromJson(const std::string& text, const std::string& baseDir)
         }
         if (root.contains("referencePhotos") && root.at("referencePhotos").is_array()) {
             file.referencePhotos = root.at("referencePhotos").dump();
+        }
+        if (root.contains("guideGroupColors") && root.at("guideGroupColors").is_string()) {
+            file.guideGroupColors = root.at("guideGroupColors").get<std::string>();
+        }
+        if (root.contains("hiddenGuideGroups") && root.at("hiddenGuideGroups").is_string()) {
+            file.hiddenGuideGroups = root.at("hiddenGuideGroups").get<std::string>();
         }
         if (root.contains("scalps") && root.at("scalps").is_array()) {
             for (const json& s : root.at("scalps")) {

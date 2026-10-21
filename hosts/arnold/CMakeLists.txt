@@ -8,6 +8,9 @@ set_target_properties(groomlab_procedural PROPERTIES
     PREFIX ""
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/procedurals"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/procedurals")
+if(APPLE)
+    set_target_properties(groomlab_procedural PROPERTIES SUFFIX ".dylib")  # what Arnold loads from ARNOLD_PLUGIN_PATH on macOS
+endif()
 # No groomlab::warnings: Arnold's headers trip /W4.
 
 # kick and farm renders run without Maya's DLLs, and Windows does not search a

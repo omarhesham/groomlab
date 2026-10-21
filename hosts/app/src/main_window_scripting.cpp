@@ -3,6 +3,9 @@
 
 #include "main_window_internal.h"
 
+#include <QScrollBar>
+#include <QTimer>
+
 #include <algorithm>
 #include <map>
 #include <vector>
@@ -10,8 +13,10 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QDockWidget>
 #include <QClipboard>
 #include <QComboBox>
+#include <QCursor>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
@@ -19,16 +24,30 @@
 #include <QImage>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QMenuBar>
 #include <QPainter>
 #include <QTimer>
+#include <QListWidget>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QToolButton>
+#include <QTreeWidget>
 
-#include "brush_panel.h"
+#include "app_shell.h"
+#include "correctives_panel.h"
+#include "guides_panel.h"
+#include "list_bar.h"
+#include "groom_tools.h"
 #include "cards_panel.h"
 #include "export_panel.h"
 #include "graph_presets.h"
 #include "maps_panel.h"
+#include "marking_menu.h"
 #include "node_graph.h"
 #include "overlay.h"
+#include "photos_panel.h"
+#include "properties_panel.h"
 #include "param_panel.h"
 #include "theme.h"
 #include "viewport.h"
@@ -48,9 +67,18 @@ bool MainWindow::setUiMode(const QString& name) {
         report(tr("No UI mode '%1' (groom, look, cards, export)").arg(name));
         return false;
     }
-    if (mode != host_->mode()) {
-        host_->setMode(mode);
+    if (mode != shell_->mode()) {
+        shell_->setMode(mode);
+        // The brushes belong to Groom mode: elsewhere the mouse is the camera's. Cards mode shows
+        // the cards (when the graph makes some); leaving it shows the strands again.
         if (mode != OverlayHost::Mode::Groom) viewport_->setToolMode(Viewport::ToolMode::Camera);
+        const bool cards = mode == OverlayHost::Mode::Cards && document_ && !document_->cardsNodes().empty();
+        if (shell_->cardsPanel()->showCards() != cards) {
+            shell_->cardsPanel()->setShowCards(cards);
+            reevaluate();
+        } else if (document_) {
+            redisplay();  // the guides show in Groom mode alone
+        }
         refreshStats();
     }
     return true;
@@ -67,32 +95,88 @@ void MainWindow::setGraphShown(bool shown) {
         graph_->setNodeNotes(document_->nodeNotes());
         graph_->setNodeErrors(document_->nodeErrors());
     }
-    graphAction_->setChecked(shown);
-    host_->setGraphShown(shown, shown ? graph_->nodeCount() : (document_ ? static_cast<int>(document_->nodes().size()) : 0));
+    const bool hadFocus = graph_->hasFocus();
+    shell_->setGraphShown(shown, shown ? graph_->nodeCount() : (document_ ? static_cast<int>(document_->nodes().size()) : 0));
+    if (!shown && hadFocus) viewport_->setFocus();
 }
 
-bool MainWindow::graphShown() const { return graph_->isVisible(); }
+bool MainWindow::graphShown() const { return shell_->graphShown(); }
 
 bool MainWindow::showUiPanel(const QString& name) {
     const QString n = name.toLower();
-    OverlayHost::Panel panel;
-    if (n == QStringLiteral("guides")) panel = OverlayHost::Panel::Guides;
-    else if (n == QStringLiteral("nodes")) panel = OverlayHost::Panel::Nodes;
-    else if (n == QStringLiteral("maps")) panel = OverlayHost::Panel::Maps;
-    else if (n == QStringLiteral("correctives")) panel = OverlayHost::Panel::Correctives;
-    else if (n == QStringLiteral("look")) panel = OverlayHost::Panel::Look;
-    else if (n == QStringLiteral("display")) panel = OverlayHost::Panel::Display;
-    else if (n == QStringLiteral("brush")) panel = OverlayHost::Panel::Brush;
+    AppShell::Panel panel;
+    if (n == QStringLiteral("guides")) panel = AppShell::Panel::Guides;
+    else if (n == QStringLiteral("nodes")) panel = AppShell::Panel::Nodes;
+    else if (n == QStringLiteral("maps")) panel = AppShell::Panel::Maps;
+    else if (n == QStringLiteral("correctives")) panel = AppShell::Panel::Correctives;
+    else if (n == QStringLiteral("look")) panel = AppShell::Panel::Look;
+    else if (n == QStringLiteral("display")) panel = AppShell::Panel::Display;
+    else if (n == QStringLiteral("brush")) panel = AppShell::Panel::Brush;
     else if (n == QStringLiteral("shortcuts") || n == QStringLiteral("help")) return showHelp(QStringLiteral("shortcuts"));
-    else {
-        report(tr("No panel '%1' (guides, nodes, maps, correctives, look, display, brush, shortcuts)").arg(name));
+    else if (n == QStringLiteral("tubes")) {
+        // The Groom Tools' Tubes section, open and scrolled to (Tools tab).
+        setUiMode(QStringLiteral("groom"));
+        shell_->groomToolsDock()->show();
+        groomTools_->showTab(QStringLiteral("tools"));
+        Section* tubes = groomTools_->section("tubes");
+        if (!tubes) return false;
+        tubes->setExpanded(true);
+        groomTools_->refreshTubes();
+        // Scrolled to its header once laid out (the section's top at the dock's top).
+        auto scroll = [this, tubes] {
+            QScrollArea* area = groomTools_->scrollArea();
+            area->verticalScrollBar()->setValue(tubes->mapTo(area->widget(), QPoint(0, 0)).y());
+        };
+        QCoreApplication::processEvents();
+        scroll();
+        QTimer::singleShot(0, this, scroll);
+        return true;
+    }
+    else if (n == QStringLiteral("properties") || n == QStringLiteral("properties-end")) {
+        // The Properties dock with every section open (a screenshot's), at its top or its end.
+        setUiMode(QStringLiteral("groom"));
+        shell_->showPanel(AppShell::Panel::Display, true);
+        properties_->expandAll(true);
+        if (n.endsWith(QStringLiteral("-end"))) {
+            // At its end once the open sections are laid out (now, and again after the layout settles).
+            auto toEnd = [this] {
+                if (QLayout* l = properties_->scrollArea()->widget()->layout()) l->activate();
+                QScrollBar* bar = properties_->scrollArea()->verticalScrollBar();
+                bar->setValue(bar->maximum());
+            };
+            toEnd();
+            QTimer::singleShot(0, this, toEnd);
+            QTimer::singleShot(150, this, toEnd);
+        }
+        return true;
+    } else if (n == QStringLiteral("photos-look")) {
+        // The Photos tab looking through the groom's first photo (a screenshot's).
+        setUiMode(QStringLiteral("groom"));
+        shell_->groomToolsDock()->show();
+        groomTools_->showTab(QStringLiteral("photos"));
+        if (photos_->count() == 0) {
+            report(tr("The groom has no reference photos to look through"));
+            return false;
+        }
+        photos_->select(0);
+        lookThroughPhoto(0, true);
+        return true;
+    }
+    else if (n == QStringLiteral("tools") || n == QStringLiteral("paint") || n == QStringLiteral("photos")) {
+        // A Groom Tools tab by palette.json's id.
+        setUiMode(QStringLiteral("groom"));
+        shell_->groomToolsDock()->show();
+        return groomTools_->showTab(n);
+    } else {
+        report(tr("No panel '%1' (guides, nodes, maps, correctives, look, display, properties, properties-end, brush, tools, tubes, paint, photos, photos-look, shortcuts)").arg(name));
         return false;
     }
-    if (panel == OverlayHost::Panel::Brush || panel == OverlayHost::Panel::Guides || panel == OverlayHost::Panel::Display ||
-        panel == OverlayHost::Panel::Nodes || panel == OverlayHost::Panel::Maps || panel == OverlayHost::Panel::Correctives) {
+    // The Groom Tools' sections and the Display options belong to Groom mode.
+    if (panel == AppShell::Panel::Brush || panel == AppShell::Panel::Guides || panel == AppShell::Panel::Display ||
+        panel == AppShell::Panel::Maps || panel == AppShell::Panel::Correctives) {
         setUiMode(QStringLiteral("groom"));
     }
-    host_->showPanel(panel, true);
+    shell_->showPanel(panel, true);
     return true;
 }
 
@@ -119,22 +203,19 @@ bool MainWindow::setUiLookTab(const QString& name) {
         return false;
     }
     setUiMode(QStringLiteral("look"));
-    host_->lookCard()->setTab(tab);
-    host_->lookCard()->setMoreShown(words.contains(QStringLiteral("more")));
+    shell_->lookCard()->setTab(tab);
+    shell_->lookCard()->setMoreShown(words.contains(QStringLiteral("more")));
     return true;
 }
 
 bool MainWindow::setUiHover(const QString& name) {
     const QString n = name.toLower();
-    if (n == QStringLiteral("labels")) {
-        setRailLabels(true, false);  // the rails' names kept shown, as on a first run
-        return true;
-    }
-    if (n != QStringLiteral("rail") && n != QStringLiteral("panels") && n != QStringLiteral("all")) {
+    if (n != QStringLiteral("rail") && n != QStringLiteral("panels") && n != QStringLiteral("all") && n != QStringLiteral("labels")) {
         report(tr("No hover state '%1' (rail, panels, all, labels)").arg(name));
         return false;
     }
-    host_->setRailsExpanded(n != QStringLiteral("panels"), n != QStringLiteral("rail"));
+    // The tiles' names under their icons (not saved); the panels' names are their docks'.
+    if (n != QStringLiteral("panels")) setRailLabels(true, false);
     return true;
 }
 
@@ -159,27 +240,199 @@ bool MainWindow::setUiPrompt(const QString& name) {
         host_->toast(tr("Saved strokes.groom"), false);
         return true;
     }
-    if (n == QStringLiteral("start")) {
-        // The card after New Groom on Mesh (the next step on a bald scalp).
-        host_->setStartHintShown(true);
-        return host_->startHintShown();
-    }
     if (n == QStringLiteral("error")) {
         host_->toast(tr("Cannot export: the folder is read-only. Pick another output folder in the Export panel "
                         "(renders/hair/a_long_folder_name/strokes.abc)"),
                      true);
         return true;
     }
-    report(tr("No prompt '%1' (unsaved, reload, info, error, start)").arg(name));
+    if (n == QStringLiteral("autosave")) {
+        // The prompt the next start shows after a crash: the open groom (an edit made first) written
+        // to its autosave and offered; the entry and the file gone again (the prompt stays shown).
+        if (!document_) {
+            report(tr("No groom open: no autosave to offer"));
+            return false;
+        }
+        if (!document_->dirty() && !document_->nodes().empty()) {
+            const std::string node = document_->nodes().front().name;
+            float x = 0.0f, y = 0.0f;
+            document_->nodePosition(node, &x, &y);
+            document_->setNodePosition(node, x, y);
+        }
+        if (!autosaveNow() || !offerAutosave()) return false;
+        dropAutosave();
+        return host_->promptShown();
+    }
+    report(tr("No prompt '%1' (unsaved, reload, info, error, autosave)").arg(name));
     return false;
 }
 
 bool MainWindow::setUiMenu(const QString& name) {
-    if (name.toLower() != QStringLiteral("presets")) {
-        report(tr("No menu '%1' (presets)").arg(name));
+    const QString n = name.toLower();
+    if (n == QStringLiteral("marking")) {
+        // The marking menu (Y + click) a little above the viewport's middle, Comb (its N) hovered.
+        QApplication::processEvents();
+        const QPointF middle = viewport_->mapTo(host_, QPointF(viewport_->width() / 2.0, viewport_->height() * 0.4));
+        if (!showMarkingMenu(middle, false)) return false;
+        markingMenu_->track(middle + QPointF(0.0, -60.0));
+        return true;
+    }
+    if (n == QStringLiteral("add") || n == QStringLiteral("edit") || n == QStringLiteral("node")) {
+        // The Graph Editor's Add Node menu (its first category open), its Edit menu, or the
+        // selected node's right-click menu (the Interpolate node's when none is), popped up for
+        // real and grabbed as setUiMenu("presets") does.
+        if (!document_) {
+            report(tr("No groom open: no graph menu to show"));
+            return false;
+        }
+        if (!graphShown()) setGraphShown(true);
+        QApplication::processEvents();
+        uiMenus_.clear();
+        auto keep = [this](QMenu* menu) {
+            if (menu->isVisible()) uiMenus_.emplace_back(menu->grab(), mapFromGlobal(menu->pos()));
+        };
+        QMenu* menu = nullptr;
+        QPoint at;
+        if (n == QStringLiteral("node")) {
+            if (graph_->selectedNode().empty()) graph_->selectNode(lastNodeOfType("Interpolate"));
+            graph_->bringIntoView(graph_->selectedNode());
+            const QRectF card = graph_->nodeRect(graph_->selectedNode());
+            menu = new QMenu(this);
+            menu->setAttribute(Qt::WA_DeleteOnClose);
+            graph_->fillContextMenu(menu, card.center());
+            at = graph_->mapToGlobal(card.center().toPoint());
+        } else {
+            QToolButton* button = n == QStringLiteral("add") ? shell_->graphAddButton() : shell_->graphEditButton();
+            menu = button->menu();
+            at = button->mapToGlobal(QPoint(0, button->height() + 2));
+        }
+        if (!menu) return false;
+        menu->popup(at);
+        QApplication::processEvents();
+        keep(menu);
+        if (n == QStringLiteral("add") && !menu->actions().isEmpty() && menu->actions().front()->menu()) {
+            menu->setActiveAction(menu->actions().front());
+            QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
+            QApplication::sendEvent(menu, &right);
+            QApplication::processEvents();
+            keep(menu->actions().front()->menu());
+        }
+        return !uiMenus_.empty();
+    }
+    if (n == QStringLiteral("groups") || n == QStringLiteral("maps") || n == QStringLiteral("correctives") ||
+        n == QStringLiteral("editguides") || n == QStringLiteral("convert")) {
+        // A Groom Tools list's right-click menu on its current row (lists.json's context), Edit
+        // Guides' menu, or the maps' Convert to: the list shown (Groom mode, its tab or section),
+        // the menu popped up for real and grabbed.
+        if (!document_) {
+            report(tr("No groom open: no list to show"));
+            return false;
+        }
+        setUiMode(QStringLiteral("groom"));
+        shell_->groomToolsDock()->show();
+        const bool groups = n == QStringLiteral("groups") || n == QStringLiteral("editguides");
+        groomTools_->showTab(groups ? QStringLiteral("guides") : n == QStringLiteral("correctives") ? n : QStringLiteral("paint"));
+        QApplication::processEvents();
+        uiMenus_.clear();
+        QMenu* menu = nullptr;
+        QPoint at;
+        auto rowCenter = [](QTreeWidget* tree) {
+            QTreeWidgetItem* item = tree->currentItem();
+            if (!item && tree->topLevelItemCount() > 0) item = tree->topLevelItem(0);
+            return item ? tree->visualItemRect(item).center() : QPoint(20, 20);
+        };
+        if (n == QStringLiteral("groups")) {
+            QTreeWidget* tree = guidesPanel_->tree();
+            tree->scrollToItem(tree->currentItem());
+            const QPoint pos = rowCenter(tree);
+            menu = guidesPanel_->contextMenu(pos);
+            at = tree->viewport()->mapToGlobal(pos);
+        } else if (n == QStringLiteral("editguides")) {
+            menu = guidesPanel_->editsMenu();
+            at = guidesPanel_->editsButton()->mapToGlobal(QPoint(0, guidesPanel_->editsButton()->height()));
+        } else if (n == QStringLiteral("maps")) {
+            QListWidget* list = maps_->list();
+            QListWidgetItem* item = list->currentItem() ? list->currentItem() : list->item(0);
+            const QPoint pos = item ? list->visualItemRect(item).center() : QPoint(20, 20);
+            menu = maps_->contextMenu(pos);
+            at = list->viewport()->mapToGlobal(pos);
+        } else if (n == QStringLiteral("convert")) {
+            QToolButton* convert = maps_->bar()->button("map.convert");
+            if (!convert) return false;
+            menu = convert->menu();
+            at = convert->mapToGlobal(QPoint(0, convert->height()));
+        } else {
+            QTreeWidget* tree = correctives_->tree();
+            QTreeWidgetItem* layer = nullptr;
+            for (int i = 0; i < tree->topLevelItemCount() && !layer; ++i) {
+                if (tree->topLevelItem(i)->data(0, Qt::UserRole).toString() == QLatin1String("layer")) layer = tree->topLevelItem(i);
+            }
+            if (!layer) {
+                correctives_->addLayer(true);  // (one to show the menu of)
+                for (int i = 0; i < tree->topLevelItemCount() && !layer; ++i) {
+                    if (tree->topLevelItem(i)->data(0, Qt::UserRole).toString() == QLatin1String("layer")) layer = tree->topLevelItem(i);
+                }
+            }
+            if (!layer) return false;
+            const QPoint pos = tree->visualItemRect(layer).center();
+            menu = correctives_->contextMenu(pos);
+            at = tree->viewport()->mapToGlobal(pos);
+        }
+        if (!menu) return false;
+        menu->popup(at);
+        QApplication::processEvents();
+        if (menu->isVisible()) uiMenus_.emplace_back(menu->grab(), mapFromGlobal(menu->pos()));
+        return !uiMenus_.empty();
+    }
+    if (n.startsWith(QStringLiteral("bar:"))) {
+        // A menu of the menu bar and the submenus down a path ("bar:GroomLab/Add", "bar:File/Open
+        // Recent"), each popped up for real as the keys open them and grabbed.
+        const QStringList path = name.mid(4).split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        QMenu* menu = nullptr;
+        for (QAction* a : menuBar()->actions()) {
+            if (!path.isEmpty() && a->menu() && a->text().remove(QLatin1Char('&')).compare(path.front(), Qt::CaseInsensitive) == 0) menu = a->menu();
+        }
+        if (!menu) {
+            report(tr("No menu '%1' in the menu bar").arg(path.value(0)));
+            return false;
+        }
+        uiMenus_.clear();
+        auto keep = [this](QMenu* m) {
+            if (m->isVisible()) uiMenus_.emplace_back(m->grab(), mapFromGlobal(m->pos()));
+        };
+        QApplication::processEvents();
+        QAction* barAction = menu->menuAction();
+        menu->popup(menuBar()->mapToGlobal(menuBar()->actionGeometry(barAction).bottomLeft()));
+        QApplication::processEvents();
+        for (int i = 1; i < path.size(); ++i) {
+            QAction* next = nullptr;
+            for (QAction* a : menu->actions()) {
+                if (a->menu() && a->isVisible() && a->text().section(QLatin1Char('\t'), 0, 0).compare(path[i], Qt::CaseInsensitive) == 0) next = a;
+            }
+            if (!next) {
+                report(tr("No submenu '%1' in %2").arg(path[i], path[i - 1]));
+                menu->hide();
+                return false;
+            }
+            keep(menu);
+            menu->setActiveAction(next);
+            QKeyEvent right(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
+            QApplication::sendEvent(menu, &right);
+            QApplication::processEvents();
+            menu = next->menu();
+        }
+        keep(menu);
+        return !uiMenus_.empty();
+    }
+    if (n != QStringLiteral("presets")) {
+        report(tr("No menu '%1' (presets, add, edit, node, groups, editguides, maps, convert, correctives, bar:Menu/Submenu)").arg(name));
         return false;
     }
-    // The menu popped up for real above the pill, the Add-ons submenu and its first preset's
+    if (document_ && !graphShown()) {
+        setGraphShown(true);
+        QApplication::processEvents();
+    }
+    // The menu popped up for real under the Presets button, the Add-ons submenu and its first preset's
     // opened as the keys open them (Right: the active item's submenu, its first item active;
     // Down: Insert after selected node), each grabbed at once: a popup closes when the window
     // is not the active one, so grabUi draws the grabs where the menus were.
@@ -192,7 +445,7 @@ bool MainWindow::setUiMenu(const QString& name) {
         QApplication::processEvents();
     };
     auto keep = [this](QMenu* menu) {
-        if (menu->isVisible()) uiMenus_.emplace_back(menu->grab(), host_->mapFromGlobal(menu->pos()));
+        if (menu->isVisible()) uiMenus_.emplace_back(menu->grab(), mapFromGlobal(menu->pos()));
     };
     QAction* addons = nullptr;
     for (QAction* a : presetsMenu_->actions()) {
@@ -217,68 +470,13 @@ bool MainWindow::setUiMenu(const QString& name) {
 
 // ---- Graph presets --------------------------------------------------------------------------------
 
-void MainWindow::fillPresetsMenu() {
-    // A submenu per category (presetCategories first, in order), then the presets with no
-    // category (the user's own), each titled, its description as the tooltip.
-    presetsMenu_->clear();
-    std::map<std::string, std::vector<PresetInfo>> byCategory;
-    for (const PresetInfo& info : availablePresets()) byCategory[info.category].push_back(info);
-    std::vector<std::string> order;
-    for (const std::string& c : presetCategories()) {
-        if (byCategory.count(c)) order.push_back(c);
-    }
-    for (const auto& [category, infos] : byCategory) {
-        if (!category.empty() && std::find(order.begin(), order.end(), category) == order.end()) order.push_back(category);
-    }
-    // Each preset is a submenu: Apply (the graph replaced) beside Insert after selected node (the
-    // preset's look added as one Compound), its description the tooltip of both.
-    auto addPreset = [this](QMenu* menu, const PresetInfo& info) {
-        QMenu* sub = menu->addMenu(QString::fromStdString(info.title));
-        sub->setToolTipsVisible(true);
-        const QString about = QString::fromStdString(info.description.empty() ? info.name : info.description);
-        sub->menuAction()->setToolTip(about);
-        sub->menuAction()->setData(QString::fromStdString(info.name));
-        // With no groom open: the preset on a new groom (a mesh asked for first), not a dead end.
-        QAction* apply = document_ ? sub->addAction(tr("Apply"), this, [this, path = info.path] { applyPreset(QString::fromStdString(path)); })
-                                   : sub->addAction(tr("Apply on a Mesh..."), this, [this, path = info.path] { startFromPreset(QString::fromStdString(path)); });
-        apply->setToolTip(document_ ? tr("Replace this groom's graph with the preset, sizes fitted to this scalp, the maps it reads made: one undo step")
-                                    : tr("Pick a mesh (.obj or .abc): a new groom is made on it with this look"));
-        QAction* insert = sub->addAction(tr("Insert after selected node"), this, [this, path = info.path] { insertPreset(QString::fromStdString(path)); });
-        insert->setToolTip(tr("Keep this graph and add the preset's look to it as one Compound after the selected node (before the "
-                              "Output when none is selected), fitted to this scalp: one undo step"));
-        insert->setEnabled(document_ != nullptr);
-    };
-    for (const std::string& category : order) {
-        QMenu* sub = presetsMenu_->addMenu(QString::fromStdString(category));
-        sub->setToolTipsVisible(true);
-        for (const PresetInfo& info : byCategory[category]) addPreset(sub, info);
-    }
-    if (byCategory.count(std::string())) {
-        if (!order.empty()) presetsMenu_->addSeparator();
-        for (const PresetInfo& info : byCategory[std::string()]) addPreset(presetsMenu_, info);
-    }
-    presetsMenu_->addSeparator();
-    QAction* save = presetsMenu_->addAction(tr("Save as Preset..."), this, [this] {
-        if (!graphShown()) setGraphShown(true);
-        graph_->promptName(tr("Save this graph as a preset"), tr("Preset name"), [this](const QString& name) { savePreset(name); });
-    });
-    save->setToolTip(tr("This groom's graph, its layout and its scalp's size as a preset in your preset folder (%1)")
-                         .arg(QString::fromStdString(presetUserDir())));
-    save->setEnabled(document_ != nullptr);
-    presetsMenu_->addSeparator();
-    QAction* copy = presetsMenu_->addAction(tr("Copy Graph"), this, [this] { copyGraph(); });
-    copy->setToolTip(tr("Put this groom's whole graph on the clipboard as text, to share in a chat or forum or save as a .json preset"));
-    copy->setEnabled(document_ != nullptr);
-    QAction* paste = presetsMenu_->addAction(tr("Paste Graph"), this, [this] { pasteGraph(); });
-    paste->setToolTip(tr("Replace this groom's graph with one copied as text (Copy Graph, or a preset's JSON), sizes fitted to this scalp: one undo step"));
-    paste->setEnabled(document_ != nullptr);
-}
-
 void MainWindow::showPresetsMenu() {
-    fillPresetsMenu();
-    const QRect pill = host_->presetsPillRect();
-    const QSize size = presetsMenu_->sizeHint();
-    presetsMenu_->popup(host_->mapToGlobal(QPoint(pill.left(), pill.top() - 6 - size.height())));
+    // graph_ui.json's presetMenu (AppActions::wireGraphEditor fills it): under the Graph Editor's
+    // Presets button while the editor shows, else at the pointer (the empty card's Start from a
+    // preset, the start hint's Presets).
+    QToolButton* button = shell_->graphPresetsButton();
+    if (graphShown() && button->isVisible()) presetsMenu_->popup(button->mapToGlobal(QPoint(0, button->height() + 2)));
+    else presetsMenu_->popup(QCursor::pos());
 }
 
 bool MainWindow::startFromPreset(const QString& nameOrPath, const QString& meshPath) {
@@ -293,7 +491,6 @@ bool MainWindow::startFromPreset(const QString& nameOrPath, const QString& meshP
         if (mesh.isEmpty()) return false;
     }
     if (!newGroomOnMesh(mesh)) return false;
-    host_->setStartHintShown(false);  // the look is there: no bald-scalp hint
     return applyPreset(nameOrPath);
 }
 
@@ -319,7 +516,7 @@ bool MainWindow::applyPreset(const QString& nameOrPath) {
     graphEdited();
     if (graphShown()) {
         graph_->refresh();
-        graph_->fitAll();
+        graph_->frameReadable();
     }
     notify(tr("Applied the preset %1").arg(QString::fromStdString(presetMessage(applied))));
     return true;
@@ -349,7 +546,7 @@ bool MainWindow::insertPreset(const QString& nameOrPath) {
     if (graphShown()) {
         graph_->refresh();
         graph_->selectNode(applied.nodeMade);
-        graph_->fitAll();
+        graph_->frameReadable();
     }
     report(tr("Inserted %1 as %2 after %3 (Ctrl+Z undoes it)")
                .arg(QString::fromStdString(presetMessage(applied)), QString::fromStdString(applied.nodeMade),
@@ -424,7 +621,7 @@ void MainWindow::pasteGraph() {
     graphEdited();
     if (graphShown()) {
         graph_->refresh();
-        graph_->fitAll();
+        graph_->frameReadable();
     }
     notify(tr("Pasted %1 (Ctrl+Z undoes it)").arg(QString::fromStdString(presetMessage(applied))));
 }
@@ -442,6 +639,7 @@ bool MainWindow::selectUiNode(const QString& name) {
     }
     if (!graphShown()) setGraphShown(true);
     graph_->selectNode(name.toStdString());
+    graph_->bringIntoView(name.toStdString());
     return true;
 }
 
@@ -513,28 +711,39 @@ bool MainWindow::setDisplayText(const QString& text) {
 }
 
 QImage MainWindow::grabUi(const QImage& scene) {
-    // The viewport's frame, then every other child of the host painted over it in stacking
-    // order (the glass composes with alpha as on screen).
-    // The frame is in device pixels (a 150% screen: 1.5 per logical pixel); the pieces render
+    // The window's own background and the docks' separators, the menu bar, the tool bar and the
+    // docked docks, then the viewport's frame where the central widget is and the overlay's
+    // pieces over it in stacking order (they compose with alpha as on screen).
+    // The frame is in device pixels (a 150% screen: 1.5 per logical pixel); the widgets render
     // in logical ones, so the image carries the ratio and the painter scales them to match.
-    const qreal ratio = host_->devicePixelRatioF();
-    const QSize pixels = host_->size() * ratio;
-    QImage image = scene.isNull() ? viewport_->grabFramebuffer() : scene;
-    if (image.isNull()) {
-        image = QImage(pixels, QImage::Format_ARGB32_Premultiplied);
-        image.fill(theme::backdrop());
-    }
-    image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
-    if (image.size() != pixels) image = image.scaled(pixels, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    const qreal ratio = devicePixelRatioF();
+    QImage image(size() * ratio, QImage::Format_ARGB32_Premultiplied);
     image.setDevicePixelRatio(ratio);
+    image.fill(theme::backdrop());
     QPainter painter(&image);
+    render(&painter, QPoint(), QRegion(), QWidget::DrawWindowBackground);
+    for (QObject* child : children()) {
+        auto* w = qobject_cast<QWidget*>(child);
+        if (!w || w == host_ || w->isWindow() || !w->isVisible()) continue;
+        w->render(&painter, w->pos(), QRegion(), QWidget::DrawWindowBackground | QWidget::DrawChildren);
+    }
+    const QPoint at = host_->pos();
+    const QSize pixels = host_->size() * ratio;
+    QImage frame = scene.isNull() ? viewport_->grabFramebuffer() : scene;
+    if (frame.isNull()) {
+        frame = QImage(pixels, QImage::Format_ARGB32_Premultiplied);
+        frame.fill(theme::backdrop());
+    }
+    frame = frame.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    if (frame.size() != pixels) frame = frame.scaled(pixels, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    painter.drawImage(QRectF(QPointF(at), QSizeF(host_->size())), frame);
     for (QObject* child : host_->children()) {
         auto* w = qobject_cast<QWidget*>(child);
         if (!w || w == viewport_ || !w->isVisible()) continue;
-        w->render(&painter, w->pos(), QRegion(), QWidget::DrawChildren);
+        w->render(&painter, at + w->pos(), QRegion(), QWidget::DrawChildren);
     }
     // The menus a scripted screenshot laid out (setUiMenu), as they would pop up.
-    for (const auto& [pixmap, at] : uiMenus_) painter.drawPixmap(at, pixmap);
+    for (const auto& [pixmap, where] : uiMenus_) painter.drawPixmap(where, pixmap);
     return image;
 }
 
@@ -630,6 +839,7 @@ bool MainWindow::saveTo(const QString& path) {
         report(tr("Cannot save %1: %2").arg(path, QString::fromUtf8(e.what())));
         return false;
     }
+    dropAutosave();  // (the changes are in the file now)
     report(tr("Saved %1").arg(path), false);
     refreshTitle();
     return true;

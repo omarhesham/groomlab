@@ -624,6 +624,14 @@ void ReferenceWindow::reloadGroom() {
     loadPhotos();
 }
 
+void ReferenceWindow::photosChanged() {
+    const QString name = photo() ? photo()->name : QString();
+    loadPhotos();
+    for (int i = 0; i < photoCount(); ++i) {
+        if (photos_[static_cast<std::size_t>(i)]->name == name) selectPhoto(i);
+    }
+}
+
 void ReferenceWindow::loadPhotos() {
     photos_.clear();
     current_ = -1;
@@ -645,6 +653,7 @@ void ReferenceWindow::loadPhotos() {
                 } catch (const std::exception&) {
                 }
                 p->picture = QImage(p->image);
+                if (j.contains("display") && j["display"].is_object()) p->display = j["display"].dump();
                 photos_.push_back(std::move(p));
             }
     }
@@ -661,9 +670,11 @@ void ReferenceWindow::store() {
         j["mask"] = p->mask.isEmpty() ? json() : json(p->mask.toStdString());
         j["camera"] = p->camera ? cameraJson(*p->camera) : json();
         j["state"] = json::parse(referencePhotoStateToJson(p->editor.state()));
+        if (!p->display.empty()) j["display"] = json::parse(p->display, nullptr, false);
         all.push_back(std::move(j));
     }
     doc->setReferencePhotos(all.empty() ? std::string() : all.dump());
+    emit photosStored();
 }
 
 void ReferenceWindow::refreshTabs() {

@@ -2241,17 +2241,17 @@ class GraphEditorTest(unittest.TestCase):
     def test_attribute_maps_offer_the_channels_that_reach_the_node(self):
         from groomlab import presets
         from PySide2 import QtWidgets
-        presets.apply_preset(self.groom, "flow_with_guides")
+        presets.apply_preset(self.groom, "flow_with_guides")  # its Blend writes `blend` (mixChannel)
         self.editor.reload()
-        self.assertIn("guideInfluence", self.editor.node_channels.get("interpolate", []))
-        self.assertIn("guideInfluence", self.editor.channels_into("clump"))
-        self.assertNotIn("guideInfluence", self.editor.channels_into("interpolate"))  # made there, not before
-        # The strength map's name picker lists it.
+        self.assertIn("blend", self.editor.node_channels.get("blend", []))
+        self.assertIn("blend", self.editor.channels_into("color"))
+        self.assertNotIn("blend", self.editor.channels_into("blend"))  # made there, not before
+        # HairColor's clumpChannel (a param that reads) offers it.
         self.editor.scene.clearSelection()
-        self.editor.items["clump"].setSelected(True)
+        self.editor.items["color"].setSelected(True)
         boxes = self.editor.params.findChildren(QtWidgets.QComboBox)
         offered = [b.itemText(i) for b in boxes if b.isEditable() for i in range(b.count())]
-        self.assertIn("guideInfluence", offered)
+        self.assertIn("blend", [text.split(" (from ")[0] for text in offered], offered)  # "blend (from blend)"
 
     def test_attribute_params_say_writes_or_reads(self):
         # Clump's clumpChannel writes (a plain field, a warning when it overwrites an upstream

@@ -7,12 +7,16 @@
 #include <cstdlib>
 #include <map>
 
+// DirectX 11 and OpenGL through WGL: Windows only. Elsewhere the engine has no backend (engine/gpu,
+// look_engine_none.cpp): mayaDevice() finds none, so every drag and stroke previews on the CPU.
+#ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 #include <d3d11.h>
 #include <GL/gl.h>
+#endif
 
 #include <maya/M3dView.h>
 #include <maya/MArgDatabase.h>
@@ -36,6 +40,11 @@ namespace groomlab::maya {
 
 namespace {
 
+#ifndef _WIN32
+using GLuint = unsigned;  // (an OpenGL buffer's name: none is handed out here)
+using UINT = unsigned;
+#endif
+
 std::map<const GroomShape*, GpuPreviewRequest>& requests() {
     static std::map<const GroomShape*, GpuPreviewRequest> all;
     return all;
@@ -50,10 +59,15 @@ std::map<const GroomShape*, GpuLookPreview*>& previews() {
 // rather than drawn from the preview's: for comparisons.
 bool copyIntoViewportBuffers() {
     static const bool on = [] {
+#ifdef _WIN32
         char* v = nullptr;
         std::size_t size = 0;
         const bool set = _dupenv_s(&v, &size, "GROOMLAB_GPU_PREVIEW_COPY") == 0 && v && std::string(v) == "1";
         std::free(v);
+#else
+        const char* v = std::getenv("GROOMLAB_GPU_PREVIEW_COPY");
+        const bool set = v && std::string(v) == "1";
+#endif
         return set;
     }();
     return on;
@@ -80,10 +94,12 @@ struct MayaDevice {
     void* handle = nullptr;
 };
 MayaDevice mayaDevice() {
+#ifdef _WIN32
     MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer(false);
     if (!renderer) return {};
     if (renderer->drawAPI() == MHWRender::kDirectX11) return {gpu::GpuApi::D3D11, renderer->GPUDeviceHandle()};
     if (renderer->drawAPIIsOpenGL()) return {gpu::GpuApi::OpenGL, wglGetCurrentContext()};
+#endif
     return {};
 }
 
@@ -96,6 +112,9 @@ void* glBufferOf(MHWRender::MVertexBuffer* buffer) {
 // Waits until Maya's device has done everything submitted (timing a tweak to its drawn frame):
 // an event query on DirectX 11, glFinish on OpenGL (Maya's context is current on the main thread).
 bool waitForDevice() {
+#ifndef _WIN32
+    return false;  // no device of the preview's
+#else
     MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer(false);
     if (renderer && renderer->drawAPIIsOpenGL()) {
         if (!wglGetCurrentContext()) return false;
@@ -121,16 +140,21 @@ bool waitForDevice() {
     }
     context->Release();
     return ok;
+#endif
 }
 
 std::string bufferDescription(ID3D11Buffer* buffer) {
     if (!buffer) return "null";
+#ifndef _WIN32
+    return "a buffer";
+#else
     D3D11_BUFFER_DESC d{};
     buffer->GetDesc(&d);
     char text[200];
     std::snprintf(text, sizeof text, "bytes %u usage %u bind 0x%x cpu 0x%x misc 0x%x", d.ByteWidth, static_cast<unsigned>(d.Usage),
                   d.BindFlags, d.CPUAccessFlags, d.MiscFlags);
     return text;
+#endif
 }
 
 bool& gpuPreviewOn() {
@@ -143,8 +167,10 @@ bool& gpuPreviewOn() {
 bool waitForGpu() { return waitForDevice(); }
 
 void prepareGpuKernels() {
+#ifdef _WIN32
     MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer(false);
     if (renderer && renderer->drawAPIIsOpenGL() && wglGetCurrentContext()) gpu::prepareGLLookKernels();
+#endif
 }
 
 namespace {
@@ -153,6 +179,10 @@ namespace {
 // context current on the main thread, as the groom's draw finds them); `wait`: once they are (tests
 // before their first drag; five minutes at most).
 bool gpuKernelsReady(bool wait) {
+#ifndef _WIN32
+    (void)wait;
+    return true;  // no kernels to wait for: no backend
+#else
     MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer(false);
     if (!renderer || !renderer->drawAPIIsOpenGL()) return true;
     if (!wglGetCurrentContext()) return false;
@@ -162,6 +192,7 @@ bool gpuKernelsReady(bool wait) {
         Sleep(10);
     }
     return true;
+#endif
 }
 
 }  // namespace
@@ -180,6 +211,7 @@ void setGpuPreviewEnabled(bool on) {
 }
 
 void loadGpuPreviewPreference() {
+#ifdef _WIN32
     char* v = nullptr;
     std::size_t size = 0;
     if (_dupenv_s(&v, &size, "GROOMLAB_GPU_PREVIEW") == 0 && v && (std::string(v) == "0" || std::string(v) == "1")) {
@@ -188,6 +220,12 @@ void loadGpuPreviewPreference() {
         return;
     }
     std::free(v);
+#else
+    if (const char* v = std::getenv("GROOMLAB_GPU_PREVIEW"); v && (std::string(v) == "0" || std::string(v) == "1")) {
+        gpuPreviewOn() = std::string(v) == "1";
+        return;
+    }
+#endif
     int exists = 0;
     MGlobal::executeCommand("optionVar -exists groomLabGpuPreview", exists);
     if (exists) {
@@ -229,6 +267,7 @@ struct GpuLookPreview::Display {
     // kernels' Width writing its own widths over them.
     void fillUvs(const StrandsPtr& strands) {
         if (!buffers[3] || !strands || strands->pointCount() != count) return;
+#ifdef _WIN32
         std::vector<float> uvs(std::size_t{count} * 2);
         StrandLines(strands, nullptr, false, nullptr).writeUvs(uvs.data(), 2);
         ID3D11DeviceContext* context = nullptr;
@@ -236,13 +275,16 @@ struct GpuLookPreview::Display {
         const D3D11_BOX box{0, 0, 0, static_cast<UINT>(uvs.size() * sizeof(float)), 1, 1};
         context->UpdateSubresource(buffers[3], 0, &box, uvs.data(), 0, 0);
         context->Release();
+#endif
     }
 
     ~Display() { clear(); }
     void clear() {
         for (auto& v : vertices) v.reset();
         for (auto*& b : buffers) {
+#ifdef _WIN32
             if (b) b->Release();
+#endif
             b = nullptr;
         }
         count = 0;
@@ -442,9 +484,13 @@ bool GpuLookPreview::runPlan(GroomShape& shape, const gpu::LookPlan& p, const Gp
             const UINT need = static_cast<UINT>(p.output->pointCount() * 12);
             void* const want[3] = {targets.positions, targets.normals, targets.tangents};
             for (int i = 0; i < (lit ? 3 : 1); ++i) {
+#ifdef _WIN32
                 D3D11_BUFFER_DESC d{};
                 if (want[i]) static_cast<ID3D11Buffer*>(want[i])->GetDesc(&d);
                 if (!want[i] || d.ByteWidth < need || d.Usage == D3D11_USAGE_IMMUTABLE) {
+#else
+                if (!want[i] || need == 0) {  // (never here: no engine without a backend)
+#endif
                     why_ = "the viewport's buffer cannot take a GPU copy (" + bufferDescription(static_cast<ID3D11Buffer*>(want[i])) + ")";
                     return false;
                 }
@@ -573,16 +619,20 @@ std::string GpuLookPreview::statsJson(bool wait) {
         j["bounds"] = {bounds_.lo.x, bounds_.lo.y, bounds_.lo.z, bounds_.hi.x, bounds_.hi.y, bounds_.hi.z};
     }
     if (display_ && display_->buffers[0]) {
+#ifdef _WIN32
         // References to the preview's buffer: the preview's own and its views' (Viewport 2.0 takes
         // none: it draws the handle it was given).
         display_->buffers[0]->AddRef();
         j["displayRefs"] = display_->buffers[0]->Release();
+#endif
         j["displayVertices"] = display_->vertices[0] ? display_->vertices[0]->vertexCount() : 0u;
         j["displayCustomHandle"] = display_->vertices[0] && display_->vertices[0]->hasCustomResourceHandle();
     }
     if (engine_) {
         j["inPlace"] = engine_->wroteInPlace();
+#ifdef _WIN32
         if (engine_->api() == gpu::GpuApi::OpenGL) j["sameContext"] = engine_->device() == wglGetCurrentContext();
+#endif
         const gpu::GpuTimes t = engine_->times(wait);
         if (t.valid) {
             j["gpu"] = {{"interpolateMs", t.interpolateMs}, {"lengthMs", t.lengthMs}, {"clumpMs", t.clumpMs}, {"noiseMs", t.noiseMs},

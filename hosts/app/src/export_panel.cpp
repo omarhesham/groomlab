@@ -497,6 +497,7 @@ ExportPanel::ExportPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     saveRow->addWidget(saveAs);
     saveRow->addStretch(1);
     layout->addLayout(saveRow);
+    layout->addStretch(1);  // docked in a tall window: the rows at the top
     connect(save, &QAbstractButton::clicked, this, &ExportPanel::saveRequested);
     connect(saveAs, &QAbstractButton::clicked, this, &ExportPanel::saveAsRequested);
 

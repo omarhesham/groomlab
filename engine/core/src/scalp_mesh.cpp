@@ -10,7 +10,12 @@
 #include <limits>
 #include <stdexcept>
 
+#if defined(_M_X64) || defined(__SSE2__)
 #include <xmmintrin.h>
+#define GROOMLAB_SCALP_SSE 1
+#else
+#define GROOMLAB_SCALP_SSE 0  // (arm64: Apple silicon)
+#endif
 
 #include "groomlab/random.h"
 
@@ -299,12 +304,22 @@ struct Aabb {
     // branches: a query tests dozens of boxes, and a mispredicted branch costs more than
     // all three axes' arithmetic.
     float distance2(const Vec3f& p) const {
+#if GROOMLAB_SCALP_SSE
         const __m128 gap = _mm_max_ps(_mm_max_ps(_mm_sub_ps(_mm_setr_ps(lo.x, lo.y, lo.z, 0.0f), _mm_setr_ps(p.x, p.y, p.z, 0.0f)),
                                                  _mm_sub_ps(_mm_setr_ps(p.x, p.y, p.z, 0.0f), _mm_setr_ps(hi.x, hi.y, hi.z, 0.0f))),
                                       _mm_setzero_ps());
         alignas(16) float g[4];
         _mm_store_ps(g, _mm_mul_ps(gap, gap));
         return g[0] + g[1] + g[2];
+#else
+        // The same per axis: maxps(maxps(lo - p, p - hi), 0), each operation rounded alike.
+        auto gap = [](float below, float above) {
+            const float m = below > above ? below : above;
+            return m > 0.0f ? m : 0.0f;
+        };
+        const float gx = gap(lo.x - p.x, p.x - hi.x), gy = gap(lo.y - p.y, p.y - hi.y), gz = gap(lo.z - p.z, p.z - hi.z);
+        return gx * gx + gy * gy + gz * gz;
+#endif
     }
 };
 

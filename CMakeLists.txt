@@ -8,7 +8,7 @@ if(POLICY CMP0141)
     set(CMAKE_POLICY_DEFAULT_CMP0141 NEW)
 endif()
 
-project(GroomLab VERSION 0.21.0 LANGUAGES CXX)
+project(GroomLab VERSION 0.22.0 LANGUAGES CXX)
 
 # Maya 2022 devkit targets C++17 (Visual Studio 2019 / v142 ABI; v143 is binary compatible).
 set(CMAKE_CXX_STANDARD 17)
@@ -42,12 +42,22 @@ option(GROOMLAB_BUILD_RESEARCH "Build the research prototypes (tools/research)" 
 
 set(MAYA_LOCATION "$ENV{MAYA_LOCATION}" CACHE PATH "Maya install root, e.g. C:/Program Files/Autodesk/Maya2022")
 set(MTOA_LOCATION "$ENV{MTOA_LOCATION}" CACHE PATH "MtoA install root, e.g. C:/Program Files/Autodesk/Arnold/maya2022")
+if(APPLE)
+    # macOS: MAYA_LOCATION is the Maya devkit (headers); the libraries the plugin links (OpenMaya...,
+    # TBB) and mayapy are the install's, inside Maya.app (docs/MACOS.md).
+    set(GROOMLAB_MAYA_APP "" CACHE PATH "macOS: the Maya install's Maya.app/Contents (MacOS/: its libraries, bin/mayapy), e.g. /Applications/Autodesk/maya2025/Maya.app/Contents")
+endif()
 # RenderMan Pro Server: RMANTREE, else the default install of 27.3 when it is there, else none.
 set(_rmantree "$ENV{RMANTREE}")
 if(NOT _rmantree AND EXISTS "C:/Program Files/Pixar/RenderManProServer-27.3/include/ri.h")
     set(_rmantree "C:/Program Files/Pixar/RenderManProServer-27.3")
 endif()
-if(NOT _rmantree AND NOT WIN32)
+if(NOT _rmantree AND APPLE)
+    # macOS: Pixar's default install (docs/MACOS.md).
+    if(EXISTS "/Applications/Pixar/RenderManProServer-27.3/include/ri.h")
+        set(_rmantree "/Applications/Pixar/RenderManProServer-27.3")
+    endif()
+elseif(NOT _rmantree AND NOT WIN32)
     # Linux: where docs/DEVELOPING.md ("Linux builds") says to unpack it, else Pixar's default install.
     foreach(_root "$ENV{HOME}/groomlab-deps/sdks/renderman-linux" "/opt/pixar/RenderManProServer-27.3")
         if(EXISTS "${_root}/include/ri.h")
@@ -62,6 +72,9 @@ set(GROOMLAB_RMANTREE "${_rmantree}" CACHE PATH "RenderMan Pro Server root (RMAN
 set(_arnold_sdk "$ENV{ARNOLD_SDK}")
 if(NOT _arnold_sdk AND NOT WIN32 AND EXISTS "$ENV{HOME}/groomlab-deps/sdks/arnold-linux/include/ai.h")
     set(_arnold_sdk "$ENV{HOME}/groomlab-deps/sdks/arnold-linux")
+endif()
+if(NOT _arnold_sdk AND APPLE AND EXISTS "$ENV{HOME}/groomlab-deps/sdks/arnold-macos/include/ai.h")
+    set(_arnold_sdk "$ENV{HOME}/groomlab-deps/sdks/arnold-macos")  # (docs/MACOS.md)
 endif()
 set(GROOMLAB_ARNOLD_SDK "${_arnold_sdk}" CACHE PATH "Arnold SDK root (include/ai.h, bin/libai.so) for the Arnold procedural without MtoA; empty: MtoA's")
 

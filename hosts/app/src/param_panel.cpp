@@ -18,6 +18,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QResizeEvent>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -65,10 +66,52 @@ QString prettyName(const std::string& name) {
 // How a number shows: the spec's unit (graph.h ParamSpec::unit) as a suffix, a fraction as a
 // percentage, with the spec's decimals (its "decimals": the same in every host; as a percentage
 // two fewer, 0 to 1; degrees 1) and the trailing zeros dropped when shown. Scene units (length,
-// width, density, perLength) show bare: the app has no unit setting, and the file's units are the
-// scalp's own; an acceleration in them (Simulate's gravity) shows "/s²" after the number.
+// width, density, perLength) show bare unless Edit > Units picks real ones (unitChoice); an
+// acceleration in them (Simulate's gravity) shows "/s²" after the number.
+std::vector<UnitChoice> unitChoices(const std::string& kind) {
+    if (kind == "length") return {{"scene", "units", 1.0}, {"cm", "cm", 1.0}, {"mm", "mm", 10.0}, {"m", "m", 0.01}, {"in", "in", 1.0 / 2.54}};
+    if (kind == "width") return {{"scene", "units", 1.0}, {"um", "µm", 1e4}, {"mm", "mm", 10.0}, {"cm", "cm", 1.0}};
+    if (kind == "density") return {{"scene", "/unit²", 1.0}, {"cm2", "/cm²", 1.0}, {"mm2", "/mm²", 0.01}, {"in2", "/in²", 2.54 * 2.54}};
+    return {};
+}
+
+std::string unitChoice(const std::string& kind) {
+    const std::string key = QSettings().value(QStringLiteral("units/") + QString::fromStdString(kind), QStringLiteral("scene")).toString().toStdString();
+    for (const UnitChoice& c : unitChoices(kind)) {
+        if (c.key == key) return key;
+    }
+    return "scene";
+}
+
+void setUnitChoice(const std::string& kind, const std::string& key) {
+    QSettings().setValue(QStringLiteral("units/") + QString::fromStdString(kind), QString::fromStdString(key));
+}
+
+namespace {
+
+// The picked unit of a kind ({1, ""}: scene units, bare).
+UnitChoice pickedUnit(const std::string& kind) {
+    const std::string key = unitChoice(kind);
+    if (key != "scene") {
+        for (const UnitChoice& c : unitChoices(kind)) {
+            if (c.key == key) return c;
+        }
+    }
+    return {"scene", "", 1.0};
+}
+
+}  // namespace
+
 DisplayUnit displayUnit(const std::string& unit, bool integer, int specDecimals) {
     const int decimals = specDecimals >= 0 ? specDecimals : 3;
+    if (unit == "length" || unit == "width" || unit == "density" || unit == "perLength") {
+        // Real units when picked: the decimals follow the factor (0.006 cm reads 60 µm).
+        UnitChoice c = pickedUnit(unit == "perLength" ? "length" : unit);
+        if (unit == "perLength" && c.key != "scene") c = {c.key, "/" + c.label, 1.0 / c.factor};
+        if (c.key == "scene" || integer) return {1.0, QString(), decimals};
+        const int shift = static_cast<int>(std::lround(std::log10(c.factor)));
+        return {c.factor, QStringLiteral(" ") + QString::fromStdString(c.label), std::clamp(decimals - shift, 0, 6)};
+    }
     if (unit == "fraction" && !integer) return {100.0, QStringLiteral("%"), std::clamp(decimals - 2, 0, 1)};
     if (unit == "angle") return {1.0, QStringLiteral("°"), 1};
     if (unit == "turns") return {1.0, QStringLiteral(" turns"), decimals};
@@ -808,26 +851,20 @@ void ParamPanel::build() {
         // Any other param takes a Value port (one value for the whole node: a Value node, or an
         // Expression set to give a value): right-click the row to expose it; while one feeds it,
         // the row says so and its editor rests.
-        if (p.contains("port") && p["port"].value("type", std::string()) == "Value") {
-            rowHost->setObjectName(QStringLiteral("paramRow_") + QString::fromStdString(name));
+        // A param that takes an input port (Maya's linkable): its right-click menu, the host's
+        // (graph_ui.json's paramMenu: Expose as Input, Paint, Drive with Slider), else Expose alone.
+        if (p.contains("port") && p["port"].is_object()) {
+            rowHost->setProperty("glParam", QString::fromStdString(name));
             rowHost->setContextMenuPolicy(Qt::CustomContextMenu);
             connect(rowHost, &QWidget::customContextMenuRequested, this, [this, name, rowHost](const QPoint& at) {
                 if (!document_ || node_.empty()) return;
                 QMenu menu(this);
-                QAction* expose = menu.addAction(tr("Expose as Input"));
-                expose->setCheckable(true);
-                expose->setChecked(document_->paramExposed(node_, name));
-                expose->setToolTip(tr("A port on the node for a Value node (or an Expression set to give a value) to set this "
-                                      "param for the whole node"));
-                if (menu.exec(rowHost->mapToGlobal(at)) != expose) return;
-                const std::string error = document_->exposeParam(node_, name, expose->isChecked());
-                if (!error.empty()) emit message(QString::fromStdString(error));
-                // Not under the menu's own click: the panel is built again on the next turn of the loop.
-                QTimer::singleShot(0, this, [this] {
-                    refresh();
-                    emit edited();
-                });
+                fillParamMenu(&menu, name);
+                if (!menu.isEmpty()) menu.exec(rowHost->mapToGlobal(at));
             });
+        }
+        if (p.contains("port") && p["port"].value("type", std::string()) == "Value") {
+            rowHost->setObjectName(QStringLiteral("paramRow_") + QString::fromStdString(name));
             if (exposed && !fedBy.empty()) {
                 field->setEnabled(false);
                 auto* fed = new QLabel(tr("← set by %1").arg(QString::fromStdString(fedBy)), rowHost);
@@ -954,6 +991,27 @@ ValueSlider* ParamPanel::numberSlider(const std::string& name) const {
         if (r.name == name && (r.kind == "float" || r.kind == "int") && !r.editors.empty()) return qobject_cast<ValueSlider*>(r.editors[0]);
     }
     return nullptr;
+}
+
+void ParamPanel::fillParamMenu(QMenu* menu, const std::string& name) {
+    if (!document_ || node_.empty()) return;
+    if (paramMenuFiller_) {
+        paramMenuFiller_(menu, node_, name);
+        return;
+    }
+    QAction* expose = menu->addAction(tr("Expose as Input"));
+    expose->setCheckable(true);
+    expose->setChecked(document_->paramExposed(node_, name));
+    expose->setToolTip(tr("A port on the node for a Value node (or an Expression set to give a value) to set this param for the whole node"));
+    connect(expose, &QAction::triggered, this, [this, name](bool on) {
+        const std::string error = document_->exposeParam(node_, name, on);
+        if (!error.empty()) emit message(QString::fromStdString(error));
+        // Not under the menu's own click: the panel is built again on the next turn of the loop.
+        QTimer::singleShot(0, this, [this] {
+            refresh();
+            emit edited();
+        });
+    });
 }
 
 void ParamPanel::upgrade() {

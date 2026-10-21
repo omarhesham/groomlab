@@ -72,8 +72,11 @@ struct ObjContents {
     std::string name, mtllib, usemtl;
 };
 
-ObjContents parseObj(const std::string& text, const std::string& label) {
+// `only`: the faces of that group (`g` or `o`) alone; `except`: every face but that group's (the
+// points no face kept dropped).
+ObjContents parseObj(const std::string& text, const std::string& label, const std::string& only = {}, const std::string& except = {}) {
     ObjContents out;
+    std::string group;  // the `g` or `o` the faces are under
     std::vector<Vec3f> points, normals;
     std::vector<ScalpMesh::UV> uvs;
     std::vector<ScalpMesh::Triangle> triangles;
@@ -112,6 +115,7 @@ ObjContents parseObj(const std::string& text, const std::string& label) {
             if (!(fields >> x >> y >> z)) throw MeshFileError(label + ":" + std::to_string(lineNo) + ": bad normal");
             normals.push_back({x, y, z});
         } else if (key == "f") {
+            if ((!only.empty() && group != only) || (!except.empty() && group == except)) continue;
             std::vector<Corner> corners;
             std::string token;
             while (fields >> token) corners.push_back(parseCorner(token, label, lineNo));
@@ -147,7 +151,9 @@ ObjContents parseObj(const std::string& text, const std::string& label) {
                 }
             }
         } else if (key == "o" || key == "g") {
-            if (out.name.empty()) std::getline(fields >> std::ws, out.name);
+            group.clear();
+            std::getline(fields >> std::ws, group);
+            if (out.name.empty()) out.name = group;
         } else if (key == "mtllib") {
             std::getline(fields >> std::ws, out.mtllib);
         } else if (key == "usemtl") {
@@ -155,7 +161,26 @@ ObjContents parseObj(const std::string& text, const std::string& label) {
         }
         // s: nothing a scalp needs.
     }
-    if (points.empty() || triangles.empty()) throw MeshFileError(label + ": no faces");
+    if (points.empty() || triangles.empty()) {
+        throw MeshFileError(label + (only.empty() ? std::string(": no faces") : ": no faces in group " + only));
+    }
+    if (!only.empty() || !except.empty()) {
+        // The points the kept faces use, in their order.
+        std::vector<std::int32_t> remap(points.size(), -1);
+        std::vector<Vec3f> used;
+        for (ScalpMesh::Triangle& t : triangles) {
+            for (std::int32_t& v : t) {
+                std::int32_t& r = remap[static_cast<std::size_t>(v)];
+                if (r < 0) {
+                    r = static_cast<std::int32_t>(used.size());
+                    used.push_back(points[static_cast<std::size_t>(v)]);
+                }
+                v = r;
+            }
+        }
+        points = std::move(used);
+        if (!only.empty()) out.name = only;
+    }
     out.mesh = std::make_shared<ScalpMesh>(std::move(points), std::move(triangles));
     out.mesh->setPolygons(std::move(polygons));
     if (everyCornerHasUV && !cornerUVs.empty()) out.mesh->setCornerUVs(std::move(cornerUVs));
@@ -232,15 +257,17 @@ std::map<std::string, MtlMaterial> parseMtl(const std::string& text, const std::
 
 }  // namespace
 
-std::shared_ptr<const ScalpMesh> parseObjMesh(const std::string& text, const std::string& label) {
-    return parseObj(text, label).mesh;
+std::shared_ptr<const ScalpMesh> parseObjMesh(const std::string& text, const std::string& label, const std::string& group) {
+    return parseObj(text, label, group).mesh;
 }
 
-std::shared_ptr<const ScalpMesh> readObjMesh(const std::string& path) { return parseObjMesh(readText(path), path); }
+std::shared_ptr<const ScalpMesh> readObjMesh(const std::string& path, const std::string& group) {
+    return parseObjMesh(readText(path), path, group);
+}
 
 Surface parseObjSurface(const std::string& text, const std::string& mtlText, const std::string& label, const std::string& folder,
-                        const SurfaceMaterial& material) {
-    ObjContents contents = parseObj(text, label);
+                        const SurfaceMaterial& material, const std::string& exceptGroup) {
+    ObjContents contents = parseObj(text, label, {}, exceptGroup);
     Surface s;
     s.name = contents.name.empty() ? label : contents.name;
     s.mesh = contents.mesh;
@@ -265,7 +292,7 @@ Surface parseObjSurface(const std::string& text, const std::string& mtlText, con
     return s;
 }
 
-Surface readObjSurface(const std::string& path, const SurfaceMaterial& material) {
+Surface readObjSurface(const std::string& path, const SurfaceMaterial& material, const std::string& exceptGroup) {
     const std::string text = readText(path);
     const std::string folder = folderOf(path);
     // The library is optional: a missing one leaves the material as given.
@@ -289,7 +316,7 @@ Surface readObjSurface(const std::string& path, const SurfaceMaterial& material)
             break;
         }
     }
-    Surface s = parseObjSurface(text, mtlText, path, folder, material);
+    Surface s = parseObjSurface(text, mtlText, path, folder, material, exceptGroup);
     const std::size_t slash = path.find_last_of("/\\");
     if (s.name == path) s.name = slash == std::string::npos ? path : path.substr(slash + 1);
     return s;

@@ -69,8 +69,13 @@
 // by no evaluation. Absent when there are none.
 // "referencePhotos": the standalone app's Reference window (reference_edit.h): each photo's file,
 // size, mask, solved camera and edits ([{"name", "image", "width", "height", "mask", "camera":
-// {"rotation", "position", "focal_px"} or null, "state": referencePhotoStateToJson's object}]); read by no
-// evaluation. Absent when there are none.
+// {"rotation", "position", "focal_px"} or null, "state": referencePhotoStateToJson's object, and the
+// Photos tab's "display": {"opacity", "depth": "front" or "behind", "locked", "visible"}}]); read by
+// no evaluation. Absent when there are none.
+// "guideGroupColors": the guide groups' own viewport colors, as Maya's groom attribute of that name
+// holds them ("name:#rrggbb name:#rrggbb", sRGB; display.h parseGuideGroupColors), and
+// "hiddenGuideGroups": the groups hidden in the viewport ("name name", Maya's attribute). Display
+// only, read by no evaluation; absent when empty.
 
 #include <cstdint>
 #include <map>
@@ -128,6 +133,10 @@ struct GroomFile {
     std::vector<TransferMarker> transferMarkers;
     // The Reference window's photos ("referencePhotos", a JSON array as text; "" none).
     std::string referencePhotos;
+    // The guide groups' own colors and the hidden groups ("guideGroupColors", "hiddenGuideGroups":
+    // Maya's attributes' text; "" none).
+    std::string guideGroupColors;
+    std::string hiddenGuideGroups;
     std::string directory;      // the folder the file was read from (not stored)
 };
 

@@ -853,6 +853,11 @@ EngineExportOptions engineOptions(const json& args, bool unreal) {
     if (unreal) {
         e.featherGuides = optBool(args, "featherGuides", false);
         e.iridescenceAo = optBool(args, "iridescenceAo", false);
+        // From groom space (Y up, centimeters: Blender's (x, y, z) meters is (x, z, -y) times 100
+        // times the unit scale) into Unreal's, (x, z, y): Blender's (x, -y, z) times 100 times the
+        // unit scale, as Unreal's FBX importer brings in the scene's meshes from Blender's FBX.
+        e.upAxis = "Y";
+        e.centimetersPerUnit = 1.0;
     } else {
         e.scale = static_cast<float>(optNumber(args, "scale", 1.0));
         if (!(e.scale > 0.0f)) fail("bad_request", "scale must be above 0");
@@ -1101,7 +1106,9 @@ json applyPreset(Session& s, const json& args) {
     const MapCatalog& catalog = s.groom->data().maps;
     for (const PresetMap& m : presetRequiredMaps(text)) {
         if (!catalog.count(m.name) && !s.groom->scalpMaps().catalog().count(m.name)) {
-            missing.push_back({{"name", m.name}, {"kind", m.kind}, {"value", m.value}});
+            json entry = {{"name", m.name}, {"kind", m.kind}, {"value", m.value}};
+            if (!m.color.empty()) entry["color"] = m.color;  // the add-on makes it a color map filled with this
+            missing.push_back(std::move(entry));
         }
     }
     return {{"preset", stem}, {"fitFactor", factor}, {"nodes", GraphEdit(graph).nodeNames().size()}, {"missingMaps", missing}};

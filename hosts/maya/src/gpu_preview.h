@@ -46,9 +46,8 @@
 #include "groomlab/gpu/look_engine.h"
 #include "groomlab/gpu/look_preview.h"
 
-namespace MHWRender {
-class MVertexBuffer;
-}
+#include <maya/MApiNamespace.h>  // Maya's classes declared (MHWRender's are using-declarations of a
+                                  // versioned namespace's: a plain forward declaration conflicts, Clang/GCC)
 
 namespace groomlab::maya {
 

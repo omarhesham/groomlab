@@ -44,7 +44,9 @@
               "type": "object", "additionalProperties": false, "required": ["id", "label", "tip"],
               "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "tip": {"type": "string"}}}},
             "lookTypes": {"type": "array", "items": {"type": "string"}}}},
-        "texts": {"type": "object", "additionalProperties": {"type": "string"}}
+        "texts": {"type": "object", "additionalProperties": {"type": "string"},
+                  "properties": {"labels": {"type": "object", "additionalProperties": {
+                    "type": "object", "additionalProperties": {"type": "string"}}}}}
       }
     },
     "lists": {
@@ -97,12 +99,48 @@
         "filePathFilters": {"type": "object", "additionalProperties": {"type": "string"}}
       },
       "additionalProperties": {"$ref": "#/$defs/container"}
+    },
+    "properties": {
+      "type": "object", "additionalProperties": false, "required": ["sections"],
+      "properties": {
+        "about": {"type": "string"},
+        "sections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/propertySection"}}
+      }
     }
   },
   "$defs": {
+    "propertySection": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label", "items"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}, "labels": {"$ref": "#/$defs/hostTexts"},
+        "about": {"type": "string"}, "expanded": {"type": "boolean"}, "hosts": {"$ref": "#/$defs/hosts"},
+        "items": {"type": "array", "items": {"anyOf": [{"const": "-"}, {"$ref": "#/$defs/propertyItem"}]}},
+        "sections": {"type": "array", "items": {"$ref": "#/$defs/propertySection"}}
+      }
+    },
+    "propertyItem": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "label": {"type": "string", "minLength": 1}, "tip": {"type": "string"},
+        "labels": {"$ref": "#/$defs/hostTexts"}, "tips": {"$ref": "#/$defs/hostTexts"}, "hosts": {"$ref": "#/$defs/hosts"},
+        "maya": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"}, "custom": {"type": "string", "pattern": "^AE[A-Za-z0-9]+$"},
+        "app": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"}, "blender": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "parts": {"type": "array", "items": {"$ref": "#/$defs/propertyPart"}}
+      }
+    },
+    "propertyPart": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^-?[A-Za-z][A-Za-z0-9]*$"}, "label": {"type": "string", "minLength": 1},
+        "tip": {"type": "string"}, "labels": {"$ref": "#/$defs/hostTexts"}, "tips": {"$ref": "#/$defs/hostTexts"},
+        "hosts": {"$ref": "#/$defs/hosts"}, "app": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+        "kind": {"enum": ["mode", "color", "float", "result", "heading"]}, "only": {"type": "string"}
+      }
+    },
     "id": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*$"},
     "color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
     "hosts": {"type": "array", "minItems": 1, "items": {"enum": ["maya", "blender", "app"]}},
+    "hostTexts": {"type": "object", "propertyNames": {"enum": ["maya", "blender", "app"]}, "additionalProperties": {"type": "string"}},
     "conditions": {"type": "array", "items": {"type": "string", "pattern": "^!?[a-z][A-Za-z0-9.]*$"}},
     "action": {
       "type": "object",
@@ -111,6 +149,8 @@
       "properties": {
         "label": {"type": "string", "minLength": 1},
         "tip": {"type": "string"},
+        "labels": {"$ref": "#/$defs/hostTexts"},
+        "tips": {"$ref": "#/$defs/hostTexts"},
         "tipDisabled": {"type": "string"},
         "shortcut": {"type": "string"},
         "shortcutPart": {"type": "integer", "minimum": 0},
@@ -132,6 +172,7 @@
           "required": ["id"],
           "properties": {
             "id": {"$ref": "#/$defs/id"}, "label": {"type": "string"}, "tip": {"type": "string"},
+            "labels": {"$ref": "#/$defs/hostTexts"}, "tips": {"$ref": "#/$defs/hostTexts"},
             "tipDisabled": {"type": "string"}, "glyph": {"type": "string"}, "hosts": {"$ref": "#/$defs/hosts"},
             "needs": {"$ref": "#/$defs/conditions"}, "enabled": {"$ref": "#/$defs/conditions"}
           }
@@ -142,6 +183,7 @@
           "anyOf": [{"required": ["submenu"]}, {"required": ["ref"]}],
           "properties": {
             "submenu": {"type": "string"}, "id": {"type": "string"}, "tip": {"type": "string"}, "glyph": {"type": "string"},
+            "labels": {"$ref": "#/$defs/hostTexts"}, "tips": {"$ref": "#/$defs/hostTexts"},
             "ref": {"$ref": "#/$defs/path"}, "items": {"$ref": "#/$defs/entries"},
             "hosts": {"$ref": "#/$defs/hosts"}, "needs": {"$ref": "#/$defs/conditions"}
           }
@@ -172,7 +214,8 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["items"],
-          "properties": {"label": {"type": "string"}, "tip": {"type": "string"}, "items": {"$ref": "#/$defs/entries"}}
+          "properties": {"label": {"type": "string"}, "tip": {"type": "string"}, "labels": {"$ref": "#/$defs/hostTexts"},
+                         "tips": {"$ref": "#/$defs/hostTexts"}, "items": {"$ref": "#/$defs/entries"}}
         }
       ]
     }

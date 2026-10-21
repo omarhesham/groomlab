@@ -4,6 +4,9 @@
 
 #include "main_window_internal.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -102,7 +105,28 @@ bool MainWindow::renderVray(const QString& imagePath, int turntableFrames, const
     // The groom at this frame, every strand (as a final render gets it), and its scalp there.
     ExportOptions options;
     options.frames.first = options.frames.last = document_->frame();
-    options.density = 1.0f;
+    options.density = 1.0f;  // (the render overrides' density on top: GroomDocument::renderOverrides)
+    document_->setRenderOverrides(renderOverrides_);
+    // Level of detail through the render's camera (a single frame: a turntable's camera moves).
+    if (stage.turntableFrames == 0 && (renderLod_.distance || renderLod_.frustum || renderLod_.backface)) {
+        const QVector3D forward = (stage.target - stage.eye).normalized();
+        QVector3D right = QVector3D::crossProduct(forward, QVector3D(0.0f, 1.0f, 0.0f));
+        if (right.lengthSquared() < 1e-8f) right = QVector3D(1.0f, 0.0f, 0.0f);
+        right.normalize();
+        const QVector3D up = QVector3D::crossProduct(right, forward);
+        LodCamera c;
+        const QVector3D rows[4] = {right, up, -forward, stage.eye};
+        for (int r = 0; r < 4; ++r) {
+            c.matrix[r][0] = rows[r].x();
+            c.matrix[r][1] = rows[r].y();
+            c.matrix[r][2] = rows[r].z();
+            c.matrix[r][3] = r == 3 ? 1.0f : 0.0f;
+        }
+        c.tanHalfFovY = std::tan(stage.fovDegrees * 0.5f * 3.14159265f / 180.0f);
+        c.tanHalfFovX = c.tanHalfFovY * static_cast<float>(std::max(stage.width, 1)) / static_cast<float>(std::max(stage.height, 1));
+        options.lod = renderLod_;
+        options.lodCamera = c;
+    }
     MeshPtr scalp;
     try {
         working(tr("Writing the groom for V-Ray..."));
@@ -149,6 +173,9 @@ bool MainWindow::renderPrman(const QString& imagePath, int turntableFrames, cons
     scene.hairTilt = document_->session().hairLook().tilt;
     scene.procedurals = procedurals.toStdString();
     scene.imagePath = image.absoluteFilePath().toStdString();
+    scene.density = renderOverrides_.densityTimes(1.0f);
+    scene.widthScale = renderOverrides_.widthScale;
+    scene.lengthScale = renderOverrides_.lengthScale;
     const QString scenePath = stem + QStringLiteral("_scene.rib");
     // The groom as it is now, which the procedural evaluates (every strand) at the frame; the scalp
     // as the view has it.

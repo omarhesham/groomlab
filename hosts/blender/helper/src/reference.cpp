@@ -224,6 +224,8 @@ json photoFromHost(const HostSpace& sp, const json& p, const json& old) {
     if (!state.contains("strokes")) state["strokes"] = json::array();
     if (!state.contains("mask_strokes")) state["mask_strokes"] = json::array();
     out["state"] = state;
+    // The app's Photos tab's display (opacity, depth, locked, visible): kept as the app wrote it.
+    if (old.is_object() && old.contains("display") && old["display"].is_object()) out["display"] = old["display"];
     if (p.contains("rms") && p["rms"].is_number()) out["rms"] = p["rms"];
     return out;
 }

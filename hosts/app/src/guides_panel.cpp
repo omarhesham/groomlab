@@ -2,31 +2,43 @@
 #include "guides_panel.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <map>
 #include <set>
 
+#include <QCheckBox>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
+#include <QPainter>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSpinBox>
-#include <QScrollArea>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
 #include "groom_document.h"
 #include "groomlab/curve.h"
+#include "groomlab/display.h"
 #include "groomlab/flow.h"
 #include "groomlab/guide_selection.h"
 #include "groomlab/parts.h"
+#include "list_bar.h"
+#include "theme.h"
 
 namespace groomlab::app {
 
 namespace {
+
+const ui::Definitions& defs() { return ui::Definitions::shipped(); }
+QString qs(const std::string& s) { return QString::fromStdString(s); }
 
 // A group name not yet taken: base, base1, base2...
 std::string uniqueName(const GuideHierarchy& h, const std::string& base) {
@@ -37,11 +49,46 @@ std::string uniqueName(const GuideHierarchy& h, const std::string& base) {
     }
 }
 
+// A linear color as the screen shows it (sRGB).
+QColor shownColor(const std::array<float, 3>& linear) {
+    auto channel = [](float c) {
+        c = std::clamp(c, 0.0f, 1.0f);
+        const float s = c <= 0.0031308f ? 12.92f * c : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+        return static_cast<int>(std::lround(s * 255.0f));
+    };
+    return QColor(channel(linear[0]), channel(linear[1]), channel(linear[2]));
+}
+
+// The swatch: the group's own color filled; an automatic one (its level's) as a dashed outline
+// around the level's color, dimmed (Maya's dashed swatch: no color of its own).
+QIcon swatchIcon(const QColor& color, bool own, qreal dpr) {
+    const int size = 16;
+    QPixmap pixmap(QSize(size, size) * dpr);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const QRectF r(1.5, 1.5, size - 3.0, size - 3.0);
+    if (own) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawRoundedRect(r, 4.0, 4.0);
+    } else {
+        QColor fill = color;
+        fill.setAlphaF(0.45);
+        p.setBrush(fill);
+        QPen pen(theme::textDim(), 1.0, Qt::DashLine);
+        p.setPen(pen);
+        p.drawRoundedRect(r, 4.0, 4.0);
+    }
+    p.end();
+    return QIcon(pixmap);
+}
+
 }  // namespace
 
 GuidesPanel::GuidesPanel(QWidget* parent) : QWidget(parent) {
-    // The rows in a scroll area: a short window scrolls them rather than squeezing the buttons
-    // and the tree (which keeps room for a few groups).
+    // The rows in a scroll area: a short window scrolls them rather than squeezing the tree.
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     auto* scroll = new QScrollArea(this);
@@ -53,69 +100,96 @@ GuidesPanel::GuidesPanel(QWidget* parent) : QWidget(parent) {
     outer->addWidget(scroll);
     auto* layout = new QVBoxLayout(host);
     layout->setContentsMargins(6, 6, 6, 6);
+    layout->setSpacing(6);
+    const ui::json& lists = defs().get("lists/groups");
+    about_ = aboutLabel(lists.value("about", std::string()), host);
+    layout->addWidget(about_);
+    bar_ = new ListBar(host);
+    bar_->setObjectName(QStringLiteral("groupsBar"));
+    layout->addWidget(bar_);
+
     tree_ = new QTreeWidget(host);
-    tree_->setMinimumHeight(132);
-    tree_->setHeaderLabels({tr("Group"), tr("Guides")});
+    tree_->setObjectName(QStringLiteral("groupsTree"));
+    tree_->setMinimumHeight(120);
+    tree_->setHeaderLabels({tr("Group"), QString(), tr("Guides"), tr("Level")});
     tree_->header()->setStretchLastSection(false);
     tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    tree_->setToolTip(tr("The guide groups: untick to hide one, double-click to rename"));
+    for (int c = 1; c < 4; ++c) tree_->header()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    tree_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    tree_->setToolTip(tr("Click: brushes and new guides use this group. Double-click the name: rename. Checkbox: show or hide. "
+                         "Swatch: its color. Right-click: more"));
+    tree_->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(tree_, 1);
     connect(tree_, &QTreeWidget::itemChanged, this, &GuidesPanel::itemChanged);
+    connect(tree_, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int column) {
+        const std::string name = groupOf(item);
+        if (name.empty()) return;
+        emit groupClicked(name);
+        // The swatch: its color picked (the window's Color..., never a modal dialog).
+        if (column == 1) {
+            const auto it = bindings_.find("group.color");
+            if (it != bindings_.end() && it->second.trigger) it->second.trigger(nullptr, false);
+        }
+    });
+    connect(tree_, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem*, QTreeWidgetItem*) {
+        if (!updating_) refreshRows();
+    });
+    connect(tree_, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        if (QMenu* menu = contextMenu(pos)) menu->popup(tree_->viewport()->mapToGlobal(pos));
+    });
 
-    selection_ = new QLabel(tr("No guides selected"), this);
+    selection_ = new QLabel(tr("No guides selected"), host);
+    selection_->setProperty("role", "about");
     layout->addWidget(selection_);
 
-    auto* buttons = new QGridLayout();
-    addRoot_ = new QPushButton(tr("Add group"), this);
-    addRoot_->setToolTip(tr("A new root group (primary guides)"));
-    addChild_ = new QPushButton(tr("Add child group"), this);
-    addChild_->setToolTip(tr("A new group under the current one (its guides follow the parent's)"));
-    remove_ = new QPushButton(tr("Remove group"), this);
-    remove_->setToolTip(tr("Removes the current group, its sub-groups and their guides"));
-    select_ = new QPushButton(tr("Select group"), this);
-    select_->setToolTip(tr("Selects the current group's guides"));
-    generate_ = new QPushButton(tr("Generate children"), this);
-    generate_->setToolTip(tr("Children for every guide of the current group, inside their tubes, into a child group"));
-    count_ = new QSpinBox(this);
-    count_->setRange(1, 64);
+    // Edits on many guides: one menu, the children count beside it, Hue per group.
+    auto* row = new QHBoxLayout();
+    row->setSpacing(6);
+    const ui::json& edits = lists.at("edits");
+    edits_ = new QPushButton(qs(edits.value("label", std::string())) + QStringLiteral("  ▾"), host);
+    edits_->setObjectName(QStringLiteral("editGuides"));
+    edits_->setToolTip(qs(edits.value("tip", std::string())));
+    editsMenu_ = new QMenu(edits_);
+    editsMenu_->setObjectName(QStringLiteral("editGuidesMenu"));
+    edits_->setMenu(editsMenu_);
+    row->addWidget(edits_, 1);
+    count_ = new QSpinBox(host);
+    count_->setObjectName(QStringLiteral("childrenCount"));
+    count_->setRange(1, 500);
     count_->setValue(5);
     count_->setPrefix(tr("x "));
-    count_->setToolTip(tr("Children per parent guide"));
-    delete_ = new QPushButton(tr("Delete selected guides"), this);
-    delete_->setToolTip(tr("Removes the selected guides with their descendants (Delete in the viewport)"));
-    buttons->addWidget(addRoot_, 0, 0);
-    buttons->addWidget(addChild_, 0, 1);
-    buttons->addWidget(remove_, 1, 0);
-    buttons->addWidget(select_, 1, 1);
-    buttons->addWidget(generate_, 2, 0);
-    buttons->addWidget(count_, 2, 1);
-    buttons->addWidget(delete_, 3, 0, 1, 2);
-    // The shape edits the core's hierarchy offers: mirror, symmetry, promote, resample.
-    auto* mirror = new QPushButton(tr("Mirror group +X → -X"), this);
-    mirror->setToolTip(tr("Copies the current root group's guides on the +X side over the -X side (their descendants too)"));
-    auto* sync = new QPushButton(tr("Sync symmetry"), this);
-    sync->setToolTip(tr("Makes the whole groom symmetric across x = 0 from the +X side: every root group, children with their parents"));
-    auto* promote = new QPushButton(tr("Promote group"), this);
-    promote->setToolTip(tr("Moves the current group one level up: its guides follow their grandparents (primaries at the root)"));
-    auto* resample = new QPushButton(tr("Resample"), this);
-    resample->setToolTip(tr("The selected (else every) guide resampled along its smooth curve to this many segments"));
-    segments_ = new QSpinBox(this);
+    count_->setToolTip(tr("Children per guide for Edit Guides > Children (the selected guides, else the picked group)"));
+    row->addWidget(count_);
+    hue_ = new QCheckBox(tr("Hue per group"), host);
+    hue_->setObjectName(QStringLiteral("huePerGroup"));
+    hue_->setToolTip(tr("Groups without their own color get a hue each (off: colored by level)"));
+    connect(hue_, &QCheckBox::toggled, this, [this](bool on) {
+        if (!updating_) emit huePerGroupChanged(on);
+    });
+    layout->addLayout(row);
+    layout->addWidget(hue_);  // (its own row: a narrow dock keeps Edit Guides and the count whole)
+
+    // Segments: the selected (else every) guide resampled to a point count, one undo step.
+    auto* segRow = new QHBoxLayout();
+    segRow->setSpacing(6);
+    auto* segLabel = new QLabel(tr("Segments"), host);
+    segRow->addWidget(segLabel);
+    segments_ = new QSpinBox(host);
     segments_->setRange(1, 256);
-    segments_->setValue(16);
-    segments_->setSuffix(tr(" seg"));
-    buttons->addWidget(mirror, 4, 0);
-    buttons->addWidget(sync, 4, 1);
-    buttons->addWidget(promote, 5, 0, 1, 2);
-    buttons->addWidget(resample, 6, 0);
-    buttons->addWidget(segments_, 6, 1);
-    layout->addLayout(buttons);
-    connect(mirror, &QPushButton::clicked, this, [this] { mirrorGroup(currentGroup()); });
-    connect(sync, &QPushButton::clicked, this, [this] { symmetrySync(); });
-    connect(promote, &QPushButton::clicked, this, [this] { promoteGroup(currentGroup()); });
+    segments_->setValue(12);
+    segments_->setToolTip(tr("Points along the guides, kept on their smooth curve: the selected guides, or every guide with none "
+                             "selected. More segments let a guide curl tighter."));
+    segRow->addWidget(segments_, 1);
+    auto* resample = new QPushButton(tr("Resample"), host);
+    resample->setObjectName(QStringLiteral("resampleGuides"));
+    resample->setToolTip(segments_->toolTip());
+    segRow->addWidget(resample);
+    layout->addLayout(segRow);
     connect(resample, &QPushButton::clicked, this, [this] { resampleGuides(segments_->value()); });
 
     // The parts and flow the brushes laid (parts.h, flow.h): listed by name, removed, cleared.
-    auto* overlays = new QGroupBox(tr("Parts and flow"), this);
+    auto* overlays = new QGroupBox(tr("Parts and flow"), host);
+    overlays_ = overlays;
     auto* overlaysLayout = new QGridLayout(overlays);
     parts_ = new QListWidget(overlays);
     parts_->setFixedHeight(72);
@@ -136,26 +210,27 @@ GuidesPanel::GuidesPanel(QWidget* parent) : QWidget(parent) {
     });
     connect(clearParts_, &QPushButton::clicked, this, [this] { clearParts(); });
     connect(clearFlow_, &QPushButton::clicked, this, [this] { clearFlow(); });
-
-    connect(addRoot_, &QPushButton::clicked, this, [this] { addGroup({}); });
-    connect(addChild_, &QPushButton::clicked, this, [this] { addGroup(currentGroup()); });
-    connect(remove_, &QPushButton::clicked, this, [this] { removeGroup(currentGroup()); });
-    connect(select_, &QPushButton::clicked, this, [this] { selectGroup(currentGroup()); });
-    connect(generate_, &QPushButton::clicked, this, [this] { generateChildren(currentGroup(), count_->value()); });
-    connect(delete_, &QPushButton::clicked, this, [this] { deleteSelected(); });
-    connect(tree_, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem*, QTreeWidgetItem*) {
-        const bool has = !currentGroup().empty();
-        addChild_->setEnabled(has);
-        remove_->setEnabled(has);
-        select_->setEnabled(has);
-        generate_->setEnabled(has);
-    });
     setEnabled(false);
+}
+
+void GuidesPanel::setPartsShown(bool shown) { overlays_->setVisible(shown); }
+
+void GuidesPanel::setActions(const ui::Bindings& bindings, const ui::FillOptions& options) {
+    bindings_ = bindings;
+    options_ = options;
+    options_.liveShortcuts = false;
+    bar_->build(defs().get("lists/groups/bar"), bindings_, options_);
+    editsMenu_->clear();
+    ui::FillOptions edits = options_;
+    edits.resolve.state.reset();  // every entry; the bindings say what is enabled
+    ui::fillMenu(editsMenu_, defs().get("lists/groups/edits"), bindings_, edits);
+    refreshRows();
 }
 
 void GuidesPanel::setDocument(GroomDocument* document) {
     document_ = document;
     setEnabled(document_ != nullptr);
+    shownKey_.clear();
     refresh();
 }
 
@@ -163,42 +238,129 @@ std::string GuidesPanel::groupOf(QTreeWidgetItem* item) const {
     return item ? item->data(0, Qt::UserRole).toString().toStdString() : std::string();
 }
 
-std::string GuidesPanel::currentGroup() const { return groupOf(tree_->currentItem()); }
+void GuidesPanel::fresh() const {
+    if (stale_) const_cast<GuidesPanel*>(this)->refresh();
+}
+
+std::string GuidesPanel::currentGroup() const {
+    fresh();
+    return groupOf(tree_->currentItem());
+}
+
+void GuidesPanel::setCurrentGroup(const std::string& name) {
+    fresh();
+    const QList<QTreeWidgetItem*> found = tree_->findItems(qs(name), Qt::MatchExactly | Qt::MatchRecursive, 0);
+    for (QTreeWidgetItem* item : found) {
+        if (groupOf(item) == name) {
+            tree_->setCurrentItem(item);
+            return;
+        }
+    }
+}
+
+std::set<std::string> GuidesPanel::menuState() const {
+    std::set<std::string> state;
+    const std::string group = currentGroup();
+    if (group.empty()) return state;
+    state.insert("group");
+    if (document_ && document_->groupColors().count(group)) state.insert("group.color");
+    return state;
+}
+
+QMenu* GuidesPanel::contextMenu(const QPoint& pos) {
+    fresh();
+    if (QTreeWidgetItem* item = tree_->itemAt(pos)) tree_->setCurrentItem(item);
+    else tree_->setCurrentItem(nullptr);  // the empty space: what needs no group (New Group)
+    return listMenu(this, defs().get("lists/groups/context"), bindings_, options_, menuState());
+}
+
+void GuidesPanel::editCurrentName() {
+    fresh();
+    if (QTreeWidgetItem* item = tree_->currentItem()) tree_->editItem(item, 0);
+}
+
+int GuidesPanel::childrenCount() const { return count_->value(); }
+void GuidesPanel::setChildrenCount(int count) { count_->setValue(count); }
+bool GuidesPanel::huePerGroup() const { return hue_->isChecked(); }
+
+void GuidesPanel::setHuePerGroup(bool on) {
+    const QSignalBlocker block(hue_);
+    hue_->setChecked(on);
+}
+
+void GuidesPanel::invalidate() {
+    stale_ = true;
+    if (!isVisible() || pending_) return;
+    pending_ = true;
+    QTimer::singleShot(0, this, [this] {
+        pending_ = false;
+        if (stale_ && isVisible()) refresh();
+    });
+}
+
+void GuidesPanel::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    if (stale_) refresh();
+}
 
 void GuidesPanel::refresh() {
-    updating_ = true;
-    const std::string current = currentGroup();
-    tree_->clear();
-    QTreeWidgetItem* select = nullptr;
-    if (document_) {
-        const HierarchyPtr h = document_->session().authoredHierarchy();
+    stale_ = false;
+    // What the tree shows, as text: rebuilt only when it changed (a comb stroke changes nothing here).
+    HierarchyPtr h = document_ ? document_->session().authoredHierarchy() : nullptr;
+    std::string key = document_ ? std::to_string(reinterpret_cast<std::uintptr_t>(document_)) : std::string("-");
+    std::map<GroupId, int> counts;
+    if (h) {
+        for (const HierarchyGuide& g : h->guides()) ++counts[g.group];
+        for (const GuideGroup& g : h->groups()) {
+            key += "|" + g.name + ":" + std::to_string(g.parent) + ":" + std::to_string(counts[g.id]) + (g.hasColor ? "c" : "");
+        }
+        key += "#" + document_->hiddenGroupsText() + "#" + document_->groupColorsText();
+    }
+    const DisplayTheme look = theme::displayTheme();
+    key += "#" + std::to_string(look.version);
+    if (key != shownKey_) {
+        shownKey_ = key;
+        ++rebuilds_;
+        updating_ = true;
+        const std::string current = groupOf(tree_->currentItem());
+        tree_->clear();
+        QTreeWidgetItem* select = nullptr;
         if (h) {
-            // Guides per group, then the groups as a tree (parents before children in the
-            // hierarchy's order, so a child's item finds its parent's).
-            std::map<GroupId, int> counts;
-            for (const HierarchyGuide& g : h->guides()) ++counts[g.group];
-            std::map<GroupId, QTreeWidgetItem*> items;
             const std::set<std::string>& hidden = document_->hiddenGroups();
-            for (const GuideGroup& group : h->groups()) {
+            const std::map<std::string, std::string>& colors = document_->groupColors();
+            std::map<GroupId, QTreeWidgetItem*> items;
+            for (const GuideGroup& group : h->groups()) {  // parents before children
                 const auto parent = items.find(group.parent);
                 auto* item = parent == items.end() ? new QTreeWidgetItem(tree_) : new QTreeWidgetItem(parent->second);
-                item->setText(0, QString::fromStdString(group.name));
-                item->setText(1, QString::number(counts[group.id]));
-                item->setData(0, Qt::UserRole, QString::fromStdString(group.name));
+                const int depth = h->groupDepth(group.id);
+                item->setText(0, qs(group.name));
+                item->setText(2, QString::number(counts[group.id]));
+                item->setText(3, QString::number(depth));
+                item->setData(0, Qt::UserRole, qs(group.name));
                 item->setFlags(item->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEditable);
                 item->setCheckState(0, hidden.count(group.name) ? Qt::Unchecked : Qt::Checked);
+                const auto own = colors.find(group.name);
+                QColor color = own != colors.end() ? QColor(qs(own->second)) : shownColor(group.hasColor ? group.color : look.level(depth));
+                item->setIcon(1, swatchIcon(color, own != colors.end() || group.hasColor, devicePixelRatioF()));
+                item->setToolTip(1, own != colors.end() ? tr("%1's color: click to pick, right-click > Default Color to clear").arg(qs(group.name))
+                                                        : tr("%1's color is automatic (its level's): click to pick one").arg(qs(group.name)));
+                QString tip = tr("%1: checked shows it in the viewport; double-click to rename").arg(qs(group.name));
+                QStringList users;
+                for (const auto& [node, param] : document_->groupUsers(group.name)) users << QStringLiteral("%1 (%2)").arg(qs(node), qs(param));
+                if (!users.isEmpty()) tip += tr("\nNamed in the graph by %1").arg(users.join(QStringLiteral(", ")));
+                item->setToolTip(0, tip);
                 item->setExpanded(true);
                 items[group.id] = item;
                 if (group.name == current) select = item;
             }
         }
-        const std::size_t n = document_->selection().size();
-        selection_->setText(n == 0 ? tr("No guides selected") : tr("%n guide(s) selected", "", static_cast<int>(n)));
-        delete_->setEnabled(n > 0);
+        if (select) tree_->setCurrentItem(select);
+        else if (tree_->topLevelItemCount() > 0) tree_->setCurrentItem(tree_->topLevelItem(0));
+        updating_ = false;
     }
     // The parts by name and the flow's count, as the brushes left them.
     parts_->clear();
-    for (const std::string& name : partNames()) parts_->addItem(QString::fromStdString(name));
+    for (const std::string& name : partNames()) parts_->addItem(qs(name));
     removePart_->setEnabled(parts_->count() > 0);
     clearParts_->setEnabled(parts_->count() > 0);
     std::size_t pins = 0, sinks = 0;
@@ -212,96 +374,114 @@ void GuidesPanel::refresh() {
     }
     flow_->setText(pins + sinks == 0 ? tr("No flow") : tr("%1 arrows, %2 sinks").arg(pins).arg(sinks));
     clearFlow_->setEnabled(pins + sinks > 0);
-    if (select) tree_->setCurrentItem(select);
-    else if (tree_->topLevelItemCount() > 0) tree_->setCurrentItem(tree_->topLevelItem(0));
-    const bool has = !currentGroup().empty();
-    addChild_->setEnabled(has);
-    remove_->setEnabled(has);
-    select_->setEnabled(has);
-    generate_->setEnabled(has);
-    updating_ = false;
+    refreshRows();
+}
+
+void GuidesPanel::refreshRows() {
+    const std::size_t n = document_ ? document_->selection().size() : 0;
+    selection_->setText(n == 0 ? tr("No guides selected") : tr("%n guide(s) selected", "", static_cast<int>(n)));
+    bar_->refresh();
+    ui::refreshActions(editsMenu_);
 }
 
 void GuidesPanel::itemChanged(QTreeWidgetItem* item, int column) {
     if (updating_ || !document_ || column != 0) return;
     const std::string name = groupOf(item);
+    const std::string text = item->text(0).trimmed().toStdString();
+    if (!text.empty() && text != name) {  // renamed in place
+        if (!renameGroup(name, text)) {
+            updating_ = true;
+            item->setText(0, qs(name));
+            updating_ = false;
+        }
+        return;
+    }
     const bool hidden = item->checkState(0) == Qt::Unchecked;
     if (document_->hiddenGroups().count(name) != (hidden ? 1u : 0u)) {
         document_->setGroupHidden(name, hidden);
         emit displayChanged();
     }
-    const std::string text = item->text(0).toStdString();
-    if (text != name) {
-        if (!renameGroup(name, text)) {
-            updating_ = true;
-            item->setText(0, QString::fromStdString(name));
-            updating_ = false;
-        }
-    }
 }
 
-bool GuidesPanel::addGroup(const std::string& parent) {
+bool GuidesPanel::edit(const char* what, const std::string& label, const std::function<void(GuideHierarchy&)>& change) {
     if (!document_) return false;
-    std::string error = document_->editGuides("add group", [&](GuideHierarchy& h) {
+    const std::string error = document_->editGuides(label, change);
+    if (!error.empty()) {
+        emit message(tr("Cannot %1: %2").arg(QLatin1String(what), qs(error)));
+        return false;
+    }
+    emit edited();
+    return true;
+}
+
+bool GuidesPanel::addGroup(const std::string& parent, const std::string& name) {
+    std::string made;
+    const bool ok = edit("add a group", "add group", [&](GuideHierarchy& h) {
         GroupId parentId = kNoGroup;
         if (!parent.empty()) {
             parentId = h.findGroup(parent);
             if (parentId == kNoGroup) throw std::invalid_argument("no group named " + parent);
         }
-        h.addGroup(uniqueName(h, parent.empty() ? "group" : parent + "_children"), parentId);
+        made = name.empty() ? uniqueName(h, parent.empty() ? "group" : parent + "_children") : name;
+        if (h.findGroup(made) != kNoGroup) throw std::invalid_argument("a group named " + made + " is there already");
+        h.addGroup(made, parentId);
     });
-    if (!error.empty()) {
-        emit message(tr("Cannot add a group: %1").arg(QString::fromStdString(error)));
-        return false;
+    if (ok) {
+        refresh();
+        setCurrentGroup(made);
     }
-    emit edited();
-    return true;
+    return ok;
 }
 
 bool GuidesPanel::removeGroup(const std::string& name) {
-    if (!document_ || name.empty()) return false;
-    const std::string error = document_->editGuides("remove group", [&](GuideHierarchy& h) {
+    if (name.empty()) return false;
+    return edit("remove the group", "remove group", [&](GuideHierarchy& h) {
         const GroupId id = h.findGroup(name);
         if (id == kNoGroup) throw std::invalid_argument("no group named " + name);
         h.removeGroup(id);
     });
-    if (!error.empty()) {
-        emit message(tr("Cannot remove the group: %1").arg(QString::fromStdString(error)));
-        return false;
-    }
-    emit edited();
-    return true;
 }
 
 bool GuidesPanel::renameGroup(const std::string& name, const std::string& to) {
     if (!document_ || name.empty() || to.empty() || name == to) return false;
-    const std::string error = document_->editGuides("rename group", [&](GuideHierarchy& h) {
-        const GroupId id = h.findGroup(name);
-        if (id == kNoGroup) throw std::invalid_argument("no group named " + name);
-        h.renameGroup(id, to);
-    });
+    const std::string error = document_->renameGroup(name, to);
     if (!error.empty()) {
-        emit message(tr("Cannot rename the group: %1").arg(QString::fromStdString(error)));
+        emit message(tr("Cannot rename the group: %1").arg(qs(error)));
         return false;
     }
-    if (document_->hiddenGroups().count(name)) {
-        document_->setGroupHidden(name, false);
-        document_->setGroupHidden(to, true);
-    }
+    // (Not from inside the item's own signal: the tree is rebuilt on the next turn.)
+    QTimer::singleShot(0, this, [this, to] {
+        refresh();
+        setCurrentGroup(to);
+    });
+    stale_ = true;
     emit edited();
     return true;
 }
 
 bool GuidesPanel::generateChildren(const std::string& parent, int count) {
-    if (!document_ || parent.empty()) return false;
-    const std::string error = document_->editGuides("generate children", [&](GuideHierarchy& h) {
-        const GroupId id = h.findGroup(parent);
-        if (id == kNoGroup) throw std::invalid_argument("no group named " + parent);
-        if (h.guidesInGroup(id).empty()) throw std::invalid_argument("the group " + parent + " has no guides to be parents");
+    if (!document_) return false;
+    const std::vector<GuideId> selected = document_->selection();
+    return edit("generate children", "generate children", [&](GuideHierarchy& h) {
+        // The selected guides of the first one's group, else every guide of `parent` (the last
+        // group when none is given, as Maya's).
+        GroupId id = kNoGroup;
+        std::vector<GuideId> parents;
+        for (const GuideId g : selected) {
+            const HierarchyGuide* guide = h.guide(g);
+            if (!guide) continue;
+            if (id == kNoGroup) id = guide->group;
+            if (guide->group == id) parents.push_back(g);
+        }
+        if (id == kNoGroup) {
+            if (!parent.empty()) id = h.findGroup(parent);
+            else if (!h.groups().empty()) id = h.groups().back().id;
+            if (id == kNoGroup) throw std::invalid_argument(parent.empty() ? "the groom has no guides yet" : "no group named " + parent);
+            if (h.guidesInGroup(id).empty()) throw std::invalid_argument("the group " + h.group(id)->name + " has no guides to be parents");
+        }
         ChildGenerationParams params;
         params.count = static_cast<std::size_t>(std::max(count, 1));
-        // The group's existing child group when it has one (the hierarchy replaces each
-        // parent's children there), else a new one named after it.
+        // The group's existing child group when it has one, else a new one named after it.
         std::string childName;
         for (const GuideGroup& g : h.groups()) {
             if (g.parent == id) {
@@ -309,28 +489,17 @@ bool GuidesPanel::generateChildren(const std::string& parent, int count) {
                 break;
             }
         }
-        if (childName.empty()) childName = uniqueName(h, parent + "_children");
-        h.generateChildren(id, childName, params);
+        if (childName.empty()) childName = uniqueName(h, h.group(id)->name + "_children");
+        h.generateChildren(id, childName, params, parents.empty() ? nullptr : &parents);
     });
-    if (!error.empty()) {
-        emit message(tr("Cannot generate children: %1").arg(QString::fromStdString(error)));
-        return false;
-    }
-    emit edited();
-    return true;
 }
 
 bool GuidesPanel::deleteSelected() {
     if (!document_ || document_->selection().empty()) return false;
     const std::vector<GuideId> ids = document_->selection();
-    const std::string error = document_->editGuides("delete guides", [&](GuideHierarchy& h) { h.removeGuides(ids); });
-    if (!error.empty()) {
-        emit message(tr("Cannot delete the guides: %1").arg(QString::fromStdString(error)));
-        return false;
-    }
-    document_->setSelection({});
-    emit edited();
-    return true;
+    const bool ok = edit("delete the guides", "delete guides", [&](GuideHierarchy& h) { h.removeGuides(ids); });
+    if (ok) document_->setSelection({});
+    return ok;
 }
 
 void GuidesPanel::selectGroup(const std::string& name) {
@@ -341,58 +510,78 @@ void GuidesPanel::selectGroup(const std::string& name) {
     emit displayChanged();
 }
 
+void GuidesPanel::clearSelection() {
+    if (!document_) return;
+    document_->setSelection({});
+    emit displayChanged();
+}
+
+bool GuidesPanel::mirrorSelection() {
+    if (!document_) return false;
+    const HierarchyPtr h = document_->session().authoredHierarchy();
+    if (!h || document_->selection().empty()) {
+        emit message(tr("No guides selected: select some first (the Select tool, or a group's Select Guides)"));
+        return false;
+    }
+    const std::vector<GuideId> picked = groomlab::mirrorSelection(*h, document_->selection(), 0, 0.0f, 1e30f);
+    document_->setSelection(picked);
+    emit displayChanged();
+    return !picked.empty();
+}
+
 // ---- Shape edits ------------------------------------------------------------------------------------
 
 bool GuidesPanel::mirrorGroup(const std::string& name, bool fromPositive) {
-    if (!document_ || name.empty()) return false;
-    const std::string error = document_->editGuides("mirror group", [&](GuideHierarchy& h) {
+    if (name.empty()) return false;
+    return edit("mirror the group", "mirror group", [&](GuideHierarchy& h) {
         const GroupId id = h.findGroup(name);
         if (id == kNoGroup) throw std::invalid_argument("no group named " + name);
         if (h.groupDepth(id) != 0) throw std::invalid_argument(name + " is not a root group (mirror its root group: the children follow)");
         h.mirrorGroup(id, 0, 0.0f, fromPositive);
     });
-    if (!error.empty()) {
-        emit message(tr("Cannot mirror the group: %1").arg(QString::fromStdString(error)));
-        return false;
-    }
-    emit edited();
-    return true;
 }
 
 bool GuidesPanel::symmetrySync(bool fromPositive) {
-    if (!document_) return false;
-    const std::string error = document_->editGuides("symmetry sync", [&](GuideHierarchy& h) {
+    return edit("sync the symmetry", "symmetry sync", [&](GuideHierarchy& h) {
         if (h.guides().empty()) throw std::invalid_argument("the groom has no guides");
         h.mirrorAll(0, 0.0f, fromPositive);
     });
-    if (!error.empty()) {
-        emit message(tr("Cannot sync the symmetry: %1").arg(QString::fromStdString(error)));
-        return false;
-    }
-    emit edited();
-    return true;
 }
 
 bool GuidesPanel::promoteGroup(const std::string& name) {
-    if (!document_ || name.empty()) return false;
-    const std::string error = document_->editGuides("promote group", [&](GuideHierarchy& h) {
+    if (name.empty()) return false;
+    return edit("promote the group", "promote group", [&](GuideHierarchy& h) {
         const GroupId id = h.findGroup(name);
         if (id == kNoGroup) throw std::invalid_argument("no group named " + name);
         if (h.groupDepth(id) == 0) throw std::invalid_argument(name + " is a root group already");
         h.promoteGroup(id);
     });
-    if (!error.empty()) {
-        emit message(tr("Cannot promote the group: %1").arg(QString::fromStdString(error)));
+}
+
+bool GuidesPanel::demoteGroup(const std::string& name, const std::string& under) {
+    if (name.empty() || under.empty()) return false;
+    return edit("demote the group", "demote group", [&](GuideHierarchy& h) {
+        const GroupId id = h.findGroup(name), parent = h.findGroup(under);
+        if (id == kNoGroup) throw std::invalid_argument("no group named " + name);
+        if (parent == kNoGroup) throw std::invalid_argument("no group named " + under);
+        h.demoteGroup(id, parent);
+    });
+}
+
+bool GuidesPanel::reparentSelected(GuideId parent) {
+    if (!document_) return false;
+    const std::vector<GuideId> ids = document_->selection();
+    if (ids.empty()) {
+        emit message(tr("No guides selected: select the children to move first"));
         return false;
     }
-    emit edited();
-    return true;
+    return edit("reparent the guides", "reparent guides", [&](GuideHierarchy& h) { h.reparent(ids, parent); });
 }
 
 bool GuidesPanel::resampleGuides(int segments) {
     if (!document_) return false;
     const std::vector<GuideId> selected = document_->selection();
-    const std::string error = document_->editGuides("resample guides", [&](GuideHierarchy& h) {
+    return edit("resample the guides", "resample guides", [&](GuideHierarchy& h) {
         std::vector<GuideId> ids = selected;
         if (ids.empty()) {
             for (const HierarchyGuide& g : h.guides()) ids.push_back(g.id);
@@ -405,12 +594,45 @@ bool GuidesPanel::resampleGuides(int segments) {
             h.setPoints(id, resampleSmoothCurve(g->points.data(), g->points.size(), static_cast<std::size_t>(std::clamp(segments, 1, 256)) + 1));
         }
     });
+}
+
+bool GuidesPanel::setGroupColor(const std::string& name, const std::string& color) {
+    if (!document_) return false;
+    const std::string error = document_->setGroupColor(name, color);
     if (!error.empty()) {
-        emit message(tr("Cannot resample the guides: %1").arg(QString::fromStdString(error)));
+        emit message(tr("Cannot color the group: %1").arg(qs(error)));
         return false;
     }
-    emit edited();
+    refresh();
+    emit displayChanged();
     return true;
+}
+
+std::string GuidesPanel::rootOf(const std::string& name) const {
+    const HierarchyPtr h = document_ ? document_->session().authoredHierarchy() : nullptr;
+    if (!h) return {};
+    GroupId id = h->findGroup(name);
+    if (id == kNoGroup) return {};
+    for (int guard = 0; guard < 64; ++guard) {
+        const GuideGroup* g = h->group(id);
+        if (!g || g->parent == kNoGroup) break;
+        id = g->parent;
+    }
+    const GuideGroup* root = h->group(id);
+    return root ? root->name : std::string();
+}
+
+std::vector<std::string> GuidesPanel::siblingsOf(const std::string& name) const {
+    std::vector<std::string> out;
+    const HierarchyPtr h = document_ ? document_->session().authoredHierarchy() : nullptr;
+    if (!h) return out;
+    const GroupId id = h->findGroup(name);
+    const GuideGroup* group = id == kNoGroup ? nullptr : h->group(id);
+    if (!group) return out;
+    for (const GuideGroup& g : h->groups()) {
+        if (g.parent == group->parent && g.id != id) out.push_back(g.name);
+    }
+    return out;
 }
 
 // ---- Parts and flow -------------------------------------------------------------------------------
@@ -435,7 +657,7 @@ bool GuidesPanel::removePart(const std::string& name) {
         text = parts.empty() ? std::string() : parts.toJson();
     });
     if (!error.empty()) {
-        emit message(tr("Cannot remove the part: %1").arg(QString::fromStdString(error)));
+        emit message(tr("Cannot remove the part: %1").arg(qs(error)));
         return false;
     }
     emit edited();
@@ -446,7 +668,7 @@ bool GuidesPanel::clearParts() {
     if (!document_) return false;
     const std::string error = document_->editStoredText("clear parts", StrokeField::Parts, [](std::string& text) { text.clear(); });
     if (!error.empty()) {
-        emit message(tr("Cannot clear the parts: %1").arg(QString::fromStdString(error)));
+        emit message(tr("Cannot clear the parts: %1").arg(qs(error)));
         return false;
     }
     emit edited();
@@ -457,7 +679,7 @@ bool GuidesPanel::clearFlow() {
     if (!document_) return false;
     const std::string error = document_->editStoredText("clear flow", StrokeField::Flow, [](std::string& text) { text.clear(); });
     if (!error.empty()) {
-        emit message(tr("Cannot clear the flow: %1").arg(QString::fromStdString(error)));
+        emit message(tr("Cannot clear the flow: %1").arg(qs(error)));
         return false;
     }
     emit edited();

@@ -34,6 +34,10 @@ elseif(NOT APPLE)
     target_link_options(groomlab_capi PRIVATE "LINKER:--version-script=${_capi_map}" "LINKER:--exclude-libs,ALL"
                         "LINKER:-z,nodelete")
     set_property(TARGET groomlab_capi APPEND PROPERTY LINK_DEPENDS "${_capi_map}")
+else()
+    # macOS: the same exports (ld64 takes a pattern); the threads' pin is parallel_pool.cpp's
+    # (RTLD_NODELETE: ld64 has no -z nodelete).
+    target_link_options(groomlab_capi PRIVATE "LINKER:-exported_symbol,_gl_*")
 endif()
 
 # The SDK samples (samples/: MIT, built here as they build from an installed SDK), against this

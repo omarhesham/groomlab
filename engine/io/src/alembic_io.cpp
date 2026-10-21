@@ -411,6 +411,20 @@ void AlembicCurvesWriter::close() {
 
 namespace {
 
+// The groom's space as Unreal's importer takes points (UnrealGroomWriter: Z up, left-handed,
+// centimeters): a Y-up point (x, y, z) is (x, z, y), a Z-up one (x, -y, z), times the
+// centimeters per unit (in double, rounded once to float).
+struct UnrealSpace {
+    bool zUp = false;
+    double scale = 1.0;
+
+    Imath::V3f point(const Vec3f& p) const {
+        const double x = p.x * scale, y = p.y * scale, z = p.z * scale;
+        return zUp ? Imath::V3f(static_cast<float>(x), static_cast<float>(-y), static_cast<float>(z))
+                   : Imath::V3f(static_cast<float>(x), static_cast<float>(z), static_cast<float>(y));
+    }
+};
+
 // One curves object with Unreal's groom attributes.
 struct UnrealCurves {
     AbcG::OCurves curves;
@@ -432,7 +446,7 @@ struct UnrealCurves {
     std::vector<std::uint32_t> low, high;
     std::vector<float> widths, values;
     std::vector<Imath::V2f> uvs;
-    std::vector<Imath::V3f> colors;
+    std::vector<Imath::V3f> colors, points;
 
     UnrealCurves(AbcG::OXform& parent, const std::string& name, std::uint32_t ts, bool guides, const ExportView& first,
                  bool iridescenceAsAo = false)
@@ -465,7 +479,8 @@ struct UnrealCurves {
     }
 
     // `fixedGroup` < 0: each curve's group from the groupId channel; `firstId`: where groom_id starts.
-    void write(const ExportView& view, const std::string& group, int fixedGroup = -1, std::int32_t firstId = 0) {
+    void write(const ExportView& view, const UnrealSpace& space, const std::string& group, int fixedGroup = -1,
+               std::int32_t firstId = 0) {
         const StrandSet& s = *view.strands;
         const std::size_t strandCount = view.strandCount();
         // groom_id is a dense index, stable in export order: Unreal reads a
@@ -481,17 +496,19 @@ struct UnrealCurves {
             high[i] = static_cast<std::uint32_t>(s.ids()[i] >> 32);
             if (groupChannel) groups[i] = std::max(0, roundedInt((*groupChannel)[i]));
         }
-        // The set's widths as they are (1 per point when it has none).
+        // The set's widths (1 per point when it has none), in centimeters as the points.
         const std::vector<float>* pointWidths = &s.widths();
-        if (pointWidths->size() != view.pointCount()) {
+        if (pointWidths->size() != view.pointCount() || space.scale != 1.0) {
             widths.resize(view.pointCount());
-            for (std::size_t i = 0; i < widths.size(); ++i) widths[i] = view.width(i);
+            for (std::size_t i = 0; i < widths.size(); ++i) widths[i] = static_cast<float>(view.width(i) * space.scale);
             pointWidths = &widths;
         }
         const Abc::FloatArraySample widthSample(pointWidths->data(), pointWidths->size());
-        const auto* positions = reinterpret_cast<const Imath::V3f*>(s.positions().data());
+        // The points in Unreal's space (UnrealSpace).
+        points.resize(view.pointCount());
+        for (std::size_t i = 0; i < points.size(); ++i) points[i] = space.point(s.positions()[i]);
         const AbcG::OFloatGeomParam::Sample curveWidths(widthSample, AbcG::kVertexScope);
-        AbcG::OCurvesSchema::Sample sample(Abc::P3fArraySample(positions, view.pointCount()),
+        AbcG::OCurvesSchema::Sample sample(Abc::P3fArraySample(points),
                                            Abc::Int32ArraySample(view.counts), AbcG::kLinear, AbcG::kNonPeriodic,
                                            curveWidths);
         sample.setBasis(AbcG::kNoBasis);
@@ -576,10 +593,22 @@ struct UnrealGroomWriter::Impl {
     std::string group;
     std::size_t frames = 0;
     bool iridescenceAo = false;
+    UnrealSpace space;
 };
 
 void UnrealGroomWriter::setIridescenceAsAo(bool on) {
     if (impl_) impl_->iridescenceAo = on;
+}
+
+void UnrealGroomWriter::setSourceSpace(const std::string& upAxis, double centimetersPerUnit) {
+    if (upAxis != "Y" && upAxis != "Z") throw std::invalid_argument("the up axis is \"Y\" or \"Z\", not \"" + upAxis + "\"");
+    if (!(centimetersPerUnit > 0.0) || !std::isfinite(centimetersPerUnit)) {
+        throw std::invalid_argument("the centimeters per unit must be positive");
+    }
+    if (!impl_) throw AlembicError("writer is closed");
+    if (impl_->frames > 0) throw AlembicError("the space is set before the first frame");
+    impl_->space.zUp = upAxis == "Z";
+    impl_->space.scale = centimetersPerUnit;
 }
 
 UnrealGroomWriter::UnrealGroomWriter(const std::string& path, const std::string& name, const std::string& groupName,
@@ -621,8 +650,8 @@ void UnrealGroomWriter::writeFrame(const StrandSet& strands, const StrandSet* gu
         }
         AbcG::XformSample identity;
         o.xform.getSchema().set(identity);
-        o.strands->write(view, d.group);
-        if (o.guides) o.guides->write(guideView, d.group);
+        o.strands->write(view, d.space, d.group);
+        if (o.guides) o.guides->write(guideView, d.space, d.group);
     } catch (const AlembicError&) {
         throw;
     } catch (const std::exception& e) {
@@ -689,11 +718,11 @@ void UnrealGroomWriter::writeGroups(const std::vector<Group>& groups, const Scal
         for (std::size_t i = 0; i < o.groups.size(); ++i) {
             Impl::GroupObjects& objects = o.groups[i];
             const ExportView& strands = strandViews[i];
-            objects.strands->write(strands, objects.name, objects.id, strandIds);
+            objects.strands->write(strands, d.space, objects.name, objects.id, strandIds);
             strandIds += static_cast<std::int32_t>(strands.strandCount());
             if (objects.guides) {
                 const ExportView& guides = guideViews[i];
-                objects.guides->write(guides, objects.name, objects.id, guideIds);
+                objects.guides->write(guides, d.space, objects.name, objects.id, guideIds);
                 guideIds += static_cast<std::int32_t>(guides.strandCount());
             }
         }

@@ -7,7 +7,7 @@ those products. Their SDKs are not redistributable, so they are not in this repo
 never be committed.
 
 [docs/DEVELOPING.md](docs/DEVELOPING.md) is the full handbook: every preset, the test tiers,
-faster builds, debugging Maya.
+faster builds, debugging Maya. macOS (Apple silicon) is being ported: [docs/MACOS.md](docs/MACOS.md).
 
 ## 1. The engine only (no proprietary SDK)
 

@@ -69,14 +69,14 @@ bool continueExport(const ExportProgress& progress, std::size_t done, std::size_
 
 StrandsPtr GroomDocument::exportFrame(double seconds, float density, MeshPtr* scalp) {
     ViewRequest request;
-    request.density = density;
+    request.density = renderOverrides_.densityTimes(density);  // (the render overrides' share too)
     request.time = seconds;
     request.wantBounds = false;
     const ViewResult& view = scene_->view(request);
     if (!view.errors.empty()) throw std::runtime_error(view.errors.front());
     if (!view.strands) throw std::runtime_error("the groom gave no strands");
     if (scalp) *scalp = view.scalp ? view.scalp : scene_->rootScalpAt(seconds);
-    return view.strands;
+    return applyRenderOverrides(view.strands, renderOverrides_);  // the widths and lengths a render scales
 }
 
 ExportResult GroomDocument::exportAlembic(const std::string& path, const ExportOptions& options, const ExportProgress& progress) {
@@ -123,6 +123,7 @@ ExportResult GroomDocument::exportUsd(const std::string& path, const ExportOptio
             return it != groomFile.prototypes.end() && it->second.found ? &it->second : nullptr;
         };
         usd.prototypes = prototypes;
+        usd.scales = options.usdScaleInstancer ? UsdCurvesWriter::Options::Scales::Instancer : UsdCurvesWriter::Options::Scales::Mesh;
         ScaleMeshBuilder scales;  // bends only the scales that moved since the last frame
         UsdCurvesWriter writer(path, exportName(path), usd);
         const std::size_t count = range.count();
@@ -164,7 +165,12 @@ ExportResult GroomDocument::exportVrscene(const std::string& path, const ExportO
         for (std::size_t i = 0; i < count; ++i) {
             MeshPtr scalp;
             const double frame = range.frame(i);
-            const StrandsPtr strands = exportFrame(frameToSeconds(frame, fps), options.density, &scalp);
+            StrandsPtr strands = exportFrame(frameToSeconds(frame, fps), options.density, &scalp);
+            if (options.lod && strands && strands->strandCount() > 0) {
+                // Level of detail through the render's camera: far strands thinned, culled ones dropped.
+                const LodPlan plan = planLod(*strands, options.lodCamera, *options.lod, scalp.get());
+                strands = std::make_shared<StrandSet>(applyLod(*strands, plan));
+            }
             if (i == 0) writer.setLobes(hairLobes(scene_->session().hairLook()));  // as evaluated at the first frame
             if (i == 0 && firstScalp) *firstScalp = scalp;
             writer.writeFrame(frame, *strands, scalp.get());
@@ -186,7 +192,7 @@ ExportResult GroomDocument::exportVrscene(const std::string& path, const ExportO
 namespace {
 
 // The app's export options as every host's engine writer takes them (engine_export.h).
-EngineExportOptions engineOptions(const ExportOptions& options, EngineExportOptions::Engine engine) {
+EngineExportOptions engineOptions(const ExportOptions& options, EngineExportOptions::Engine engine, const std::string& units) {
     EngineExportOptions e;
     e.engine = engine;
     e.groups = options.groups ? std::string(kGroupIdChannel) : std::string();
@@ -195,6 +201,10 @@ EngineExportOptions engineOptions(const ExportOptions& options, EngineExportOpti
     e.iridescenceAo = options.iridescenceAo;
     e.barbDensity = options.barbDensity;
     e.barbWidthScale = options.barbWidthScale;
+    // Unreal: written in its space from the app's (Y up, a Z-up file turned on load; the file's
+    // unit), so the importer's defaults line it up with an FBX of the same scene.
+    e.upAxis = "Y";
+    e.centimetersPerUnit = usdMetersPerUnit(units) * 100.0;
     if (engine == EngineExportOptions::Engine::Unity) {
         e.scale = options.scale;
         e.pointsPerStrand = static_cast<std::size_t>(std::max(0, options.pointsPerStrand));
@@ -211,7 +221,7 @@ ExportResult GroomDocument::exportEngineGroom(const std::string& path, const Exp
     const double fps = framesPerSecond();
     ExportResult result;
     const EngineExportOptions engine =
-        engineOptions(options, unity ? EngineExportOptions::Engine::Unity : EngineExportOptions::Engine::Unreal);
+        engineOptions(options, unity ? EngineExportOptions::Engine::Unity : EngineExportOptions::Engine::Unreal, file().units);
     if (options.pointsPerStrand < 0 || options.barbPoints < 0) throw std::runtime_error("points per strand must be 0 or 2 to 4096");
     const std::string problem = engine.problem();
     if (!problem.empty()) throw std::runtime_error(problem);

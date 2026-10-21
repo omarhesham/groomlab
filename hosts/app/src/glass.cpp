@@ -103,7 +103,17 @@ void GlassPanel::setColor(const QColor& color) {
     update();
 }
 
+void GlassPanel::setDocked(bool docked) {
+    docked_ = docked;
+    if (docked) {
+        setMinimumWidth(0);
+        setMaximumWidth(QWIDGETSIZE_MAX);
+    }
+    update();
+}
+
 void GlassPanel::paintEvent(QPaintEvent* /*event*/) {
+    if (docked_) return;
     QPainter painter(this);
     paintGlass(painter, QRectF(rect()), radius_, color_, theme::glassEdge());
 }
@@ -427,12 +437,14 @@ void ValueSlider::setStacked(bool stacked) {
 
 QSize ValueSlider::sizeHint() const {
     if (stacked_) return QSize(trackWidth_, kStackedHeight);
-    return QSize(captionWidth_ + trackWidth_ + (valueWidth_ > 0 ? 10 + valueWidth_ : 0), kRowHeight);
+    return QSize(captionWidth_ + (trackWidth_ > 0 ? trackWidth_ : 96) + (valueWidth_ > 0 ? 10 + valueWidth_ : 0), kRowHeight);
 }
 
 QRect ValueSlider::trackRect() const {
     if (stacked_) return QRect(0, kCaptionLine + 6, width(), kTrack);
-    return QRect(captionWidth_, (height() - kTrack) / 2, trackWidth_, kTrack);
+    // A track width of 0: the track takes the row's width the caption and the value leave.
+    const int track = trackWidth_ > 0 ? trackWidth_ : std::max(24, width() - captionWidth_ - (valueWidth_ > 0 ? 10 + valueWidth_ : 0));
+    return QRect(captionWidth_, (height() - kTrack) / 2, track, kTrack);
 }
 
 QRect ValueSlider::valueRect() const {
@@ -835,39 +847,6 @@ void ShadowText::paintEvent(QPaintEvent* /*event*/) {
         painter.drawText(QRectF(x, 0, w + 4, h), Qt::AlignVCenter | Qt::AlignLeft, run.text);
         x += w + (run.pill.isValid() ? 8 : 0);
     }
-}
-
-// ---- FloatingPanel -------------------------------------------------------------------------------
-
-FloatingPanel::FloatingPanel(const QString& title, const QColor& dot, QWidget* content, QWidget* parent)
-    : GlassPanel(parent, 20.0), content_(content) {
-    setColor(theme::glassPanel());  // a working panel reads better a little more opaque
-    auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(16, 12, 16, 16);
-    layout->setSpacing(10);
-    auto* row = new QHBoxLayout();
-    row->setSpacing(10);
-    auto* dotLabel = new QLabel(this);
-    dotLabel->setFixedSize(9, 9);
-    dotLabel->setStyleSheet(QStringLiteral("background: %1; border-radius: 4px;").arg(dot.name()));
-    row->addWidget(dotLabel);
-    auto* titleLabel = new QLabel(title, this);
-    titleLabel->setFont(theme::uiFont(15, 800));
-    titleLabel->setStyleSheet(QStringLiteral("color: %1;").arg(theme::text().name()));
-    row->addWidget(titleLabel, 1);
-    auto* close = new RoundButton(this);
-    close->setIcon(QStringLiteral(":/groomlab/icons/ui_close.svg"), 14);
-    close->setDiameter(28);
-    close->setFill(theme::chip(), theme::chip());
-    close->setToolTip(tr("Close"));
-    connect(close, &QAbstractButton::clicked, this, [this] {
-        hide();
-        emit closed();
-    });
-    row->addWidget(close);
-    layout->addLayout(row);
-    content_->setParent(this);
-    layout->addWidget(content_, 1);
 }
 
 }  // namespace groomlab::app

@@ -31,6 +31,26 @@ if(GROOMLAB_USE_TBB)
         set(GROOMLAB_HAS_TBB ON)
         set(GROOMLAB_TBB_RUNTIME ON)
         message(STATUS "TBB: package ${TBB_VERSION}")
+    elseif(_groomlab_maya_tbb AND APPLE)
+        # macOS: the TBB inside the Maya install (GROOMLAB_MAYA_APP/MacOS: libtbb.dylib, oneTBB's
+        # libtbb.12.dylib from Maya 2026), else a devkit's lib/. Neither: the devkit's headers alone,
+        # and what links it leaves TBB's symbols to Maya's process, as FindMaya does Maya's own
+        # (a Maya plugin and the Python module load into Maya, which has loaded its TBB).
+        find_library(GROOMLAB_MAYA_TBB_LIBRARY NAMES tbb.12 tbb HINTS "${GROOMLAB_MAYA_APP}/MacOS" "${MAYA_LOCATION}/lib"
+                     NO_DEFAULT_PATH)
+        add_library(groomlab_maya_tbb INTERFACE IMPORTED GLOBAL)
+        if(GROOMLAB_MAYA_TBB_LIBRARY)
+            target_link_libraries(groomlab_maya_tbb INTERFACE "${GROOMLAB_MAYA_TBB_LIBRARY}")
+            message(STATUS "TBB: Maya bundled ${GROOMLAB_MAYA_TBB_LIBRARY}")
+        else()
+            target_link_options(groomlab_maya_tbb INTERFACE "LINKER:-undefined,dynamic_lookup")
+            message(STATUS "TBB: Maya's headers (${MAYA_LOCATION}), its library left to Maya's process "
+                           "(set GROOMLAB_MAYA_APP to link Maya.app's)")
+        endif()
+        target_include_directories(groomlab_maya_tbb INTERFACE "${MAYA_LOCATION}/include")
+        target_compile_definitions(groomlab_maya_tbb INTERFACE TBB_USE_DEBUG=0)
+        add_library(groomlab::tbb ALIAS groomlab_maya_tbb)
+        set(GROOMLAB_HAS_TBB ON)
     elseif(_groomlab_maya_tbb)
         # oneTBB (Maya 2026+) names its library tbb12; TBB 2020 tbb.
         if(EXISTS "${MAYA_LOCATION}/lib/tbb12.lib" OR EXISTS "${MAYA_LOCATION}/lib/libtbb.so.12")
@@ -73,13 +93,18 @@ endif()
 # groomlab_install_runtime(<target> <destination> <component>): Linux (ELF) binaries shipped to farms
 # and pipelines find their libraries beside them ($ORIGIN in the install's RUNPATH), and the TBB
 # they link is installed there under its soname (libtbb.so.12), so a render node needs nothing
-# installed system-wide. A no-op on Windows (each target copies and installs its DLLs itself:
-# $<TARGET_RUNTIME_DLLS>) and on macOS.
+# installed system-wide. macOS: the same with @loader_path and the TBB dylib under its install name's
+# file name (libtbb.12.dylib). A no-op on Windows (each target copies and installs its DLLs itself:
+# $<TARGET_RUNTIME_DLLS>).
 function(groomlab_install_runtime target destination component)
-    if(WIN32 OR APPLE)
+    if(WIN32)
         return()
     endif()
-    set_property(TARGET ${target} APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+    if(APPLE)
+        set_property(TARGET ${target} APPEND PROPERTY INSTALL_RPATH "@loader_path")
+    else()
+        set_property(TARGET ${target} APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+    endif()
     if(NOT GROOMLAB_TBB_RUNTIME)
         return()
     endif()
@@ -107,7 +132,15 @@ function(groomlab_install_runtime target destination component)
     endif()
     # The soname the binaries ask for (libtbb.so.12), the real file behind it installed under it.
     get_filename_component(_name "${_file}" NAME)
-    string(REGEX MATCH "^lib[^.]+\.so\.[0-9]+" _soname "${_name}")
+    if(APPLE)
+        # (macOS: libtbb.12.17.dylib, whose install name is @rpath/libtbb.12.dylib.)
+        set(_soname "")
+        if(_name MATCHES "^(lib[^.]+[.][0-9]+)[.].*dylib$")
+            set(_soname "${CMAKE_MATCH_1}.dylib")
+        endif()
+    else()
+        string(REGEX MATCH "^lib[^.]+\.so\.[0-9]+" _soname "${_name}")
+    endif()
     if(NOT _soname)
         set(_soname "${_name}")
     endif()

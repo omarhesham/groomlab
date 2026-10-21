@@ -17,9 +17,9 @@
     "empty": {
       "title": "Start a groom",
       "items": [
-        {"id": "groom.create", "tip": "Select the scalp mesh (and any guide curves), then click: a new groom on it"},
+        {"id": "groom.create", "tip": "Select the scalp mesh (and any guide curves), then click: a new groom on it", "tips": {"app": "Pick a mesh file (.obj or .abc): a new groom on it"}},
         {"submenu": "Add Sample Mesh", "id": "samples", "tip": "No mesh yet? A sample to start from, added at the origin and selected: Nika (a head and shoulders), Manny (a head), a wolf or Buddy (a posable rig)", "ref": "menus/samples"},
-        {"submenu": "Import", "id": "import", "tip": "Bring a groom in: XGen, Yeti, Alembic curves (on the selected mesh) or a groom file", "ref": "menus/output.import"}
+        {"submenu": "Import", "id": "import", "tip": "Bring a groom in: XGen, Yeti, Alembic curves (on the selected mesh) or a groom file", "tips": {"app": "Bring a groom in: Alembic curves or a groom file"}, "ref": "menus/output.import"}
       ]
     },
     "sections": [
@@ -29,12 +29,12 @@
       {"id": "output", "label": "Output", "expanded": true}
     ],
     "output": [
-      {"id": "sim.range", "tip": "Step the Simulate nodes over the playback range into their cache (Simulate > Add Simulate Node first); Esc stops"},
+      {"id": "sim.range", "tip": "Step the Simulate nodes over the playback range into their cache (Simulate > Add Simulate Node first); Esc stops", "tips": {"app": "Step the Simulate nodes over the timeline's range into their cache (Simulate > Add Simulate Node first); Esc stops"}},
       {"submenu": "Export", "id": "export", "tip": "The strands, cards or a groom file for other apps and engines", "ref": "menus/output.export"},
-      {"submenu": "Render", "id": "render", "tip": "Arnold (from a groom file, as curves, a turntable), RenderMan (prman, in any Maya) or V-Ray (Standalone in any Maya; the V-Ray for Maya hook, 2024+, experimental)", "ref": "menus/output.render"},
-      {"submenu": "Studio", "id": "studio", "tip": "Studio lighting for showcase renders in Arnold: a backdrop, area lights and a camera round the groom, by preset; Remove Studio puts things back", "ref": "menus/output.studio"},
+      {"submenu": "Render", "id": "render", "tip": "Arnold (from a groom file, as curves, a turntable), RenderMan (prman, in any Maya) or V-Ray (Standalone in any Maya; the V-Ray for Maya hook, 2024+, experimental)", "tips": {"app": "RenderMan (prman) or V-Ray Standalone: this frame or a turntable, as the viewport frames and lights it"}, "ref": "menus/output.render"},
+      {"submenu": "Studio", "id": "studio", "tip": "Studio lighting for showcase renders in Arnold: a backdrop, area lights and a camera round the groom, by preset; Remove Studio puts things back", "tips": {"app": "Lookdev lighting presets for the viewport (Look mode)"}, "ref": "menus/output.studio"},
       {"id": "groom.transfer", "label": "Transfer...", "tip": "Move the groom onto another mesh (Transfer Groom to Scalp...)"},
-      {"submenu": "Import", "id": "import", "tip": "XGen, Yeti, Alembic curves or a groom file", "ref": "menus/output.import"}
+      {"submenu": "Import", "id": "import", "tip": "XGen, Yeti, Alembic curves or a groom file", "tips": {"app": "Alembic curves or a groom file"}, "ref": "menus/output.import"}
     ],
     "starter": {
       "title": "Your first groom",
@@ -51,7 +51,8 @@
       "symmetryTip": "Alt+Shift+X turns it on or off (with the GroomLab hotkey set: GroomLab > Help > Install GroomLab Hotkeys). While it is on, a red line on the scalp shows the mirror plane for as long as a brush is on; the brushes that mirror (and Place, Draw, Select) use it.",
       "eraseNote": "Erase removes guides (with their children), parts and flow arrows, not the scattered hair. To take hair away, paint the density map holding Ctrl (Paint tab > + New Map > for a setting > Density).",
       "flowArrows": "Drag to lay arrows; drag over arrows to comb them; Ctrl erases.",
-      "flowSinks": "Click to place, the size of the brush; Ctrl-click removes sinks."
+      "flowSinks": "Click to place, the size of the brush; Ctrl-click removes sinks.",
+      "labels": {"app": {"gestures": "B / M + drag (or middle-drag / Shift+middle-drag): radius / strength · Shift+click a guide: solo it (the rest frozen) and brush its group · Shift+click off a guide: unfreeze all · Page Up / Down: the level · Alt+Shift+X: symmetry · Y + click: the marking menu"}}
     }
   }
 }

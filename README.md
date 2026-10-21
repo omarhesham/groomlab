@@ -1974,7 +1974,7 @@ gets more clumps of the same size than a head, not the same number stretched ove
 | Fur | `creature_fur` | Fur for a whole animal: laid by flow arrows (Flow, no guides), soft tufts about a centimetre across, lighter tips |
 | Fur | `agouti_fur` | The creature fur in wild-type banding: guard hairs dark, a pale band, a black tip, the bands wandering hair to hair over a plain undercoat (HairColor, then Bands with guard hairs) |
 | Fur | `white_wool` | Dense, crimped white fleece in soft locks: a picked off-white (HairColor's `color` mode, so no pigment browns it), a little brightness variation, white tips |
-| Fur | `flow_with_guides` | Flow everywhere, guides only for accents (Interpolate's `limitDistance`, the `guideInfluence` channel) |
+| Fur | `flow_with_guides` | Flow fur and guided, clumped hair blended by a painted map (`guideAreas`, made black on apply: paint it white where the guides take over) |
 | Feathers | `layered_feathers` | The contour design's feathers laid over one another like roof tiles and off the body (Plume) |
 | Feathers | `feathers_contour`, `feathers_down`, `feathers_flight`, `feathers_afterfeather`, `feathers_barred` | The Feathers tool's designs, as Compounds (see Feathers; `feathers_barred`: Color patterns) |
 | Feathers | `feathers_spotted`, `feathers_eye_spot`, `feathers_iridescent` | The barred design's other color patterns: pale spots on both vanes, a ringed eye spot that shimmers blue, a dark feather shimmering green to blue (stylized; see Color patterns) |
@@ -2233,19 +2233,22 @@ the skin, heads the way the field points there and bends toward the skin along i
 arrows, strands lie along their own heading. `Scatter -> Length -> Flow -> Width` grooms fur with
 no guides at all: the `creature_fur` preset is a starting point.
 
-**Guides in a flow groom.** Put an `Interpolate` after Flow and give it a `limitDistance` (its
-Limit group, with `falloff` and `influenceChannel`, which do nothing at 0; the
-`flow_with_guides` preset does): each guide then only takes the strands within that distance of
-its root, blending by the `falloff` curve (full at the guide, none at the edge; edit it in the
-Graph Editor), and everything farther keeps the flow. Place or Draw guides where you want a
-tuft, a cowlick or longer hair, in their own group if you like (e.g. `accents`). `take` "length"
-keeps the flow's direction and only brings nearby strands to the guides' length. The influence
-(0-1) is written to the `guideInfluence` channel (`influenceChannel`), so later nodes can use it through an attribute
-map (clump only near the guides, say). With `limitDistance` 0, Interpolate shapes every strand, as usual.
-The preset also clumps only the guided hair: the Clump's `strength` and `centerWeight`
-both read the `guideInfluence` channel (an attribute map), so clumps form around the guides and
-fade out with their reach, and the flow elsewhere stays smooth. Nothing in it depends on the
-groom's size.
+**Guides in a flow groom.** The `flow_with_guides` preset grooms the coat along the flow and lets
+the guides take over where you paint: two looks of Scatter's strands joined by a **Blend**, `a`
+the fur (`Scatter -> Length -> Flow`), `b` the guides' shape and length (`Interpolate -> Clump`),
+its `mix` driven by a **Map** node reading the vertex map `guideAreas`. Applying the preset makes
+the map black, so the groom starts as fur everywhere (a guide drawn changes nothing yet); paint it
+white in Groom Tools > Paint where a tuft, a ruff, a mane or longer hair should follow the guides
+(grays blend the two). Place or Draw those guides in their own group if you like (e.g. `accents`).
+
+The other way is a radius: put an `Interpolate` after Flow and give it a `limitDistance` (its
+Limit group, with `falloff` and `influenceChannel`, which do nothing at 0). Each guide then only
+takes the strands within that distance of its root, blending by the `falloff` curve (full at the
+guide, none at the edge; edit it in the Graph Editor), and everything farther keeps the flow.
+`take` "length" keeps the flow's direction and only brings nearby strands to the guides' length.
+The influence (0-1) is written to the `guideInfluence` channel (`influenceChannel`), so later
+nodes can use it through an attribute map (a Clump whose `strength` reads it clumps only near the
+guides). With `limitDistance` 0, Interpolate shapes every strand, as usual.
 
 **Presets fit the scalp.** A preset records the scalp size it was made on (`"size"`: the
 largest extent of the scalp's bounding box). `apply_preset` (and the Graph Editor's Presets menu)
@@ -2911,7 +2914,16 @@ an Alembic file in Unreal's groom format:
   (`shafts=None`, the default; `shafts=True` keeps them as strands); feather groups get no guides
   (`feather_guides=True`: their shafts); `lod="mid"`/`"low"` thins the barbs.
 - **Frames:** the current frame makes a static groom; a frame range makes a groom cache.
-- **Importing:** import the .abc in Unreal as a Groom.
+- **Space:** the points and widths are written in Unreal's own space (Z up, left-handed,
+  centimeters), turned from the scene's the way Unreal's FBX importer turns a mesh from the same
+  scene: a Y-up scene's (x, y, z) becomes (x, z, y), a Z-up one's (x, -y, z) (Maya's up axis is
+  read from the scene; Maya's centimeters whatever the UI unit; the app's file unit; Blender's
+  meters times 100 times the unit scale). Root UVs, colors and IDs are as they are.
+- **Importing:** import the .abc in Unreal as a Groom with the **default conversion settings**
+  (Rotation 0, 0, 0; Scale 1, 1, 1): no rotation or flip is needed. The groom lines up with the
+  head imported as FBX from the same scene (the FBX importer's defaults too). For hair that follows
+  the character, import the head as a skeletal mesh and bind the groom to it with a Groom Binding
+  asset (Create Binding on the groom, then the binding on the Groom component).
 
 #### Feathers in Unreal (the Meerkat eagle workflow)
 

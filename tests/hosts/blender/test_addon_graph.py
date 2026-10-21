@@ -596,6 +596,20 @@ class GraphEditorTest(unittest.TestCase):
         self.assertFalse(hasattr(bpy.types, "VIEW3D_PT_groomlab_presets") or hasattr(bpy.types, "VIEW3D_PT_groomlab_graph"))
         self.assertEqual(bpy.ops.groomlab.graph_open(), {"FINISHED"})  # no interface here: the tree is made
 
+    def test_8b_preset_makes_the_maps_it_reads(self):
+        # A preset reading a painted map the groom lacks (flow_with_guides' guideAreas): the map is
+        # made (black, a vertex map), so the groom evaluates at once; applied again, it is kept.
+        head = self.head
+        self.assertNotIn("guideAreas", {m["name"] for m in ge.painted_maps(head)})
+        self.assertEqual(bpy.ops.groomlab.graph_preset(name="flow_with_guides", mode="APPLY"), {"FINISHED"})
+        self.assertIn(("guideAreas", "vertices"), {(m["name"], m["kind"]) for m in ge.painted_maps(head)})
+        settle(head)
+        self.assertEqual(groom.runtime(head).errors, [])
+        self.assertEqual(bpy.ops.groomlab.graph_preset(name="flow_with_guides", mode="APPLY"), {"FINISHED"})
+        self.assertEqual([m["name"] for m in ge.painted_maps(head)].count("guideAreas"), 1)
+        tree = self.tree()
+        self.assertIn("blend", {n.gl_name for n in tree.nodes if gt.ours(n)})
+
     def test_9_remove_groom(self):
         self.assertEqual(bpy.ops.groomlab.remove_groom(), {"FINISHED"})
         self.assertIsNone(gt.tree_of(self.head))

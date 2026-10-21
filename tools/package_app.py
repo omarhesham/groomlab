@@ -6,7 +6,7 @@
 
 1. Installs the build's App component (cmake --install --component App, hosts/app/CMakeLists.txt)
    into a clean staging folder: GroomLab.exe, Qt's DLLs and plugins (windeployqt), tbb.dll, the
-   MSVC runtime app-local, the graph presets, THIRD_PARTY_NOTICES.txt, licenses/ (Qt's LGPL
+   MSVC runtime app-local, the graph presets, the sample meshes (meshes/: CC BY 4.0), THIRD_PARTY_NOTICES.txt, licenses/ (Qt's LGPL
    notice and texts) and README_BETA.txt (hosts/app/package).
 2. Checks it: every file the manifest below requires is there, nothing it forbids (symbols, test
    programs, Qt's debug DLLs, translations) is, and every DLL each binary imports is in the folder
@@ -60,6 +60,8 @@ REQUIRED = [
     "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "vcruntime140.dll", "vcruntime140_1.dll",
     "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "README_BETA.txt",
     "licenses/QT_NOTICE.txt", "licenses/LGPL-3.0.txt", "licenses/GPL-3.0.txt",
+    # GroomLab > Add Sample Mesh (hosts/maya/meshes, CC BY 4.0)
+    "meshes/nika_head.obj", "meshes/manny_head.obj", "meshes/wolf.obj",
 ]
 FORBIDDEN = [
     r".*\.(pdb|ilk|lib|exp)$",
@@ -165,6 +167,10 @@ def check_manifest(folder):
     shipped_presets = [f[len("presets/"):] for f in files if f.startswith("presets/")]
     if not source_presets or shipped_presets != source_presets:
         problems.append("presets/ differs from hosts/maya/presets")
+    source_meshes = [f for f in files_of(os.path.join(ROOT, "hosts", "maya", "meshes")) if f.lower().endswith(".obj")]
+    shipped_meshes = [f[len("meshes/"):] for f in files if f.startswith("meshes/")]
+    if not source_meshes or shipped_meshes != source_meshes:
+        problems.append("meshes/ differs from the OBJs of hosts/maya/meshes")
     source_nodes = files_of(os.path.join(ROOT, "hosts", "maya", "nodes"))
     shipped_nodes = [f[len("nodes/"):] for f in files if f.startswith("nodes/")]
     if not source_nodes or shipped_nodes != source_nodes:
@@ -328,6 +334,7 @@ def smoke(zip_path, build, qt_dir, window=True):
         "PATH": ";".join([os.path.join(windows, "System32"), windows, os.path.join(windows, "System32", "Wbem")]),
         "TEMP": work, "TMP": work,
         "APPDATA": os.path.join(work, "roaming"), "LOCALAPPDATA": os.path.join(work, "local"),  # its settings, not yours
+        "GROOMLAB_SETTINGS_DIR": os.path.join(work, "roaming"),  # (QSettings: Windows' Roaming folder whatever APPDATA says)
         "GROOMLAB_NO_UPDATES": "1",
         "QT_FORCE_STDERR_LOGGING": "1", "QT_DEBUG_PLUGINS": "1",
     })

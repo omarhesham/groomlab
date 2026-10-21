@@ -421,21 +421,20 @@
   },
   "flow_with_guides": {
    "channels": {
-    "strand.clumpId": "f5c2b6c703f8f6ed",
-    "strand.colorB": "6a2222c502bd3789",
-    "strand.colorG": "e63437c51a91db42",
-    "strand.colorR": "ba4eebbc894accf2",
-    "strand.guideInfluence": "fe6d2f5bac6ed403",
-    "strand.melanin": "035df92a7a33bd55",
+    "strand.blend": "bb9acfb6ef1df468",
+    "strand.colorB": "31dc83f7af745669",
+    "strand.colorG": "be203ffe39c764b3",
+    "strand.colorR": "019b47192506a7e8",
+    "strand.melanin": "13d0d463a431142b",
     "strand.melaninRedness": "7ca6c66b74842a4a"
    },
-   "everything": "07c081743b568c79",
+   "everything": "3e20ace4e796ef94",
    "ids": "e1d6b354f4cac720",
    "points": 427625,
-   "positions": "5d2ef57b47688172",
+   "positions": "da4cf0998faa8a18",
    "roots": "8d07691717968c79",
    "strands": 38875,
-   "widths": "5cedcec008ecd3e3"
+   "widths": "029589af50bc9f54"
   },
   "flyaways": {
    "channels": {
@@ -544,7 +543,21 @@
    "widths": "5d17210c6167c358"
   },
   "painted_maps": {
-   "error": "node 'groomMasks': Map: no map or image named 'groomMasks' (Groom Tools > Paint > New... makes a map)"
+   "channels": {
+    "strand.clumpId": "f01ba8c62e8ce51c",
+    "strand.colorB": "ce1dd5b7fdf30e59",
+    "strand.colorG": "a108d099dac73333",
+    "strand.colorR": "46d70c85d804a9f4",
+    "strand.melanin": "fb60260099ee8637",
+    "strand.melaninRedness": "88dc3bf9277a8513"
+   },
+   "everything": "4e557c5f42d18a0e",
+   "ids": "20ed751c376a9e91",
+   "points": 86241,
+   "positions": "93b9c58ae82f9785",
+   "roots": "3489599712871aca",
+   "strands": 5073,
+   "widths": "36095538c37a889b"
   },
   "parity_nodes": {
    "channels": {

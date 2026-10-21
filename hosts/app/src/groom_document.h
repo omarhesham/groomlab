@@ -29,10 +29,13 @@
 #include "groomlab/groom_file.h"
 #include "groomlab/groom_scene.h"
 #include "groomlab/groom_session.h"
+#include "groomlab/lod.h"
+#include "groomlab/render_overrides.h"
 #include "groomlab/guide_hierarchy.h"
 #include "groomlab/scalp_maps.h"
 #include "groomlab/scalp_paint.h"
 #include "groomlab/simulation.h"
+#include "groomlab/strand_geometry.h"
 #include "groomlab/stroke.h"
 
 namespace groomlab::app {
@@ -57,6 +60,10 @@ struct FrameRange {
 struct ExportOptions {
     FrameRange frames;
     float density = 1.0f;  // the share of the strands written (1: every strand)
+    // Level of detail through a camera (lod.h: Rendering > Level of Detail), for a V-Ray frame:
+    // planned on each frame's strands. Unset: every strand.
+    std::optional<LodSettings> lod;
+    LodCamera lodCamera;
     // Unreal's groom and Unity's strands, as the Maya host's export writes them (engine_export.h):
     // each groom group (the groupId channel) its own curves object, and (Unreal) the primary
     // guides as the guides Unreal simulates.
@@ -85,6 +92,9 @@ struct ExportOptions {
     // resolution, format, bit depth, padding, supersampling, file names).
     CardMapPreset mapPreset;
     CardMapExport mapSettings;
+    // USD: the scales as their bent mesh (exact), or as a PointInstancer of their plates (Export >
+    // Scales Instancer (USD): what Unreal imports as instanced static meshes).
+    bool usdScaleInstancer = false;
 };
 
 // After each frame: the frames done of the count; false stops the export (what was written is
@@ -240,6 +250,52 @@ public:
     // the name made is written to *made. The connections of its strands input and output are
     // the caller's (connectNodes).
     std::string addNode(const std::string& type, float x, float y, std::string* made, const std::string& name = {});
+    // A link of the graph: from's output (`output` "": its first) feeding to's `input`.
+    struct NodeLink {
+        std::string from, output, to, input;
+    };
+    // How addNode wires the node it adds, in the same undo step (Maya's Graph Editor's add_node):
+    // put into `onLink` (Tab over a wire); else after node `after` (Add Node with one node
+    // selected): into the first link from it the new node fits in, else fed by it.
+    struct AddOptions {
+        std::string name;        // "" the type's, made unique
+        nlohmann::json params;   // its params (null: the defaults)
+        std::optional<NodeLink> onLink;
+        std::string after;
+    };
+    // addNode, wired as `options` say; *wired: the node it was wired after ("" none: added unlinked),
+    // *note: why the link refused it ("Not inserted: ...", the node added unlinked).
+    std::string addNode(const std::string& type, float x, float y, std::string* made, const AddOptions& options,
+                        std::string* wired = nullptr, std::string* note = nullptr);
+    // A node put into a link (a node dropped on a wire: Maya's insert_on_link): it reads `link.from`
+    // on its first input that takes from's output, `link.to` reads it. One undo step; "" or why not
+    // (nothing changes then).
+    std::string insertOnLink(const std::string& node, const NodeLink& link);
+    // A Compound's inner param ("node.param") shown on it as a param of its own (named after the
+    // param, node + Param when the compound has that name), or no longer (Maya's Show Inner Param:
+    // what Save as Node keeps). One undo step; "" or the error. shownInnerParams: the targets shown.
+    std::string showInnerParam(const std::string& compound, const std::string& target, bool shown);
+    std::vector<std::string> shownInnerParams(const std::string& compound) const;
+    // Drive with Slider: a Control node (named <param>Control, its slider from 0 to 1 starting at
+    // the param's value) beside the node, feeding the param through its input port (exposed). One
+    // undo step; the Control node's name to *made. "" or the error.
+    std::string addControl(const std::string& node, const std::string& param, std::string* made = nullptr);
+    // The Control nodes' sliders (the Properties dock's Controls, Maya's ctl_ attributes): each
+    // top-level Control node's control name, its slider's range and its value now (the session's
+    // controls, else the node's default), in the graph's order.
+    struct ControlSlider {
+        std::string node, name;
+        double value = 0.0, min = 0.0, max = 1.0;
+    };
+    std::vector<ControlSlider> controlSliders() const;
+    // A control's value (GroomSession::setControls; saved in the file's "controls"): dirty, no undo
+    // step (a slider as Maya's keyable attribute, which the host keeps). False for no such control.
+    bool setControlValue(const std::string& name, double value);
+    // Bake Node to Guides (Maya's bake.bake_guides): a node's strands (or guides), evaluated now at
+    // `density`, become primary guides of root group `group` (made when new). One undo step; the
+    // guides made to *count. "" or the error.
+    std::string bakeNodeToGuides(const std::string& node, const std::string& group = "baked", float density = 1.0f,
+                                 std::size_t* count = nullptr);
     // Removes the node with every connection to or from it.
     std::string removeNode(const std::string& node);
     // Removes several nodes in one undo step (the output node is left; "" or the error when
@@ -382,6 +438,11 @@ public:
     // history step (the window keeps its own per photo), dirty.
     const std::string& referencePhotos() const;
     void setReferencePhotos(std::string json);
+    // Render overrides (Properties > Rendering > Render Overrides, Maya's renderDensity,
+    // renderWidthScale, renderLengthScale): every export and render the document writes takes
+    // them (the density times the export's, the widths and lengths scaled); the viewport never.
+    void setRenderOverrides(const RenderOverrides& overrides) { renderOverrides_ = overrides; }
+    const RenderOverrides& renderOverrides() const { return renderOverrides_; }
 
     // The guide selection: highlighted in the display; what brushes with selectedOnly act on.
     // Not in the history (as Maya's selection is not).
@@ -392,6 +453,20 @@ public:
     const std::set<std::string>& hiddenGroups() const { return hiddenGroups_; }
     void setGroupHidden(const std::string& name, bool hidden);
     std::string hiddenGroupsText() const;  // DisplaySettings::hiddenGuideGroups' form
+    // The groups' own viewport colors ("#rrggbb" by group name, Maya's guideGroupColors): the
+    // other groups' colors are automatic (their level's in the theme, Maya 0.19.4's). Kept with
+    // the window's session (as the hidden groups are), drawn by updateDisplay.
+    const std::map<std::string, std::string>& groupColors() const { return groupColors_; }
+    std::string groupColorsText() const;  // DisplaySettings::guideGroupColors' form ("name:#rrggbb ...")
+    // A group's own color ("#rrggbb"), or "" for the automatic one again: one undo step (none when
+    // nothing changes). "" or why not.
+    std::string setGroupColor(const std::string& group, const std::string& color);
+    // A group renamed (graph params naming it are the artist's to follow): its color and hidden
+    // state go with it, one undo step. "" or why not.
+    std::string renameGroup(const std::string& from, const std::string& to);
+    // The graph's nodes naming a group (Maya's group_users): Guides nodes' group and exclude, as
+    // (node, param) pairs.
+    std::vector<std::pair<std::string, std::string>> groupUsers(const std::string& group) const;
 
     // ---- Painted maps (each edit one undo step) ------------------------------------------------
     // The groom's maps: the scalp maps the session holds (vertex and texture maps, which the
@@ -406,8 +481,41 @@ public:
     // Renames a map; the Map nodes and map params reading it follow, as does a texture map's
     // file when it is named after the map. "" or why not.
     std::string renameMap(const std::string& from, const std::string& to);
-    // Removes a map (a texture map's file stays on disk). "" or why not.
-    std::string removeMap(const std::string& name);
+    // Removes a map (Maya's remove_map), one undo step: what reads it lets go of it (its Map nodes
+    // removed with their links, map params and the map names HairColor and Interpolate read back
+    // to the node's defaults). A texture map's file is deleted too with `deleteFile` when GroomLab
+    // made it (it is in the maps folder) and no other map reads it; undo writes it back.
+    // *fileDeleted says whether it went. "" or why not.
+    std::string removeMap(const std::string& name, bool deleteFile = false, bool* fileDeleted = nullptr);
+    // What reads a map, as (node, param) pairs: a param a Map node of the map feeds, a map param
+    // (guide or colorSet source) naming it, HairColor's map, Interpolate's regionMap (Maya's
+    // map_users; the top level of the graph).
+    std::vector<std::pair<std::string, std::string>> mapUsers(const std::string& name) const;
+    // A texture map whose image is not there ("" when it is, or the map is no texture map): the
+    // path it expects (Maya's missing-file marker).
+    std::string missingMapFile(const std::string& name) const;
+    // A new texture map reading the image `path` (Maya's import_map): named `wanted`, else after
+    // the file (a free name); color when the image has color. A PNG is read in place, any other
+    // image copied into the maps folder as <map>.png (which needs the groom saved). One undo step
+    // (the copy is undone too). *made the map's name. "" or why not.
+    std::string importMap(const std::string& path, std::string* made = nullptr, const std::string& wanted = {});
+    // Map `name` (any kind) reads the image `path` as a texture map, its channels kept (a guide
+    // layer: gray), the file rules of importMap (Maya's set_map_texture). One undo step.
+    std::string relinkMap(const std::string& name, const std::string& path);
+    // A texture map's image read again after it changed outside (the paint the strokes kept
+    // dropped; the graph reads files whose stamp changed). Not an undo step. "" or why not.
+    std::string reloadMap(const std::string& name);
+    // The map resampled into another kind, its name and readers kept (Maya's convert_map):
+    // guides, vertices or texture (`resolution` square, a free <map>.png in the maps folder). A
+    // color map on the guides keeps its luminance. One undo step.
+    std::string convertMap(const std::string& name, const std::string& kind, int resolution = 1024);
+    // Gray (1: its luminance) or color (4) (Maya's set_map_channels); a guide layer stays gray.
+    // One undo step (none when it has them already).
+    std::string setMapChannels(const std::string& name, int channels);
+    // The map set to `value` (a guide layer on the selected guides only with `selectedOnly`), or a
+    // color map to `color` in the channels of `channelMask` (Maya's fill_map). One undo step.
+    std::string fillMap(const std::string& name, float value, bool selectedOnly = false, const PaintColor* color = nullptr,
+                        unsigned channelMask = kAllChannels);
     // Where a texture map's file goes: <groom folder>/masks/<groom name>/ ("" until the groom is
     // saved), and the file of a texture map resolved against the groom's folder.
     std::string mapsDirectory() const;
@@ -453,6 +561,68 @@ public:
     // The output at full density (no point budget) as Alembic curves at the document's time, root
     // UVs from the scalp; throws std::runtime_error. Returns the strands written.
     std::size_t exportAlembic(const std::string& path);
+
+    // ---- GroomLab > Add, Simulate, Import, Utilities (groom_document_output.cpp) --------------
+    // What Maya's menu helpers (hosts/maya/scripts/groomlab: motion.py, sim.py, collision.py,
+    // feathers, braids) and Blender's pipeline.py do to the graph, each one undo step of the
+    // graph (a guide group made on the way is a step of its own). The name made goes to *made.
+    // "" or why not (nothing changes then).
+    // A node of `type` with `params` just before the output (before the Collide and Cards nodes
+    // ending its chain: Maya's motion_anchor): Wind, Jiggle.
+    std::string addMotionNode(const std::string& type, const nlohmann::json& params, std::string* made = nullptr);
+    // A Simulate node between the guides and every Interpolate they feed (Maya's sim.add_simulate).
+    std::string addSimulateNode(std::string* made = nullptr);
+    // A ColliderMesh node reading the session's mesh `meshName` (a prop's name) and a Collide node
+    // just before the output fed by it (and by the scalp): Maya's add_collider. An existing
+    // ColliderMesh of that name: the graph left alone (*made its name).
+    std::string addCollider(const std::string& meshName, std::string* made = nullptr);
+    // Feathers (Maya's add_feathers): each design a preset's feather Compound ((name, the preset's
+    // JSON): feathers_<design>), several sharing the shafts through a Split (`weights` their
+    // shares, empty: equal), merged with the hair before the output. `source` "scatter": a new
+    // Scatter shaped by the guides; "guides": guide group `group` (made when missing), each of its
+    // guides a hand-placed feather. *made the first design's node.
+    std::string addFeathers(const std::vector<std::pair<std::string, std::string>>& designs, const std::vector<double>& weights,
+                            const std::string& source, const std::string& group = "feathers", std::string* made = nullptr);
+    // A Braid node after the Interpolate, its paths guide group `group` (made when missing; draw the
+    // paths in it with the Draw tool): Maya's add_braid. `style` three, fishtail, rope or cornrow.
+    std::string addBraid(const std::string& style, const std::string& group = "braids", std::string* made = nullptr);
+    // A root guide group of that name, made when missing (one undo step then).
+    std::string ensureGuideGroup(const std::string& name);
+    // Import > Alembic Curves (Maya's import_guides_from_alembic): the graph's "guides" node becomes
+    // an ImportCurves node reading `path` (every curve, or those under `object`), rooted on the
+    // scalp, resampled to `samples` points (0: as read). *curves the curves found.
+    std::string importAlembicCurves(const std::string& path, const std::string& object = {}, int samples = 24,
+                                    std::size_t* curves = nullptr);
+    // Utilities > Strands to Mesh: the strands at the document's time (full density, at most
+    // `maxStrands` thinned by ID) as one polygon mesh (strand_geometry.h) written as an OBJ (v, vt,
+    // f: one uv set, root to tip; with strandUVs each strand's cell of the grid instead). *strands
+    // the strands written.
+    std::string writeStrandMesh(const std::string& objPath, const StrandMeshOptions& options, std::size_t maxStrands = 100000,
+                                std::size_t* strands = nullptr);
+    // Utilities > Bake Scale Maps (Maya's bake_scale_maps): the scales baked onto the scalp's uvs as
+    // <directory>/<name>_ScaleNormal, _ScaleHeight (16-bit) and _ScaleColor PNGs (UDIM tiles when the
+    // uvs leave 0-1). *files the files written.
+    std::string bakeScaleMaps(const std::string& directory, const std::string& name, int resolution = 2048,
+                              std::vector<std::string>* files = nullptr);
+    // Find Missing Files (Maya's missing_files / find_missing_files): what the groom names that is
+    // not there: texture maps ("maps", key the map), graph params naming files ("params", key
+    // node.param, inside compounds compound/node.param), paths as stored.
+    struct MissingFile {
+        std::string kind, key, stored;
+    };
+    std::vector<MissingFile> missingFiles() const;
+    struct RelinkReport {
+        std::vector<std::pair<MissingFile, std::string>> relinked;               // and the file found
+        std::vector<MissingFile> stillMissing;                                   // nothing of its name
+        std::vector<std::pair<MissingFile, std::vector<std::string>>> ambiguous;  // several fit
+    };
+    // The missing files relinked to files of the same name in `folder` (and its subfolders when
+    // `recursive`): several of one name told apart by the ends of their folders, else reported
+    // ambiguous. A map relinked is a step of its own; the params one graph step.
+    std::string findMissingFiles(const std::string& folder, bool recursive, RelinkReport* report);
+    // A document opened from an autosave copy taking the place of the file it was saved for
+    // (`path`, "" an untitled groom): that path, unsaved changes.
+    void recoveredAs(const std::string& path);
 
     // ---- Exports (groom_exports.cpp) ---------------------------------------------------------
     // Each writes the frames of `options.frames` (the groom evaluated at each, at `density`:
@@ -549,6 +719,60 @@ public:
     // The bakes the groom names (absolute paths), by node.
     const std::map<std::string, SimCacheRef>& simulationBakes() const { return simBakes_; }
 
+    // ---- Tubes (groom_tubes.cpp; tube.h, guide_hierarchy.h) ------------------------------------
+    // Groom Tools' Tubes section over the core, as Maya's groomLabGuides -setTube, -tubeTargets,
+    // -editTubeShape and Blender's helper (tube_*) do it. Widths are the size shown (the stored
+    // width times GuideHierarchy::scale). Every edit is one undo step; "" or why it was refused
+    // (nothing recorded then).
+    struct TubeTargets {
+        // "selection" (the selected guides), "solo" (the guides left unfrozen while others are
+        // frozen, a brush's Shift+click, not their children; or a groom's only guide) or "none".
+        std::string source = "none";
+        std::vector<GuideId> guides;
+        std::vector<std::string> shapes;  // the shapes among them, in the guides' order, once each
+        std::optional<TubeProfile> tube;  // the first one's (widths as stored)
+        float scale = 1.0f;               // the hierarchy's: shown width = stored width * scale
+    };
+    TubeTargets tubeTargets() const;
+    struct TubeShapeInfo {
+        std::string name;
+        bool builtin = true;
+        std::vector<SectionPoint> points;  // control points (a built-in's: builtinTubeShapePoints)
+        bool smooth = true;
+        std::size_t users = 0;  // guides taking it (library shapes)
+    };
+    // The built-ins (tubeShapeNames' order), then the groom's library by name.
+    std::vector<TubeShapeInfo> tubeShapes() const;
+    // An edit of each guide's tube as editedTube reads it ({"shape", "width", "aspect", "twist",
+    // "scaleWidth", "smooth", "passes", "samples"}; widths as shown), named `label`.
+    std::string editTubes(const std::vector<GuideId>& guides, const nlohmann::json& edit, const std::string& label = "set tube");
+    std::string scaleTubes(const std::vector<GuideId>& guides, float factor);  // every width times factor, the taper kept
+    // The lists evened out along each guide (`channel`: the Shape brush's width, flatness or
+    // twist, or all), the root's and tip's sections kept.
+    std::string smoothTubes(const std::vector<GuideId>& guides, const std::string& channel, int passes = 3);
+    // The library: a new shape (with `give`, those guides take it in the same step: Edit as
+    // Custom), new points and/or smoothness (every guide taking it follows), a rename (its guides
+    // keep it), a removal (its guides become round; how many to *users).
+    std::string addTubeShape(const std::string& name, const std::vector<SectionPoint>& points, bool smooth,
+                             const std::vector<GuideId>& give = {});
+    std::string setTubeShape(const std::string& name, const std::vector<SectionPoint>* points, std::optional<bool> smooth);
+    std::string renameTubeShape(const std::string& from, const std::string& to);
+    std::string removeTubeShape(const std::string& name, std::size_t* users = nullptr);
+    // A library shape's outline shown on the groom as `points` while the editor drags them (no
+    // step, the stored guides untouched): until endTubePreview or the next tube edit.
+    std::string previewTubeShape(const std::string& name, const std::vector<SectionPoint>& points, bool smooth);
+    void endTubePreview();
+    bool tubePreviewing() const { return tubePreview_; }
+    // The graph's Fill Tubes and Tube Blend (its first top-level Interpolate node's fillTubes and
+    // tubeBlend; none without an Interpolate node), and both set on every Interpolate node in one
+    // step (Maya's set_fill_tubes).
+    struct FillTubes {
+        bool fill = false;
+        float blend = 0.25f;
+    };
+    std::optional<FillTubes> fillTubes() const;
+    std::string setFillTubes(std::optional<bool> fill, std::optional<float> blend);
+
 private:
     // Unreal's groom or Unity's strands through the core's writer (engine_export.h).
     ExportResult exportEngineGroom(const std::string& path, const ExportOptions& options, bool unity, const ExportProgress& progress);
@@ -572,8 +796,29 @@ private:
         // A structural edit instead: the whole graph before and after, named by `label`.
         bool whole = false;
         nlohmann::json graphBefore, graphAfter;
+        // Besides (or alone: `side`, named by `label`): files written or deleted (their bytes
+        // before and after, nullopt: no file), the group colors before and after.
+        struct FileState {
+            std::string path;
+            std::optional<std::string> before, after;
+        };
+        std::vector<FileState> files;
+        bool side = false;
+        bool colors = false;
+        std::map<std::string, std::string> colorsBefore, colorsAfter;
     };
     void record(Edit edit);
+    // The files and colors an edit changed, onto the step it recorded (the history held
+    // `undoBefore` steps before it), else as a step of their own named `label`.
+    void attachSide(std::size_t undoBefore, const std::string& label, std::vector<Edit::FileState> files,
+                    const std::map<std::string, std::string>* colorsBefore = nullptr);
+    void applySide(const Edit& edit, bool after);
+    // An image for a texture map (Maya's set_map_texture rules): a PNG in place, any other image
+    // copied into the maps folder as <map>.png (*copied the file's states for the step). Returns
+    // the path to store; throws std::runtime_error. *channels the image's.
+    std::string mapImageFile(const std::string& map, const std::string& path, std::vector<Edit::FileState>* copied, int* channels);
+    std::string freeMapFile(const std::string& name) const;  // <maps folder>/<name>.png, a free name
+    std::string storedMapPath(const std::string& full) const;  // as every host stores it (relative to the groom)
     static std::string editName(const Edit& edit);  // "node.param" or the stroke's label
     // The held preview value applied to the graph (nothing when none is held).
     void commitPreview();
@@ -616,7 +861,10 @@ private:
     DisplayBuilder display_;
     std::vector<GuideId> selection_;
     std::uint64_t selectionVersion_ = 1;
+    bool tubePreview_ = false;  // previewTubeShape's preview is the session's
     std::set<std::string> hiddenGroups_;
+    std::map<std::string, std::string> groupColors_;
+    RenderOverrides renderOverrides_;
     double time_ = 0.0;
     std::optional<CardBakeFiles> bake_;
     std::map<std::string, SimCacheRef> simBakes_;  // the Simulate nodes' bakes the file names, by node

@@ -239,8 +239,8 @@ if(TARGET groomlab_core_private)
 endif()
 
 # The GPU look preview's kernels against the CPU operators (engine/gpu/, look_engine.h): on a device of
-# its own, skipped without one.
-if(TARGET groomlab_gpu)
+# its own, skipped without one. Windows only: elsewhere the engine has no backend yet (engine/gpu).
+if(TARGET groomlab_gpu AND WIN32)
     add_executable(groomlab_gpu_tests engine/gpu/test_look_engine.cpp engine/gpu/test_line_frames.cpp)
     target_link_libraries(groomlab_gpu_tests PRIVATE groomlab::gpu groomlab::core groomlab::warnings GTest::gtest_main
                           nlohmann_json::nlohmann_json)
@@ -507,6 +507,8 @@ if(GROOMLAB_BUILD_MAYA AND TARGET GroomLab AND TARGET groomlab-cli AND TARGET gr
                 "${CMAKE_CURRENT_BINARY_DIR}/groom_io"
                 "${CMAKE_CURRENT_SOURCE_DIR}/data"
                 "$<$<TARGET_EXISTS:groomlab_app>:$<TARGET_FILE:groomlab_app>>")
+    # The app's runs keep their settings in the work folder, never the user's.
+    set_tests_properties(maya.groom_io PROPERTIES ENVIRONMENT "GROOMLAB_SETTINGS_DIR=${CMAKE_CURRENT_BINARY_DIR}/groom_io/settings")
 endif()
 
 # Check for Updates: version order, a check and an install against a fake downloads server on

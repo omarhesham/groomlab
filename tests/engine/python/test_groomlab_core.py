@@ -1448,6 +1448,14 @@ class ExtrasTest(SceneMixin, unittest.TestCase):
             with gl.UnrealGroomWriter(unreal, "groom", "hair") as w:
                 w.write_frame(s, None, None)
             self.assertGreater(os.path.getsize(unreal), 0)
+            # In Unreal's space (Z up, left-handed, cm): Y up (x, y, z) -> (x, z, y).
+            self.assertEqual(gl.read_alembic_curves(unreal)[0].strands.strand_points(0)[2], (0.0, 0.0, 2.0))
+            with gl.UnrealGroomWriter(unreal, "groom", "hair", up_axis="Z", centimeters_per_unit=100.0) as w:
+                w.write_frame(s, None, None)
+            self.assertEqual(gl.read_alembic_curves(unreal)[0].strands.strand_points(0)[2], (0.0, -200.0, 0.0))
+            self.assertAlmostEqual(gl.read_alembic_curves(unreal)[0].strands.widths[0], 10.0, places=4)
+            with self.assertRaises(ValueError):
+                gl.UnrealGroomWriter(os.path.join(folder, "bad.abc"), "groom", "hair", up_axis="X")
             self.assertIn("ImportCurves", gl.operator_type_names())
         finally:
             shutil.rmtree(folder, ignore_errors=True)

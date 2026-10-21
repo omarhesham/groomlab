@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <tuple>
@@ -63,6 +64,7 @@ constexpr qreal kBodyPadding = 8.0;
 constexpr qreal kPortRadius = 5.0;
 constexpr qreal kColumn = 230.0;  // the auto layout's columns and rows
 constexpr qreal kRowGap = 120.0;
+constexpr qreal kMinScale = 0.1, kMaxScale = 3.0;  // the view's zoom (the wheel, Alt+right-drag)
 
 // Dark words on a bright header (yellow, white, emerald), white on the others; a tinted header
 // (a wash of the category color) takes the theme's text.
@@ -73,12 +75,6 @@ constexpr qreal kPasteOffsetX = 40.0, kPasteOffsetY = 60.0;
 
 // A backdrop's title bar and its resize grip (the corner), scene units, as Maya's BackdropItem.
 constexpr qreal kBackdropHeader = 28.0, kBackdropGrip = 14.0;
-// Its colors as Maya's backdrop menu offers them.
-const std::pair<const char*, QColor> kBackdropColors[] = {
-    {QT_TRANSLATE_NOOP("NodeGraphView", "Blue"), QColor(70, 90, 120)},     {QT_TRANSLATE_NOOP("NodeGraphView", "Green"), QColor(70, 120, 80)},
-    {QT_TRANSLATE_NOOP("NodeGraphView", "Purple"), QColor(110, 80, 130)}, {QT_TRANSLATE_NOOP("NodeGraphView", "Amber"), QColor(140, 110, 50)},
-    {QT_TRANSLATE_NOOP("NodeGraphView", "Gray"), QColor(90, 92, 98)}};
-
 }  // namespace
 
 NodeGraphView::NodeGraphView(QWidget* parent) : QWidget(parent) {
@@ -176,6 +172,7 @@ void NodeGraphView::setDocument(GroomDocument* document) {
     selection_.clear();
     selectedWire_ = -1;
     fitted_ = false;
+    viewTouched_ = false;
     refresh();
 }
 
@@ -183,7 +180,7 @@ void NodeGraphView::setViewport(Viewport* viewport) { viewport_ = viewport; }
 
 void NodeGraphView::refresh() {
     rebuild();
-    if (!fitted_ && !nodes_.empty() && width() > 0) fitAll();
+    if (!fitted_ && !nodes_.empty() && width() > 0) frameReadable();
     update();
 }
 
@@ -304,9 +301,10 @@ void NodeGraphView::autoLayout() {
             if (!changed) break;
         }
     }
-    // A long chain wraps into blocks of columns, one under the other, so the whole graph fits
-    // the view at a readable scale (a chain of fourteen in one row would not).
-    constexpr int kColumnsPerBlock = 7;
+    // Over the viewport (a tall view), a long chain wraps into blocks of columns, one under the
+    // other, so the whole graph fits at a readable scale; docked (a wide, short strip, as Maya's
+    // Graph Editor), it runs in one row and frameReadable shows its look end.
+    const int kColumnsPerBlock = viewport_ ? 7 : std::numeric_limits<int>::max() / 2;
     std::map<int, int> rows;
     std::map<int, int> blockRows;  // the tallest column in each block, for the block's height
     for (std::size_t i = 0; i < nodes_.size(); ++i) {
@@ -381,32 +379,45 @@ QRectF NodeGraphView::nodeRect(const std::string& node) const {
     return QRectF(toWidget(nodes_[i].pos), nodes_[i].size * scale_);
 }
 
-void NodeGraphView::keepSelectedClearOf(const QRect& area) {
-    // The current node under the Node panel: the graph pans left (and up or down no further than
-    // the view) until the node is beside the panel, as Maya keeps the selection in sight.
-    const QRectF node = nodeRect(selected_);
-    if (node.isEmpty() || !node.intersects(QRectF(area))) return;
-    const qreal shift = node.right() - area.left() + 24.0;
-    if (node.left() - shift < 8.0 && node.width() + 32.0 > area.left()) return;  // no room left of the panel
-    pan_.rx() -= shift;
-    update();
-}
-
 void NodeGraphView::fitAll() {
     if (nodes_.empty() || width() <= 0 || height() <= 0) return;
     QRectF bounds;
     for (const Node& n : nodes_) bounds |= QRectF(n.pos, n.size);
     for (const Backdrop& b : backdrops_) bounds |= b.rect;
     bounds.adjust(-40, -40, 40, 40);
-    // Room for the chrome around: the top row, the bottom pill, the look card.
+    // Room for the chrome around (the overlay's top row and pills; docked, a small margin).
     const QRectF view(fitMargins_.left(), fitMargins_.top(), std::max(100, width() - fitMargins_.left() - fitMargins_.right()),
                       std::max(100, height() - fitMargins_.top() - fitMargins_.bottom()));
-    // Never so small that the names cannot be read: a bigger graph starts at its left.
-    scale_ = std::clamp(std::min(view.width() / bounds.width(), view.height() / bounds.height()), 0.55, 1.0);
+    // Never so small that the names cannot be read: a bigger graph is centered at a readable size.
+    scale_ = std::clamp(std::min(view.width() / bounds.width(), view.height() / bounds.height()), kReadableScale, 1.0);
     pan_ = view.center() - bounds.center() * scale_;
-    if (bounds.width() * scale_ > view.width()) pan_.setX(view.left() - bounds.left() * scale_);
     fitted_ = true;
     update();
+}
+
+void NodeGraphView::frameReadable() {
+    if (nodes_.empty() || width() <= 0 || height() <= 0) return;
+    fitAll();
+    QRectF bounds;
+    for (const Node& n : nodes_) bounds |= QRectF(n.pos, n.size);
+    for (const Backdrop& b : backdrops_) bounds |= b.rect;
+    const QRectF view(fitMargins_.left(), fitMargins_.top(), std::max(100, width() - fitMargins_.left() - fitMargins_.right()),
+                      std::max(100, height() - fitMargins_.top() - fitMargins_.bottom()));
+    if (bounds.adjusted(-40, -40, 40, 40).width() * scale_ <= view.width()) return;  // it all fits
+    // Too long to read whole: the look end, where look nodes go (Maya's frame_readable).
+    auto nodeOf = [this](const char* type) -> const Node* {
+        for (const Node& n : nodes_) {
+            if (n.type == type) return &n;
+        }
+        return nullptr;
+    };
+    const Node* output = nodeOf("Output");
+    const Node* start = nodeOf("Interpolate");
+    const qreal outputRight = output ? output->pos.x() + output->size.width() : bounds.right();
+    const qreal shown = view.width() / scale_;  // scene units across the view
+    qreal x = outputRight + 40.0 - shown / 2.0;  // the output near the right edge
+    if (start && outputRight - start->pos.x() + 80.0 <= shown) x = (start->pos.x() + outputRight) / 2.0;
+    pan_.setX(view.center().x() - x * scale_);
 }
 
 void NodeGraphView::frameSelected() {
@@ -418,19 +429,35 @@ void NodeGraphView::frameSelected() {
         fitAll();
         return;
     }
+    viewTouched_ = true;  // a node framed: a resize keeps it in view as it is
     const QRectF bounds = QRectF(nodes_[index].pos, nodes_[index].size).adjusted(-60, -60, 60, 60);
     const QRectF view(fitMargins_.left(), fitMargins_.top(), std::max(100, width() - fitMargins_.left() - fitMargins_.right()),
                       std::max(100, height() - fitMargins_.top() - fitMargins_.bottom()));
-    scale_ = std::clamp(std::min(view.width() / bounds.width(), view.height() / bounds.height()), 0.55, 1.0);
+    scale_ = std::clamp(std::min(view.width() / bounds.width(), view.height() / bounds.height()), kReadableScale, 1.0);
     pan_ = view.center() - bounds.center() * scale_;
     fitted_ = true;
+    update();
+}
+
+void NodeGraphView::bringIntoView(const std::string& node) {
+    const QRectF card = nodeRect(node).adjusted(-16, -24, 16, 16);
+    if (card.isEmpty() || width() <= 0 || height() <= 0) return;
+    const QRectF view = QRectF(rect());
+    QPointF shift;
+    if (card.left() < view.left()) shift.setX(view.left() - card.left());
+    else if (card.right() > view.right()) shift.setX(std::max(view.right() - card.right(), view.left() - card.left()));
+    if (card.top() < view.top()) shift.setY(view.top() - card.top());
+    else if (card.bottom() > view.bottom()) shift.setY(std::max(view.bottom() - card.bottom(), view.top() - card.top()));
+    if (shift.isNull()) return;
+    pan_ += shift;
+    viewTouched_ = true;
     update();
 }
 
 void NodeGraphView::setFitMargins(const QMargins& margins) {
     if (margins == fitMargins_) return;
     fitMargins_ = margins;
-    if (fitted_ && isVisible()) fitAll();
+    if (fitted_ && isVisible()) frameReadable();
 }
 
 void NodeGraphView::selectNode(const std::string& name) {
@@ -520,6 +547,45 @@ int NodeGraphView::wireAt(const QPointF& scene) const {
         if (stroker.createStroke(wires_[i].path).contains(scene)) return static_cast<int>(i);
     }
     return -1;
+}
+
+bool NodeGraphView::wireLink(int index, std::string* from, std::string* output, std::string* to, std::string* input) const {
+    if (index < 0 || index >= wireCount()) return false;
+    const Wire& w = wires_[index];
+    const Node& a = nodes_[w.from];
+    const Node& b = nodes_[w.to];
+    *from = a.name;
+    *output = w.output == 0 || w.output >= static_cast<int>(a.outputs.size()) ? std::string() : a.outputs[w.output].name;
+    *to = b.name;
+    *input = b.inputs[w.input].name;
+    return true;
+}
+
+int NodeGraphView::wireUnderNode(int node) const {
+    if (node < 0 || node >= nodeCount()) return -1;
+    for (const Wire& w : wires_) {
+        if (w.from == node || w.to == node) return -1;  // a node with wires of its own stays where its wires are
+    }
+    // The wires any part of the card lies over, the one passing nearest its middle (Maya's
+    // edge_under_node): sampled along each wire.
+    const QRectF card(nodes_[node].pos, nodes_[node].size);
+    const QPointF middle = card.center();
+    int best = -1;
+    qreal nearest = std::numeric_limits<qreal>::max();
+    for (std::size_t i = 0; i < wires_.size(); ++i) {
+        bool over = false;
+        qreal d = std::numeric_limits<qreal>::max();
+        for (int k = 0; k <= 48; ++k) {
+            const QPointF p = wires_[i].path.pointAtPercent(k / 48.0);
+            over = over || card.contains(p);
+            d = std::min(d, QLineF(middle, p).length());
+        }
+        if (over && d < nearest) {
+            nearest = d;
+            best = static_cast<int>(i);
+        }
+    }
+    return best;
 }
 
 QRectF NodeGraphView::bypassButtonRect(const Node& node) const {
@@ -707,10 +773,39 @@ void NodeGraphView::paintEvent(QPaintEvent* /*event*/) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
-    // The viewport dims behind the graph, so the cards and wires read over a busy groom.
-    QColor dim = theme::backdrop();
-    dim.setAlpha(110);
-    painter.fillRect(rect(), dim);
+    if (viewport_) {
+        // Over the viewport: it dims behind the graph, so the cards and wires read over a busy groom.
+        QColor dim = theme::backdrop();
+        dim.setAlpha(110);
+        painter.fillRect(rect(), dim);
+    } else {
+        // Docked: the theme's opaque canvas and its grid (a line every 24 scene units, a stronger
+        // one every 5), thinned out as the view zooms out so it never turns to a wash.
+        painter.fillRect(rect(), theme::graphCanvas());
+        qreal step = 24.0 * scale_;
+        int every = 5;
+        while (step < 10.0) {
+            step *= 5.0;
+            every = 1;
+        }
+        const QColor major = theme::graphGrid();
+        QColor minor = major;
+        minor.setAlphaF(major.alphaF() * 0.45f);
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        // Line k sits at pan + k * step; the first on screen is k = ceil(-pan / step).
+        auto lines = [&](qreal pan, int extent, bool vertical) {
+            for (long long k = static_cast<long long>(std::ceil(-pan / step));; ++k) {
+                const qreal at = pan + static_cast<qreal>(k) * step;
+                if (at > extent) break;
+                painter.setPen(QPen(k % every == 0 ? major : minor, 1));
+                if (vertical) painter.drawLine(QPointF(at, 0), QPointF(at, height()));
+                else painter.drawLine(QPointF(0, at), QPointF(width(), at));
+            }
+        };
+        lines(pan_.x(), width(), true);
+        lines(pan_.y(), height(), false);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+    }
     painter.save();
     painter.translate(pan_);
     painter.scale(scale_, scale_);
@@ -746,7 +841,7 @@ void NodeGraphView::paintEvent(QPaintEvent* /*event*/) {
     for (std::size_t i = 0; i < wires_.size(); ++i) {
         const Wire& w = wires_[i];
         if (dragWireInputNode_ == w.to && dragWireInputPort_ == w.input && drag_ == Drag::Wire) continue;  // picked up
-        const bool selected = static_cast<int>(i) == selectedWire_;
+        const bool selected = static_cast<int>(i) == selectedWire_ || static_cast<int>(i) == dropWire_ || static_cast<int>(i) == searchWire_;
         QColor color = theme::portColor(nodes_[w.from].outputs[w.output].type);
         color.setAlpha(selected ? 255 : 220);
         painter.setPen(QPen(selected ? theme::nodeSelected() : color, selected ? 3.0 : 2.0));
@@ -810,13 +905,23 @@ void NodeGraphView::mousePressEvent(QMouseEvent* event) {
     }
     last_ = event->position();
     pressScene_ = toScene(last_);
-    if (event->modifiers().testFlag(Qt::AltModifier)) {
+    if (event->modifiers().testFlag(Qt::AltModifier) && viewport_) {
         drag_ = Drag::Camera;
         forwardToViewport(event);
         return;
     }
     event->accept();
-    if (event->button() == Qt::MiddleButton) {
+    zoomEnded_ = false;
+    if (event->button() == Qt::RightButton && event->modifiers().testFlag(Qt::AltModifier)) {
+        // Alt+right-drag zooms, as Maya's viewports and Graph Editor: right or down zooms in.
+        drag_ = Drag::Zoom;
+        zoomPress_ = last_;
+        zoomAnchor_ = pressScene_;
+        zoomStart_ = scale_;
+        setCursor(Qt::SizeVerCursor);
+        return;
+    }
+    if (event->button() == Qt::MiddleButton || event->modifiers().testFlag(Qt::AltModifier)) {
         drag_ = Drag::Pan;
         return;
     }
@@ -928,8 +1033,18 @@ void NodeGraphView::mouseMoveEvent(QMouseEvent* event) {
             return;
         case Drag::Pan:
             pan_ += delta;
+            viewTouched_ = true;
             update();
             break;
+        case Drag::Zoom: {
+            // The zoom doubles every ~140 px right or down; the point pressed stays under the press.
+            const qreal moved = (now.x() - zoomPress_.x()) + (now.y() - zoomPress_.y());
+            scale_ = std::clamp(zoomStart_ * std::exp(moved * 0.005), kMinScale, kMaxScale);
+            pan_ = zoomPress_ - zoomAnchor_ * scale_;
+            viewTouched_ = true;
+            update();
+            break;
+        }
         case Drag::Move:
             if (dragNode_ >= 0) {
                 // The selection moves together (the pressed node is one of it); the wires follow.
@@ -943,6 +1058,9 @@ void NodeGraphView::mouseMoveEvent(QMouseEvent* event) {
                         w.path = wirePathFor(w);
                     }
                 }
+                // A lone node with no wires of its own over a wire: the wire lights up (dropped: it
+                // goes in, as Maya's Graph Editor).
+                dropWire_ = moved.size() == 1 ? wireUnderNode(dragNode_) : -1;
                 update();
             }
             break;
@@ -990,6 +1108,12 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
         return;
     }
     event->accept();
+    if (drag == Drag::Zoom) {
+        // The release that ends a zoom opens no menu (the context menu event that follows it).
+        unsetCursor();
+        zoomEnded_ = true;
+        return;
+    }
     if (drag == Drag::Band) {
         band_.setBottomRight(event->position());
         if (band_.width() * band_.width() + band_.height() * band_.height() > 16.0) selectInRect(band_, bandAdds_);
@@ -1020,7 +1144,24 @@ void NodeGraphView::mouseReleaseEvent(QMouseEvent* event) {
                 laidOut_.erase(n.name);
             }
         }
+        // A lone unwired node dropped on a wire goes into it (Maya's insert_on_wire).
+        const int wire = dropWire_;
+        const std::string name = nodes_[dragNode_].name;
+        dropWire_ = -1;
         dragNode_ = -1;
+        GroomDocument::NodeLink link;
+        if (wire >= 0 && wireLink(wire, &link.from, &link.output, &link.to, &link.input)) {
+            const std::string error = document_->insertOnLink(name, link);
+                if (error.empty()) {
+                emit status(tr("Inserted %1 between %2 and %3")
+                                .arg(QString::fromStdString(name), QString::fromStdString(link.from), QString::fromStdString(link.to)));
+                emit edited();
+            } else {
+                emit message(tr("Not inserted: %1").arg(QString::fromStdString(error)));
+            }
+            refresh();
+        }
+        update();
         return;
     }
     if (drag == Drag::Wire && document_) {
@@ -1102,7 +1243,7 @@ void NodeGraphView::updateWireHint(const QPointF& scene) {
 }
 
 void NodeGraphView::wheelEvent(QWheelEvent* event) {
-    if (event->modifiers().testFlag(Qt::AltModifier)) {
+    if (event->modifiers().testFlag(Qt::AltModifier) && viewport_) {
         forwardToViewport(event);
         return;
     }
@@ -1110,11 +1251,12 @@ void NodeGraphView::wheelEvent(QWheelEvent* event) {
     const int steps = event->angleDelta().y() / 120;
     if (steps == 0) return;
     const qreal factor = std::pow(1.15, steps);
-    const qreal next = std::clamp(scale_ * factor, 0.25, 2.5);
+    const qreal next = std::clamp(scale_ * factor, kMinScale, kMaxScale);
     const QPointF at = event->position();
     const QPointF scene = toScene(at);
     scale_ = next;
     pan_ = at - scene * scale_;
+    viewTouched_ = true;
     update();
     event->accept();
 }
@@ -1490,131 +1632,42 @@ void NodeGraphView::mouseDoubleClickEvent(QMouseEvent* event) {
     event->accept();
 }
 
-void NodeGraphView::contextMenuEvent(QContextMenuEvent* event) {
-    if (!document_) return;
-    const QPointF scene = toScene(QPointF(event->pos()));
+NodeGraphView::MenuTarget NodeGraphView::fillContextMenu(QMenu* menu, const QPointF& at) {
+    menuPoint_ = at;
+    const QPointF scene = toScene(at);
     const int node = nodeAt(scene);
-    QMenu menu(this);
+    MenuTarget target = MenuTarget::Canvas;
     if (node >= 0) {
-        // A node of the selection keeps the selection (Delete and Copy act on it all).
-        if (!isSelected(nodes_[node].name)) selectNode(nodes_[node].name);
-        else if (selected_ != nodes_[node].name) {
+        // A node of the selection keeps the selection (Delete and Copy act on it all), the node
+        // right-clicked the current one: the menu's actions act on it.
+        target = MenuTarget::Node;
+        if (!isSelected(nodes_[node].name)) {
+            selectNode(nodes_[node].name);
+        } else if (selected_ != nodes_[node].name) {
             std::vector<std::string> names = selection_;
             names.erase(std::find(names.begin(), names.end(), nodes_[node].name));
             names.push_back(nodes_[node].name);
             setSelection(names);
         }
-        const bool output = nodes_[node].type == "Output" && selection_.size() <= 1;
-        // Each with its key shown (the graph's keyPressEvent handles them; shown here only).
-        const auto shown = [](QAction* action, const QKeySequence& key) {
-            action->setShortcut(key);
-            action->setShortcutContext(Qt::WidgetShortcut);  // (the menu's own: never the window's)
-            return action;
-        };
-        shown(menu.addAction(tr("Rename..."), this, [this] { renameSelected(); }), QKeySequence(Qt::Key_F2));
-        shown(menu.addAction(tr("Duplicate"), this, [this] { duplicateSelected(); }), QKeySequence(Qt::CTRL | Qt::Key_D))->setEnabled(!output);
-        menu.addAction(tr("Set as Output"), this, [this] { setSelectedAsOutput(); });
-        // Bypass, checked while it is: again turns the node back on.
-        QAction* bypass = shown(menu.addAction(tr("Bypass"), this,
-                                               [this, name = nodes_[node].name, on = !nodes_[node].bypass] { setBypass(name, on); }),
-                                QKeySequence(Qt::Key_B));
-        bypass->setCheckable(true);
-        bypass->setChecked(nodes_[node].bypass);
-        // View Up to Here (checked while the viewport shows this node).
-        QAction* view = shown(menu.addAction(tr("View Up to Here"), this, [this] { toggleViewSelected(); }), QKeySequence(Qt::Key_V));
-        view->setCheckable(true);
-        view->setChecked(viewed_ == nodes_[node].name);
-        shown(menu.addAction(tr("Frame"), this, [this] { frameSelected(); }), QKeySequence(Qt::Key_F));
-        shown(menu.addAction(tr("Copy"), this, [this] { copySelected(); }), QKeySequence(Qt::CTRL | Qt::Key_C))->setEnabled(!output || selection_.size() > 1);
-        // When it runs: exports skip a viewport-only node, the viewport a render-only one.
-        QMenu* evaluate = menu.addMenu(tr("Evaluate"));
-        const std::pair<const char*, QString> modes[] = {
-            {"always", tr("Always")}, {"viewportOnly", tr("Viewport Only")}, {"renderOnly", tr("Render Only")}};
-        for (const auto& [mode, label] : modes) {
-            QAction* action = evaluate->addAction(label, this, [this, name = nodes_[node].name, m = std::string(mode)] {
-                setEvaluation(name, m);
-            });
-            action->setCheckable(true);
-            action->setChecked(nodes_[node].evaluation == mode);
-        }
-        menu.addSeparator();
-        // Compounds, as Maya's Graph Editor: the selection grouped, a Compound opened.
-        const bool anyCompound = std::any_of(selection_.begin(), selection_.end(), [this](const std::string& n) {
-            const int i = nodeIndex(n);
-            return i >= 0 && nodes_[i].type == "Compound";
-        });
-        if (anyCompound) {
-            shown(menu.addAction(tr("Ungroup Compound"), this, [this] { ungroupSelected(); }), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G))
-                ->setToolTip(tr("Put the compound's nodes back in the graph, to see and edit them (Ctrl+Z groups them again)"));
-        }
-        shown(menu.addAction(tr("Group into Compound"), this, [this] { groupSelected(); }), QKeySequence(Qt::CTRL | Qt::Key_G))
-            ->setToolTip(tr("Collapse the selected nodes into one Compound node"));
-        if (nodes_[node].type == "Script") {
-            const std::string name = nodes_[node].name;
-            menu.addAction(tr("Edit Node..."), this, [this, name] { openScriptEditor(name); })
-                ->setToolTip(tr("Edit this script node's script (live) over the graph"));
-            menu.addAction(tr("Save to Library"), this, [this, name] {
-                    openScriptEditor(name);
-                    saveScriptEditor(false);
-                })->setToolTip(tr("Write this script node to your node library, one version up when the library has it"));
-            if (nodes_[node].updateAvailable) {
-                menu.addAction(tr("Update Node"), this, [this, name] { updateLibraryNode(name); })
-                    ->setToolTip(tr("Take the library's newer copy of this node (its values kept where it still has them)"));
-            }
-        }
-        if (nodes_[node].type == "Compound") {
-            const std::string name = nodes_[node].name;
-            menu.addAction(tr("Save as Node..."), this, [this, name] { openSaveNode(name); })
-                ->setToolTip(tr("Save this compound to your node library: it shows in Add Node in every groom, in Maya and Blender too"));
-            if (!nodes_[node].libraryLabel.empty()) {
-                menu.addAction(tr("Save to Library"), this, [this, name] { saveToLibrary(name); })
-                    ->setToolTip(tr("Write this node as it is now (its values as the new defaults) over its library file, one version up"));
-            }
-            if (nodes_[node].updateAvailable) {
-                menu.addAction(tr("Update Node"), this, [this, name] { updateLibraryNode(name); })
-                    ->setToolTip(tr("Take the library's newer copy of this node (its values kept where it still has them)"));
-            }
-        }
-        menu.addAction(tr("Add Backdrop Around Selection"), this, [this] { addBackdrop(); });
-        menu.addSeparator();
-        shown(menu.addAction(selection_.size() > 1 ? tr("Delete %1 Nodes").arg(selection_.size()) : tr("Delete"), this,
-                             [this] { deleteSelected(); }),
-              QKeySequence(Qt::Key_Delete))
-            ->setEnabled(!output);
     } else if (const int b = backdropAt(scene); b >= 0) {
-        // A backdrop's menu (Maya's): its title, its color, gone.
+        target = MenuTarget::Backdrop;
         selectBackdrop(b);
-        menu.addAction(tr("Rename..."), this, [this, b] { renameBackdrop(b); });
-        QMenu* colors = menu.addMenu(tr("Color"));
-        for (const auto& [label, color] : kBackdropColors) {
-            QAction* action = colors->addAction(tr(label), this, [this, b, c = color] { setBackdropColor(b, c); });
-            action->setCheckable(true);
-            action->setChecked(backdrops_[b].color == color);
-        }
-        menu.addSeparator();
-        QAction* remove = menu.addAction(tr("Delete Backdrop"), this, [this, b] { removeBackdrop(b); });
-        remove->setShortcut(QKeySequence(Qt::Key_Delete));
-        remove->setShortcutContext(Qt::WidgetShortcut);
-    } else {
-        const auto shown = [](QAction* action, const QKeySequence& key) {
-            action->setShortcut(key);
-            action->setShortcutContext(Qt::WidgetShortcut);
-        };
-        shown(menu.addAction(tr("Add Node..."), this, [this] { openSearch(); }), QKeySequence(Qt::Key_Tab));
-        menu.addAction(tr("New Script Node"), this, [this, at = QPointF(event->pos())] { newScriptNode(at); })
-            ->setToolTip(tr("A node of your own, written as a short script (per strand, per point), edited live over the graph"));
-        // A click only reaches the file dialog; scripts and tests call importNodeFiles.
-        menu.addAction(tr("Import Node..."), this, [this, at = QPointF(event->pos())] {
-                const QStringList paths = QFileDialog::getOpenFileNames(this, tr("Import Node"), {}, tr("GroomLab nodes (*.glnode)"));
-                if (!paths.isEmpty()) importNodeFiles(paths, at);
-            })->setToolTip(tr("Copy a .glnode file (a compound node someone shared) into your node library and add it"));
-        shown(menu.addAction(tr("Paste"), this, [this] { paste(); }), QKeySequence(Qt::CTRL | Qt::Key_V));
-        menu.addAction(tr("Add Backdrop"), this, [this, at = QPointF(event->pos())] { addBackdrop(at); });
-        shown(menu.addAction(tr("Tidy Layout"), this, [this] { tidyLayout(); }), QKeySequence(Qt::CTRL | Qt::Key_L));
-        shown(menu.addAction(tr("Frame All"), this, [this] { fitAll(); }), QKeySequence(Qt::Key_A));
     }
-    menu.exec(event->globalPos());
+    if (menuFiller_ && document_) menuFiller_(menu, target, at);
+    return target;
+}
+
+void NodeGraphView::contextMenuEvent(QContextMenuEvent* event) {
     event->accept();
+    // The release that ended an Alt+right-drag zoom (or Alt held): no menu.
+    if (zoomEnded_ || drag_ == Drag::Zoom || event->modifiers().testFlag(Qt::AltModifier)) {
+        zoomEnded_ = false;
+        return;
+    }
+    if (!document_) return;
+    QMenu menu(this);
+    fillContextMenu(&menu, QPointF(event->pos()));
+    if (!menu.isEmpty()) menu.exec(event->globalPos());
 }
 
 void NodeGraphView::keyPressEvent(QKeyEvent* event) {
@@ -1707,6 +1760,9 @@ void NodeGraphView::openSearch() {
 
 void NodeGraphView::openSearchAt(const QPointF& where) {
     searchScene_ = toScene(where);
+    // Over a wire: the node added goes into it (lit while the search is open).
+    searchWire_ = nodeAt(searchScene_) < 0 ? wireAt(searchScene_) : -1;
+    update();
     search_->move(std::clamp(static_cast<int>(where.x()), 0, std::max(0, width() - search_->width())),
                   std::clamp(static_cast<int>(where.y()), 0, std::max(0, height() - search_->height())));
     searchEdit_->clear();
@@ -2134,7 +2190,9 @@ void NodeGraphView::closeScriptEditor() {
 
 void NodeGraphView::closeSearch() {
     search_->hide();
+    searchWire_ = -1;
     setFocus();
+    update();
 }
 
 namespace {
@@ -2216,14 +2274,43 @@ void NodeGraphView::filterSearch(const QString& text) {
     searchAbout_->clear();
     if (!document_) return;
     // Maya's ranking; each type by its label, its menu category after it in the category's color.
+    // The groom's painted maps after the types of their rank (Maya's MAP_ENTRY): a Map node
+    // reading the map, found by its name (or map, mask, paint).
+    struct Row {
+        int rank, order;
+        QString shown, about, data;
+        QColor color;
+    };
+    std::vector<Row> rows;
+    int order = 0;
     for (const std::string& type : nodeSearchResults(*document_, text)) {
         const nlohmann::json* spec = document_->spec(type);
         const std::string label = spec->value("label", std::string());
         const QString shown = QString::fromStdString(label.empty() ? nodeLabel(type) : label);
-        auto* item = new QListWidgetItem(shown + QStringLiteral("    ") + QString::fromStdString(spec->value("categoryTitle", std::string())), searchList_);
-        item->setForeground(theme::nodeCategoryColor(spec->value("category", std::string())).lighter(130));
-        item->setData(Qt::UserRole, QString::fromStdString(type));
-        item->setToolTip(QString::fromStdString(spec->value("description", std::string())));
+        rows.push_back({nodeSearchRank(text, *spec), order++,
+                        shown + QStringLiteral("    ") + QString::fromStdString(spec->value("categoryTitle", std::string())),
+                        QString::fromStdString(spec->value("description", std::string())), QString::fromStdString(type),
+                        theme::nodeCategoryColor(spec->value("category", std::string())).lighter(130)});
+    }
+    for (const PaintedMap& m : document_->maps()) {
+        const QString kind = m.kind == "guides" ? tr("a layer on the guides") : m.kind == "texture" ? tr("a texture") : tr("on the scalp's vertices");
+        const QString about = tr("A Map node reading the painted map %1 (%2): wire it to a setting to drive it").arg(QString::fromStdString(m.name), kind);
+        const nlohmann::json entry = {{"type", kMapEntry + m.name},
+                                      {"label", "Map: " + m.name},
+                                      {"keywords", "painted map mask paint texture painted maps"},
+                                      {"categoryTitle", "Painted maps"},
+                                      {"description", about.toStdString()}};
+        const int rank = nodeSearchRank(text, entry);
+        if (rank < 0) continue;
+        rows.push_back({rank, order++, tr("Map: %1    Painted maps").arg(QString::fromStdString(m.name)), about,
+                        QString::fromLatin1(kMapEntry) + QString::fromStdString(m.name), theme::nodeCategoryColor("utility").lighter(130)});
+    }
+    std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.rank != b.rank ? a.rank < b.rank : a.order < b.order; });
+    for (const Row& r : rows) {
+        auto* item = new QListWidgetItem(r.shown, searchList_);
+        item->setForeground(r.color);
+        item->setData(Qt::UserRole, r.data);
+        item->setToolTip(r.about);
     }
     if (searchList_->count() > 0) searchList_->setCurrentRow(0);
     else searchAbout_->setText(tr("No node matches. Try what it does: symmetry, density, frizz, collision..."));
@@ -2248,41 +2335,57 @@ std::vector<std::string> NodeGraphView::searchTypes() const {
 
 QString NodeGraphView::searchAbout() const { return searchAbout_->text(); }
 
+void NodeGraphView::acceptSearch() { addFromSearch(); }
+
 void NodeGraphView::addFromSearch() {
     QListWidgetItem* item = searchList_->currentItem();
     if (!item || !document_) return;
-    const std::string type = item->data(Qt::UserRole).toString().toStdString();
+    std::string type = item->data(Qt::UserRole).toString().toStdString();
+    const int wire = searchWire_;
     closeSearch();
-    // After the selected node when the new one takes what it gives: placed to its right and fed
-    // by it; else at the cursor.
-    int after = -1;
-    for (std::size_t i = 0; i < nodes_.size(); ++i) {
-        if (nodes_[i].name == selected_) after = static_cast<int>(i);
-    }
-    QPointF at = searchScene_;
-    std::string feedInput;
-    if (after >= 0 && !nodes_[after].outputs.empty()) {
-        if (const nlohmann::json* spec = document_->spec(type)) {
-            for (const nlohmann::json& p : spec->value("inputs", nlohmann::json::array())) {
-                if (p.value("type", std::string()) == nodes_[after].outputs[0].type) {
-                    feedInput = p.value("name", std::string());
-                    break;
-                }
-            }
-        }
-        if (!feedInput.empty()) at = nodes_[after].pos + QPointF(kColumn, 0);
-    }
+    nlohmann::json params;
     std::string name;
-    std::string error = document_->addNode(type, static_cast<float>(at.x()), static_cast<float>(at.y()), &name);
-    if (error.empty() && !feedInput.empty()) {
-        error = document_->connectNodes(nodes_[after].name, {}, name, feedInput);
+    if (type.rfind(kMapEntry, 0) == 0) {
+        // A painted map: a Map node reading it, named after it.
+        name = type.substr(std::strlen(kMapEntry));
+        params = {{"name", name}};
+        type = "Map";
     }
+    // Into the wire under the cursor, else after the selected node when the new one takes what it
+    // gives (placed to its right); else at the cursor.
+    addNodeOfType(type, searchScene_, true, wire, params, name);
+}
+
+std::string NodeGraphView::addNodeOfType(const std::string& type, const QPointF& at, bool wire, int onWire, const nlohmann::json& params,
+                                         const std::string& name) {
+    if (!document_) return {};
+    GroomDocument::AddOptions options;
+    options.name = name;
+    options.params = params;
+    QPointF where = at;
+    if (std::isnan(where.x())) where = toScene(QPointF(width() / 2.0, height() / 2.0)) - QPointF(kNodeWidth / 2.0, kHeader);
+    GroomDocument::NodeLink link;
+    if (onWire >= 0 && wireLink(onWire, &link.from, &link.output, &link.to, &link.input)) {
+        options.onLink = link;
+    } else if (wire && selection_.size() == 1 && nodeIndex(selected_) >= 0) {
+        options.after = selected_;
+        // Placed after it (to its right) when nowhere was asked.
+        if (std::isnan(at.x())) where = nodes_[nodeIndex(selected_)].pos + QPointF(kColumn / 2.0, kRowGap);
+    }
+    std::string made, wiredAfter, note;
+    const std::string error =
+        document_->addNode(type, static_cast<float>(where.x()), static_cast<float>(where.y()), &made, options, &wiredAfter, &note);
     if (!error.empty()) {
         emit message(QString::fromStdString(error));
+        return {};
     }
+    if (!note.empty()) emit message(QString::fromStdString(note));
+    else if (!wiredAfter.empty()) emit status(tr("Added %1 after %2").arg(QString::fromStdString(made), QString::fromStdString(wiredAfter)));
+    else emit status(tr("Added %1").arg(QString::fromStdString(made)));
     emit edited();
     refresh();
-    selectNode(name);
+    selectNode(made);
+    return made;
 }
 
 bool NodeGraphView::eventFilter(QObject* watched, QEvent* event) {
@@ -2313,12 +2416,12 @@ bool NodeGraphView::eventFilter(QObject* watched, QEvent* event) {
 
 void NodeGraphView::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
-    if (!fitted_ && !nodes_.empty()) fitAll();
+    if ((!fitted_ || !viewTouched_) && !nodes_.empty()) frameReadable();
 }
 
 void NodeGraphView::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
-    if (!fitted_ && !nodes_.empty()) fitAll();
+    if (!fitted_ && !nodes_.empty()) frameReadable();
 }
 
 }  // namespace groomlab::app

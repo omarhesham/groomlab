@@ -112,6 +112,10 @@ groomlab_precompile(GroomLab <nlohmann/json.hpp>
 if(WIN32)
     target_link_libraries(GroomLab PRIVATE Dbghelp Version)  # crash_log: stacks with symbols, module versions
     target_link_libraries(GroomLab PRIVATE groomlab::gpu opengl32)  # the GPU look preview (engine/gpu/); opengl32: glFinish (-sync)
+else()
+    # The GPU look preview's engine without a backend (engine/gpu/: macOS, Linux): drags, strokes and
+    # the lit lines' frames are the CPU's (gpu_preview.cpp, gpu_lines.cpp).
+    target_link_libraries(GroomLab PRIVATE groomlab::gpu)
 endif()
 if(TARGET groomlab_alembic)
     target_compile_definitions(GroomLab PRIVATE GROOMLAB_HAS_ALEMBIC=1)

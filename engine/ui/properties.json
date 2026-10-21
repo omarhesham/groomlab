@@ -1,0 +1,268 @@
+{
+  "$schema": "./ui.schema.json",
+  "version": 1,
+  "properties": {
+    "about": "The groom's own settings, in the order of Maya's Attribute Editor for the groom (AEgroomLabShapeTemplate.mel): the app's Properties dock and Blender's groom panel lay them out the same way. Each item names the Maya attribute (maya), the app's control (app) and the Blender property (blender); custom blocks (custom: the MEL proc) list the rows they show (parts).",
+    "sections": [
+      {
+        "id": "groom",
+        "label": "Groom",
+        "expanded": true,
+        "items": [
+          {
+            "id": "groomButtons",
+            "label": "Windows",
+            "custom": "AEgroomLabButtons",
+            "maya": "outStrandCount",
+            "app": "groomButtons",
+            "tip": "The two windows everything is done in",
+            "parts": [
+              {"id": "groomTools", "label": "Groom Tools", "tip": "Brushes, guide groups, painted maps, sculpt layers"},
+              {"id": "graphEditor", "label": "Graph Editor", "tip": "The look: the groom's node graph"}
+            ]
+          },
+          {
+            "id": "previewDensity",
+            "label": "Preview Density",
+            "maya": "previewDensity",
+            "app": "density",
+            "blender": "preview_density",
+            "tip": "The share of the strands the viewport evaluates and draws: the same strands, fewer (renders and exports get every strand)"
+          },
+          {
+            "id": "previewPointBudget",
+            "label": "Point Budget (M)",
+            "labels": {"app": "Point Budget (k)", "blender": "Point Budget (k)"},
+            "maya": "previewPointBudget",
+            "app": "budget",
+            "blender": "preview_point_budget",
+            "tip": "Preview point budget, in millions of strand points: the most the viewport holds (each groom keeps a copy, the draw buffers more); past it the preview thins itself. 0: no limit",
+            "tips": {"app": "Points the preview may hold, in thousands: past it each Scatter thins to fit (0: no limit)", "blender": "At most this many thousand points in the viewport: a denser preview shows fewer of the same strands (0: no limit). Final renders get every strand"}
+          },
+          {
+            "id": "outStrandCount",
+            "label": "Out Strand Count",
+            "labels": {"app": "Strands"},
+            "maya": "outStrandCount",
+            "app": "strandCount",
+            "tip": "The strands the viewport shows now (at the preview's density)"
+          },
+          {
+            "id": "locked",
+            "label": "Locked",
+            "maya": "locked",
+            "app": "locked",
+            "tip": "A locked groom ignores brushes and part strokes"
+          }
+        ]
+      },
+      {
+        "id": "inputs",
+        "label": "Inputs",
+        "expanded": true,
+        "items": [
+          {
+            "id": "inputMeshes",
+            "label": "Inputs",
+            "custom": "AEgroomLabInputs",
+            "maya": "inMesh",
+            "app": "inputs",
+            "tip": "What the groom is made from: always visible, and changeable here",
+            "parts": [
+              {"id": "scalp", "label": "Scalp", "app": "scalpMesh", "tip": "The mesh the hair grows on", "tips": {"app": "The mesh the hair grows on: Transfer moves the groom onto another mesh"}},
+              {"id": "rest", "label": "Rest", "app": "restMesh", "tip": "The scalp's undeformed shape (set automatically for a skinned or blend-shaped scalp)"},
+              {"id": "scalps", "label": "Scalps", "app": "scalps", "tip": "Other meshes the hair grows on, joined after the scalp: a Scalp node naming one grows on it alone"},
+              {"id": "guides", "label": "Guides", "app": "guidesSummary", "tip": "The guides the groom interpolates"},
+              {"id": "colliders", "label": "Collider", "app": "colliders", "tip": "Add a mesh the strands keep off: a body, a collar, another character", "tips": {"app": "Meshes the strands keep off, by name (a ColliderMesh node naming one reads it): the groom file's colliders and the props"}},
+              {"id": "file", "label": "File", "app": "groomFile", "tip": "The groom file this groom is linked to: GroomLab > Groom Files", "tips": {"app": "The groom's file: Reload reads it again (another host's edits), Save writes it"}}
+            ]
+          },
+          {
+            "id": "followScalp",
+            "label": "Follow Scalp",
+            "maya": "followScalp",
+            "app": "followScalp",
+            "blender": "follow_scalp",
+            "tip": "Evaluate on the rest mesh and carry each strand rigidly with its root: fast per frame, the rest shape kept. Needs a rest mesh. See the docs (Rigs and follow-the-scalp)."
+          },
+          {
+            "id": "scaleSource",
+            "label": "Scale Source",
+            "maya": "scaleSource",
+            "app": "scaleSource",
+            "tip": "What the groom's sizes grow with. Surface Area: the scalp's surface at the start frame (survives Freeze Transformations). Transform Only: its transform and rig scale (survives remodelling). Off: fixed scene units."
+          },
+          {
+            "id": "groomScale",
+            "label": "Groom Scale",
+            "custom": "AEgroomLabScale",
+            "maya": "groomScale",
+            "app": "groomScale",
+            "tip": "What the groom is scaled by with its scalp: 1.00x at the size it was groomed at. Set Scale Reference makes the scalp's size now 1x (the groom then keeps the sizes its params say at this size)"
+          }
+        ]
+      },
+      {
+        "id": "controls",
+        "label": "Controls",
+        "items": [
+          {
+            "id": "controlSliders",
+            "label": "Controls",
+            "custom": "AEgroomLabControls",
+            "maya": "graph",
+            "app": "controls",
+            "tip": "Sliders that Control nodes add: in the Graph Editor, right-click a param > Drive with Slider"
+          }
+        ]
+      },
+      {
+        "id": "hairColor",
+        "label": "Hair Color",
+        "expanded": true,
+        "items": [
+          {
+            "id": "hairColorRows",
+            "label": "Hair Color",
+            "custom": "AEgroomLabColor",
+            "maya": "graph",
+            "app": "hairColor",
+            "tip": "The hair's color: the HairColor node making the output, its everyday params here (the Graph Editor has the rest)",
+            "parts": [
+              {"id": "mode", "label": "Mode", "kind": "mode", "tip": "Natural (the melanin mode): pigment and redness, and a dye, as real hair. Picked color (the color mode): the color you pick, as it shows and renders (white hair: white)"},
+              {"id": "color", "label": "Color", "kind": "color", "only": "color", "tip": "The hair's color as it shows and renders (mode Color)"},
+              {"id": "melanin", "label": "Melanin", "kind": "float", "only": "melanin", "tip": "Pigment: 0 white or blond, 1 black"},
+              {"id": "redness", "label": "Redness", "kind": "float", "only": "melanin", "tip": "Share of red pigment: 0 brown or black, 1 red"},
+              {"id": "dye", "label": "Dye", "kind": "color", "only": "melanin", "tip": "A color dyeing the pigment (white: none)"},
+              {"id": "result", "label": "Result", "kind": "result", "only": "melanin", "tip": "The color the pigment and dye make, before the randomness (what renders, a hair color as aiStandardHair's base color)"},
+              {"id": "greys", "label": "Greys", "kind": "float", "only": "melanin", "tip": "Share of grey and white strands"},
+              {"id": "-Randomness", "label": "Randomness", "kind": "heading"},
+              {"id": "melaninRandom", "label": "Melanin Random", "kind": "float", "only": "melanin", "tip": "Each strand's melanin up to this much more or less"},
+              {"id": "valueRandom", "label": "Value Random", "kind": "float", "only": "color", "tip": "Each strand up to this share lighter or darker"},
+              {"id": "hueRandom", "label": "Hue Random", "kind": "float", "tip": "Each strand's hue turned, up to half a turn either way at 1"},
+              {"id": "saturationRandom", "label": "Saturation Random", "kind": "float", "tip": "Each strand's saturation up to this share more or less"},
+              {"id": "clumpShare", "label": "Clump Share", "kind": "float", "tip": "How much of the randomness the strands of one clump share: 0 each its own, 1 the whole clump alike (needs a Clump before HairColor)"},
+              {"id": "-Tips", "label": "Tips", "kind": "heading"},
+              {"id": "tipColor", "label": "Tip Color", "kind": "color", "tip": "The color the strands blend to toward the tip (with Tip Strength above 0)"},
+              {"id": "tipStrength", "label": "Tip Strength", "kind": "float", "tip": "How far toward Tip Color the tips go, 0-1 (along the node's tipProfile)"},
+              {"id": "tipOffsetRandom", "label": "Tip Offset Random", "kind": "float", "tip": "Each strand's tip color starts at its own place"},
+              {"id": "-Highlight", "label": "Highlight", "kind": "heading"},
+              {"id": "specular", "label": "Specular", "kind": "float", "tip": "Highlight strength (0.3: aiStandardHair's full specular tint)"},
+              {"id": "roughness", "label": "Roughness", "kind": "float", "tip": "Highlight spread, 0 sharp to 1 broad"}
+            ]
+          }
+        ]
+      },
+      {
+        "id": "display",
+        "label": "Display",
+        "expanded": true,
+        "items": [
+          {"id": "displayGuides", "label": "Display Guides", "labels": {"app": "Guides"}, "maya": "displayGuides", "app": "guides", "tip": "The guides in the viewport"},
+          {"id": "displayFlow", "label": "Display Flow", "labels": {"app": "Flow"}, "maya": "displayFlow", "app": "flow", "tip": "The flow arrows and the field they make (a pale preview)"},
+          {"id": "displayTubes", "label": "Display Tubes", "labels": {"app": "Tubes"}, "maya": "displayTubes", "app": "tubes", "tip": "Each guide's tube, the volume its children and Interpolate's Fill Tubes fill: its shape and sections along it"},
+          {"id": "displayInstances", "label": "Display Instances", "labels": {"app": "Instances"}, "maya": "displayInstances", "app": "instances", "tip": "Each Instance node's copies of its prototype mesh (else small markers)"},
+          {"id": "showScalp", "label": "Scalp", "hosts": ["app"], "app": "scalp", "tip": "The scalp mesh in the viewport"},
+          {"id": "gpuPreview", "label": "GPU Preview", "hosts": ["app"], "app": "gpuPreview", "tip": "Slider, seed and profile drags of Noise, Curl, Width, Clump, Length and Interpolate, and brush dabs, previewed by the GPU (Direct3D 11, OpenGL); the release commits on the CPU"},
+          "-",
+          {"id": "strandColorMode", "label": "Strand Color Mode", "labels": {"app": "Strand Colors"}, "maya": "strandColorMode", "app": "colorMode", "tip": "What colors the strands: the look (lit), a color set of the scalp at the root, a per-strand channel over the range below (a ramp from blue to red), a random color per strand, the clump each strand belongs to, or how dense the strands are"},
+          {"id": "strandColorSource", "label": "Source", "hosts": ["app"], "app": "colorSource", "tip": "The color set or the strand channel read (clumpId, melanin, length...)"},
+          {"id": "strandColorMin", "label": "Strand Color Min", "labels": {"app": "Min"}, "maya": "strandColorMin", "app": "colorMin", "tip": "The attribute's value shown blue"},
+          {"id": "strandColorMax", "label": "Strand Color Max", "labels": {"app": "Max"}, "maya": "strandColorMax", "app": "colorMax", "tip": "The attribute's value shown red"},
+          {"id": "scalpMapDisplay", "label": "Map on Scalp", "hosts": ["app"], "app": "scalpMap", "tip": "A painted map drawn on the scalp: a vertex map's values, a guide layer blended between the guides, a texture at the scalp's vertices"},
+          {"id": "scalpMapChannel", "label": "Map Channel", "hosts": ["app"], "app": "scalpMapChannel", "tip": "A color map shown in color, or one channel as gray"}
+        ],
+        "sections": [
+          {
+            "id": "guidesDisplay",
+            "label": "Guides",
+            "items": [
+              {"id": "displayOverlaysOnTop", "label": "Display Overlays On Top", "labels": {"app": "Overlays on Top"}, "maya": "displayOverlaysOnTop", "app": "overlaysOnTop", "tip": "Guides, their dots, parts and flow arrows over the strands, tubes and cards (not through the head and the other meshes); off, depth-tested like everything else"},
+              {"id": "guideWidth", "label": "Guide Width", "maya": "guideWidth", "app": "guideWidth", "tip": "The guides' width in pixels (selected guides one more)"},
+              {"id": "guidePoints", "label": "Guide Points", "maya": "guidePoints", "app": "guidePoints", "tip": "The guides' points as dots: off, roots and tips, or all"},
+              {"id": "guideSmoothing", "label": "Guide Smoothing", "maya": "guideSmoothing", "app": "guideSmoothing", "tip": "Guides draw as a smooth curve through their points: this many pieces per segment (1: straight segments)"},
+              {"id": "guideDisplaySegments", "label": "Guide Display Segments", "labels": {"app": "Display Segments"}, "maya": "guideDisplaySegments", "app": "guideDisplaySegments", "tip": "Dots evenly along each guide as drawn: this many segments (0: a dot on every point the guide has)"},
+              {"id": "displayLevel", "label": "Display Level", "maya": "displayLevel", "app": "displayLevel", "tip": "One level of the guide hierarchy at full color, the others dimmed (-1: every level; the Groom Tools' Isolate sets it)"},
+              {"id": "guideColorMode", "label": "Guide Color Mode", "maya": "guideColorMode", "app": "guideColorMode", "tip": "What colors the guides: their level, a painted layer, or their group (the groups' own colors)"}
+            ]
+          },
+          {
+            "id": "strandShading",
+            "label": "Strand Shading",
+            "items": [
+              {"id": "displayLighting", "label": "Display Lighting", "labels": {"app": "Lit Lines"}, "maya": "displayLighting", "app": "lighting", "tip": "The strands lit by the lights (Kajiya-Kay lines)", "tips": {"app": "The line path's Kajiya-Kay shading (Lookdev off)"}},
+              {"id": "displayHairShading", "label": "Display Hair Shading", "labels": {"app": "Lookdev"}, "maya": "displayHairShading", "app": "lookdev", "tip": "How the strands are shaded: Maya's own, or GroomLab's hair shading (the look as the render has it)", "tips": {"app": "The strands as shaded ribbons under the look's material and lights, as the render shades them (off: lines)"}},
+              {"id": "displaySelfShadowing", "label": "Display Self Shadowing", "maya": "displaySelfShadowing", "app": "selfShadowing", "tip": "How dark the strands get under the strands above them (GroomLab's hair shading)"},
+              {"id": "displayStrandVariation", "label": "Display Strand Variation", "maya": "displayStrandVariation", "app": "strandVariation", "tip": "Each strand's own brightness and hue spread (GroomLab's hair shading)"},
+              {"id": "displayShadows", "label": "Display Shadows", "maya": "displayShadows", "app": "shadows", "tip": "Shadows of the hair: off, cast on the scene, or cast and received"},
+              {"id": "displayWidthCoverage", "label": "Display Width Coverage", "labels": {"app": "Width Coverage"}, "maya": "displayWidthCoverage", "app": "widthCoverage", "tip": "Strands a pixel wide, each point covering the share of the pixel its width covers: tapered tips fade, thin strands read light, dense hair builds up (off: opaque lines)"},
+              {"id": "displayCoverageDensity", "label": "Display Coverage Density", "labels": {"app": "Coverage at Full Density"}, "maya": "displayCoverageDensity", "app": "coverageDensity", "tip": "Width coverage at the render's density: a thinned preview's strands each cover what the strands they stand for would, so the preview reads as dense as the render"},
+              {"id": "displayClumpLod", "label": "Display Clump Lod", "labels": {"app": "Clump LOD"}, "maya": "displayClumpLod", "app": "clumpLod", "tip": "Level of detail: each clump draws as few of its strands as cover its pixels, each standing for the rest, and a clump thinner than a pixel as one line; chosen by the camera's distance. Off: every strand"},
+              {"id": "clumpLodError", "label": "Clump Lod Error", "labels": {"app": "Clump LOD Error"}, "maya": "clumpLodError", "app": "clumpLodError", "tip": "The coverage error the level of detail may make: lower draws more strands"},
+              {"id": "useMaterialColor", "label": "Use Material Color", "maya": "useMaterialColor", "app": "useMaterialColor", "tip": "The strands in the hair shader's color (else Display Color)"},
+              {"id": "displayColor", "label": "Display Color", "maya": "displayColor", "app": "displayColor", "tip": "The strands' color without a material color"},
+              "-",
+              {"id": "displayRibbons", "label": "Display Ribbons", "maya": "displayRibbons", "app": "ribbons", "tip": "The strands as camera-facing ribbons as wide as the strands"},
+              {"id": "ribbonWidthScale", "label": "Ribbon Width Scale", "labels": {"app": "Width Scale"}, "maya": "ribbonWidthScale", "app": "ribbonWidthScale", "tip": "Times the strands' widths in the viewport (ribbons, and lines with width coverage)"}
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sculpting",
+        "label": "Sculpting",
+        "items": [
+          {"id": "sculptDisplay", "label": "Sculpt Display", "maya": "sculptDisplay", "app": "sculptDisplay", "tip": "The strands while a stroke is live: as they are, dimmed, or the guides alone"},
+          {"id": "sculptDensity", "label": "Sculpt Density", "maya": "sculptDensity", "app": "sculptDensity", "tip": "The share of the strands evaluated while a stroke is live (all of them again when it ends)"},
+          {"id": "softSelectRadius", "label": "Soft Select Radius", "maya": "softSelectRadius", "app": "softSelectRadius", "tip": "Guides near the selected ones weigh in, falling off over this distance (0: off)"}
+        ]
+      },
+      {
+        "id": "gameCards",
+        "label": "Game Cards",
+        "items": [
+          {"id": "displayCards", "label": "Display Cards", "labels": {"app": "Card View"}, "maya": "displayCards", "app": "cardsView", "tip": "The Cards nodes' cards instead of the strands (when the graph has a Cards node)"},
+          {"id": "displayCardTextures", "label": "Display Card Textures", "maya": "displayCardTextures", "app": "cardTextures", "tip": "The cards with their baked maps"},
+          {"id": "cardDensity", "label": "Card Density", "maya": "cardDensity", "app": "cardDensity", "tip": "The strand density the viewport's cards are built from (the bake and the export use every strand): lower only to rough cards in on a heavy groom"}
+        ]
+      },
+      {
+        "id": "rendering",
+        "label": "Rendering",
+        "items": [
+          {"id": "renderMode", "label": "Render Mode", "hosts": ["maya"], "maya": "renderMode", "tip": "How Arnold renders the groom: as curves Maya hands it, or from the groom file by the procedural"},
+          {"id": "groomFile", "label": "Groom File", "hosts": ["maya", "blender"], "maya": "groomFile", "blender": "groom_file", "tip": "The groom file this groom is linked to (imported from, saved to)"}
+        ],
+        "sections": [
+          {
+            "id": "renderOverrides",
+            "label": "Render Overrides",
+            "about": "Render overrides: the render (Arnold, exports with render overrides) changes them, the viewport and the groom stay as groomed.",
+            "items": [
+              {"id": "renderDensity", "label": "Render Density", "maya": "renderDensity", "app": "renderDensity", "tip": "The share of the strands rendered, by the preview's thinning: the same look with fewer strands (1: every strand)", "tips": {"app": "The share of the strands rendered (V-Ray, RenderMan) and exported, by the preview's thinning: the same look with fewer strands (1: every strand)"}},
+              {"id": "renderWidthScale", "label": "Render Width Scale", "maya": "renderWidthScale", "app": "renderWidthScale", "tip": "Times every strand's width in renders"},
+              {"id": "renderLengthScale", "label": "Render Length Scale", "maya": "renderLengthScale", "app": "renderLengthScale", "tip": "Each strand scaled about its root in renders, shape and all (a Transform node's scale): 0.5 renders it at half size"}
+            ]
+          },
+          {
+            "id": "lod",
+            "label": "Level of Detail",
+            "items": [
+              {"id": "lodDistance", "label": "Lod Distance", "labels": {"app": "Thin with Distance"}, "maya": "lodDistance", "app": "lodDistance", "tip": "Strands far from the camera thinned (each kept with a probability falling from 1 at Lod Near to Lod Min Density at Lod Far, the same strands every frame), the survivors widened to keep the coverage", "tips": {"app": "Strands far from the camera thinned in a V-Ray frame (each kept with a probability falling from 1 at Near to Min Density at Far, the same strands every frame), the survivors widened to keep the coverage"}},
+              {"id": "lodNear", "label": "Lod Near", "labels": {"app": "Near"}, "maya": "lodNear", "app": "lodNear", "tip": "Full density up to this distance from the camera (scene units)"},
+              {"id": "lodFar", "label": "Lod Far", "labels": {"app": "Far"}, "maya": "lodFar", "app": "lodFar", "tip": "Lod Min Density from this distance on (scene units)"},
+              {"id": "lodMinDensity", "label": "Lod Min Density", "labels": {"app": "Min Density"}, "maya": "lodMinDensity", "app": "lodMinDensity", "tip": "The share of the strands kept far away, 0-1"},
+              {"id": "lodWidthCompensation", "label": "Lod Width Compensation", "labels": {"app": "Width Compensation"}, "maya": "lodWidthCompensation", "app": "lodWidthCompensation", "tip": "The survivors widened by density^-compensation (1 keeps the coverage, 0 keeps their widths)"},
+              "-",
+              {"id": "cameraCull", "label": "Camera Cull", "maya": "cameraCull", "app": "cameraCull", "tip": "Strands wholly outside the camera's view dropped", "tips": {"app": "Strands wholly outside the camera's view dropped (a V-Ray frame; a turntable keeps them)"}},
+              {"id": "cullMargin", "label": "Cull Margin", "maya": "cullMargin", "app": "cullMargin", "tip": "The view widened by this share on each side before culling (shadows and reflections close to frame)"},
+              "-",
+              {"id": "backfaceCull", "label": "Backface Cull", "maya": "backfaceCull", "app": "backfaceCull", "tip": "Strands whose root faces away from the camera dropped (the back of the head)", "tips": {"app": "Strands whose root faces away from the camera dropped (the back of the head; a V-Ray frame, a turntable keeps them)"}},
+              {"id": "backfaceAngle", "label": "Backface Angle", "maya": "backfaceAngle", "app": "backfaceAngle", "tip": "Degrees past side-on a root may face away and stay (silhouettes, long hair)"}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -3,14 +3,20 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QFontDatabase>
 #include <QSettings>
 
 #include <nlohmann/json.hpp>
+
+#include "groomlab/presets.h"
 
 namespace groomlab::app::theme {
 
@@ -18,14 +24,17 @@ namespace groomlab::app::theme {
 
 namespace {
 
-const QString kDefaultTheme = QStringLiteral("playful");
+// The app wears Charcoal unless View > Theme (or --theme) says otherwise; a theme without
+// "extends" fills its gaps from Playful, as the Maya host's theme.load does.
+const QString kDefaultTheme = QStringLiteral("charcoal");
+const QString kBaseTheme = QStringLiteral("playful");
 const QString kThemeSetting = QStringLiteral("ui/theme");
 
 // hosts/maya/themes/<name>.json, the Maya host's theme files, embedded at build time (resources of
 // this library): the palette, the UI tones, the graph's and the icons' colors come from those
 // files, so a theme edit reaches both hosts.
 nlohmann::json readTheme(const QString& name) {
-    QFile file(QStringLiteral(":/groomlab/themes/%1.json").arg(name));
+    QFile file(themeFile(name));
     nlohmann::json parsed = file.open(QIODevice::ReadOnly) ? nlohmann::json::parse(file.readAll().toStdString(), nullptr, false)
                                                            : nlohmann::json();
     return parsed.is_object() ? parsed : nlohmann::json::object();
@@ -44,7 +53,7 @@ nlohmann::json loadTheme(const QString& name, int depth = 0) {
     nlohmann::json data = readTheme(name);
     const QString base = data.contains("extends") && data["extends"].is_string()
                              ? QString::fromStdString(data["extends"].get<std::string>())
-                             : (name == kDefaultTheme ? QString() : kDefaultTheme);
+                             : (name == kBaseTheme ? QString() : kBaseTheme);
     if (base.isEmpty() || depth > 4) return data;
     nlohmann::json out = loadTheme(base, depth + 1);
     merge(out, data);
@@ -52,13 +61,16 @@ nlohmann::json loadTheme(const QString& name, int depth = 0) {
 }
 
 QString gTheme = kDefaultTheme;
+int gGeneration = 0;  // reloadTheme: the files read again
 
 const nlohmann::json& current() {
     static nlohmann::json data;
     static QString loaded;
-    if (loaded != gTheme || data.is_null()) {
+    static int generation = -1;
+    if (loaded != gTheme || generation != gGeneration || data.is_null()) {
         data = loadTheme(gTheme);
         loaded = gTheme;
+        generation = gGeneration;
     }
     return data;
 }
@@ -111,12 +123,69 @@ QColor mix(const QColor& a, const QColor& b, double t) {
 
 // ---- The theme ------------------------------------------------------------------------------------
 
+QString userThemeDir() {
+    const QString own = qEnvironmentVariable("GROOMLAB_USER_THEMES");
+    if (!own.isEmpty()) return QDir::fromNativeSeparators(own);
+    // Beside the user's presets: <the Maya user folder>/groomlab/themes, as the Maya host keeps them.
+    const QString presets = QString::fromStdString(presetUserDir());
+    if (presets.isEmpty()) return {};
+    return QFileInfo(presets).dir().filePath(QStringLiteral("themes"));
+}
+
+QStringList themeSearchDirs() {
+    QStringList dirs;
+    for (const QString& d : qEnvironmentVariable("GROOMLAB_THEME_PATH").split(QDir::listSeparator(), Qt::SkipEmptyParts)) {
+        dirs << QDir::fromNativeSeparators(d.trimmed());
+    }
+    const QString user = userThemeDir();
+    if (!user.isEmpty()) dirs << user;
+    return dirs;
+}
+
+QString themeFile(const QString& name) {
+    if (name.isEmpty() || name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\'))) return {};
+    for (const QString& dir : themeSearchDirs()) {
+        const QString path = QDir(dir).filePath(name + QStringLiteral(".json"));
+        if (QFileInfo(path).isFile()) return path;
+    }
+    const QString embedded = QStringLiteral(":/groomlab/themes/%1.json").arg(name);
+    return QFileInfo::exists(embedded) ? embedded : QString();
+}
+
 QStringList themeNames() {
     QStringList names;
     for (const QString& file : QDir(QStringLiteral(":/groomlab/themes")).entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name)) {
         names << file.chopped(5);
     }
+    for (const QString& dir : themeSearchDirs()) {
+        for (const QString& file : QDir(dir).entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name)) {
+            if (!names.contains(file.chopped(5))) names << file.chopped(5);
+        }
+    }
+    names.sort();
     return names;
+}
+
+void reloadTheme() { ++gGeneration; }
+
+QString createTheme(const QString& name, QString* pathOut) {
+    static const QString kBad = QStringLiteral("\\/:*?\"<>|");
+    if (name.trimmed().isEmpty() || std::any_of(name.begin(), name.end(), [](QChar c) { return kBad.contains(c); })) {
+        return QStringLiteral("no theme named \"%1\": pick a name without \\ / : * ? \" < > |").arg(name);
+    }
+    const QString dir = userThemeDir();
+    if (dir.isEmpty()) return QStringLiteral("no user folder for themes (set GROOMLAB_USER_THEMES)");
+    const QString path = QDir(dir).filePath(name.trimmed() + QStringLiteral(".json"));
+    if (QFileInfo::exists(path)) return QStringLiteral("a theme named %1 is there already: %2").arg(name, path);
+    if (!QDir().mkpath(dir)) return QStringLiteral("cannot make the folder %1").arg(dir);
+    nlohmann::json data = current();  // the active theme filled in: the copy stands on its own
+    data["name"] = name.trimmed().toStdString();
+    data.erase("extends");
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return QStringLiteral("cannot write %1").arg(path);
+    file.write(QByteArray::fromStdString(data.dump(2) + "\n"));
+    if (pathOut) *pathOut = path;
+    return {};
 }
 
 QString themeLabel(const QString& name) {
@@ -124,6 +193,8 @@ QString themeLabel(const QString& name) {
     for (QString& w : words) w[0] = w[0].toUpper();
     return words.join(QLatin1Char(' '));
 }
+
+QString defaultTheme() { return kDefaultTheme; }
 
 QString currentTheme() { return gTheme; }
 
@@ -163,11 +234,12 @@ QColor text() { return glassy() ? QColor(0xF3, 0xF1, 0xEC) : uiColor("text"); }
 QColor textSoft() { return glassy() ? QColor(0xD9, 0xD5, 0xCD) : mix(uiColor("text"), uiColor("textDim"), 0.33); }
 QColor textDim() { return glassy() ? QColor(0xB8, 0xB4, 0xAC) : mix(uiColor("text"), uiColor("textDim"), 0.66); }
 QColor textMuted() { return glassy() ? QColor(0x8F, 0x8B, 0x84) : uiColor("textDim"); }
-QColor track() { return QColor(255, 255, 255, 31); }
-QColor chip() { return QColor(255, 255, 255, 20); }
-QColor chipSoft() { return QColor(255, 255, 255, 15); }
-QColor chipChecked() { return QColor(255, 255, 255, 46); }
-QColor divider() { return QColor(255, 255, 255, 31); }
+// The washes: white over the glass; a solid theme's own tones (the raised fields, the hover, the edge).
+QColor track() { return glassy() ? QColor(255, 255, 255, 31) : uiColor("hover"); }
+QColor chip() { return glassy() ? QColor(255, 255, 255, 20) : uiColor("raised"); }
+QColor chipSoft() { return glassy() ? QColor(255, 255, 255, 15) : uiColor("raised"); }
+QColor chipChecked() { return glassy() ? QColor(255, 255, 255, 46) : uiColor("hover"); }
+QColor divider() { return glassy() ? QColor(255, 255, 255, 31) : glassEdge(); }
 QColor renderRed() { return glassy() ? QColor(0xE5, 0x38, 0x3B) : uiColor("accent"); }
 QColor backdrop() { return glassy() ? QColor(0x17, 0x18, 0x1B) : uiColor("background"); }
 QColor ink() { return QColor(0x1B, 0x1A, 0x17); }
@@ -357,6 +429,16 @@ QColor portColor(const std::string& portType) {
 
 QColor nodeBody() { return themed({"graph"}, "node"); }
 
+QColor graphCanvas() {
+    const QColor c = themed({"graph"}, "canvas");
+    return c.isValid() ? c : backdrop();
+}
+
+QColor graphGrid() {
+    const QColor c = themed({"graph"}, "grid");
+    return c.isValid() ? c : graphCanvas().lighter(135);
+}
+
 QColor nodeBorder() { return themed({"graph"}, "nodeBorder"); }
 
 QColor nodeSelected() {
@@ -388,166 +470,264 @@ bool tintedHeaders() {
     return graph.is_object() && graph.value("headerStyle", std::string("filled")) == "tinted";
 }
 
+// ---- The viewport's overlay ------------------------------------------------------------------------
+
+DisplayTheme displayTheme() {
+    // theme.apply_viewport's mapping: each viewport.* color (hex or a palette name) as linear RGB.
+    DisplayTheme t;
+    const nlohmann::json& data = current();
+    const nlohmann::json viewport = data.contains("viewport") && data["viewport"].is_object() ? data["viewport"] : nlohmann::json::object();
+    auto linear = [](const QColor& c) {
+        auto channel = [](float v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+        return DisplayTheme::RGB{channel(c.redF()), channel(c.greenF()), channel(c.blueF())};
+    };
+    auto color = [&](const char* key, const char* fallback) {
+        QColor c = viewport.contains(key) && viewport[key].is_string() ? resolve(viewport[key].get<std::string>()) : QColor();
+        if (!c.isValid()) c = resolve(fallback);
+        return linear(c.isValid() ? c : QColor(Qt::white));
+    };
+    auto rgba = [&](const char* key, const char* fallback) {
+        const DisplayTheme::RGB c = color(key, fallback);
+        return DisplayTheme::RGBA{c[0], c[1], c[2], 1.0f};
+    };
+    std::vector<DisplayTheme::RGB> levels;
+    if (viewport.contains("guideLevels") && viewport["guideLevels"].is_array()) {
+        for (const nlohmann::json& v : viewport["guideLevels"]) {
+            const QColor c = v.is_string() ? resolve(v.get<std::string>()) : QColor();
+            if (c.isValid()) levels.push_back(linear(c));
+        }
+    }
+    if (levels.empty()) levels.push_back(color("", "blue"));
+    t.levels = levels;
+    if (viewport.contains("pointSize") && viewport["pointSize"].is_number()) t.pointSize = std::max(0.0f, viewport["pointSize"].get<float>());
+    t.selected = rgba("selected", "white");
+    t.softSelected = rgba("softSelected", "yellow");
+    t.frozen = color("frozen", "blue");
+    t.parts = rgba("parts", "red");
+    t.flow = rgba("flow", "yellow");
+    t.flowField = rgba("flowField", "#8FA3BF");
+    t.tubes = rgba("tubes", "#8A93A0");
+    t.instances = rgba("instances", "white");
+    t.clumpCenters = color("clumpCenters", "#FF4FD8");
+    return t;
+}
+
 // ---- Layout --------------------------------------------------------------------------------------
 
-OverlayLayout layoutOverlay(const OverlayRequest& r, const OverlayMetrics& m) {
-    OverlayLayout out;
+ViewportOverlayLayout layoutViewportOverlay(const ViewportOverlayRequest& r, int m) {
+    ViewportOverlayLayout out;
     const int w = r.view.width(), h = r.view.height();
-    // The top row: everything centered on one line 40 px down, as the mockup has it.
-    const int topCenter = 40;
-    out.logo = QRect(m.margin + 4, topCenter - r.logo.height() / 2, r.logo.width(), r.logo.height());
-    const int modesHeight = 48;
-    out.modes = QRect((w - r.modesWidth) / 2, topCenter - modesHeight / 2, r.modesWidth, modesHeight);
-    out.topRight = QRect(w - m.margin - 4 - r.topRightWidth, topCenter - m.topHeight / 2, r.topRightWidth, m.topHeight);
-
-    out.bar = QRect((w - r.barWidth) / 2, h - m.barBottom - m.barHeight, r.barWidth, m.barHeight);
-    out.lookCard = QRect(w - m.margin - m.lookCardWidth, m.lookCardTop, m.lookCardWidth, r.lookCardHeight);
-    // The Graph and Presets pills sit at the bottom left in every mode (the close button after
-    // them while the graph shows); the stats above them.
-    out.graphPill = QRect(m.margin + 4, h - 28 - r.graphPill.height(), r.graphPill.width(), r.graphPill.height());
-    out.graphTools = QRect(out.graphPill.right() + 1 + 8, out.graphPill.top(), r.graphToolsWidth, r.graphPill.height());
-    const int statsBottom = out.graphPill.top() - 12;
-    out.stats = QRect(m.margin + 4, statsBottom - r.stats.height(), r.stats.width(), r.stats.height());
-
-    // The brush rail between the top row and the stats line, its buttons shrinking to fit;
-    // centered in that span. When even the smallest buttons do not fit (a short window), the
-    // rail takes the window's whole height instead and the stats and the pills move to its
-    // right, so nothing is drawn over anything.
-    const int clearance = 72;
-    int railTop = clearance, railBottom = std::min(h - clearance, out.stats.top() - 12);
-    int available = std::max(0, railBottom - railTop);
-    int gap = m.railGap, divider = m.railDivider;
-    auto fixedHeight = [&] { return 2 * m.railPadding + r.railDividers * divider + std::max(0, r.railButtons - 1) * gap; };
-    int button = m.railButton;
-    auto fit = [&] { button = std::clamp((available - fixedHeight()) / std::max(1, r.railButtons), m.railButtonMin, m.railButton); };
-    auto fits = [&] { return r.railButtons == 0 || fixedHeight() + r.railButtons * button <= available; };
-    if (!fits()) fit();
-    if (!fits()) {
-        // Squeezed: the gaps and dividers tightened first ...
-        gap = 2;
-        divider = 5;
-        fit();
+    // A piece no wider (or taller) than the view less the margins.
+    auto fit = [&](QSize s) { return QSize(std::min(s.width(), std::max(0, w - 2 * m)), std::min(s.height(), std::max(0, h - 2 * m))); };
+    const QSize tool = fit(r.toolLabel), stats = fit(r.stats), refine = fit(r.refine);
+    if (!tool.isEmpty()) out.toolLabel = QRect(QPoint(m, m), tool);
+    // Undo and Redo at the top-right; in a view too narrow for both, under the tool's name.
+    const QSize history = fit(r.history);
+    if (!history.isEmpty()) {
+        out.history = QRect(QPoint(w - m - history.width(), m), history);
+        if (out.history.intersects(out.toolLabel)) out.history.moveTop(out.toolLabel.bottom() + 1 + 8);
     }
-    if (!fits()) {
-        // ... then the full height, the stats and the pills beside the rail, the buttons as
-        // small as they must be (below the usual minimum only in a very short window).
-        railTop = clearance - 8;
-        railBottom = h - m.margin;
-        available = std::max(0, railBottom - railTop);
-        fit();
-        if (!fits()) {
-            // The tightest rows before the buttons shrink further.
-            gap = 1;
-            divider = 3;
-            fit();
-        }
-        if (!fits()) button = std::clamp((available - fixedHeight()) / std::max(1, r.railButtons), 22, m.railButton);
-        // Beside the rail as wide as it shows: with its names (Rail Labels) the stats and the
-        // pills go right of those too.
-        const int beside = m.margin + std::max(std::min(m.railWidth, button + 12), r.railLabelsWidth) + 16;
-        out.graphPill.moveLeft(beside);
-        out.graphTools.moveLeft(out.graphPill.right() + 1 + 8);
-        out.stats.moveLeft(beside);
+    // The stats bottom-left, the refine line bottom-right; the refine line above the stats when
+    // the view is too narrow for both on one line.
+    if (!stats.isEmpty()) out.stats = QRect(QPoint(m, h - m - stats.height()), stats);
+    if (!refine.isEmpty()) {
+        out.refine = QRect(QPoint(w - m - refine.width(), h - m - refine.height()), refine);
+        if (out.refine.intersects(out.stats)) out.refine.moveBottom(out.stats.top() - 1 - 6);
     }
-    out.railButton = button;
-    out.railGap = gap;
-    out.railDivider = divider;
-    const int railHeight = fixedHeight() + r.railButtons * button;
-    const int railWidth = std::min(m.railWidth, button + 12);
-    out.rail = QRect(m.margin, railTop + std::max(0, available - railHeight) / 2, railWidth, railHeight);
-
-    // The brush bar keeps clear of the pills: moved right while there is room, else above them.
-    const int pillsRight = out.graphTools.right() + 1;
-    if (r.barShown && out.bar.left() < pillsRight + 12) {
-        if (pillsRight + 12 + r.barWidth <= w - m.margin) out.bar.moveLeft(pillsRight + 12);
-        else out.bar.moveBottom(std::min(out.graphPill.top(), out.stats.top()) - 12 - 1);
+    // The toast centered above the bottom lines.
+    int bottom = h - m;
+    for (const QRect& r2 : {out.stats, out.refine}) {
+        if (!r2.isNull()) bottom = std::min(bottom, r2.top() - 8);
     }
-
-    const int panelHeight = r.panelButtons * m.panelButton + std::max(0, r.panelButtons - 1) * m.panelGap;
-    out.panelRail = QRect(w - m.margin - m.panelButton, (h - panelHeight) / 2, m.panelButton, panelHeight);
-
-    out.refine = QRect(w - m.margin - 4 - r.refine.width(), h - m.statsBottom - r.refine.height(), r.refine.width(), r.refine.height());
+    const QSize toast = fit(r.toast);
+    if (!toast.isEmpty()) out.toast = QRect(QPoint((w - toast.width()) / 2, std::max(m, bottom - toast.height())), toast);
+    // The prompt a little above the middle, the card in the middle.
+    const QSize prompt = fit(r.prompt), card = fit(r.emptyCard);
+    if (!prompt.isEmpty()) out.prompt = QRect(QPoint((w - prompt.width()) / 2, std::max(m, (h - prompt.height()) / 2 - 40)), prompt);
+    if (!card.isEmpty()) out.emptyCard = QRect(QPoint((w - card.width()) / 2, std::max(m, (h - card.height()) / 2)), card);
     return out;
 }
 
 // ---- The style sheet ------------------------------------------------------------------------------
 
 QString styleSheet() {
-    // The ordinary widgets inside the glass panels (the full brush, look, guides and parameter
-    // panels): no frames, round corners, the raised tone for fields, the accent for what is on.
+    // The window's chrome first (solid in every theme: the menu bar, the tool bar, the docks with
+    // their titles and tabs, the separators), then the ordinary widgets inside the docks and the
+    // glass panels: no frames, the raised tone (a glass theme's white wash) for fields, the accent
+    // for what is on. Tokens (@name@) take the theme's tones below.
     QString sheet = QStringLiteral(R"(
-QWidget { color: @text@; font-family: "Figtree"; font-size: 13px; background: transparent; }
-QToolTip { color: @text@; background: @panel@; border: 1px solid @hover@; border-radius: 6px; padding: 4px 8px; }
-QMenu { background: @panel@; border: 1px solid @hover@; border-radius: 10px; padding: 6px; }
-QMenu::item { padding: 6px 28px 6px 12px; border-radius: 6px; }
+QWidget { color: @text@; font-family: "Figtree"; font-size: @fontSize@px; background: transparent; }
+QMainWindow { background: @background@; }
+QMainWindow::separator { background: @background@; width: 3px; height: 3px; }
+QMainWindow::separator:hover { background: @hover@; }
+QMenuBar { background: @panel@; border-bottom: 1px solid @edge@; padding: 1px 4px; }
+QMenuBar::item { background: transparent; color: @soft@; padding: 4px 9px; border-radius: @radius@px; }
+QMenuBar::item:selected { background: @hover@; color: @text@; }
+QMenuBar::item:pressed { background: @selection@; color: @selectionText@; }
+QToolBar { background: @panel@; border: none; border-bottom: 1px solid @edge@; padding: 3px 8px; spacing: 6px; }
+QToolBar::separator { background: @edge@; width: 1px; margin: 5px 4px; }
+QDockWidget { color: @dim@; font-size: @smallSize@px; font-weight: 700; }
+QDockWidget::title { background: @panel@; padding: 5px 8px; border-bottom: 1px solid @edge@; text-align: left; }
+QDockWidget::close-button, QDockWidget::float-button { border: none; background: transparent; padding: 1px; }
+QDockWidget::close-button:hover, QDockWidget::float-button:hover { background: @hover@; border-radius: 3px; }
+#dockBody { background: @panel@; }
+QTabWidget::pane { border: none; border-top: 1px solid @edge@; background: @panel@; }
+QTabWidget::tab-bar { left: 4px; }
+QTabBar { background: transparent; qproperty-drawBase: 0; }
+QTabBar::tab { background: transparent; color: @muted@; padding: 5px 9px; margin: 0 1px; border: none; border-bottom: 2px solid transparent; font-weight: 600; }
+QTabBar::tab:selected { color: @text@; border-bottom: 2px solid @accent@; }
+QTabBar::tab:hover:!selected { color: @soft@; }
+QSplitter::handle { background: @background@; }
+QSplitter::handle:horizontal { width: 3px; }
+QSplitter::handle:vertical { height: 3px; }
+QToolTip { color: @text@; background: @panel@; border: 1px solid @hover@; border-radius: @radius@px; padding: 4px 8px; }
+QMenu { background: @panel@; border: 1px solid @hover@; border-radius: @radiusLarge@px; padding: 4px; }
+QMenu::item { padding: 5px 28px 5px 12px; border-radius: @radius@px; }
 QMenu::item:selected { background: @selection@; color: @selectionText@; }
 QMenu::item:disabled { color: @muted@; }
 QMenu::separator { height: 1px; background: @hover@; margin: 4px 8px; }
-QGroupBox { border: 1px solid rgba(255,255,255,0.10); border-radius: 12px; margin-top: 14px; padding: 8px 4px 4px 4px; font-weight: 700; }
+QGroupBox { border: 1px solid @groupEdge@; border-radius: @radiusLarge@px; margin-top: 14px; padding: 8px 4px 4px 4px; font-weight: 700; }
 QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: @dim@; }
 QLabel { color: @soft@; }
 QAbstractSpinBox, QLineEdit, QComboBox {
-    background: rgba(255,255,255,0.08); border: 1px solid transparent; border-radius: 8px; padding: 3px 6px; min-height: 20px;
+    background: @field@; border: 1px solid @fieldEdge@; border-radius: @radius@px; padding: 3px 6px; min-height: 18px;
     selection-background-color: @selection@; selection-color: @selectionText@; }
 QAbstractSpinBox:focus, QLineEdit:focus, QComboBox:focus { border: 1px solid @accent@; }
 QAbstractSpinBox:disabled, QLineEdit:disabled, QComboBox:disabled { color: @muted@; }
 QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { width: 14px; border: none; background: transparent; }
-QAbstractSpinBox::up-arrow { image: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 5px solid @dim@; }
-QAbstractSpinBox::down-arrow { image: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid @dim@; }
+QAbstractSpinBox::up-arrow { image: url(:/groomlab/icons/ui_chevron_up.svg); width: 9px; height: 9px; }
+QAbstractSpinBox::down-arrow { image: url(:/groomlab/icons/ui_chevron_down.svg); width: 9px; height: 9px; }
+QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::down-arrow:disabled { image: none; }
 QComboBox::drop-down { border: none; width: 18px; }
-QComboBox::down-arrow { image: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid @dim@; margin-right: 6px; }
-QComboBox QAbstractItemView { background: @panel@; border: 1px solid @hover@; border-radius: 8px; padding: 4px; selection-background-color: @selection@;
+QComboBox::down-arrow { image: url(:/groomlab/icons/ui_chevron_down.svg); width: 11px; height: 11px; margin-right: 4px; }
+QComboBox QAbstractItemView { background: @panel@; border: 1px solid @hover@; border-radius: @radius@px; padding: 4px; selection-background-color: @selection@;
     selection-color: @selectionText@; outline: none; }
 QCheckBox { spacing: 8px; }
-QCheckBox::indicator { width: 16px; height: 16px; border-radius: 5px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.14); }
-QCheckBox::indicator:checked { background: @accent@; border-color: @accent@; }
-QCheckBox::indicator:disabled { background: rgba(255,255,255,0.05); }
-QPushButton { background: rgba(255,255,255,0.08); border: none; border-radius: 10px; padding: 6px 12px; min-height: 18px; font-weight: 600; }
-QPushButton:hover { background: rgba(255,255,255,0.14); }
+QCheckBox::indicator { width: 14px; height: 14px; border-radius: @smallRadius@px; background: @check@; border: 1px solid @checkEdge@; }
+QCheckBox::indicator:checked { background: @accent@; border-color: @accent@; image: url(@checkMark@); }
+QCheckBox::indicator:disabled { background: @checkOff@; }
+QCheckBox::indicator:checked:disabled { background: @hover@; border-color: @hover@; image: url(:/groomlab/icons/ui_check_light.svg); }
+QCheckBox:disabled { color: @muted@; }
+QPushButton { background: @field@; border: 1px solid @fieldEdge@; border-radius: @radiusLarge@px; padding: 5px 12px; min-height: 16px; font-weight: 600; }
+QPushButton:hover { background: @fieldHover@; }
 QPushButton:pressed { background: @accent@; color: @accentText@; }
-QPushButton:disabled { color: @muted@; background: rgba(255,255,255,0.04); }
-QSlider::groove:horizontal { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); }
-QSlider::sub-page:horizontal { background: @slider@; border-radius: 4px; }
-QSlider::handle:horizontal { width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; background: @text@; }
+QPushButton:disabled { color: @muted@; background: @fieldOff@; }
+QSlider::groove:horizontal { height: 6px; border-radius: 3px; background: @track@; }
+QSlider::sub-page:horizontal { background: @slider@; border-radius: 3px; }
+QSlider::handle:horizontal { width: 14px; height: 14px; margin: -4px 0; border-radius: 7px; background: @text@; }
 QScrollArea { border: none; }
 QScrollBar:vertical { width: 8px; background: transparent; margin: 0; }
-QScrollBar::handle:vertical { background: rgba(255,255,255,0.18); border-radius: 4px; min-height: 24px; }
-QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.30); }
+QScrollBar::handle:vertical { background: @scroll@; border-radius: 4px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: @scrollHover@; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar:horizontal { height: 8px; background: transparent; margin: 0; }
-QScrollBar::handle:horizontal { background: rgba(255,255,255,0.18); border-radius: 4px; min-width: 24px; }
+QScrollBar::handle:horizontal { background: @scroll@; border-radius: 4px; min-width: 24px; }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
-QTreeWidget, QListWidget { background: rgba(255,255,255,0.05); border: none; border-radius: 10px; padding: 4px; outline: none; alternate-background-color: transparent; }
-QTreeWidget::item, QListWidget::item { padding: 3px; border-radius: 6px; }
+QTreeWidget, QListWidget { background: @list@; border: 1px solid @fieldEdge@; border-radius: @radiusLarge@px; padding: 4px; outline: none; alternate-background-color: transparent; }
+QTreeWidget::item, QListWidget::item { padding: 3px; border-radius: @smallRadius@px; }
 QTreeWidget::item:selected, QListWidget::item:selected { background: @selection@; color: @selectionText@; }
-QTreeWidget::item:hover, QListWidget::item:hover { background: rgba(255,255,255,0.08); }
+QTreeWidget::item:hover, QListWidget::item:hover { background: @fieldHover@; }
 QHeaderView::section { background: transparent; color: @muted@; border: none; padding: 2px 4px; font-weight: 600; }
-QTreeWidget::indicator { width: 14px; height: 14px; border-radius: 4px; background: rgba(255,255,255,0.10); }
-QTreeWidget::indicator:checked { background: @emerald@; }
+QTreeWidget::indicator { width: 14px; height: 14px; border-radius: @smallRadius@px; background: @check@; }
+QTreeWidget::indicator:checked { background: @emerald@; image: url(:/groomlab/icons/ui_check_dark.svg); }
 QTreeView::branch { background: transparent; }
+/* The Groom Tools (groom_tools.h), as Maya's: tiles, chips, the card, the segmented tabs, sections. */
+QLabel[role="heading"] { color: @dim@; font-size: @smallSize@px; font-weight: 700; letter-spacing: 1px; padding-top: 4px; }
+QLabel[role="subheading"] { color: @muted@; font-size: @tinySize@px; font-weight: 700; letter-spacing: 1px; }
+QLabel[role="about"] { color: @dim@; }
+QLabel[role="hint"] { color: @muted@; font-size: @smallSize@px; }
+QLabel[role="title"] { color: @text@; font-size: @titleSize@px; font-weight: 700; }
+QLabel[role="status"] { color: @warning@; background: @field@; border-radius: @radius@px; padding: 5px 8px; }
+QFrame[role="card"], QFrame[role="empty"] { background: @card@; border: 1px solid @groupEdge@; border-radius: @radiusLarge@px; }
+QFrame[role="card"] QLabel, QFrame[role="card"] QCheckBox, QFrame[role="empty"] QLabel { background: transparent; }
+QFrame[role="segments"] { background: @card@; border: 1px solid @groupEdge@; border-radius: @radiusLarge@px; }
+QFrame[role="segments"] QTabBar::tab { background: transparent; color: @muted@; border: none; border-radius: @radius@px; padding: 4px 4px; margin: 0; font-weight: 600; }
+QFrame[role="segments"] QTabBar::tab:selected { background: @hover@; color: @text@; }
+QFrame[role="segments"] QTabBar::tab:hover:!selected { color: @soft@; }
+QToolButton[role="tool"] { background: @field@; border: 1px solid @fieldEdge@; border-radius: @radius@px; padding: 4px 0 4px 0;
+    color: @soft@; font-size: @tinySize@px; font-weight: 600; }
+QToolButton[role="tool"]:hover { background: @fieldHover@; color: @text@; }
+QToolButton[role="tool"]:checked { background: @accent@; border-color: @accent@; color: @accentText@; }
+QToolButton[role="tool"]:disabled { color: @muted@; }
+QToolButton[role="chip"] { background: @field@; border: 1px solid @fieldEdge@; border-radius: @radius@px; padding: 4px 8px; font-weight: 600; }
+QToolButton[role="chip"]:hover { background: @fieldHover@; }
+QToolButton[role="chip"]:pressed, QToolButton[role="chip"]:checked { background: @accent@; color: @accentText@; }
+QToolButton[role="chip"]:disabled { color: @muted@; }
+QToolButton[role="chip"]::menu-indicator, QToolButton[role="glyph"]::menu-indicator { image: none; width: 0; }
+QToolButton[role="glyph"], QToolButton[role="glyph"]:checked { background: transparent; border: none; border-radius: @radius@px; padding: 2px; }
+QToolButton[role="glyph"]:hover { background: @hover@; }
+QPushButton[role="primary"] { background: @accent@; color: @accentText@; border-color: @accent@; font-weight: 700; }
+QPushButton[role="primary"]:hover { background: @accent@; }
+QPushButton[role="section"], QPushButton[role="section"]:checked, QPushButton[role="section"]:pressed {
+    background: transparent; border: none; color: @dim@; font-size: @smallSize@px; font-weight: 700; text-align: left; padding: 6px 0 2px 0; }
+QPushButton[role="section"]:hover { color: @text@; background: transparent; }
+QPushButton[role="step"] { background: transparent; border: none; text-align: left; padding: 3px 4px; font-weight: 600; }
+QPushButton[role="step"]:hover { background: @hover@; }
+QPushButton[role="step"][done="true"] { color: @muted@; }
+#groomTools QPushButton { padding: 4px 8px; }
+#groomTools QPushButton[role="section"] { padding: 6px 0 2px 0; }
+#groomTools QPushButton[role="step"] { padding: 3px 4px; }
+/* The Properties dock (properties_panel.h), as Maya's Attribute Editor: banded section headers, a label column. */
+QPushButton[role="propSection"], QPushButton[role="propSection"]:checked, QPushButton[role="propSection"]:pressed {
+    background: @card@; border: 1px solid @groupEdge@; border-radius: @radius@px; color: @soft@; font-size: @smallSize@px;
+    font-weight: 700; text-align: left; padding: 5px 8px; }
+QPushButton[role="propSection"]:hover { color: @text@; background: @hover@; }
+QPushButton[role="propSubsection"], QPushButton[role="propSubsection"]:checked, QPushButton[role="propSubsection"]:pressed {
+    background: transparent; border: none; color: @dim@; font-size: @smallSize@px; font-weight: 700; text-align: left; padding: 4px 2px; }
+QPushButton[role="propSubsection"]:hover { color: @text@; background: transparent; }
+QLabel[role="propLabel"] { color: @dim@; }
+QFrame[role="propRule"] { background: @groupEdge@; border: none; }
 )");
-    if (!glassy()) {
-        // A solid theme: thin borders where the glass has none.
-        sheet += QStringLiteral(
-            "QPushButton, QTreeWidget, QListWidget, QAbstractSpinBox, QLineEdit, QComboBox { border: 1px solid @edge@; }\n"
-            "QPushButton:hover { border-color: @hover@; }\n"
-            "QAbstractSpinBox:focus, QLineEdit:focus, QComboBox:focus { border-color: @accent@; }\n");
-    }
-    // The theme's tones (its ui and palette) into the sheet.
+    // The theme's tones into the sheet: a glass theme's white washes (over the viewport or a dock),
+    // a solid theme's raised fields with a 1 px edge and smaller radii (compact, flat).
+    const bool glass = glassy();
     const QColor selection = uiColor("selection"), selectionText = uiColor("selectionText"), edge = glassEdge();
-    return sheet.replace(QStringLiteral("@accentText@"), uiColor("accentText").name())
-        .replace(QStringLiteral("@accent@"), uiColor("accent").name())
-        .replace(QStringLiteral("@selectionText@"), (selectionText.isValid() ? selectionText : uiColor("accentText")).name())
-        .replace(QStringLiteral("@selection@"), (selection.isValid() ? selection : uiColor("accent")).name())
-        .replace(QStringLiteral("@slider@"), (glassy() ? uiColor("accent") : textMuted()).name())
-        .replace(QStringLiteral("@panel@"), uiColor("panel").name())
-        .replace(QStringLiteral("@hover@"), uiColor("hover").name())
-        .replace(QStringLiteral("@edge@"), edge.isValid() ? edge.name() : QStringLiteral("transparent"))
-        .replace(QStringLiteral("@text@"), text().name())
-        .replace(QStringLiteral("@soft@"), textSoft().name())
-        .replace(QStringLiteral("@dim@"), textDim().name())
-        .replace(QStringLiteral("@muted@"), textMuted().name())
-        .replace(QStringLiteral("@emerald@"), emerald().name());
+    const QColor border = uiColor("border");
+    const QString edgeName = edge.isValid() ? edge.name() : border.isValid() ? border.name() : QStringLiteral("#2E2E2E");
+    const int fontSize = glass ? 13 : std::clamp(value("ui", "fontSize", 12), 11, 14);
+    const auto wash = [](int alphaPercent) { return QStringLiteral("rgba(255,255,255,%1)").arg(alphaPercent / 100.0); };
+    const std::vector<std::pair<QString, QString>> tokens = {
+        {QStringLiteral("@accentText@"), uiColor("accentText").name()},
+        {QStringLiteral("@accent@"), uiColor("accent").name()},
+        {QStringLiteral("@selectionText@"), (selectionText.isValid() ? selectionText : uiColor("accentText")).name()},
+        {QStringLiteral("@selection@"), (selection.isValid() ? selection : uiColor("accent")).name()},
+        {QStringLiteral("@slider@"), (glass ? uiColor("accent") : textMuted()).name()},
+        {QStringLiteral("@background@"), backdrop().name()},
+        {QStringLiteral("@panel@"), uiColor("panel").name()},
+        {QStringLiteral("@hover@"), uiColor("hover").name()},
+        {QStringLiteral("@edge@"), edgeName},
+        {QStringLiteral("@groupEdge@"), glass ? wash(10) : edgeName},
+        {QStringLiteral("@fieldEdge@"), glass ? QStringLiteral("transparent") : edgeName},
+        {QStringLiteral("@fieldHover@"), glass ? wash(14) : uiColor("hover").name()},
+        {QStringLiteral("@fieldOff@"), glass ? wash(4) : uiColor("panel").name()},
+        {QStringLiteral("@field@"), glass ? wash(8) : uiColor("raised").name()},
+        {QStringLiteral("@list@"), glass ? wash(5) : backdrop().name()},
+        {QStringLiteral("@checkEdge@"), glass ? wash(14) : edgeName},
+        {QStringLiteral("@checkOff@"), glass ? wash(5) : uiColor("panel").name()},
+        {QStringLiteral("@check@"), glass ? wash(10) : uiColor("raised").name()},
+        {QStringLiteral("@track@"), glass ? wash(12) : uiColor("hover").name()},
+        {QStringLiteral("@scrollHover@"), glass ? wash(30) : textMuted().name()},
+        {QStringLiteral("@scroll@"), glass ? wash(18) : uiColor("hover").name()},
+        {QStringLiteral("@radiusLarge@"), QString::number(glass ? 10 : 5)},
+        {QStringLiteral("@radius@"), QString::number(glass ? 8 : 4)},
+        {QStringLiteral("@smallRadius@"), QString::number(glass ? 5 : 3)},
+        {QStringLiteral("@fontSize@"), QString::number(fontSize)},
+        {QStringLiteral("@smallSize@"), QString::number(fontSize - 1)},
+        {QStringLiteral("@tinySize@"), QString::number(fontSize - 2)},
+        {QStringLiteral("@titleSize@"), QString::number(fontSize + 1)},
+        // The check mark in the accent's text color (a light accent: a dark tick).
+        {QStringLiteral("@checkMark@"), uiColor("accentText").lightness() < 128 ? QStringLiteral(":/groomlab/icons/ui_check_dark.svg")
+                                                                                 : QStringLiteral(":/groomlab/icons/ui_check_light.svg")},
+        {QStringLiteral("@card@"), glass ? wash(4) : backdrop().name()},
+        {QStringLiteral("@warning@"), warningText().name()},
+        {QStringLiteral("@text@"), text().name()},
+        {QStringLiteral("@soft@"), textSoft().name()},
+        {QStringLiteral("@dim@"), textDim().name()},
+        {QStringLiteral("@muted@"), textMuted().name()},
+        {QStringLiteral("@emerald@"), emerald().name()},
+    };
+    for (const auto& [token, color] : tokens) sheet.replace(token, color);
+    return sheet;
 }
 
 QSize fitToAvailable(QSize wanted, const QRect& available, double share, QSize minimum) {
@@ -558,4 +738,23 @@ QSize fitToAvailable(QSize wanted, const QRect& available, double share, QSize m
     return {std::min(std::max(w, minimum.width()), available.width()), std::min(std::max(h, minimum.height()), available.height())};
 }
 
+std::vector<QColor> namedColors() {
+    std::vector<QColor> out = {red(),        yellow(),         blue(),          emerald(),     purple(),       white(),       glass(),
+                               glassSolid(), glassPanel(),     glassEdge(),     text(),        textSoft(),     textDim(),     textMuted(),
+                               track(),      chip(),           chipSoft(),      chipChecked(), divider(),      renderRed(),   backdrop(),
+                               blueLight(),  redLight(),       emeraldSoft(),   emeraldChip(), errorText(),    warningText(), linkText(),
+                               windowButton(), windowButtonHover(), nodeBody(), graphCanvas(), graphGrid(),   nodeBorder(),  nodeSelected(),
+                               graphError(), graphWarning(),   graphNote(),     graphDriven(), graphReads(),   graphWrites()};
+    for (const char* key : {"panel", "background", "raised", "hover", "border", "outline", "accent", "accentText", "text", "textDim",
+                            "error", "warning", "selection", "selectionText", "field", "card"}) {
+        out.push_back(uiColor(key));
+    }
+    for (const BrushCategory c : groomlab::brushCategories()) {
+        out.push_back(categoryColor(c));
+        out.push_back(categoryIconColor(c));
+    }
+    for (const char* c : {"source", "grow", "shape", "look", "field", "utility", "color", "motion", "feathers"}) out.push_back(nodeCategoryColor(c));
+    for (const char* p : {"strands", "guides", "mesh", "field", "curve", "curves"}) out.push_back(portColor(p));
+    return out;
+}
 }  // namespace groomlab::app::theme

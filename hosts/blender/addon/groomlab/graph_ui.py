@@ -17,7 +17,7 @@ import bpy
 from bpy.props import StringProperty
 
 HOST = "blender"
-FILES = ("actions", "menus", "palette", "lists", "choices", "marking_menu", "graph_ui")
+FILES = ("actions", "menus", "palette", "lists", "choices", "marking_menu", "graph_ui", "properties")
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # The extension's copy (GroomLabBlender/ui), else the source tree's.
 SEARCH = (os.path.join(_HERE, "ui"),

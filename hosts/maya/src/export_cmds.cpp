@@ -475,6 +475,11 @@ MStatus ExportAlembicCmd::doIt(const MArgList& args) {
                 if (adjusted) return fail(kName, "-unreal writes Unreal's units and layout; leave out -scale, -pointsPerStrand and -vertexUVs");
                 if (db.isFlagSet("-fg")) db.getFlagArgument("-fg", 0, engine.featherGuides);
                 if (db.isFlagSet("-iao")) db.getFlagArgument("-iao", 0, engine.iridescenceAo);
+                // Written in Unreal's space from the scene's (world space, Maya's internal
+                // centimeters whatever the UI unit), as Unreal's FBX importer turns this scene's
+                // meshes: the importer's default conversion then lines the groom up with them.
+                engine.upAxis = MGlobal::isZAxisUp() ? "Z" : "Y";
+                engine.centimetersPerUnit = 1.0;
             } else {
                 if (guides) return fail(kName, "-unity writes the strands; leave out -guideGroup and -guidePoses");
                 engine.scale = options.scale;

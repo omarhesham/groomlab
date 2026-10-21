@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The lit strand lines' frames on the GPU (line_frames.h): shaders/lines.slang's FramesCS on
 // DirectX 11 and OpenGL 4.5, a backend each below. Separate from the look engine (look_engine.h):
-// a run here is one dispatch on buffers the host holds, with nothing of a graph's.
+// a run here is one dispatch on buffers the host holds, with nothing of a graph's. Elsewhere than
+// Windows only the shared part (LineFrames' own methods) is built: no backend (look_engine_none.cpp).
 
 #include "groomlab/gpu/line_frames.h"
 
@@ -11,16 +12,19 @@
 #include <string>
 #include <type_traits>
 
+#ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 #include <d3d11.h>
 #include <GL/gl.h>
+#endif
 
 #include "groomlab/parallel.h"
 #include "look_engine_internal.h"
 
+#ifdef _WIN32
 // FramesCS as DXBC (kLookDxbcFramesCS) and as GLSL (kLookGlslFramesCS), from shaders/lines.slang
 // (engine/gpu/CMakeLists.txt).
 #include "line_kernels_dxbc.h"
@@ -31,6 +35,7 @@
 // DensityClearCS, DensitySplatCS, DensityResolveCS, from shaders/density.slang.
 #include "density_kernels_dxbc.h"
 #include "density_kernels_glsl.h"
+#endif
 
 namespace groomlab::gpu {
 
@@ -239,6 +244,7 @@ void LineFrames::dispatchPoints(Kernel kernel, const Binding& binding, const flo
     dispatch(kernel, &c, sizeof c, binding, groupsX, groupsY);
 }
 
+#ifdef _WIN32
 namespace {
 
 // ---- DirectX 11 ---------------------------------------------------------------------------------
@@ -1210,5 +1216,6 @@ ID3D11Buffer* createD3D11IndexBuffer(ID3D11Device* device, std::size_t bytes) {
     check(device->CreateBuffer(&desc, nullptr, &buffer), "CreateBuffer (indices)");
     return buffer;
 }
+#endif  // _WIN32
 
 }  // namespace groomlab::gpu

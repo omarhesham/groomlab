@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -45,6 +46,9 @@
 #else
 #include <signal.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>  // _NSGetExecutablePath
+#endif
 #endif
 
 namespace {
@@ -106,6 +110,16 @@ std::string executableDir(const char* argv0) {
     const DWORD n = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
     path.resize(n);
     return fs::path(path).parent_path().u8string();
+#elif defined(__APPLE__)
+    // macOS has no /proc: dyld's path of the executable (through any symlink: made canonical).
+    char path[4096];
+    std::uint32_t size = sizeof path;
+    std::error_code ec;
+    if (_NSGetExecutablePath(path, &size) == 0) {
+        const fs::path self = fs::weakly_canonical(fs::u8path(path), ec);
+        if (!ec) return self.parent_path().u8string();
+    }
+    return fs::absolute(fs::u8path(argv0 ? argv0 : ""), ec).parent_path().u8string();
 #else
     std::error_code ec;
     const fs::path self = fs::read_symlink("/proc/self/exe", ec);

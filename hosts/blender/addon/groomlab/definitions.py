@@ -22,7 +22,7 @@ import os
 import re
 
 HOST = "blender"
-FILES = ("actions", "menus", "palette", "lists", "choices", "marking_menu", "graph_ui")
+FILES = ("actions", "menus", "palette", "lists", "choices", "marking_menu", "graph_ui", "properties")
 _HERE = os.path.dirname(os.path.abspath(__file__))
 # The extension's copy (beside the add-on's modules), else the source tree's.
 SEARCH = (os.path.join(_HERE, "ui"),
@@ -154,6 +154,19 @@ def _for_host(entry, host):
     return hosts is None or host in hosts
 
 
+def host_text(key, host, *sources):
+    """An entry's label or tip ("label", "tip") on `host`: from the first source (the entry at its
+    place, then its action or container) with a per-host override ("labels": {"app": ...}) or the
+    text itself; "" when none has it."""
+    for source in sources:
+        override = source.get(key + "s", {})
+        if host in override:
+            return override[host]
+        if key in source:
+            return source[key]
+    return ""
+
+
 def _container(path):
     """A referenced container: a list of entries, or {"label", "tip", "items"}."""
     node = get(path)
@@ -220,9 +233,10 @@ def resolve(entries, state=(), values=None, generators=None, host=HOST, keep=Non
             resolved = resolve(items, sub_state, values, generators, host, keep, drop_generators)
             if not any(i["kind"] != "divider" for i in resolved):
                 continue
+            label = entry.get("labels", {}).get(host) or entry.get("submenu") or host_text("label", host, container)
             out.append({"kind": "submenu", "id": entry.get("id", entry.get("ref")),
-                        "label": fill(entry.get("submenu") or container.get("label", ""), values),
-                        "tip": fill(entry.get("tip", container.get("tip", "")), values),
+                        "label": fill(label, values),
+                        "tip": fill(host_text("tip", host, entry, container), values),
                         "glyph": entry.get("glyph"), "items": resolved, "entry": entry})
             continue
         if keep is not None and not keep(entry["id"]):
@@ -230,8 +244,10 @@ def resolve(entries, state=(), values=None, generators=None, host=HOST, keep=Non
         merged = dict(base)
         merged.update(entry)
         enabled = _met(merged.get("enabled"), state)
-        tip = merged.get("tip", "") if enabled else merged.get("tipDisabled", merged.get("tip", ""))
-        out.append({"kind": "action", "id": merged["id"], "label": fill(merged.get("label", ""), values),
+        tip = host_text("tip", host, entry, base)
+        if not enabled:
+            tip = merged.get("tipDisabled", tip)
+        out.append({"kind": "action", "id": merged["id"], "label": fill(host_text("label", host, entry, base), values),
                     "tip": fill(tip, values), "shortcut": merged.get("shortcut"),
                     "shortcutPart": merged.get("shortcutPart"), "checkable": bool(merged.get("checkable")),
                     "icon": merged.get("icon"), "glyph": merged.get("glyph"), "value": merged.get("value"),

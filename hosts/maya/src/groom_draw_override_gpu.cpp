@@ -44,7 +44,11 @@
 #endif
 #include <windows.h>
 #endif
+#ifdef __APPLE__
+#include <OpenGL/gl.h>  // GLuint (no buffer names are handed out on macOS: the GPU preview has no backend there)
+#else
 #include <GL/gl.h>
+#endif
 
 #include "display_theme.h"
 #include "groom_shape.h"

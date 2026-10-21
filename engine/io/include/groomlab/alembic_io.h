@@ -119,14 +119,31 @@ private:
 // colorR/G/B point channels when it wrote them, else its strand channels or
 // the HairColor melanin color repeated along each strand; see strandColors in
 // export_view.h), and groom_iridescence (float, FeatherColor's iridescence channel)
-// when the strands carry one. Units are the scene's (centimeters in Maya, as Unreal expects). One
-// frame is a static groom; more make a groom cache. Written to "<path>.tmp"
-// and moved into place on close.
+// when the strands carry one. One frame is a static groom; more make a groom
+// cache. Written to "<path>.tmp" and moved into place on close.
+//
+// Space: Unreal's importer takes every point as its own (Z up, left-handed,
+// centimeters), turned only by its conversion settings, which default to
+// Rotation 0 and Scale 1 (AlembicHairTranslator.cpp, GroomSettings.h). So the
+// points (strands and guides) and widths are written in Unreal's space, the way
+// Unreal's FBX importer brings a mesh in from the same scene (FbxMainImport.cpp
+// ConvertScene to Z up, then FbxUtilsImport.cpp ConvertPos flipping Y): a Y-up
+// point (x, y, z) becomes (x, z, y), a Z-up one (x, -y, z), times the
+// centimeters per unit (setSourceSpace; Y up and centimeters by default, the
+// groom space of Maya, the app and the Blender helper). Both are mirror images
+// (Unreal is left-handed), as the FBX mesh's are, so the groom lands on the
+// head with the importer's defaults; curves have no winding to flip. The xform
+// stays the identity; root UVs, colors and IDs are as they are.
 class UnrealGroomWriter {
 public:
     UnrealGroomWriter(const std::string& path, const std::string& name, const std::string& groupName,
                       double startSeconds, double secondsPerFrame);
     ~UnrealGroomWriter();
+
+    // The groom's space (before the first frame): its up axis, "Y" or "Z", and its unit in
+    // centimeters (1 for centimeters, 100 for meters). Throws std::invalid_argument for another
+    // axis or a scale of 0 or less, AlembicError after the first frame.
+    void setSourceSpace(const std::string& upAxis, double centimetersPerUnit);
 
     // The iridescence written as groom_ao too (before the first frame): Unreal's Hair Attributes
     // node gives a material the groom's AO, not attributes of its own, so a material reading the

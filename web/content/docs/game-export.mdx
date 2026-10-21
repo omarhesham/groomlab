@@ -154,6 +154,20 @@ groomlab.export_cards_gltf(groom, lods=["hero", "mid", "low"])
 groomlab.export_unreal_groom(groom, "C:/game/hair.abc")
 ```
 
+### Importing the groom into Unreal
+
+Import the `.abc` in Unreal as a Groom with the **default conversion settings** (Rotation 0, 0, 0;
+Scale 1, 1, 1). No rotation or flip is needed: the export writes the strands in Unreal's own
+space (Z up, left-handed, centimeters), turned from your scene's the way Unreal's FBX importer
+turns a mesh from the same scene (a Y-up scene's (x, y, z) becomes (x, z, y), a Z-up one's
+(x, -y, z); Blender's meters become centimeters). So the groom lines up with the head imported as
+FBX from the same scene, with that importer's defaults too.
+
+For hair that follows the character, import the head as a skeletal mesh, create a **Groom
+Binding** from the groom to it, and set the binding on the Groom component. In Blender the groom
+is in the scalp object's local space: apply the scalp's transforms (or leave it at the origin)
+before exporting the head and the groom.
+
 ### Unreal groom attributes
 
 The Unreal groom export writes the attributes Unreal's groom importer reads, as arbGeomParams:

@@ -20,6 +20,7 @@
 
 #include "groomlab/cards.h"
 #include "groomlab/curve.h"
+#include "groomlab/display.h"
 #include "groomlab/export_view.h"
 #include "groomlab/frame_time.h"
 #include "groomlab/graph_io.h"
@@ -782,6 +783,20 @@ TEST(GroomFile, StoresFloatsShortAndExactWithUnits) {
     file.units = "m";
     EXPECT_EQ(groomFileFromJson(groomFileToJson(file)).units, "m");
     EXPECT_EQ(groomFileFromJson(R"({"format": "groomlab.groom", "version": 1})").units, "cm");  // the default
+}
+
+TEST(GroomFile, KeepsTheGuideGroupsDisplayAsMayasAttributes) {
+    // The groups' own colors and the hidden groups, in Maya's attributes' text; absent when empty.
+    GroomFile file;
+    EXPECT_EQ(groomFileToJson(file).find("guideGroupColors"), std::string::npos);
+    EXPECT_EQ(groomFileToJson(file).find("hiddenGuideGroups"), std::string::npos);
+    file.guideGroupColors = "crown:#ff8800 nape:#3d7eff";
+    file.hiddenGuideGroups = "nape fringe";
+    const GroomFile back = groomFileFromJson(groomFileToJson(file));
+    EXPECT_EQ(back.guideGroupColors, file.guideGroupColors);
+    EXPECT_EQ(back.hiddenGuideGroups, file.hiddenGuideGroups);
+    EXPECT_EQ(parseGuideGroupColors(back.guideGroupColors).size(), 2u);
+    EXPECT_EQ(parseHiddenGuideGroups(back.hiddenGuideGroups), (std::set<std::string>{"nape", "fringe"}));
 }
 
 TEST(GroomFile, WritesAnEmptyColorSet) {

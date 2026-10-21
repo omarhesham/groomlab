@@ -13,6 +13,35 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.22.0 (October 21, 2026)
+
+- **The app looks and works like GroomLab in Maya.** The standalone app has a menu bar with the same
+  GroomLab menu as Maya and docked panels: **Groom Tools** on the left (Tools, Paint, Correctives
+  and Photos tabs, the tool card, Tubes, guide groups, Output), **Properties** on the right in the
+  Attribute Editor's order, and the **Graph Editor** and timeline at the bottom. Docks move, float
+  and remember where you put them; View > Panels brings them back. Charcoal is the default theme,
+  and themes now switch live ([the app](/docs/app#the-layout)).
+- **Everything the Maya UI has, in the app.** Right-click menus on guide groups (colors, reparent,
+  mirror, sync), maps (import, convert, relink, fill, "read by") and correctives (order, solo,
+  keys); the full Tubes panel with the shape library and outline editor; Graph Editor menus with
+  presets, Add Node, drop a node on a wire to insert it, Drive with Slider and Bake Node to Guides;
+  reference photos as backdrops with Align by Points; Add Sample Mesh, Add Feathers/Braid/
+  Collider/Wind/Jiggle, Strands to Mesh, Find Missing Files; the Y + click marking menu. Undo and
+  Redo sit at the viewport's top right ([the app](/docs/app)).
+- **Open Recent and autosave in the app.** File > Open Recent lists your last grooms; the app keeps
+  a timed copy of an unsaved groom and offers it back after a crash ([Autosave](/docs/app#autosave)).
+- **Unreal grooms land on the head.** The Unreal groom export now writes Unreal's own axes and
+  centimeters, so Unreal's groom import with its default settings lines the hair up with the head
+  you imported as FBX from the same scene: no more groom lying on its side
+  ([Importing the groom into Unreal](/docs/game-export#importing-the-groom-into-unreal)).
+- **Blend's mix starts at 1.** A map or slider plugged into a Blend node's `mix` multiplies it, so
+  at the old 0.5 a white mask only blended halfway. New Blend nodes start at 1, so the mask alone
+  sets the blend. Saved grooms keep their value: set `mix` to 1 where a mask drives it.
+- **Flow with guide tufts, painted.** The `flow_with_guides` preset is now fur along the flow
+  blended into your guides wherever you paint its `guideAreas` map white: a ruff, a mane, ear
+  tufts, styled with guide sculpting. The map is made for you, black (all fur), in Maya, Blender
+  and the app ([Presets](/docs/presets)).
+
 ## 0.21.0 (October 20, 2026)
 
 - **Render with Maya Hardware 2.0, no renderer needed.** GroomLab > Render > Maya Hardware 2.0 (no

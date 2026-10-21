@@ -188,6 +188,72 @@
                 "GROOMLAB_BUILD_PYTHON": "OFF",
                 "GROOMLAB_BUILD_BLENDER_HELPER": "OFF"
             }
+        },
+        {
+            "name": "macos",
+            "hidden": true,
+            "inherits": "base",
+            "description": "macOS on Apple silicon with Apple Clang (Xcode) and Ninja: docs/MACOS.md. 13.3: the first macOS whose libc++ has std::to_chars for floats (the .groom writer); Maya 2025 and 2026 and Qt 6.8 run there",
+            "generator": "Ninja",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_OSX_ARCHITECTURES": "arm64",
+                "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
+                "CMAKE_PREFIX_PATH": "/opt/homebrew",
+                "GROOMLAB_BUILD_MAYA": "OFF"
+            }
+        },
+        {
+            "name": "macos-core",
+            "displayName": "macOS, core, C API + samples, groomlab-cli, Python module, Blender helper, tests (no Maya)",
+            "inherits": "macos"
+        },
+        {
+            "name": "macos-app",
+            "displayName": "macOS, core + the standalone app (Qt 6.8.3 from the Qt installer or aqtinstall in ~/Qt)",
+            "inherits": "macos",
+            "cacheVariables": {
+                "GROOMLAB_BUILD_APP": "ON",
+                "GROOMLAB_QT_DIR": "$env{HOME}/Qt/6.8.3/macos"
+            }
+        },
+        {
+            "name": "macos-maya-devkit",
+            "hidden": true,
+            "inherits": "macos",
+            "description": "A Maya version's plugin, its Python module and MtoA translator on macOS: MAYA_LOCATION the devkit (headers), GROOMLAB_MAYA_APP the install's Maya.app/Contents (its libraries, mayapy): docs/MACOS.md",
+            "cacheVariables": {
+                "GROOMLAB_BUILD_MAYA": "ON",
+                "GROOMLAB_BUILD_TESTS": "OFF",
+                "GROOMLAB_BUILD_CLI": "OFF",
+                "GROOMLAB_BUILD_CAPI": "OFF",
+                "GROOMLAB_BUILD_BLENDER_HELPER": "OFF",
+                "GROOMLAB_BUILD_PROCEDURAL": "OFF",
+                "GROOMLAB_BUILD_RENDERMAN": "OFF"
+            }
+        },
+        {
+            "name": "macos-maya2025",
+            "displayName": "macOS, Maya 2025 plugin (Python 3.11, Qt 6, MtoA 5.4+)",
+            "inherits": "macos-maya-devkit",
+            "cacheVariables": {
+                "MAYA_LOCATION": "$env{HOME}/groomlab-deps/sdks/maya-devkit-2025-macos",
+                "GROOMLAB_MAYA_APP": "/Applications/Autodesk/maya2025/Maya.app/Contents",
+                "MTOA_LOCATION": "/Applications/Autodesk/Arnold/mtoa/2025"
+            }
+        },
+        {
+            "name": "macos-maya2026",
+            "displayName": "macOS, Maya 2026 plugin (Python 3.11, Qt 6, oneTBB, MtoA 5.6+)",
+            "inherits": "macos-maya-devkit",
+            "cacheVariables": {
+                "MAYA_LOCATION": "$env{HOME}/groomlab-deps/sdks/maya-devkit-2026-macos",
+                "GROOMLAB_MAYA_APP": "/Applications/Autodesk/maya2026/Maya.app/Contents",
+                "MTOA_LOCATION": "/Applications/Autodesk/Arnold/mtoa/2026"
+            }
         }
     ],
     "buildPresets": [
@@ -214,7 +280,11 @@
         { "name": "linux-maya2022", "configurePreset": "linux-maya2022" },
         { "name": "linux-core", "configurePreset": "linux-core" },
         { "name": "linux-coverage", "configurePreset": "linux-coverage" },
-        { "name": "linux-asan", "configurePreset": "linux-asan" }
+        { "name": "linux-asan", "configurePreset": "linux-asan" },
+        { "name": "macos-core", "configurePreset": "macos-core" },
+        { "name": "macos-app", "configurePreset": "macos-app" },
+        { "name": "macos-maya2025", "configurePreset": "macos-maya2025" },
+        { "name": "macos-maya2026", "configurePreset": "macos-maya2026" }
     ],
     "testPresets": [
         {
@@ -243,6 +313,8 @@
             "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true },
             "filter": { "exclude": { "name": "^(Budget|Performance)\\." } },
             "environment": { "ASAN_OPTIONS": "detect_leaks=0" }
-        }
+        },
+        { "name": "macos-core", "configurePreset": "macos-core", "output": { "outputOnFailure": true } },
+        { "name": "macos-app", "configurePreset": "macos-app", "output": { "outputOnFailure": true } }
     ]
 }

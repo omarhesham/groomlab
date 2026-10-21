@@ -141,6 +141,12 @@ std::unique_ptr<QRhi> createOffscreenRhi() {
         rhi.reset(QRhi::create(QRhi::D3D12, &params, QRhi::EnableTimestamps));
     }
 #endif
+#ifdef Q_OS_MACOS
+    if (name.isEmpty() || name == "metal") {  // macOS: Metal, as the viewport's QRhiWidget picks
+        QRhiMetalInitParams params;
+        rhi.reset(QRhi::create(QRhi::Metal, &params, QRhi::EnableTimestamps));
+    }
+#endif
     if (!rhi && (name == "opengl" || name == "gl")) {
         // OpenGL without a window: a fallback surface of QRhi's own (an offscreen one, or a
         // hidden window where the platform has no offscreen surfaces).

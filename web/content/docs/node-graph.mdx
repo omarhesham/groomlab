@@ -169,7 +169,7 @@ strand is left unguided. To leave strands far from guides unaffected, use `limit
 | `neighbors` | 3 | Sets each guide's reach (to its *n*-th nearest guide, times `reach`) and so how many guides blend into a strand. 1 takes the nearest guide only, with hard edges between guides (Voronoi cells). Range 1-16. | Raise it for smoother blending over sparse or uneven guides; 1 for stylized, cleanly separated locks. |
 | `reach` | 1.5 | Multiplier on each guide's reach (at least 1). | Raise it when strands between guides look pulled toward single guides; lower it to keep each guide's shape more local. |
 | `power` | 2 | Exponent on the normalized weights (advanced; hidden when `neighbors` is 1). Higher values make the nearest guide dominate; 0 blends all guides in reach equally. | Raise it for crisper transitions between guides, lower it for softer ones. |
-| `limitDistance` | 0 | Maximum distance (scene units) from the nearest guide root at which guides have any influence. Strands farther away keep their incoming shape (for example from a Flow node). 0 disables the limit, and `falloff` and `influenceChannel` are then unused. | Guides only for tufts or accents on otherwise flow-groomed fur (`flow_with_guides`). |
+| `limitDistance` | 0 | Maximum distance (scene units) from the nearest guide root at which guides have any influence. Strands farther away keep their incoming shape (for example from a Flow node). 0 disables the limit, and `falloff` and `influenceChannel` are then unused. | Guides only for tufts or accents on otherwise flow-groomed fur, within a radius of each guide (to paint where instead, see the `flow_with_guides` preset: a Blend by a painted map). |
 | `falloff` | linear 1 to 0 | With `limitDistance` above 0: influence as a function of distance, from the guide root (left) to `limitDistance` (right). Between 0 and 1 the strand is a blend of its incoming shape and the interpolated one. | Shape the transition between guided and unguided areas. |
 | `influenceChannel` | `guideInfluence` | With `limitDistance` above 0: per-strand attribute that receives the influence, 0-1 (empty: not written). | Mask later nodes (Affect) by how strongly the guides apply. |
 | `take` | `shape` | `shape` takes the guides' shape and length. `length` keeps each strand's incoming shape and only scales it to the blended guide length. | `length` for fur shaped by Flow or Direction, with guides used only to paint length. |
@@ -310,7 +310,8 @@ have no Affect parameter.
 Branch after Interpolate into two looks and join them with a **Blend** node. Its `mix` (0: input
 a, 1: input b) multiplied by its root-to-tip `profile` blends the shape and, with a **HairColor**
 in each branch, the color. Set `include` to `shape` to blend only the shape. Drive `mix` with a
-slider or a painted map to animate or paint it (the `blend_two_looks` preset).
+slider or a painted map to animate or paint it (the `blend_two_looks` preset). A plugged map is
+multiplied by `mix` (1 by default), so with `mix` at 1 the map alone sets the blend.
 
 ## Animating parameters
 

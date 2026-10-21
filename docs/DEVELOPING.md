@@ -958,7 +958,9 @@ Docs opens the docs folder beside the executable or in the source tree, else the
 Keyboard Shortcuts and About are floating pages, `Panel::Help`, never dialogs), the logo and
 the file name (a yellow dot when edited); with no groom open an empty-state card sits in the
 middle (Open groom, New groom on mesh, Start from a preset, up to five recent files from
-`QSettings`, an ini in the user's config folder; a .groom, .obj or .abc dropped anywhere on the
+`QSettings`, an ini in the user's config folder, which a scripted run, a ctest run and the test suite
+never touch: `RunSettings` in `main_window.h` gives them a throwaway folder or `GROOMLAB_SETTINGS_DIR`'s,
+and every ctest that runs the app sets that under the build folder; a .groom, .obj or .abc dropped anywhere on the
 window opens, `fileDropped`) and the brush rail and bar are dimmed and disabled until one is;
 top-center the modes (Groom, Look, Cards, Export);
 top-right undo, redo and Render (refine mode from a clean slate: the viewport accumulates
@@ -3190,10 +3192,12 @@ own (`schema.h`): a newer file than the build reads is refused with "update Groo
 
 **Preset looks.** `PresetLooks.EveryShippedPresetMakesWhatItMadeBefore` evaluates every shipped
 preset on the strokes fixture (`tests/data/strokes/strokes.groom`, the preset fitted to its size,
-density 0.05) and compares a digest (strand and point counts, IDs, point sums and bounds, widths,
+the maps its `requires` lists painted on the scalp as varying vertex maps by
+`test::paintRequiredMaps`, density 0.05) and compares a digest (strand and point counts, IDs, point sums and bounds, widths,
 channel sums) with `tests/data/golden/PresetLooks.json`, so a change that alters a preset's look is
 flagged. After an intended one, `python tools/dev/record_preset_looks.py` re-records it; review the
-JSON diff. A preset that cannot evaluate there records its error (painted_maps wants a painted map).
+JSON diff. A preset that cannot evaluate there records its error. Determinism's PresetDigests
+paints the required maps the same way (basic arithmetic only, so the same bits on every platform).
 
 **Notes.** `ctx.note(text)` (`EvalContext::note`) tells the user something about the node being
 evaluated that is not an error: it does nothing as set. The graph keeps each node's notes from its

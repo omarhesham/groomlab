@@ -81,6 +81,16 @@ std::string shippedNodeFolder() {
     return {};
 }
 
+std::string shippedMeshFolder() {
+    std::error_code ec;
+    const fs::path beside = fs::u8path(QCoreApplication::applicationDirPath().toStdString()) / "meshes";
+    if (fs::is_directory(beside, ec)) return beside.generic_u8string();
+#ifdef GROOMLAB_SHIPPED_MESHES
+    if (fs::is_directory(fs::u8path(GROOMLAB_SHIPPED_MESHES), ec)) return GROOMLAB_SHIPPED_MESHES;
+#endif
+    return {};
+}
+
 std::vector<std::string> presetDirectories() { return presetSearchDirs(presetUserDir(), shippedPresetDir()); }
 
 std::vector<PresetInfo> availablePresets() { return listPresets(presetDirectories()); }

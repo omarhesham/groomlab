@@ -16,6 +16,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QAction>
+#include <QToolBar>
+#include <QToolButton>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QClipboard>
@@ -36,12 +38,21 @@
 #include <QKeyEvent>
 #include <QTimer>
 #include <QSize>
+#include <QTabBar>
+#include <QToolButton>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <QDockWidget>
+#include <QMenuBar>
+#include <QSplitter>
+#include <QTabWidget>
+
+#include "app_shell.h"
 #include "brush_panel.h"
 #include "brush_session.h"
+#include "groom_tools.h"
 #include "camera.h"
 #include "correctives_panel.h"
 #include "cards_panel.h"
@@ -52,6 +63,7 @@
 #include "groom_document.h"
 #include "reference_window.h"
 #include "transfer_window.h"
+#include "groomlab/brush_catalog.h"
 #include "groomlab/correctives.h"
 #include "groomlab/field.h"
 #include "groomlab/groom_file.h"
@@ -152,29 +164,30 @@ TEST(AppPanels, NodePanelAsTallAsItsRowsShowsThemWithoutScrolling) {
         ASSERT_TRUE(scroll);
         EXPECT_EQ(scroll->verticalScrollBar()->maximum(), 0) << node << ": the form scrolls at the panel's own height " << panel.sizeHint().height();
     }
-    // In the window, the floating Node panel as tall as that, down to the window's bottom margin
-    // when the brush bar is not under it; a node picked after another takes its own height.
+    // In the window, the Node Settings sit beside the graph in the Graph Editor dock (Maya's
+    // layout), never over it; a node picked after another shows its own form, scrolling within
+    // the dock when it is taller than the dock.
     MainWindow window;
     window.resize(1600, 1000);
     window.show();
-    OverlayHost* host = window.overlay();
-    host->resize(1600, 1000);
+    AppShell* shell = window.shell();
     ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
     window.setGraphShown(true);
-    host->graph()->setSelection({nodeOfType(*window.document(), "Noise")});
-    host->graph()->groupSelected();
+    shell->graph()->setSelection({nodeOfType(*window.document(), "Noise")});
+    shell->graph()->groupSelected();
     for (const char* type : {"Compound", "Interpolate", "Width", "HairColor", "Width", "Compound"}) {
         ASSERT_TRUE(window.selectUiNode(QString::fromStdString(nodeOfType(*window.document(), type))));
         QApplication::processEvents();
-        FloatingPanel* floating = host->panel(OverlayHost::Panel::Node);
-        ASSERT_TRUE(floating && floating->isVisible());
-        QScrollArea* scroll = floating->findChild<QScrollArea*>();
+        QWidget* side = shell->panel(AppShell::Panel::Node);
+        ASSERT_TRUE(side && side->isVisible());
+        EXPECT_TRUE(shell->graphDock()->isAncestorOf(side)) << "the settings live in the Graph Editor dock";
+        const QRect graph(shell->graph()->mapTo(&window, QPoint(0, 0)), shell->graph()->size());
+        const QRect settings(side->mapTo(&window, QPoint(0, 0)), side->size());
+        EXPECT_FALSE(graph.intersects(settings)) << type << ": the settings over the graph";
+        EXPECT_GE(settings.left(), graph.right()) << type << ": beside the graph, at its right";
+        QScrollArea* scroll = side->findChild<QScrollArea*>();
         ASSERT_TRUE(scroll);
-        if (floating->sizeHint().height() <= floating->height()) {
-            EXPECT_EQ(scroll->verticalScrollBar()->maximum(), 0) << type << ": the form scrolls at the height it asked";
-        } else {
-            EXPECT_GE(floating->geometry().bottom(), 1000 - 100 - 24) << type << ": a long form not given the room below";
-        }
+        EXPECT_LE(scroll->height(), side->height()) << type;
     }
 }
 
@@ -651,59 +664,42 @@ TEST(AppPanels, ValueSliderEditsInlineDragsAnywhereAndWidensItsRange) {
     EXPECT_DOUBLE_EQ(count.value(), 3.0);
 }
 
-TEST(AppPanels, RailsExpandOnHoverAndTheModePillClosesTheGraph) {
-    // The brush rail widens to the right and names every tool; the panel rail grows labels to
-    // the left; neither moves anything else (they float). A screenshot lands at once.
-    BrushRail rail;
-    rail.setButtonSize(44);
-    const int collapsed = rail.width();
-    EXPECT_EQ(collapsed, rail.collapsedWidth());
-    rail.setExpanded(true, false);
-    EXPECT_EQ(rail.width(), rail.expandedWidth());
-    EXPECT_GT(rail.width(), collapsed + 60) << "room for the names";
-    EXPECT_EQ(rail.buttonCount(), 21);  // Select, Freeze and the 19 brushes (the catalog)
-    // Open, a tool's whole row (the icon and its name) is the one target: a click on the name
-    // picks the tool, the active circle stays where it was.
-    const QRect activeBefore = rail.activeRect();
-    std::string chosen;
-    int selects = 0;
-    QObject::connect(&rail, &BrushRail::brushChosen, [&](const std::string& mode) { chosen = mode; });
-    QObject::connect(&rail, &BrushRail::selectChosen, [&] { ++selects; });
-    const int rowY = theme::OverlayMetrics().railPadding + 44 + 4 + 22;  // the second row's middle
-    auto* onName = qobject_cast<RoundButton*>(rail.childAt(rail.width() - 20, rowY));
-    ASSERT_NE(onName, nullptr) << "the name is part of the button";
-    auto* onIcon = qobject_cast<RoundButton*>(rail.childAt(rail.collapsedWidth() / 2, rowY));
-    EXPECT_EQ(onName, onIcon) << "one target for the icon and the name";
-    click(onName, QPoint(onName->width() - 10, onName->height() / 2));
-    EXPECT_FALSE(chosen.empty()) << "a click on the name picks the brush";
-    const std::string second = chosen;
-    auto* firstRow = qobject_cast<RoundButton*>(rail.childAt(rail.width() - 20, theme::OverlayMetrics().railPadding + 22));
-    ASSERT_NE(firstRow, nullptr);
-    ASSERT_NE(firstRow, onName);
-    click(firstRow, QPoint(firstRow->width() - 10, 20));
-    EXPECT_TRUE(selects == 1 || chosen != second) << "the first row's tool";
-    EXPECT_EQ(rail.activeRect(), activeBefore);
-    rail.setExpanded(false, false);
-    EXPECT_EQ(rail.width(), collapsed);
-    EXPECT_EQ(rail.childAt(rail.collapsedWidth() / 2, rowY)->width(), 44) << "collapsed, the circle alone";
-    PanelRail panels;
-    for (int i = 0; i < 3; ++i) {
-        auto* b = new RoundButton();
-        b->setDiameter(48);
-        panels.addButton(b, QStringLiteral("Panel %1").arg(i));
+TEST(AppPanels, GroomToolsTilesReflowAndTheModePillClosesTheGraph) {
+    // The Groom Tools' tiles (the core's catalog, Maya's grouping): Create, Shape, Trim and Guides
+    // on the Tools tab (Unfreeze All beside Freeze), Paint on the Paint tab; a grid that wraps to
+    // the dock's width, the names under the icons (compact icon tiles without them).
+    GroomTools tools;
+    EXPECT_EQ(tools.tiles().size(), 22u) << "Select, Freeze, the 19 brushes (Paint among them) and Unfreeze All";
+    for (const char* id : {"place", "draw", "part", "flow", "comb", "shape", "cut", "erase", "paint", "select", "freeze", "unfreeze"}) {
+        EXPECT_NE(tools.tile(id), nullptr) << id;
     }
-    panels.place(500, 100);
-    EXPECT_EQ(panels.geometry().right() + 1, 500);
-    EXPECT_EQ(panels.width(), panels.collapsedWidth());
-    panels.setExpanded(true, false);
-    EXPECT_EQ(panels.geometry().right() + 1, 500) << "the buttons stay put";
-    EXPECT_EQ(panels.width(), panels.expandedWidth());
-    EXPECT_EQ(panels.buttonCenterY(1), 100 + 56 + 23);  // the second button's QRect center
-    // A label clicks its button.
-    int panelClicks = 0;
-    QObject::connect(panels.findChildren<RoundButton*>().at(1), &QAbstractButton::clicked, [&] { ++panelClicks; });
-    click(&panels, QPoint(10, 56 + 24));
-    EXPECT_EQ(panelClicks, 1) << "the second panel's label";
+    std::vector<std::string> tabs;
+    for (int i = 0; i < tools.tabBar()->count(); ++i) tabs.push_back(tools.tabBar()->tabText(i).toStdString());
+    EXPECT_EQ(tabs, (std::vector<std::string>{"Tools", "Paint", "Correctives", "Photos"})) << "palette.json's tabs";
+    auto* grid = qobject_cast<ToolGrid*>(tools.tile("comb")->parentWidget());
+    ASSERT_NE(grid, nullptr);
+    const int wide = grid->heightForWidth(300);
+    EXPECT_GT(grid->heightForWidth(140), wide) << "a narrower dock wraps to more rows";
+    EXPECT_EQ(grid->columnsFor(300), 4) << "four to a row, as Maya's";
+    grid->resize(260, grid->heightForWidth(260));
+    for (QAbstractButton* t : grid->findChildren<QAbstractButton*>()) {
+        EXPECT_LE(t->geometry().right(), 260) << "a tile past the dock's width";
+        EXPECT_EQ(qobject_cast<QToolButton*>(t)->toolButtonStyle(), Qt::ToolButtonTextUnderIcon);
+    }
+    tools.setTileLabels(false);
+    EXPECT_LT(grid->heightForWidth(260), wide) << "compact icon tiles: more to a row";
+    EXPECT_EQ(qobject_cast<QToolButton*>(tools.tile("comb"))->toolButtonStyle(), Qt::ToolButtonIconOnly);
+    tools.setTileLabels(true);
+    // A tile asks for its tool; the window lights it (setTool) and the card shows its settings.
+    QString chosen;
+    QObject::connect(&tools, &GroomTools::toolChosen, [&](const QString& id) { chosen = id; });
+    tools.tile("comb")->click();
+    EXPECT_EQ(chosen, QStringLiteral("comb"));
+    EXPECT_FALSE(tools.tile("comb")->isChecked()) << "lit by the window, not by the click";
+    tools.setTool("comb");
+    EXPECT_TRUE(tools.tile("comb")->isChecked());
+    EXPECT_FALSE(tools.tile("cut")->isChecked());
+    EXPECT_EQ(tools.toolHeading()->text(), QStringLiteral("COMB"));
     // The mode switcher says when any segment is clicked, the current one too.
     Segmented modes;
     modes.setItems({{"A", Qt::red, Qt::white}, {"B", Qt::blue, Qt::white}});
@@ -980,19 +976,22 @@ TEST(AppPanels, TimelineSimControlsShowTheCacheAndAskForRuns) {
 }
 
 TEST(AppPanels, EmptyStateCardAndPillsInEveryMode) {
-    // No groom open: the card in the middle (Open, New, a preset, the recent files), the brush
-    // rail and bar dimmed and disabled; the Graph and Presets pills show in every mode.
+    // No groom open: the card in the middle of the viewport (Open, New, a preset, the recent
+    // files), the brush tiles and card dimmed and disabled; no tool bar: Undo and Redo sit on the
+    // viewport in every mode, the file's name is the window's title.
     MainWindow window;
     window.resize(1280, 720);
     window.show();  // the offscreen platform: the pieces get their geometry
     OverlayHost* host = window.overlay();
-    host->resize(1280, 720);
+    AppShell* shell = window.shell();
     EXPECT_FALSE(host->groomOpen());
     EXPECT_TRUE(host->emptyCard()->isVisibleTo(host));
-    EXPECT_FALSE(host->rail()->isEnabled());
-    EXPECT_FALSE(host->bar()->isEnabled());
-    EXPECT_TRUE(host->graphPill()->isVisibleTo(host));
-    EXPECT_TRUE(host->presetsPill()->isVisibleTo(host));
+    EXPECT_TRUE(shell->groomTools()->emptyState()->isVisibleTo(&window)) << "the Groom Tools: Start a groom";
+    EXPECT_FALSE(shell->groomTools()->work()->isVisibleTo(&window)) << "no tiles before a groom";
+    EXPECT_TRUE(window.findChildren<QToolBar*>().isEmpty()) << "the window has no tool bar";
+    EXPECT_TRUE(host->undoButton()->isVisibleTo(&window));
+    EXPECT_FALSE(host->undoButton()->isEnabled());
+    EXPECT_EQ(window.windowTitle(), QStringLiteral("GroomLab"));
     host->setRecentFiles({"a.groom", "b.groom", "c.obj", "d.abc", "e.groom", "f.groom"});
     EXPECT_EQ(host->recentCount(), 5) << "at most five recent files";
     host->setRecentFiles({});
@@ -1003,70 +1002,94 @@ TEST(AppPanels, EmptyStateCardAndPillsInEveryMode) {
     ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
     EXPECT_TRUE(host->groomOpen());
     EXPECT_FALSE(host->emptyCard()->isVisibleTo(host));
-    EXPECT_TRUE(host->rail()->isEnabled());
-    EXPECT_TRUE(host->bar()->isEnabled());
+    EXPECT_FALSE(shell->groomTools()->emptyState()->isVisibleTo(&window));
+    EXPECT_TRUE(shell->groomTools()->work()->isVisibleTo(&window));
     EXPECT_GE(host->recentCount(), 1) << "the opened file is remembered";
     for (const char* mode : {"groom", "look", "cards", "export"}) {
         ASSERT_TRUE(window.setUiMode(QLatin1String(mode)));
-        EXPECT_TRUE(host->graphPill()->isVisibleTo(host)) << mode;
-        EXPECT_TRUE(host->presetsPill()->isVisibleTo(host)) << mode;
+        EXPECT_TRUE(host->undoButton()->isVisibleTo(&window)) << mode;
+        EXPECT_TRUE(host->redoButton()->isVisibleTo(&window)) << mode;
+        // The modes are workspaces: the Groom Tools in Groom mode alone, the Properties dock the
+        // mode's panel.
+        EXPECT_EQ(shell->groomToolsDock()->isVisibleTo(&window), QLatin1String(mode) == QLatin1String("groom")) << mode;
+        EXPECT_TRUE(shell->propertiesDock()->isVisibleTo(&window)) << mode;
     }
+    ASSERT_TRUE(window.setUiMode(QStringLiteral("look")));
+    EXPECT_TRUE(shell->lookCard()->isVisibleTo(&window));
+    ASSERT_TRUE(window.setUiMode(QStringLiteral("export")));
+    EXPECT_TRUE(shell->exportPanel()->isVisibleTo(&window));
+    EXPECT_FALSE(shell->lookCard()->isVisibleTo(&window));
     EXPECT_EQ(dropped, 0);
-    // The Graph pill counts the nodes, after a preset too.
+    // The window's title names the file; the Graph Editor counts the nodes, after a preset too.
+    EXPECT_TRUE(window.windowTitle().startsWith(QStringLiteral("strokes.groom"))) << window.windowTitle().toStdString();
+    EXPECT_TRUE(window.windowTitle().endsWith(QStringLiteral("GroomLab")));
     ASSERT_TRUE(window.setUiMode(QStringLiteral("groom")));
     const int before = static_cast<int>(window.document()->nodes().size());
     ASSERT_TRUE(window.applyPreset(QStringLiteral("curly")));
     EXPECT_NE(static_cast<int>(window.document()->nodes().size()), before);
-    EXPECT_TRUE(host->graphPill()->dimText().contains(QString::number(window.document()->nodes().size())));
-    // The node panel sits left of the right rail, as tall as its content within the view.
+    EXPECT_EQ(shell->nodeCount(), static_cast<int>(window.document()->nodes().size()));
+    EXPECT_TRUE(window.windowTitle().startsWith(QStringLiteral("strokes.groom *"))) << "edited: a * after the name";
+    EXPECT_TRUE(host->undoButton()->isEnabled());
+    EXPECT_TRUE(host->undoButton()->toolTip().endsWith(QStringLiteral("(Ctrl+Z)"))) << host->undoButton()->toolTip().toStdString();
+    // The Graph Editor docks at the bottom, the node's settings inside it, all within the window.
     window.setGraphShown(true);
     ASSERT_TRUE(window.selectUiNode(QStringLiteral("clump")));
-    const QRect panel = host->panel(OverlayHost::Panel::Node)->geometry();
-    EXPECT_LE(panel.right(), host->panelRail()->geometry().left() - 8) << "the node panel over the right rail";
-    EXPECT_LE(panel.bottom(), 720 - 60);
-    // Help pages float over the viewport, no dialog.
+    EXPECT_EQ(window.dockWidgetArea(shell->graphDock()), Qt::BottomDockWidgetArea);
+    const QRect panel(shell->panel(AppShell::Panel::Node)->mapTo(&window, QPoint(0, 0)), shell->panel(AppShell::Panel::Node)->size());
+    EXPECT_TRUE(window.rect().contains(panel)) << "the node's settings leave the window";
+    // Help pages in the Help dock beside Properties, no dialog.
     EXPECT_TRUE(window.showHelp(QStringLiteral("shortcuts")));
-    EXPECT_TRUE(host->panel(OverlayHost::Panel::Help)->isVisibleTo(host));
+    EXPECT_TRUE(shell->panel(AppShell::Panel::Help)->isVisibleTo(&window));
     EXPECT_FALSE(window.showHelp(QStringLiteral("nothing")));
 }
 
 TEST(AppPanels, ViewThemeSavesTheChoiceForTheNextStart) {
-    // View > Theme lists every embedded theme, the saved one checked; a choice is saved (QSettings:
-    // this run's own ini) and a window built after it wears it: Charcoal's solid panels.
+    // GroomLab > Theme lists every theme, the worn one checked; a choice is worn at once (restyle)
+    // and saved (QSettings: this run's own ini), and a window built after it wears it too: Playful's
+    // glass over the viewport, its docks solid all the same.
     const QString saved = theme::savedTheme();
     struct Restore {
         QString name;
         ~Restore() {
             theme::saveTheme(name);
-            theme::setTheme(QStringLiteral("playful"));
+            theme::setTheme(theme::defaultTheme());
         }
     } restore{saved};
     {
         MainWindow window;
         QStringList listed;
-        for (const QAction* a : window.findChildren<QAction*>()) {
+        // (The menu bar's Theme submenu; the Graph Editor's Edit menu lists them too.)
+        for (const QAction* a : window.menuBar()->findChildren<QAction*>()) {
             if (a->objectName().startsWith(QStringLiteral("theme_"))) {
                 listed << a->objectName().mid(6);
-                EXPECT_EQ(a->isChecked(), a->objectName().mid(6) == saved);
+                EXPECT_EQ(a->isChecked(), a->objectName().mid(6) == theme::currentTheme());
             }
         }
         listed.sort();
         EXPECT_EQ(listed, theme::themeNames());
-        EXPECT_TRUE(listed.contains(QStringLiteral("charcoal")));
+        EXPECT_TRUE(listed.contains(QStringLiteral("playful")));
         EXPECT_FALSE(window.chooseTheme(QStringLiteral("no such theme")));
         EXPECT_EQ(theme::savedTheme(), saved);
-        ASSERT_TRUE(window.chooseTheme(QStringLiteral("charcoal")));
-        EXPECT_EQ(theme::savedTheme(), QStringLiteral("charcoal"));
-        EXPECT_EQ(theme::currentTheme(), QStringLiteral("playful")) << "the open window keeps its colors until the next start";
-        EXPECT_TRUE(window.findChild<QAction*>(QStringLiteral("theme_charcoal"))->isChecked());
+        ASSERT_TRUE(window.chooseTheme(QStringLiteral("playful")));
+        EXPECT_EQ(theme::savedTheme(), QStringLiteral("playful"));
+        EXPECT_EQ(theme::currentTheme(), QStringLiteral("playful")) << "worn at once";
+        EXPECT_EQ(window.styleSheet(), theme::styleSheet());
+        EXPECT_TRUE(window.findChild<QAction*>(QStringLiteral("theme_playful"))->isChecked());
+        theme::setTheme(theme::defaultTheme());
     }
     ASSERT_TRUE(theme::setTheme(theme::savedTheme()));  // the next start
     MainWindow window;
     window.resize(1280, 720);
     window.show();
-    EXPECT_FALSE(theme::glassy());
-    EXPECT_TRUE(window.overlay()->styleSheet().contains(theme::uiColor("panel").name()));
-    EXPECT_EQ(window.overlay()->panel(OverlayHost::Panel::Help)->color(), theme::uiColor("panel"));
+    EXPECT_TRUE(theme::glassy());
+    EXPECT_TRUE(window.styleSheet().contains(theme::uiColor("panel").name())) << "the docks' solid panel";
+    window.overlay()->toast(QStringLiteral("glass"), false);
+    QWidget* toast = nullptr;
+    for (QLabel* label : window.overlay()->findChildren<QLabel*>()) {
+        if (label->text() == QStringLiteral("glass")) toast = label->parentWidget();
+    }
+    ASSERT_NE(qobject_cast<GlassPanel*>(toast), nullptr);
+    EXPECT_LT(static_cast<GlassPanel*>(toast)->color().alpha(), 255) << "glass over the viewport";
 }
 
 TEST(AppPanels, UnsavedChangesAreAskedAboutAndMessagesToast) {
@@ -1154,9 +1177,10 @@ TEST(AppPanels, UnsavedChangesAreAskedAboutAndMessagesToast) {
 }
 
 TEST(AppPanels, MenusWearTheThemeAndKeysWorkWhereTheySay) {
-    // The menu is the overlay's (its style sheet themes it); Ctrl+Shift+S saves as (spelled out:
-    // QKeySequence::SaveAs has no Windows binding); Tab opens the graph from the viewport but a
-    // text field keeps it (the next field); the modes have Ctrl+1..4 in their tooltips.
+    // The menus are the menu bar's (the window's style sheet themes them); Ctrl+Shift+S saves as
+    // (spelled out: QKeySequence::SaveAs has no Windows binding); Tab opens the Graph Editor from
+    // the viewport (and gives it the focus) but a text field keeps it (the next field); the modes
+    // have Ctrl+1..4 in their tooltips.
     MainWindow window;
     window.resize(1280, 720);
     window.show();
@@ -1168,17 +1192,39 @@ TEST(AppPanels, MenusWearTheThemeAndKeysWorkWhereTheySay) {
     ASSERT_NE(saveAs, nullptr);
     EXPECT_EQ(saveAs->shortcut(), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     QMenu* menu = nullptr;
-    for (QMenu* m : host->findChildren<QMenu*>()) {
+    for (QMenu* m : window.menuBar()->findChildren<QMenu*>()) {
         for (const QAction* a : m->actions()) {
             if (a == saveAs) menu = m;
         }
     }
-    ASSERT_NE(menu, nullptr) << "the File menu under the overlay (its style sheet)";
+    ASSERT_NE(menu, nullptr) << "the File menu under the menu bar (the window's style sheet)";
+    QStringList titles;
+    for (const QAction* a : window.menuBar()->actions()) titles << a->text().remove(QLatin1Char('&'));
+    EXPECT_EQ(titles, (QStringList{QStringLiteral("File"), QStringLiteral("Edit"), QStringLiteral("View"), QStringLiteral("GroomLab"),
+                                   QStringLiteral("Help")}))
+        << "menus.json's app.menuBar";
+    EXPECT_TRUE(window.styleSheet().contains(QStringLiteral("QMenuBar")));
+    // View > Panels: every dock's toggle (filled when the menu opens), then the sections.
+    QMenu* panels = nullptr;
+    for (QMenu* m : window.menuBar()->findChildren<QMenu*>()) {
+        if (m->title().remove(QLatin1Char('&')) == QStringLiteral("Panels")) panels = m;
+    }
+    ASSERT_NE(panels, nullptr) << "View > Panels";
+    emit panels->aboutToShow();
+    for (QDockWidget* dock : window.shell()->docks()) {
+        EXPECT_TRUE(panels->actions().contains(dock->toggleViewAction())) << dock->objectName().toStdString();
+    }
+    EXPECT_NE(window.findChild<QAction*>(QStringLiteral("resetLayout")), nullptr);
     int sameKey = 0;
     for (const QAction* a : window.findChildren<QAction*>()) sameKey += a->shortcut() == saveAs->shortcut() ? 1 : 0;
     EXPECT_EQ(sameKey, 1) << "an ambiguous Ctrl+Shift+S does nothing";
-    for (int i = 0; i < 4; ++i) {
-        EXPECT_TRUE(host->modes()->items()[static_cast<std::size_t>(i)].tip.contains(QStringLiteral("Ctrl+%1").arg(i + 1)));
+    // The modes: View > Mode's actions, Ctrl+1..4 (the window has no mode switch of its own).
+    int mode = 0;
+    for (const char* name : {"mode_groom", "mode_look", "mode_cards", "mode_export"}) {
+        const QAction* action = window.findChild<QAction*>(QLatin1String(name));
+        ASSERT_NE(action, nullptr) << name;
+        EXPECT_EQ(action->shortcut(), QKeySequence(Qt::CTRL | Qt::Key(Qt::Key_1 + mode))) << name;
+        ++mode;
     }
     if (QApplication::activeWindow() != &window) GTEST_SKIP() << "the offscreen platform did not activate the window: shortcuts not tried";
     // Ctrl+Shift+S reaches Save As (its slot swapped for a count: no file dialog in a test).
@@ -1194,13 +1240,19 @@ TEST(AppPanels, MenusWearTheThemeAndKeysWorkWhereTheySay) {
     field->setFocus();
     EXPECT_FALSE(qt_sendShortcutOverrideEvent(field, 0, Qt::Key_Tab, Qt::NoModifier)) << "Tab taken from the text field";
     EXPECT_FALSE(window.graphShown());
-    // Tab over the viewport: the graph.
+    // Tab over the viewport: the Graph Editor, focused; Tab again from the viewport focuses it again.
     host->viewport()->setFocus();
     EXPECT_TRUE(qt_sendShortcutOverrideEvent(host->viewport(), 0, Qt::Key_Tab, Qt::NoModifier));
     EXPECT_TRUE(window.graphShown());
+    EXPECT_TRUE(window.shell()->graphDock()->isVisible());
+    EXPECT_TRUE(window.shell()->graph()->hasFocus());
+    host->viewport()->setFocus();
+    EXPECT_TRUE(qt_sendShortcutOverrideEvent(host->viewport(), 0, Qt::Key_Tab, Qt::NoModifier));
+    EXPECT_TRUE(window.shell()->graph()->hasFocus()) << "Tab gives the docked graph the focus back";
     // Ctrl+3: Cards mode.
     EXPECT_TRUE(qt_sendShortcutOverrideEvent(host->viewport(), 0, Qt::Key_3, Qt::ControlModifier));
     EXPECT_EQ(host->mode(), OverlayHost::Mode::Cards);
+    EXPECT_EQ(window.shell()->mode(), OverlayHost::Mode::Cards);
 }
 
 TEST(AppPanels, FreeForAnyUseNoWatermarkAndSupportGroomLab) {
@@ -1223,13 +1275,13 @@ TEST(AppPanels, FreeForAnyUseNoWatermarkAndSupportGroomLab) {
     EXPECT_FALSE(std::any_of(actions.begin(), actions.end(), [](const QAction* a) { return a->text().contains(QStringLiteral("License")); }));
     ASSERT_TRUE(window.showHelp(QStringLiteral("about")));
     bool linked = false;
-    for (const QLabel* label : host->panel(OverlayHost::Panel::Help)->findChildren<QLabel*>()) {
+    for (const QLabel* label : window.shell()->panel(AppShell::Panel::Help)->findChildren<QLabel*>()) {
         linked = linked || (label->text().contains(QString::fromLatin1(kDonateUrl)) && label->text().contains(QStringLiteral("Support GroomLab")));
     }
     EXPECT_TRUE(linked) << "About links to the donations page";
     EXPECT_STREQ(kRepoUrl, "https://github.com/thekesslereffect/groomlab");
     bool source = false;
-    for (const QLabel* label : host->panel(OverlayHost::Panel::Help)->findChildren<QLabel*>()) {
+    for (const QLabel* label : window.shell()->panel(AppShell::Panel::Help)->findChildren<QLabel*>()) {
         source = source || (label->text().contains(QString::fromLatin1(kRepoUrl)) && label->text().contains(QStringLiteral("Open source (Apache-2.0)")));
     }
     EXPECT_TRUE(source) << "About links to the source";
@@ -1434,7 +1486,7 @@ TEST(AppPanels, LookCardEditsTheGroomHairColorAndSavesIt) {
     MainWindow window;
     window.resize(1280, 720);
     ASSERT_TRUE(window.openGroom(QString::fromStdString(path)));
-    LookCard* card = window.overlay()->lookCard();
+    LookCard* card = window.shell()->lookCard();
     EXPECT_EQ(card->groomColor().node, "color") << "the default graph's HairColor";
     EXPECT_TRUE(card->colorNote().contains(QStringLiteral("color")));
     EXPECT_FALSE(card->colorNote().contains(QStringLiteral("viewport only")));
@@ -1477,7 +1529,7 @@ TEST(AppPanels, LookCardEditsTheGroomHairColorAndSavesIt) {
     EXPECT_EQ(window.document()->undoText(), "Undo hair color black");
     EXPECT_EQ(card->material().pigment, HairMaterial::Pigment::GroomMelanin);
     EXPECT_NEAR(card->melaninSlider()->value(), 1.0, 1e-6) << "the slider shows the node's value";
-    window.overlay()->undoRequested();
+    window.overlay()->undoButton()->click();
     EXPECT_NEAR(window.document()->paramOrDefault(node, "melanin").get<double>(), 0.8, 1e-6);
     EXPECT_NEAR(card->melaninSlider()->value(), 0.8, 1e-6) << "undo reaches the card";
     // Saved with the groom.
@@ -1516,7 +1568,7 @@ TEST(AppPanels, LookCardPicksAColorAndWhiteTips) {
     MainWindow window;
     window.resize(1280, 720);
     ASSERT_TRUE(window.openGroom(QString::fromStdString(path)));
-    LookCard* card = window.overlay()->lookCard();
+    LookCard* card = window.shell()->lookCard();
     const std::string node = card->groomColor().node;
     ASSERT_EQ(node, "color");
     EXPECT_FALSE(card->groomModeSwitch()->isHidden());
@@ -1569,27 +1621,39 @@ TEST(AppPanels, WindowsAndPanelsFitSmallScreensAndLargeText) {
         const QSize minimum = window.minimumSizeHint();
         EXPECT_LE(minimum.width(), screen.width());
         EXPECT_LE(minimum.height(), screen.height());
-        OverlayHost* host = window.overlay();
-        const QRect room = host->rect();
+        AppShell* shell = window.shell();
+        const QRect room = window.rect();
         auto inside = [&](QWidget* w, const char* what) {
             if (!w->isVisible()) return;
-            const QRect g = QRect(w->mapTo(host, QPoint(0, 0)), w->size());
+            const QRect g = QRect(w->mapTo(&window, QPoint(0, 0)), w->size());
             EXPECT_TRUE(room.contains(g)) << what << " at " << g.x() << "," << g.y() << " " << g.width() << "x" << g.height();
+        };
+        // The viewport keeps a usable share of the window beside the docks.
+        auto viewportRoom = [&](const char* what) {
+            const QSize view = window.overlay()->size();
+            EXPECT_GE(view.width(), screen.width() / 3) << what << ": the viewport squeezed to " << view.width();
+            EXPECT_GE(view.height(), screen.height() / 3) << what << ": the viewport squeezed to " << view.height();
         };
         for (const char* mode : {"groom", "look", "cards", "export"}) {
             ASSERT_TRUE(window.setUiMode(QString::fromLatin1(mode)));
             QCoreApplication::processEvents();
-            inside(host->lookCard(), "the look card");
-            inside(host->cardsPanel(), "the cards panel");
-            inside(host->exportPanel(), "the export panel");
+            inside(shell->lookCard(), "the look card");
+            inside(shell->cardsPanel(), "the cards panel");
+            inside(shell->exportPanel(), "the export panel");
+            inside(shell->groomToolsDock(), "the Groom Tools");
+            viewportRoom(mode);
         }
         window.setUiMode(QStringLiteral("groom"));
-        for (OverlayHost::Panel panel : {OverlayHost::Panel::Look, OverlayHost::Panel::Display, OverlayHost::Panel::Help,
-                                         OverlayHost::Panel::Maps, OverlayHost::Panel::Guides}) {
-            host->showPanel(panel, true);
+        window.setGraphShown(true);
+        QCoreApplication::processEvents();
+        inside(shell->graphDock(), "the Graph Editor");
+        viewportRoom("with the Graph Editor");
+        for (AppShell::Panel panel : {AppShell::Panel::Look, AppShell::Panel::Display, AppShell::Panel::Help,
+                                      AppShell::Panel::Maps, AppShell::Panel::Guides}) {
+            shell->showPanel(panel, true);
             QCoreApplication::processEvents();
-            inside(host->panel(panel), "a floating panel");
-            host->showPanel(panel, false);
+            inside(shell->panel(panel), "a dock's section");
+            shell->showPanel(panel, false);
         }
         // The transfer window: within the screen, its two views side by side at their minimum.
         TransferWindow* transfer = window.openTransferWindow();
@@ -1611,8 +1675,8 @@ TEST(AppPanels, WindowsAndPanelsFitSmallScreensAndLargeText) {
     ASSERT_TRUE(small.openGroom(QString::fromStdString(path)));
     ASSERT_TRUE(small.setUiMode(QStringLiteral("export")));
     QCoreApplication::processEvents();
-    ExportPanel* exportPanel = small.overlay()->exportPanel();
-    EXPECT_LE(exportPanel->height(), small.overlay()->height());
+    ExportPanel* exportPanel = small.shell()->exportPanel();
+    EXPECT_LE(exportPanel->height(), small.height());
     auto* scroll = exportPanel->findChild<FitScrollArea*>();
     ASSERT_TRUE(scroll);
     if (scroll->widget()->sizeHint().height() > scroll->height()) EXPECT_GT(scroll->verticalScrollBar()->maximum(), 0);
@@ -1882,8 +1946,9 @@ TEST(AppPanels, BrushPanelCurvesSymmetryAndAWidthMap) {
     camera.frame(doc->sceneBounds());
     session.setDocument(doc.get());
     session.setView(camera, 800, 600);
-    BrushPanel panel;
-    panel.setSession(&session);
+    GroomTools tools;
+    tools.setSession(&session);
+    BrushPanel& panel = *tools.card();
 
     // The curves: off until ticked, then the editor's keys; unticked, none again.
     auto* strength = panel.findChild<QCheckBox*>(QStringLiteral("strengthProfile"));
@@ -1900,17 +1965,38 @@ TEST(AppPanels, BrushPanelCurvesSymmetryAndAWidthMap) {
     session.settings().setFalloffProfile("");
     panel.refresh();
     EXPECT_FALSE(falloff->isChecked()) << "the panel follows the settings";
-    // Symmetry by the glossary's names: Off, World X, Y, Z or Topology.
-    auto* symmetry = panel.findChild<QComboBox*>(QStringLiteral("symmetry"));
-    ASSERT_TRUE(symmetry);
+    // Symmetry (the Groom Tools' row, always shown): on, and across World X, Y, Z or Topology.
+    QComboBox* symmetry = tools.symmetryMode();
+    EXPECT_FALSE(symmetry->isEnabled()) << "off: the choice waits";
     symmetry->setCurrentIndex(symmetry->findText(QStringLiteral("Topology")));
+    EXPECT_EQ(session.settings().symmetryName(), "none") << "chosen while off: still off";
+    tools.symmetryBox()->setChecked(true);
     EXPECT_TRUE(session.settings().brush.mirrorTopology);
     EXPECT_EQ(session.settings().symmetryName(), "topology");
     session.settings().setSymmetry("x");
-    panel.refresh();
+    tools.refresh();
     EXPECT_EQ(symmetry->currentText(), QStringLiteral("World X"));
+    EXPECT_TRUE(tools.symmetryBox()->isChecked());
     session.settings().setSymmetry("none");
-    panel.refresh();
+    tools.refresh();
+    EXPECT_FALSE(tools.symmetryBox()->isChecked());
+    // The card shows what the tool uses, in Maya's order: Comb's radius and Stretch, not Place's
+    // new guides; Place's new guides, no radius; no duplicate radius anywhere.
+    tools.setTool("comb");
+    EXPECT_TRUE(panel.findChild<QWidget*>(QStringLiteral("radius"))->isVisibleTo(&panel));
+    EXPECT_TRUE(panel.findChild<QCheckBox*>(QStringLiteral("stretch"))->isVisibleTo(&panel));
+    EXPECT_FALSE(panel.findChild<QWidget*>(QStringLiteral("newGuidesBox"))->isVisibleTo(&panel));
+    EXPECT_EQ(tools.findChildren<ValueSlider*>(QStringLiteral("radius")).size(), 1);
+    tools.setTool("place");
+    EXPECT_FALSE(panel.findChild<QWidget*>(QStringLiteral("radius"))->isVisibleTo(&panel));
+    EXPECT_TRUE(panel.findChild<QWidget*>(QStringLiteral("newGuidesBox"))->isVisibleTo(&panel));
+    tools.setTool("erase");
+    EXPECT_TRUE(panel.findChild<QWidget*>(QStringLiteral("eraseBox"))->isVisibleTo(&panel));
+    // Signed tools' strength runs -1..1.
+    tools.setTool("lift");
+    EXPECT_DOUBLE_EQ(panel.findChild<ValueSlider*>(QStringLiteral("strength"))->minimum(), -1.0);
+    tools.setTool("comb");
+    EXPECT_DOUBLE_EQ(panel.findChild<ValueSlider*>(QStringLiteral("strength"))->minimum(), 0.0);
 
     // A width map (what the Width brush was: + New map for Width): a white map wired to the Width
     // node's width, then the Paint brush on it (Ctrl: thinner); the wiring and the paint are a
@@ -1920,7 +2006,7 @@ TEST(AppPanels, BrushPanelCurvesSymmetryAndAWidthMap) {
     ASSERT_TRUE(before.is_number());
     std::string made;
     ASSERT_EQ(doc->paintParam(width, "width", &made), "");
-    panel.setMode(QStringLiteral("paint"));
+    session.setTool("paint");
     session.settings().brush.attribute = made;
     EXPECT_EQ(session.toolId(), "paint");
     session.settings().paintKind = "vertices";
@@ -2608,13 +2694,13 @@ void key(QWidget* w, QEvent::Type type, int k, Qt::KeyboardModifiers mods = Qt::
 
 TEST(AppPanels, AJobsCancelTakesAClickWhileTheRestOfTheWindowWaits) {
     // An export runs on the UI thread with the events in between: its Cancel takes a click, every
-    // other click waits (the Graph pill does nothing), another export is refused, and closing the
+    // other click waits (the viewport's Undo does nothing), another export is refused, and closing the
     // window stops the job first, then closes it.
     MainWindow window;
     window.resize(1280, 720);
     window.show();
     ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
-    OverlayHost* host = window.overlay();
+    AppShell* host = window.shell();
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "groomlab_app_job_cancel";
     std::filesystem::create_directories(dir);
     ExportOptions options;
@@ -2626,7 +2712,7 @@ TEST(AppPanels, AJobsCancelTakesAClickWhileTheRestOfTheWindowWaits) {
         sawBusy = window.busy();
         job = window.busyJob();
         refused = !window.exportTo(QStringLiteral("alembic"), QString::fromStdString((dir / "again.abc").u8string()), options);
-        postClick(host->graphPill());                     // held back
+        postClick(window.overlay()->undoButton());        // held back
         postClick(host->exportPanel()->exportButton());   // Cancel
     });
     EXPECT_FALSE(window.exportTo(QStringLiteral("alembic"), QString::fromStdString((dir / "cancelled.abc").u8string()), options))
@@ -2720,18 +2806,15 @@ TEST(AppPanels, MDragSetsTheStrengthAndAltShiftXTogglesSymmetry) {
     symmetry->trigger();
     EXPECT_EQ(s.symmetryName(), "none");
     EXPECT_EQ(window.lastReport(), QStringLiteral("Symmetry: World X off"));
-    // The chip shows symmetry on for any mode (World Y, Topology), not only World X.
-    RoundButton* chip = nullptr;
-    for (RoundButton* b : host->bar()->findChildren<RoundButton*>()) {
-        if (b->text() == QStringLiteral("Symmetry")) chip = b;
-    }
-    ASSERT_NE(chip, nullptr) << "the brush bar's Symmetry chip";
+    // The Groom Tools' Symmetry box shows symmetry on for any mode (World Y, Topology), not only World X.
+    QCheckBox* chip = window.shell()->groomTools()->symmetryBox();
+    ASSERT_NE(chip, nullptr) << "the Groom Tools' Symmetry box";
     ASSERT_TRUE(window.setBrushText(QStringLiteral("symmetry=y")));
     symmetry->trigger();
     symmetry->trigger();  // off and on again: World Y comes back
     EXPECT_EQ(s.symmetryName(), "y");
-    EXPECT_TRUE(chip->isChecked()) << "World Y on, the chip off";
-    EXPECT_TRUE(chip->toolTip().contains(QStringLiteral("World Y")));
+    EXPECT_TRUE(chip->isChecked()) << "World Y on, the box off";
+    EXPECT_EQ(window.shell()->groomTools()->symmetryMode()->currentText(), QStringLiteral("World Y"));
     s.setSymmetry("topology");
     symmetry->trigger();
     symmetry->trigger();
@@ -2752,7 +2835,7 @@ TEST(AppPanels, TheShortcutSheetListsTheSharedTable) {
     window.show();
     ASSERT_TRUE(window.showHelp(QStringLiteral("shortcuts")));
     QString sheet;
-    for (const QLabel* label : window.overlay()->panel(OverlayHost::Panel::Help)->findChildren<QLabel*>()) {
+    for (const QLabel* label : window.shell()->panel(AppShell::Panel::Help)->findChildren<QLabel*>()) {
         if (label->text().contains(QStringLiteral("<table"))) sheet = label->text();
     }
     ASSERT_FALSE(sheet.isEmpty());
@@ -2770,7 +2853,9 @@ TEST(AppPanels, TheShortcutSheetListsTheSharedTable) {
     }
     EXPECT_EQ(withShortcut(QStringLiteral("Frame the groom"), "view.frame"), QStringLiteral("Frame the groom (F)"));
     EXPECT_EQ(withShortcut(QStringLiteral("Nothing"), "no.such.row"), QStringLiteral("Nothing"));
-    EXPECT_TRUE(window.overlay()->graphPill()->toolTip().startsWith(QStringLiteral("Graph Editor (Tab)")));
+    const QAction* graph = window.findChild<QAction*>(QStringLiteral("graphEditor"));
+    ASSERT_NE(graph, nullptr);
+    EXPECT_EQ(graph->shortcut(), QKeySequence(Qt::Key_Tab)) << "GroomLab > Graph Editor (Tab)";
     EXPECT_TRUE(window.showUiPanel(QStringLiteral("shortcuts")));
 }
 
@@ -3362,7 +3447,7 @@ TEST(AppPanels, GraphViewUpToHereShowsTheNodesResult) {
     ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
     const std::string scatter = nodeOfType(*window.document(), "Scatter");
     ASSERT_TRUE(window.selectUiNode(QString::fromStdString(scatter)));
-    NodeGraphView* graph = window.overlay()->graph();
+    NodeGraphView* graph = window.shell()->graph();
     key(graph, QEvent::KeyPress, Qt::Key_V);
     EXPECT_EQ(graph->viewedNode(), scatter);
     EXPECT_EQ(window.document()->lastView().viewedNode, scatter) << "the viewport shows the graph up to the node";
@@ -3372,30 +3457,42 @@ TEST(AppPanels, GraphViewUpToHereShowsTheNodesResult) {
     // A node that gives no strands is not viewed.
     std::string field;
     ASSERT_EQ(window.document()->addNode("Map", 0.0f, 0.0f, &field), "");
-    window.overlay()->graph()->refresh();
+    window.shell()->graph()->refresh();
     graph->selectNode(field);
     graph->toggleViewSelected();
     EXPECT_TRUE(graph->viewedNode().empty());
 }
 
-TEST(AppPanels, GraphKeepsTheSelectedNodeClearOfTheNodePanelInLookMode) {
-    // Look mode at 1280x720: the Node panel left of the look card, on screen; the graph pans the
-    // selected node out from under it; the viewport dims behind the graph (drawn, not tested).
+TEST(AppPanels, GraphEditorDocksBesideTheLookCardInLookMode) {
+    // Look mode at 1280x720: the Graph Editor docked at the bottom, its Node Settings on screen at
+    // its right, the look card in the Properties dock at the window's right, none over another;
+    // the graph's canvas is opaque (the docked graph has no viewport behind it) and fits the graph.
     MainWindow window;
     window.resize(1280, 720);
     window.show();
-    OverlayHost* host = window.overlay();
-    host->resize(1280, 720);
+    AppShell* shell = window.shell();
     ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
     ASSERT_TRUE(window.setUiMode(QStringLiteral("look")));
     window.setGraphShown(true);
     ASSERT_TRUE(window.selectUiNode(QString::fromStdString(nodeOfType(*window.document(), "Interpolate"))));
-    const QRect panel = host->panel(OverlayHost::Panel::Node)->geometry();
-    EXPECT_TRUE(QRect(0, 0, 1280, 720).contains(panel)) << "the Node panel on screen";
-    EXPECT_LE(panel.right(), host->lookCard()->geometry().left()) << "beside the look card, not under it";
-    EXPECT_GE(panel.height(), 300);
-    const QRectF node = host->graph()->nodeRect(host->graph()->selectedNode());
-    EXPECT_FALSE(node.intersects(QRectF(panel))) << "the selected node under the panel";
+    QCoreApplication::processEvents();
+    auto rectOf = [&](QWidget* w) { return QRect(w->mapTo(&window, QPoint(0, 0)), w->size()); };
+    const QRect panel = rectOf(shell->panel(AppShell::Panel::Node));
+    const QRect card = rectOf(shell->lookCard());
+    const QRect graph = rectOf(shell->graph());
+    EXPECT_TRUE(window.rect().contains(panel)) << "the Node Settings on screen";
+    EXPECT_FALSE(panel.intersects(card)) << "the Node Settings under the look card";
+    EXPECT_FALSE(graph.intersects(card)) << "the graph under the look card";
+    EXPECT_FALSE(graph.intersects(panel));
+    EXPECT_GE(panel.height(), 150);
+    const QRect viewport = rectOf(window.overlay());
+    EXPECT_FALSE(viewport.intersects(graph)) << "the graph docked, not over the viewport";
+    const QRectF node = shell->graph()->nodeRect(shell->graph()->selectedNode());
+    EXPECT_TRUE(QRectF(shell->graph()->rect()).intersects(node)) << "the selected node in the graph's view";
+    QImage canvas(shell->graph()->size(), QImage::Format_ARGB32_Premultiplied);
+    canvas.fill(Qt::transparent);
+    shell->graph()->render(&canvas);
+    EXPECT_EQ(qAlpha(canvas.pixel(2, 2)), 255) << "an opaque canvas";
 }
 
 TEST(AppPanels, EmptyStateDisablesWhatNeedsAGroomAndSaysWhatEachModeDoes) {
@@ -3403,18 +3500,19 @@ TEST(AppPanels, EmptyStateDisablesWhatNeedsAGroomAndSaysWhatEachModeDoes) {
     window.resize(1280, 720);
     window.show();
     OverlayHost* host = window.overlay();
-    host->resize(1280, 720);
-    EXPECT_FALSE(host->graphPill()->isEnabled());
-    EXPECT_FALSE(host->presetsPill()->isEnabled());
-    EXPECT_FALSE(host->modes()->isEnabled());
+    AppShell* shell = window.shell();
+    EXPECT_FALSE(shell->graphAddButton()->isEnabled());
+    EXPECT_FALSE(shell->graphEditButton()->isEnabled());
+    EXPECT_FALSE(host->undoButton()->isEnabled());
+    EXPECT_FALSE(window.findChild<QAction*>(QStringLiteral("prmanFrame"))->isEnabled()) << "nothing to render";
     QSet<QString> sentences;
     for (const char* mode : {"groom", "look", "cards", "export"}) {
         ASSERT_TRUE(window.setUiMode(QLatin1String(mode)));
         sentences.insert(host->emptyText());
         EXPECT_TRUE(host->emptyCard()->isVisibleTo(host)) << mode;
-        EXPECT_FALSE(host->cardsPanel()->isVisibleTo(host)) << mode << ": no zeros before a groom";
-        EXPECT_FALSE(host->exportPanel()->isVisibleTo(host)) << mode;
-        EXPECT_FALSE(host->lookCard()->isVisibleTo(host)) << mode;
+        EXPECT_FALSE(shell->cardsPanel()->isVisibleTo(&window)) << mode << ": no zeros before a groom";
+        EXPECT_FALSE(shell->exportPanel()->isVisibleTo(&window)) << mode;
+        EXPECT_FALSE(shell->lookCard()->isVisibleTo(&window)) << mode;
     }
     EXPECT_EQ(sentences.size(), 4) << "a sentence per mode";
     ASSERT_TRUE(window.setUiMode(QStringLiteral("cards")));
@@ -3426,45 +3524,92 @@ TEST(AppPanels, EmptyStateDisablesWhatNeedsAGroomAndSaysWhatEachModeDoes) {
     ASSERT_TRUE(window.startFromPreset(QStringLiteral("curly"), mesh));
     ASSERT_NE(window.document(), nullptr);
     EXPECT_GT(window.document()->nodes().size(), 3u);
-    EXPECT_FALSE(host->startHintShown()) << "a look applied: no bald-scalp hint";
-    EXPECT_TRUE(host->graphPill()->isEnabled());
-    EXPECT_TRUE(host->modes()->isEnabled());
-    EXPECT_TRUE(host->cardsPanel()->isVisibleTo(host)) << "Cards mode's panel once a groom is open";
-    // New Groom on Mesh: the next step on a card; Pick Place picks the Place brush and hides it.
+    EXPECT_TRUE(shell->graphAddButton()->isEnabled());
+    EXPECT_TRUE(shell->graphEditButton()->isEnabled());
+    EXPECT_TRUE(shell->cardsPanel()->isVisibleTo(&window)) << "Cards mode's panel once a groom is open";
+    // New Groom on Mesh: the next step in the Groom Tools' first-groom steps (no card over the
+    // viewport); Place some guides picks the Place brush.
     ASSERT_TRUE(window.setUiMode(QStringLiteral("groom")));
     ASSERT_TRUE(window.newGroomOnMesh(mesh));
-    EXPECT_TRUE(host->startHintShown());
-    RoundButton* place = nullptr;
-    for (RoundButton* b : host->startHint()->findChildren<RoundButton*>()) {
-        if (b->text() == QStringLiteral("Pick Place")) place = b;
-    }
+    EXPECT_TRUE(shell->groomTools()->starterShown());
+    EXPECT_EQ(host->findChild<QWidget*>(QStringLiteral("startHint")), nullptr) << "no start card over the viewport";
+    auto* place = shell->groomTools()->findChild<QPushButton*>(QStringLiteral("starter_guides"));
     ASSERT_NE(place, nullptr);
     place->click();
-    EXPECT_FALSE(host->startHintShown());
     EXPECT_EQ(window.brush().toolId(), "place");
 }
 
-TEST(AppPanels, RailLabelsStayShownWhenPinned) {
+TEST(AppPanels, ToolLabelsUnderTheTilesAndCompactTiles) {
     MainWindow window;
     window.resize(1280, 720);
     window.show();
-    OverlayHost* host = window.overlay();
+    AppShell* host = window.shell();
     ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
-    EXPECT_FALSE(host->railLabels()) << "tests and scripted runs: no labels unless asked";
-    window.setRailLabels(true, false);
-    EXPECT_TRUE(host->rail()->expanded());
-    EXPECT_TRUE(host->panelRail()->expanded());
-    QEvent leave(QEvent::Leave);
-    QCoreApplication::sendEvent(host->rail(), &leave);
-    QCoreApplication::sendEvent(host->panelRail(), &leave);
-    EXPECT_TRUE(host->rail()->expanded()) << "the mouse leaving keeps the names";
-    EXPECT_TRUE(host->panelRail()->expanded());
+    EXPECT_TRUE(host->railLabels()) << "the names under the tiles, as Maya's";
     QAction* toggle = window.findChild<QAction*>(QStringLiteral("railLabels"));
     ASSERT_NE(toggle, nullptr);
     EXPECT_TRUE(toggle->isChecked());
+    // Docked in the Groom Tools: the tiles stay within the dock's width with their names (the
+    // column scrolls up and down).
+    QCoreApplication::processEvents();
+    const QRect dock(host->groomToolsDock()->mapTo(&window, QPoint(0, 0)), host->groomToolsDock()->size());
+    for (const QAbstractButton* tile : host->groomTools()->tiles()) {
+        if (!tile->isVisibleTo(&window)) continue;  // (the Paint tab's)
+        const QRect r(tile->mapTo(&window, QPoint(0, 0)), tile->size());
+        EXPECT_TRUE(r.left() >= dock.left() && r.right() <= dock.right()) << "a tile past the Groom Tools: " << tile->objectName().toStdString();
+    }
     window.setRailLabels(false, false);
-    EXPECT_FALSE(host->rail()->expanded());
+    EXPECT_FALSE(host->railLabels());
     EXPECT_FALSE(toggle->isChecked());
+    window.setRailLabels(true, false);
+    EXPECT_TRUE(toggle->isChecked());
+}
+
+TEST(AppPanels, GroomToolsTilesPickToolsAndTheEyeHidesTheGroom) {
+    MainWindow window;
+    window.resize(1280, 720);
+    window.show();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(kSampleGroom)));
+    GroomTools* tools = window.shell()->groomTools();
+    // A tile picks its tool: brush mode, the tile lit, its card; each brush keeps its strength.
+    tools->tile("comb")->click();
+    EXPECT_EQ(window.brush().toolId(), "comb");
+    EXPECT_EQ(window.overlay()->viewport()->toolMode(), Viewport::ToolMode::Brush);
+    EXPECT_TRUE(tools->tile("comb")->isChecked());
+    EXPECT_TRUE(tools->card()->isVisibleTo(tools));
+    window.brush().settings().brush.strength = 0.3f;
+    tools->tile("lift")->click();
+    EXPECT_FLOAT_EQ(window.brush().settings().brush.strength, brushEntry("lift")->defaultStrength);
+    tools->tile("comb")->click();
+    EXPECT_FLOAT_EQ(window.brush().settings().brush.strength, 0.3f) << "Comb's own strength back";
+    // Select, and again: the camera.
+    tools->tile("select")->click();
+    EXPECT_EQ(window.overlay()->viewport()->toolMode(), Viewport::ToolMode::Select);
+    EXPECT_TRUE(tools->tile("select")->isChecked());
+    tools->tile("select")->click();
+    EXPECT_EQ(window.overlay()->viewport()->toolMode(), Viewport::ToolMode::Camera);
+    // Paint without a map: the Paint tab and a line saying what to do first.
+    if (window.mapsPanel()->selectedMap().empty()) {
+        tools->tile("paint")->click();
+        EXPECT_EQ(tools->currentTab(), QStringLiteral("paint"));
+        EXPECT_FALSE(tools->status().isEmpty());
+    }
+    // The eye: the groom hidden in the viewport and back.
+    tools->eyeButton()->click();
+    EXPECT_FALSE(window.groomVisible());
+    EXPECT_FALSE(window.overlay()->viewport()->renderer().groomShown());
+    tools->eyeButton()->click();
+    EXPECT_TRUE(window.groomVisible());
+    // GroomLab > Groom Tools brings the dock back.
+    window.shell()->groomToolsDock()->hide();
+    QAction* open = window.findChild<QAction*>(QStringLiteral("groomTools"));
+    ASSERT_NE(open, nullptr);
+    open->trigger();
+    EXPECT_TRUE(window.shell()->groomToolsDock()->isVisibleTo(&window));
+    // The Output strip: palette.json's chips the app runs, in order.
+    std::vector<std::string> chips;
+    for (QToolButton* chip : tools->outputChips()) chips.push_back(chip->text().section(QStringLiteral("  "), 0, 0).toStdString());
+    EXPECT_EQ(chips, (std::vector<std::string>{"Simulate Range", "Export", "Render", "Studio", "Transfer...", "Import"}));
 }
 
 TEST(AppPanels, FileMenuAddsPropsAndEyesAndSavesAnImage) {

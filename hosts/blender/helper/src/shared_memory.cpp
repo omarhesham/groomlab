@@ -150,7 +150,13 @@ std::string blockName(const std::string& purpose, unsigned n) {
 #else
     const unsigned long pid = static_cast<unsigned long>(getpid());
 #endif
+#ifdef __APPLE__
+    // macOS caps a POSIX shared memory name at 31 bytes with its slash (PSHMNAMLEN): "/gl_<pid>_..."
+    // leaves a long session's numbers room ("/gl_99999_s12overlay_100000": 27).
+    return "gl_" + std::to_string(pid) + "_" + purpose + "_" + std::to_string(n);
+#else
     return "groomlab_" + std::to_string(pid) + "_" + purpose + "_" + std::to_string(n);
+#endif
 }
 
 void Arena::begin(std::size_t bytes) {

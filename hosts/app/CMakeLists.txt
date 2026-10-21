@@ -26,7 +26,9 @@ set(GROOMLAB_APP_SHADERS
     shaders/strands_colored.vert
     shaders/dots.vert
     shaders/surface.vert
-    shaders/surface.frag)
+    shaders/surface.frag
+    shaders/photo.vert
+    shaders/photo.frag)
 # The lookdev path fetches the strands from float textures in the vertex shader (texelFetch:
 # GLSL 150 on OpenGL, older GL takes the line path), the same SPIR-V, HLSL and MSL as the rest.
 set(GROOMLAB_LOOKDEV_SHADERS
@@ -68,7 +70,10 @@ qt_add_library(groomlab_app_lib STATIC
     src/graph_presets.h
     src/groom_document.cpp
     src/groom_document.h
+    src/groom_document_lists.cpp
+    src/groom_document_output.cpp
     src/groom_exports.cpp
+    src/groom_tubes.cpp
     src/card_preview.cpp
     src/card_preview.h
     src/playback.cpp
@@ -185,6 +190,9 @@ target_compile_definitions(groomlab_app_lib PUBLIC "GROOMLAB_SHIPPED_PRESETS=${_
 # The compound nodes shipped with every host (hosts/maya/nodes), found the same way.
 groomlab_path_literal(_shipped_nodes "${PROJECT_SOURCE_DIR}/hosts/maya/nodes")
 target_compile_definitions(groomlab_app_lib PUBLIC "GROOMLAB_SHIPPED_NODES=${_shipped_nodes}")
+# The sample meshes (GroomLab > Add Sample Mesh: Nika, Manny, the wolf; CC BY 4.0), the same way.
+groomlab_path_literal(_shipped_meshes "${PROJECT_SOURCE_DIR}/hosts/maya/meshes")
+target_compile_definitions(groomlab_app_lib PUBLIC "GROOMLAB_SHIPPED_MESHES=${_shipped_meshes}")
 # QRhi's headers (rhi/qrhi.h) ship as Qt's "limited compatibility" API: they come with GuiPrivate.
 # The GPU look preview's engine (engine/gpu/, Windows: Direct3D 11 and OpenGL) runs the graph's last
 # nodes on QRhi's device while a param is dragged or guides are brushed (src/gpu_preview.h).
@@ -198,18 +206,33 @@ groomlab_precompile(groomlab_app_lib <nlohmann/json.hpp> <QByteArray> <QColor> <
 # viewport widget) as a library of their own, so the tests drive the panels headless (the
 # offscreen platform) without the executable's main.
 qt_add_library(groomlab_app_ui STATIC
+    src/app_actions.cpp
+    src/app_actions.h
+    src/app_graph_actions.cpp
+    src/app_list_actions.cpp
+    src/app_output_actions.cpp
     src/brush_panel.cpp
     src/brush_panel.h
+    src/groom_tools.cpp
+    src/groom_tools.h
+    src/tube_panel.cpp
+    src/tube_panel.h
+    src/tube_shape_editor.cpp
+    src/tube_shape_editor.h
     src/cards_panel.cpp
     src/cards_panel.h
     src/correctives_panel.cpp
     src/correctives_panel.h
+    src/definitions.cpp
+    src/definitions.h
     src/export_panel.cpp
     src/export_panel.h
     src/glass.cpp
     src/glass.h
     src/guides_panel.cpp
     src/guides_panel.h
+    src/list_bar.cpp
+    src/list_bar.h
     src/look_panel.cpp
     src/look_panel.h
     src/main_window.cpp
@@ -218,13 +241,17 @@ qt_add_library(groomlab_app_ui STATIC
     src/main_window_headless.cpp
     src/main_window_internal.h
     src/main_window_panels.cpp
+    src/main_window_properties.cpp
     src/main_window_scripting.cpp
     src/main_window_viewport.cpp
+    src/main_window_output.cpp
     src/main_window_render.cpp
     src/maps_panel.cpp
     src/maps_panel.h
     src/marker_view.cpp
     src/marker_view.h
+    src/marking_menu.cpp
+    src/marking_menu.h
     src/node_graph.cpp
     src/node_graph.h
     src/overlay.cpp
@@ -233,6 +260,11 @@ qt_add_library(groomlab_app_ui STATIC
     src/param_editors.h
     src/param_panel.cpp
     src/param_panel.h
+    src/photos_panel.cpp
+    src/photos_panel.h
+    src/properties_panel.cpp
+    src/properties_panel.h
+    src/app_photo_actions.cpp
     src/reference_window.cpp
     src/reference_window.h
     src/timeline.cpp
@@ -245,6 +277,8 @@ qt_add_library(groomlab_app_ui STATIC
     src/prman_render.h
     src/render_job.cpp
     src/render_job.h
+    src/app_shell.cpp
+    src/app_shell.h
     src/vray_render.cpp
     src/vray_render.h)
 # The brush icons: GroomLab's own (the Maya plugin's, hosts/maya/icons), and the UI's (ui_*.svg, white
@@ -306,6 +340,9 @@ set(GROOMLAB_APP_DIR "GroomLabApp")
 install(TARGETS groomlab_app RUNTIME DESTINATION "${GROOMLAB_APP_DIR}" COMPONENT App)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/presets/" DESTINATION "${GROOMLAB_APP_DIR}/presets" COMPONENT App)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/nodes/" DESTINATION "${GROOMLAB_APP_DIR}/nodes" COMPONENT App)
+# The sample meshes (CC BY 4.0, REUSE.toml): their OBJs (the rigs are Maya's and Blender's).
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/hosts/maya/meshes/" DESTINATION "${GROOMLAB_APP_DIR}/meshes" COMPONENT App
+        FILES_MATCHING PATTERN "*.obj")
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/package/README_BETA.txt" DESTINATION "${GROOMLAB_APP_DIR}" COMPONENT App)
 # GroomLab's RenderMan procedural (hosts/renderman, when RenderMan Pro Server's SDK is found) beside the
 # app in procedurals/renderman, as the Maya module has it: Render > ... in RenderMan hands it to prman

@@ -18,6 +18,7 @@
 // pixels); the stored value stays the spec's. A node saved with an older behaviour of its operator
 // shows Upgrade beside its title.
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,7 @@ class QAbstractButton;
 class QCheckBox;
 class QComboBox;
 class QLabel;
+class QMenu;
 class QScrollArea;
 class QVBoxLayout;
 
@@ -51,6 +53,17 @@ struct DisplayUnit {
     int decimals = 3;
 };
 DisplayUnit displayUnit(const std::string& unit, bool integer, int specDecimals = -1);
+// Real units for the scene's measures (Maya's groomlab.units): lengths, widths and densities (and a
+// rate per length) shown in the units picked in the Graph Editor's Edit > Units, saved per user
+// (QSettings units/<kind>), the groom's scene units being centimeters as Maya's ("scene": bare, as
+// stored: the default). `kind` "length", "width" or "density".
+struct UnitChoice {
+    std::string key, label;  // "mm", "mm"
+    double factor;           // shown per scene unit
+};
+std::vector<UnitChoice> unitChoices(const std::string& kind);
+std::string unitChoice(const std::string& kind);
+void setUnitChoice(const std::string& kind, const std::string& key);
 
 class ParamPanel : public QWidget {
     Q_OBJECT
@@ -71,6 +84,12 @@ public:
     // turn of the event loop (never under an editor's own signal), once no drag is live.
     void refresh();
     void rebuildNow();  // the same at once (tests; never from an editor's handler)
+    // A param's right-click menu (a param that takes an input port): the host fills it (the
+    // shared definitions' paramMenu, AppActions::fillParamMenu); without a filler, Expose as
+    // Input alone. fillParamMenu fills `menu` for the shown node's param without showing it.
+    using ParamMenuFiller = std::function<void(QMenu* menu, const std::string& node, const std::string& param)>;
+    void setParamMenuFiller(ParamMenuFiller filler) { paramMenuFiller_ = std::move(filler); }
+    void fillParamMenu(QMenu* menu, const std::string& param);
     // As tall as the node's rows (the floating panel takes this height within the view).
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override { return QSize(200, 120); }
@@ -181,6 +200,7 @@ private:
     bool dragLive_ = false;     // ... and whether one is on (the first live edit keeps the start)
     bool sliderDown_ = false;   // a slider's drag is on
     bool rebuildPending_ = false;
+    ParamMenuFiller paramMenuFiller_;
 };
 
 }  // namespace groomlab::app

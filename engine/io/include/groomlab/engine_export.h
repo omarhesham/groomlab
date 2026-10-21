@@ -37,6 +37,12 @@ struct EngineExportOptions {
     std::optional<bool> shafts;
     bool featherGuides = false;  // Unreal: a feather group's guides are its shafts
     bool iridescenceAo = false;  // Unreal: FeatherColor's iridescence as groom_ao too (UnrealGroomWriter::setIridescenceAsAo)
+    // Unreal: the groom's space, written in Unreal's so the importer's defaults (Rotation 0, Scale
+    // 1) line the groom up with an FBX of the same scene (UnrealGroomWriter::setSourceSpace): the
+    // points' up axis ("Y": Maya, the app, the Blender helper's groom space; "Z": a Z-up Maya
+    // scene) and their unit in centimeters.
+    std::string upAxis = "Y";
+    double centimetersPerUnit = 1.0;
     float barbDensity = 1.0f;    // barbs kept (0 to 1, by ID), each widened by barbWidthScale
     float barbWidthScale = 1.0f;
     // Unity: the curves scaled (scene units to the engine's) and resampled to pointsPerStrand
@@ -48,7 +54,8 @@ struct EngineExportOptions {
     std::size_t maxStrandsPerGroup = kUnityMaxStrandsPerGroup;
 
     // Why the options cannot be written ("" when they can): a density outside (0, 1], a width
-    // scale or a scale of 0 or less, a point count of 1 or past 4096.
+    // scale or a scale of 0 or less, a point count of 1 or past 4096, an up axis not "Y" or "Z",
+    // centimeters per unit of 0 or less.
     std::string problem() const;
 };
 

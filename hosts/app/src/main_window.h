@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// The main window: the viewport fills it edge to edge and everything else floats over it
-// (overlay.h): the menu button with every File, Edit, View and Tools action (and their
-// shortcuts, which work from anywhere), the mode switcher (Groom, Look, Cards, Export), the
-// brush rail and the brush bar, the panel buttons that open the guides, nodes, look and
-// display panels on demand, the look card, the cards and export panels, the timeline (shown
-// for an animated groom: each frame it names is evaluated and drawn, frames the clock passes
-// meanwhile are dropped), the node graph (node_graph.h) and the stats. Errors go to stderr
-// and a toast over the viewport, never a dialog: a scripted run (--screenshot, --ui-screenshot,
-// an export) must not stop on one; file dialogs open only on a click.
+// The main window, docked as Maya's (app_shell.h): the menu bar (buildMenuBar: every File, Edit,
+// View, Tools, Render and Help action, their shortcuts working from anywhere), the tool bar (the
+// modes Groom, Look, Cards, Export; Graph, Presets, undo, redo, Render), the viewport in the
+// middle with what stays on the picture (overlay.h: the tool's name, the stats, toasts, prompts,
+// the empty-state card), and the docks: Groom Tools (the brush tiles and settings, guides, maps,
+// correctives), Properties (the mode's panel: display, look, cards, export), the Graph Editor
+// (node_graph.h, the selected node's settings beside it) and the timeline (shown for an animated
+// groom: each frame it names is evaluated and drawn, frames the clock passes meanwhile are
+// dropped). Errors go to stderr and a toast over the viewport, never a dialog: a scripted run
+// (--screenshot, --ui-screenshot, an export) must not stop on one; file dialogs open only on a click.
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -28,6 +30,8 @@
 #include <QVector3D>
 
 #include "groomlab/async_evaluation.h"
+#include "groomlab/lod.h"
+#include "groomlab/render_overrides.h"
 
 #include "brush_session.h"
 #include "gpu_preview.h"
@@ -47,7 +51,9 @@ class QLabel;
 class QListWidget;
 class QMenu;
 class QProcessEnvironment;
+class QShowEvent;
 class QSpinBox;
+class QTemporaryDir;
 class QTimer;
 
 namespace groomlab::app {
@@ -58,15 +64,41 @@ inline constexpr const char* kDiscordUrl = "https://discord.gg/sr2rxjRVkm";  // 
 // GroomLab is open source (Apache-2.0): About links to the source.
 inline constexpr const char* kRepoUrl = "https://github.com/thekesslereffect/groomlab";
 
-class BrushPanel;
+// Where a run keeps its settings (QSettings' ini: recent files, the theme, autosaves, units, the
+// docks), set up before anything reads one: GROOMLAB_SETTINGS_DIR when it is set (Windows keeps the
+// ini under the known Roaming folder whatever APPDATA says, so this is the only way to move it);
+// else, for a run no one sits at (`scripted`: the tests' runs, captures, exports, benchmarks), a
+// throwaway folder removed with this object, so such a run never reads or writes the user's
+// %APPDATA%\GroomLab\GroomLab.ini; a window someone sits at keeps the user's.
+class RunSettings {
+public:
+    explicit RunSettings(bool scripted);
+    ~RunSettings();
+    RunSettings(const RunSettings&) = delete;
+    RunSettings& operator=(const RunSettings&) = delete;
+    bool valid() const { return valid_; }  // false: no throwaway folder could be made
+    QString folder() const { return folder_; }  // "" the user's own
+    bool throwaway() const { return temp_ != nullptr; }
+
+private:
+    std::unique_ptr<QTemporaryDir> temp_;
+    QString folder_;
+    bool valid_ = true;
+};
+
+class AppShell;
+class GroomTools;
 class UpdateChecker;
 class CorrectivesPanel;
 class GuidesPanel;
 class LookPanel;
 class MapsPanel;
+class MarkingMenu;
 class NodeGraphView;
 class OverlayHost;
 class ParamPanel;
+class PhotosPanel;
+class PropertiesPanel;
 class ValueSlider;
 class Viewport;
 class TransferWindow;
@@ -76,8 +108,11 @@ class RenderWindow;
 struct RenderProgress;
 struct RenderStage;
 
+struct AppActions;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
+    friend struct AppActions;  // the shared UI definitions' bindings (app_actions.h) run the window's slots
 public:
     MainWindow();
     ~MainWindow() override;
@@ -85,7 +120,8 @@ public:
     // A .groom file, or a mesh (.obj, .abc) a new groom is made on. False (and a message) on error.
     bool openPath(const QString& path);
     bool openGroom(const QString& path);
-    bool newGroomOnMesh(const QString& meshPath);
+    // `group`: the OBJ's faces under that group alone (a sample's body); not a recent file then.
+    bool newGroomOnMesh(const QString& meshPath, const QString& group = {});
     // "Start from a preset" with no groom open: a new groom on `meshPath` (empty: a file dialog,
     // only in a window someone sits at) with the preset applied. False when either fails.
     bool startFromPreset(const QString& nameOrPath, const QString& meshPath = {});
@@ -111,13 +147,14 @@ public:
     // Quit, Open, New, a dropped or recent file, Reload: confirmDiscard's prompt), and info messages
     // (saved, opened, a preset applied, hints) show as toasts. Off (the default: tests, scripted
     // runs, --ui-screenshot), nothing asks and only errors toast.
-    void setInteractive(bool on) { interactive_ = on; }
-    // The rails' names beside their icons (View > Rail Labels; saved as ui/railLabels). A first
-    // run (no saved choice) shows them for that run alone: firstRunRailLabels, for the window
-    // someone sits at.
+    // (Interactive: the saved choices it keeps, Delete Its File Too, are read.)
+    void setInteractive(bool on);
+    // The Groom Tools' tool tiles with their names under the icons (View > Rail Labels, on by
+    // default; off: compact icon tiles), saved as ui/toolLabels; restoreRailLabels puts the saved
+    // choice back (the window someone sits at).
     void setRailLabels(bool shown, bool save = true);
     bool railLabels() const;
-    void firstRunRailLabels();
+    void restoreRailLabels();
     bool interactive() const { return interactive_; }
     // `proceed` now when nothing would be lost (no groom, no unsaved edit, not interactive); else
     // the glass prompt "Unsaved changes" over the viewport (never a dialog, the window stays usable):
@@ -246,6 +283,10 @@ public:
     void setToneMap(const QString& name);
     void setLookdev(bool on);
     void setShowScalp(bool on);
+    // The Groom Tools' eye: the groom (its strands, guides and overlays) shown or hidden in the
+    // viewport; the scalp and the props stay.
+    void setGroomVisible(bool on);
+    bool groomVisible() const { return groomVisible_; }
     // The GPU look preview (gpu_preview.h; the Display panel's toggle): drags and brush dabs run
     // on the GPU where the device has an engine. On by default (GROOMLAB_APP_GPU_PREVIEW forces it).
     void setGpuPreview(bool on);
@@ -262,10 +303,10 @@ public:
     bool setUiMode(const QString& name);
     void setGraphShown(bool shown);
     bool graphShown() const;
-    // "guides", "nodes", "maps", "look", "display" or "brush": opens that floating panel; false
-    // for another word.
+    // "guides", "nodes", "maps", "correctives", "look", "display" or "brush": shows and raises the
+    // dock section that holds it (app_shell.h); false for another word.
     bool showUiPanel(const QString& name);
-    // Help > Keyboard Shortcuts or About as a floating page ("shortcuts", "about"); Docs opens
+    // Help > Keyboard Shortcuts or About in the Help dock ("shortcuts", "about"); Docs opens
     // the docs folder (beside the executable, else the source tree's) or the web docs.
     bool showHelp(const QString& page);
     void openDocs();
@@ -280,16 +321,16 @@ public:
     // "material", "lighting" or "render": the look card's tab (Look mode); "more" after a comma
     // ("material,more") opens the material's full settings. False for another word.
     bool setUiLookTab(const QString& name);
-    // Selects a node in the graph (shown if it was not), so its params float beside it; false
+    // Selects a node in the graph (shown if it was not), so its params show beside it; false
     // (and a message) for no such node.
     bool selectUiNode(const QString& name);
-    // The rails held in their hover state, the names shown ("rail", "panels" or "all": the
-    // scripted screenshot's --ui-hover), or "labels": the names kept shown as on a first run
-    // (Rail Labels, not saved); false for another word.
+    // The tool tiles' names shown ("rail", "all" or "labels": the scripted screenshot's --ui-hover;
+    // "panels": nothing more, the docks name their panels); false for another word.
     bool setUiHover(const QString& name);
-    // A menu laid out for a scripted screenshot ("presets": the Presets pill's menu, its Add-ons
+    // A menu laid out for a scripted screenshot ("presets": the Presets button's menu, its Add-ons
     // submenu and the first add-on's Apply / Insert, drawn by grabUi as they would pop up; a
-    // real popup closes when the window is not the active one); false for another word.
+    // real popup closes when the window is not the active one; "marking": the marking menu in
+    // the middle of the viewport, Comb hovered); false for another word.
     bool setUiMenu(const QString& name);
     // A prompt or a toast shown for a scripted screenshot ("unsaved", "reload", "info", "error");
     // false for another word.
@@ -302,10 +343,22 @@ public:
     // lookdev, scalp); false (and a message) when refused.
     bool setDisplayText(const QString& text);
     MapsPanel* mapsPanel() { return maps_; }
+    // What stays over the viewport (the central widget), and the docked shell around it.
     OverlayHost* overlay() { return host_; }
-    // The window as shown, with the floating UI over the viewport's frame: the viewport's
-    // texture with the pieces rendered over it (QWidget::grab cannot see a QRhiWidget's frame).
-    // `scene`, when given, stands in for the viewport's frame.
+    AppShell* shell() { return shell_; }
+    // The marking menu (marking_menu.h; Y + click over the viewport): opened at `at` (the overlay
+    // host's coordinates) with its items as the definitions and bindings give them now, `held`
+    // while a button is down (a drag and its release pick); false (and a message) with no groom open.
+    bool showMarkingMenu(QPointF at, bool held);
+    MarkingMenu* markingMenu() const { return markingMenu_; }
+    // The docks' layout (and the window's geometry) saved in the user's settings when a window
+    // someone sits at closes, and put back at its next start (main.cpp); false when none was
+    // saved (or it was another layout version's). Tests and scripted runs keep the default one.
+    void saveLayout();
+    bool restoreLayout();
+    // The window as shown: its menu bar, tool bar and docks, the viewport's texture in the middle
+    // and the overlay's pieces over it (QWidget::grab cannot see a QRhiWidget's frame). `scene`,
+    // when given, stands in for the viewport's frame.
     QImage grabUi(const QImage& scene = QImage());
     // grabUi after the next frame the viewport draws (and a moment for the layout to settle),
     // then `done` with it: the scripted --ui-screenshot. Without a window system
@@ -381,19 +434,112 @@ public:
     QImage renderOffscreen(const QSize& size, int frames, double* msPerFrame = nullptr, QString* api = nullptr,
                            int* surfaceDraws = nullptr, double* firstFrameMs = nullptr, double* gpuMsPerFrame = nullptr);
 
+    // ---- GroomLab > Add, Simulate, Import, Utilities, Export (main_window_output.cpp) ----------
+    // Each runs on the open groom (a message and false without one, or when refused), the graph
+    // edits one undo step (GroomDocument's), shown and said in a toast. The menu items ask their
+    // choices first in the viewport's glass prompt (never a dialog); a file is picked in a file
+    // dialog only in a window someone sits at, a scripted run takes the default place.
+    // Add Sample Mesh: a new groom on a shipped sample (sampleMeshNames: "nika", "manny", "wolf",
+    // the Maya host's hosts/maya/meshes, CC BY 4.0, beside the app in meshes/): the wolf on its body,
+    // its eyes, nails and mouth a prop beside it.
+    static QStringList sampleMeshNames();
+    static QString sampleMeshFile(const QString& name);  // "" when it is not there
+    bool addSampleMesh(const QString& name);
+    // Add > Wind and Jiggle (Maya's add_wind, add_jiggle): the node before the output.
+    bool addMotionNode(const QString& type);
+    // Simulate > Add Simulate Node: between the guides and Interpolate (the timeline then shows).
+    bool addSimulateNode();
+    // Add > Collider: the prop named `prop` (a mesh added with File > Add Prop Mesh) keeps the strands off it.
+    bool addCollider(const QString& prop);
+    // Add > Feathers: the designs (feathers_<design> presets: featherDesigns) on scattered shafts or
+    // the "feathers" group's guides (`onGuides`), several an assortment (`weights` their shares).
+    static QStringList featherDesigns();
+    bool addFeathers(const QStringList& designs, bool onGuides, const std::vector<double>& weights = {});
+    // Add > Braid on Curves: a Braid after the Interpolate along the "braids" group's guides.
+    bool addBraid(const QString& style);
+    // Import > Alembic Curves: the file's curves as the guides (an ImportCurves node).
+    bool importAlembicCurves(const QString& path, const QString& object = {});
+    // Utilities > Strands to Mesh: the strands as tubes (or ribbons) in an OBJ at `path` (at most
+    // `maxStrands`, thinned by ID).
+    bool strandsToMesh(const QString& path, bool ribbons = false, int sides = 4, int maxStrands = 100000);
+    // Utilities > Bake Scale Maps: into `directory` ("" the groom's: <groom folder>/<name>_scales).
+    bool bakeScaleMaps(const QString& directory = {}, int resolution = 2048);
+    // Utilities > Find Missing Files: relinked to files of the same name under `folder`.
+    bool findMissingFiles(const QString& folder);
+    // Export > Scales Instancer (USD): the groom at this frame as USD, the scales a PointInstancer.
+    bool exportScalesUsd(const QString& path);
+    // Review > Strand Count HUD: the stats line over the viewport (strands, guides, the time per
+    // dab, the path), saved (ui/hud) for the next start; on by default.
+    void setHud(bool on);
+    bool hud() const;
+
+    // ---- Themes, recent files, autosave (main_window_output.cpp) -------------------------------
+    // GroomLab > Theme: a theme worn at once (restyle) and saved for the next start; New Theme
+    // from Current (a copy in the user's themes folder, worn; the folder opened in a window someone
+    // sits at), Reload Theme (its file read again), Open Themes Folder (made when missing).
+    bool newTheme(const QString& name);
+    void reloadThemeFile();
+    QString openThemesFolder();
+    // Every widget restyled for the current theme: the window's style sheet made again, the colors
+    // in the widgets' own sheets swapped (`before`: theme::namedColors() of the theme worn until now,
+    // `sheetBefore` its theme::styleSheet()), the viewport's overlay colors, everything repainted.
+    void restyle(const std::vector<QColor>& before, const QString& sheetBefore);
+    // File > Open Recent (QSettings recentFiles): each file (one gone greyed, " (missing)"), then
+    // Remove Missing Files and Clear Recent Files.
+    void fillRecentMenu(QMenu* menu);
+    void removeMissingRecentFiles();
+    void clearRecentFiles();
+    // Autosave: every autosaveMinutes() (QSettings autosave/minutes, 5 by default; 0 off) a groom with
+    // unsaved changes is written to autosavePath(): <its file>~ (x.groom~) beside it, an untitled one
+    // <the settings folder>/autosave/untitled.groom~ (a window no one sits at, the tests' and the
+    // scripted captures', puts a file's there too: <settings>/autosave/x.groom~). Kept in autosave/pending until the groom is
+    // saved, its changes discarded or the window closed; offerAutosave (the next start of a window
+    // someone sits at) asks in the glass prompt: Recover (opened, the changes unsaved), Discard or
+    // Later. The timer runs only in an interactive window.
+    void setAutosaveMinutes(int minutes);
+    int autosaveMinutes() const;
+    QString autosavePath() const;
+    bool autosaveNow();
+    bool offerAutosave();
+    bool recoverAutosave(const QString& autosave);
+
 protected:
     void closeEvent(QCloseEvent* event) override;  // asks first when the groom has unsaved edits
+    void showEvent(QShowEvent* event) override;    // the docks' default sizes on the first showing
     // Tab in a text field moves the focus (the window's Tab shortcut, the node graph, waits).
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    void buildMenu();
+    // The menu bar, the one place it is built: File, Edit, View, Tools, Render, Help (their
+    // actions' objectNames and shortcuts are what the tests and scripts find them by).
+    void buildMenuBar();
+    // View > Panels (menus.json's "panels" filler, app_actions.cpp): the docks' toggles, the sections.
+    void fillPanelsMenu(QMenu* menu);
     void buildPanels();
+    // The Properties dock's Groom workspace from properties.json (main_window_properties.cpp: the
+    // controls and what each edits), and its rows that follow the groom (the strand count, the
+    // inputs, the Controls sliders, the Hair Color rows, the guides' display level).
+    void buildProperties();
+    void refreshProperties();
+    void refreshControlSliders();
+    void refreshHairColorRows();
+    // The groom's HairColor node edited from the look card or the Properties' Hair Color rows: a
+    // number (`live` while a slider drags: previewed, one edit at the drag's end), a color, the mode.
+    void editGroomColor(const std::string& param, double value, bool live);
+    void pickGroomColor(const std::string& param, const RGB& color, bool live);
+    void chooseGroomMode(const std::string& mode);
+    // Groom > Locked: brushes and part strokes refused (Maya's locked attribute); the camera tool.
+    void setLocked(bool on);
+    // ---- The Photos tab (main_window_properties.cpp) -------------------------------------------
+    // Look Through: the viewport shows photo `index`'s camera with the photo in the frame (its
+    // camera placed in front of the groom when it has none); off: back to the camera before.
+    void lookThroughPhoto(int index, bool on);
+    void refreshPhotoBackdrop();  // the photo looked through, as its display says, to the renderer
+    void storeLookThroughCamera();  // an unlocked look-through moved: the photo's camera follows
     void wireOverlay();
-    // The presets menu (the Graph pill's Presets, and View > Graph Presets): a submenu per
-    // category, then Save as Preset, Copy Graph and Paste Graph; filled when it opens.
-    void fillPresetsMenu();
-    void showPresetsMenu();  // above the Presets pill
+    // The presets menu (graph_ui.json's presetMenu: the Graph Editor's Presets button): a submenu
+    // per category, then Save as Preset, Copy Graph and Paste Graph; filled when it opens.
+    void showPresetsMenu();  // under the Graph Editor's Presets button (else at the pointer)
     void wireTimelineCardsAndExport();
     void setDocument(std::unique_ptr<GroomDocument> document);
     // The timeline's range, fps, frame and Follow chip from the document (shown when it animates).
@@ -450,7 +596,13 @@ private:
     QElapsedTimer statsAge_;
     static constexpr int kStatsIdleMs = 150;
     static constexpr int kStatsMaxAgeMs = 500;
-    void refreshBrushBar();  // the bar and the rail from the brush settings and the tool mode
+    void refreshTool();  // the Groom Tools' tile and card from the brush settings and the tool mode
+    // A Groom Tools tile (a catalog id): the Select tool (again: the camera), a brush (each keeps
+    // its own strength, as Maya's palette does), Paint on the Paint tab's map (again: done painting).
+    void chooseTool(const QString& id);
+    void refreshStarter();  // the first-groom steps: guides placed, a look given
+    std::map<std::string, float> toolStrengths_;  // each brush's strength as last left
+    bool starterDismissed_ = false;
     void refreshSurfaces();  // the look panel's surface list: the scalp and the props
     void refreshDisplayChoices();  // the color sources and the maps the display panel offers
     void applyDisplayOptions();    // the display panel's choices into the settings and the renderer
@@ -488,7 +640,7 @@ private:
     OffscreenResult headlessFrame(bool readback = false);
 
     std::unique_ptr<GroomDocument> document_;
-    std::vector<std::pair<QPixmap, QPoint>> uiMenus_;  // setUiMenu's menus as grabbed, and where grabUi draws them (host coordinates)
+    std::vector<std::pair<QPixmap, QPoint>> uiMenus_;  // setUiMenu's menus as grabbed, and where grabUi draws them (window coordinates)
     GpuLookPreview gpu_;
     struct Headless {
         std::unique_ptr<OffscreenView> view;
@@ -524,12 +676,15 @@ private:
     BrushSession brush_;
     Viewport* viewport_ = nullptr;
     OverlayHost* host_ = nullptr;
+    MarkingMenu* markingMenu_ = nullptr;
+    AppShell* shell_ = nullptr;
+    bool layoutShown_ = false;     // the first showing set the docks' sizes (or a saved layout did)
     NodeGraphView* graph_ = nullptr;
     QListWidget* nodes_ = nullptr;
     ParamPanel* params_ = nullptr;       // the nodes panel's
-    ParamPanel* graphParams_ = nullptr;  // the graph's selected node's
+    ParamPanel* graphParams_ = nullptr;  // the graph's selected node's (beside the graph)
     LookPanel* look_ = nullptr;
-    BrushPanel* brushPanel_ = nullptr;
+    GroomTools* groomTools_ = nullptr;  // the Groom Tools dock (the shell's)
     QLabel* help_ = nullptr;  // the Help pages' text
     UpdateChecker* updates_ = nullptr;  // Help > Check for Updates (made on first use)
     GuidesPanel* guidesPanel_ = nullptr;
@@ -575,8 +730,35 @@ private:
     const void* scaleNoticeSession_ = nullptr;
     std::uint64_t scaleNoticeShown_ = 0;
     QLabel* groomScale_ = nullptr;
+    // The Properties dock (properties_panel.h) and the controls it holds beyond the ones above.
+    PropertiesPanel* properties_ = nullptr;
+    PhotosPanel* photos_ = nullptr;  // the Groom Tools' Photos tab
+    QLabel* strandCount_ = nullptr;
+    QCheckBox* locked_ = nullptr;
+    QCheckBox* followScalp_ = nullptr;
+    QCheckBox* flow_ = nullptr;
+    QCheckBox* instances_ = nullptr;
+    QSpinBox* guideSmoothing_ = nullptr;
+    QSpinBox* guideDisplaySegments_ = nullptr;
+    QSpinBox* displayLevel_ = nullptr;
+    QComboBox* guideColorMode_ = nullptr;
+    QComboBox* sculptDisplay_ = nullptr;
+    ValueSlider* sculptDensity_ = nullptr;
+    ValueSlider* cardDensitySlider_ = nullptr;
+    QWidget* inputsBlock_ = nullptr;
+    QWidget* controlsBlock_ = nullptr;
+    QWidget* hairColorBlock_ = nullptr;
+    std::string controlsKey_;   // the Controls sliders shown (rebuilt when the Control nodes change)
+    std::string hairColorKey_;  // the Hair Color rows shown (rebuilt when the node or its mode changes)
+    // Render overrides and level of detail (Rendering): the V-Ray and RenderMan renders and the
+    // exports take them; the viewport and the groom stay as groomed.
+    RenderOverrides renderOverrides_;
+    LodSettings renderLod_;
+    float cardDensity_ = 1.0f;  // Game Cards > Card Density: the viewport's cards' strands
+    QString lookPhoto_;         // the photo the viewport looks through ("" none)
+    QTimer* lookStore_ = nullptr;  // an unlocked look-through's moves stored once they stop
     bool lookdevWanted_ = true;  // the Lookdev box: the colored modes draw lines while they are on
-    QMenu* menu_ = nullptr;
+    bool groomVisible_ = true;   // the Groom Tools' eye
     QMenu* presetsMenu_ = nullptr;
     QAction* undo_ = nullptr;
     QAction* redo_ = nullptr;
@@ -616,6 +798,22 @@ private:
     QAction* symmetryAction_ = nullptr;  // Alt+Shift+X
     std::string lastSymmetry_ = "x";     // what Alt+Shift+X turns on again (World X at first)
     std::size_t shownFrames_ = 0;  // frames the timeline showed (playback's own count)
+    QTimer* autosaveTimer_ = nullptr;
+    QString autosaveFile_;         // the autosave written (or recovered) for the open groom ("" none)
+    void dropAutosave();           // its file and its pending entry gone (saved, discarded, closed)
+    void restartAutosave();        // the timer at the interval (interactive windows only)
+    // The groom's own choices that ask first in the glass prompt (app_output_actions.cpp).
+    void askFeathers();
+    void askBraid();
+    void askCollider();
+    void askStrandsToMesh();
+    void askImportAlembicCurves();
+    void askFindMissingFiles();
+    void askExportScalesUsd();
+    void askNewTheme();
+    // A file a menu item writes: picked in a save dialog in a window someone sits at (starting at
+    // `fallback`), else `fallback` (a scripted run); "" when the dialog was cancelled.
+    QString pickSavePath(const QString& title, const QString& fallback, const QString& filter);
 };
 
 }  // namespace groomlab::app

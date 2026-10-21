@@ -424,6 +424,7 @@ QImage MainWindow::renderOffscreen(const QSize& size, int frames, double* msPerF
     if (cardSurface_) props.push_back(cardSurface_);
     renderer.setProps(props);
     renderer.setClumpLod(settings_.clumpLod, settings_.clumpLodError);
+    renderer.setPhoto(shown.photo());  // a reference photo looked through
     OrbitCamera camera = viewport_->camera();
     const OffscreenResult result = groomlab::app::renderOffscreen(renderer, camera, size, frames);
     if (msPerFrame) *msPerFrame = result.msPerFrame;

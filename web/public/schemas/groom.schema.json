@@ -58,6 +58,8 @@
     "prototypes": { "type": "object" },
     "colliders": { "type": "object" },
     "transferMarkers": { "type": "array" },
-    "referencePhotos": { "type": "array" }
+    "referencePhotos": { "type": "array" },
+    "guideGroupColors": { "type": "string", "description": "The guide groups' own viewport colors: \"name:#rrggbb ...\" (sRGB, Maya's guideGroupColors)" },
+    "hiddenGuideGroups": { "type": "string", "description": "The guide groups hidden in the viewport: \"name name\" (Maya's hiddenGuideGroups)" }
   }
 }

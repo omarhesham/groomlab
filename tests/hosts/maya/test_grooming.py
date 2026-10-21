@@ -3220,6 +3220,23 @@ class GroomingTest(unittest.TestCase):
         self.assertGreater(os.path.getsize(path), 1000)
         with self.assertRaises(RuntimeError):
             cmds.groomLabExportAlembic(self.groom, file=path, unreal=True, guideGroup="primary")
+        # In Unreal's space (Z up, left-handed, cm) from the scene's, as Unreal's FBX importer
+        # turns this scene's meshes: Y up (x, y, z) -> (x, z, y), Z up -> (x, -y, z).
+        import groomlab_core
+        plain = os.path.join(tempfile.gettempdir(), "groomlab_unreal_plain.abc")
+        cmds.groomLabExportAlembic(self.groom, file=plain)
+        tip = groomlab_core.read_alembic_curves(plain)[0].strands.strand_points(0)[-1]
+        x, y, z = tip.x, tip.y, tip.z
+        try:
+            for axis, want in (("y", (x, z, y)), ("z", (x, -y, z))):
+                cmds.upAxis(axis=axis, rotateView=True)
+                cmds.groomLabExportAlembic(self.groom, file=path, unreal=True)
+                got = groomlab_core.read_alembic_curves(path)[0].strands.strand_points(0)[-1]
+                for a, b in zip((got.x, got.y, got.z), want):
+                    self.assertAlmostEqual(a, b, places=4, msg=axis)
+        finally:
+            cmds.upAxis(axis="y", rotateView=True)
+        os.remove(plain)
         os.remove(path)
 
     def test_lock(self):
@@ -3809,18 +3826,40 @@ class ControlsAndExamplesTest(unittest.TestCase):
             cmds.optionVar(remove=theme.THEME_VAR)
 
     def test_flow_with_guides_preset(self):
-        # Flow everywhere; a guide placed in it takes the hair around it, within the radius.
-        from groomlab import presets
+        # Fur along the flow (Blend's a) and the guides, clumped (b), blended by the guideAreas map:
+        # made black on apply, so all fur, even with a guide drawn; painted white around the guide,
+        # the strands there take the guide's length.
+        from groomlab import presets, utils
         groom = groomlab.create_groom(cmds.polySphere(radius=10, subdivisionsX=40, subdivisionsY=20)[0])
         presets.apply_preset(groom, "flow_with_guides")
-        cmds.setAttr(groom + ".previewDensity", 0.2)
+        self.assertEqual(groomlab.map_kind(groom, "guideAreas"), "vertices")
+        self.assertEqual(max(cmds.groomLabScalpMaps(groom, values="guideAreas")), 0.0)
+        cmds.setAttr(groom + ".previewDensity", 0.05)
         self.assertEqual(groomlab.errors(groom), [])
-        flow_box = cmds.exactWorldBoundingBox(groom)
+
+        def tallest():
+            # The highest strand point (the groom's own box holds its guides too), a few thousand strands.
+            made = utils.strands_to_curves(groom, density=0.004, max_curves=5000, attributes=False)
+            try:
+                return cmds.exactWorldBoundingBox(made["group"])[4]
+            finally:
+                cmds.delete(made["group"])
+
+        self.assertLess(tallest(), 11.0)  # a short coat: 2.5 at 100 units, 0.5 here
         groomlab.brush_stroke(groom, "draw", [(0, 10, 0), (0, 14, 0), (0, 18, 0)], group="accents", segments=8)
         self.assertEqual(groomlab.errors(groom), [])
-        self.assertGreater(cmds.exactWorldBoundingBox(groom)[4], flow_box[4] + 2.0)  # hair near the guide stands up
+        self.assertLess(tallest(), 11.0)  # the map black: still the fur's length by the guide
+        groomlab.brush_stroke(groom, "paint", [(0, 10, 0)], radius=3.0, strength=1.0, attribute="guideAreas", value=1.0,
+                              paint_kind="vertices", hardness=1.0)
+        self.assertEqual(groomlab.errors(groom), [])
+        self.assertGreater(tallest(), 15.0)  # painted white: the guide's length there
         nodes = {n["name"]: n for n in groomlab.get_graph(groom)["nodes"]}
-        self.assertAlmostEqual(nodes["interpolate"]["params"]["limitDistance"], 1.2, places=4)  # 6 at 100 units
+        self.assertEqual(nodes["interpolate"]["params"].get("limitDistance", 0.0), 0.0)  # every strand: the map picks
+        self.assertAlmostEqual(nodes["clump"]["params"]["size"], 0.24, places=5)  # 1.2 at 100 units
+        # Applied again: the painted map is kept.
+        presets.apply_preset(groom, "flow_with_guides")
+        self.assertGreater(max(cmds.groomLabScalpMaps(groom, values="guideAreas")), 0.99)
+        self.assertGreater(tallest(), 15.0)
 
     def test_presets_fit_the_scalp_size(self):
         # The flow preset was made on a 100-unit body: on a 2-unit sphere its sizes shrink fiftyfold
@@ -3830,22 +3869,23 @@ class ControlsAndExamplesTest(unittest.TestCase):
         self.assertAlmostEqual(presets.scalp_size(groom), 2.0, places=3)
         presets.apply_preset(groom, "flow_with_guides")
         nodes = {n["name"]: n for n in groomlab.get_graph(groom)["nodes"]}
-        self.assertAlmostEqual(nodes["interpolate"]["params"]["limitDistance"], 0.12, places=5)
+        self.assertAlmostEqual(nodes["clump"]["params"]["size"], 0.024, places=6)
         self.assertAlmostEqual(nodes["scatter"]["params"]["length"], 0.05, places=5)
         self.assertAlmostEqual(nodes["scatter"]["params"]["density"], 62500.0, places=0)
         self.assertAlmostEqual(nodes["width"]["params"]["width"], 0.00016, places=8)
-        self.assertEqual(nodes["clump"]["params"]["strength"]["attribute"], "guideInfluence")  # no units: unchanged
+        self.assertEqual(nodes["clump"]["params"]["strength"], 0.7)  # no units: unchanged
         self.assertNotIn("size", groomlab.get_graph(groom))
         cmds.setAttr(groom + ".previewDensity", 0.05)
-        self.assertEqual(groomlab.errors(groom), [])  # no guides yet: flow only, nothing clumps
+        self.assertEqual(groomlab.errors(groom), [])  # no guides yet: the guideAreas map black, fur only
         flow_box = cmds.exactWorldBoundingBox(groom)
         groomlab.brush_stroke(groom, "draw", [(0, 1, 0), (0.05, 1.4, 0), (0.1, 1.8, 0)], group="accents", segments=8)
+        groomlab.fill_map(groom, "guideAreas", 1.0)  # the guides everywhere
         self.assertEqual(groomlab.errors(groom), [])
         self.assertGreater(cmds.exactWorldBoundingBox(groom)[4], flow_box[4] + 0.2)
         # Without fitting, the preset's own numbers.
         presets.apply_preset(groom, "flow_with_guides", fit=False)
         nodes = {n["name"]: n for n in groomlab.get_graph(groom)["nodes"]}
-        self.assertEqual(nodes["interpolate"]["params"]["limitDistance"], 6.0)
+        self.assertEqual(nodes["clump"]["params"]["size"], 1.2)
         # Saved presets record the scalp size.
         os.environ["GROOMLAB_USER_PRESETS"] = self.tmp if hasattr(self, "tmp") else os.path.join(
             os.environ.get("TEMP", "."), "groomlab_fit_test")

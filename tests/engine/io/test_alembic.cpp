@@ -146,6 +146,87 @@ TEST(Alembic, UnrealGroomHasTheGroomAttributes) {
     std::remove(path.c_str());
 }
 
+TEST(Alembic, UnrealPointsAreInUnrealsSpace) {
+    // Unreal's groom importer takes the points as its own (Z up, left-handed, cm) with its
+    // default conversion (Rotation 0, Scale 1); its FBX importer turns a Y-up scene's (x, y, z)
+    // into (x, z, y) and a Z-up one's into (x, -y, z). The groom goes the same way, so it lands
+    // on the head imported from the same scene.
+    namespace Abc = Alembic::Abc;
+    namespace AbcG = Alembic::AbcGeom;
+    StrandSet hair;
+    hair.addStrand(7, {{1, 2, 3}, {4, 5, 6}}, {0.02f, 0.01f});
+    StrandSet guides;
+    guides.addStrand(9, {{-1, 0.5f, 2}, {-1, 1.5f, 2}}, {0.1f, 0.1f});
+    struct Case {
+        const char* upAxis;
+        double cmPerUnit;
+        Vec3f first, second, guide;
+        float width;
+    };
+    for (const Case& c : {Case{"Y", 1.0, {1, 3, 2}, {4, 6, 5}, {-1, 2, 0.5f}, 0.02f},
+                          Case{"Z", 1.0, {1, -2, 3}, {4, -5, 6}, {-1, -0.5f, 2}, 0.02f},
+                          Case{"Z", 100.0, {100, -200, 300}, {400, -500, 600}, {-100, -50, 200}, 2.0f}}) {
+        SCOPED_TRACE(std::string(c.upAxis) + " " + std::to_string(c.cmPerUnit));
+        const std::string path = tempPath("groomlab_unreal_space.abc");
+        {
+            UnrealGroomWriter writer(path, "hair", "hair", 0.0, 1.0 / 24.0);
+            if (std::string(c.upAxis) != "Y" || c.cmPerUnit != 1.0) writer.setSourceSpace(c.upAxis, c.cmPerUnit);
+            writer.writeFrame(hair, &guides, nullptr);
+            EXPECT_THROW(writer.setSourceSpace("Y", 1.0), AlembicError);  // after the first frame
+        }
+        const auto frames = readAlembicCurves(path);  // the strands: the first curves object
+        ASSERT_EQ(frames.size(), 1u);
+        const StrandSet& s = frames[0].strands;
+        ASSERT_EQ(s.pointCount(), 2u);
+        for (const auto& [got, want] : {std::pair{s.positions()[0], c.first}, std::pair{s.positions()[1], c.second}}) {
+            EXPECT_FLOAT_EQ(got.x, want.x);
+            EXPECT_FLOAT_EQ(got.y, want.y);
+            EXPECT_FLOAT_EQ(got.z, want.z);
+        }
+        EXPECT_FLOAT_EQ(s.widths()[0], c.width);  // widths in centimeters as the points
+        Abc::IArchive archive(Alembic::AbcCoreOgawa::ReadArchive(), path);
+        Abc::IObject top(archive.getTop(), "hair");
+        AbcG::ICurves guideCurves(top, "guides");
+        ASSERT_TRUE(guideCurves.valid());
+        const Imath::V3f g = guideCurves.getSchema().getValue().getPositions()->get()[0];
+        EXPECT_FLOAT_EQ(g.x, c.guide.x);
+        EXPECT_FLOAT_EQ(g.y, c.guide.y);
+        EXPECT_FLOAT_EQ(g.z, c.guide.z);
+        AbcG::IXform xform(archive.getTop(), "hair");  // the identity: the points carry the turn
+        AbcG::XformSample xs;
+        xform.getSchema().get(xs);
+        EXPECT_TRUE(xs.getMatrix() == Imath::M44d());
+        std::remove(path.c_str());
+    }
+    UnrealGroomWriter writer(tempPath("groomlab_unreal_space_bad.abc"), "hair", "hair", 0.0, 1.0 / 24.0);
+    EXPECT_THROW(writer.setSourceSpace("X", 1.0), std::invalid_argument);
+    EXPECT_THROW(writer.setSourceSpace("Y", 0.0), std::invalid_argument);
+    writer.close();
+    std::remove(tempPath("groomlab_unreal_space_bad.abc").c_str());
+
+    // Every host's engine export passes its space through the options.
+    EngineExportOptions o;
+    EXPECT_EQ(o.upAxis, "Y");
+    EXPECT_EQ(o.centimetersPerUnit, 1.0);
+    o.upAxis = "X";
+    EXPECT_FALSE(o.problem().empty());
+    o.upAxis = "Z";
+    o.centimetersPerUnit = 0.0;
+    EXPECT_FALSE(o.problem().empty());
+    o.centimetersPerUnit = 100.0;  // a Z-up meter scene
+    EXPECT_TRUE(o.problem().empty());
+    const std::string path = tempPath("groomlab_engine_unreal_space.abc");
+    {
+        EngineGroomWriter w(path, "hair", 0.0, 1.0 / 24.0, o);
+        w.writeFrame(hair, nullptr, nullptr);
+    }
+    const auto frames = readAlembicCurves(path);
+    ASSERT_EQ(frames.size(), 1u);
+    EXPECT_EQ(frames[0].strands.positions()[0], Vec3f(100, -200, 300));
+    EXPECT_FLOAT_EQ(frames[0].strands.widths()[0], 2.0f);
+    std::remove(path.c_str());
+}
+
 TEST(Alembic, UnrealIdsAreDenseAndChannelsTravel) {
     namespace Abc = Alembic::Abc;
     namespace AbcG = Alembic::AbcGeom;

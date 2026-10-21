@@ -913,11 +913,13 @@ def create_groom(context, scalp, preset="hair_basics", guide_count=0, guide_poin
     rt = ensure(scalp, scene)
     _sync_settings(scalp, rt, scene)
     sync_scalp(scalp, rt, force=True)
+    missing_maps = []  # what the preset reads that the new groom lacks: made below
     if hierarchy:
         from . import tools
-        tools.start_groom(scalp, rt, preset=preset, follow=g.follow_scalp)
+        started = tools.start_groom(scalp, rt, preset=preset, follow=g.follow_scalp)
+        missing_maps = (started.get("preset") or {}).get("missingMaps") or []
     elif preset:
-        _call("apply_preset", session=rt.session, name=preset)
+        missing_maps = _call("apply_preset", session=rt.session, name=preset).get("missingMaps") or []
     rest, counts, indices, _ = read_scalp(scalp)
     if guide_count > 0 and (hierarchy or len(guides_obj.data.curves) == 0):
         length_cm = _scatter_length_cm(rt) or 0.5 * scalp_size_cm(rest, scene)
@@ -933,6 +935,9 @@ def create_groom(context, scalp, preset="hair_basics", guide_count=0, guide_poin
             write_guides(scalp, guides_obj, pts, cnts, np.zeros(len(cnts), np.int32))
     if not hierarchy:
         sync_guides(scalp, rt, force=True)
+    if missing_maps:
+        from . import graph
+        graph.make_required_maps(scalp, missing_maps)
     remember_graph(scalp, rt)
     r = evaluate(scalp, rt, "preview")
     if hierarchy:

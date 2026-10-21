@@ -1,0 +1,205 @@
+{
+  "about": "How every host's loader resolves the UI definitions (docs/UI_DEFINITIONS.md), on a small document of its own: Maya's and Blender's definitions.py (check_ui_definitions.py) and the app's definitions.cpp (groomlab_app_tests, AppUi.ResolveMatchesTheSharedCases) must give these items. An item: \"-\" a divider; {id, label, tip, ...} an action (value, shortcut, shortcutPart, icon when set; checkable when true; enabled when false); {submenu, id, tip, items} a submenu; {generator} one the host fills. \"expected\" is by host, \"*\" for any host not named.",
+  "doc": {
+    "actions": {
+      "a.one": {"label": "One", "tip": "First"},
+      "a.two": {"label": "Two {n}", "tip": "Second {n}", "shortcut": "graph.frame"},
+      "a.part": {"label": "Ungroup", "shortcut": "graph.group", "shortcutPart": 1},
+      "a.maya": {"label": "Maya only", "hosts": ["maya"]},
+      "a.app": {"label": "App only", "hosts": ["app"]},
+      "a.needs": {"label": "Needs a map", "needs": ["map"]},
+      "a.gray": {"label": "Gray", "needs": ["map", "!map.color"]},
+      "a.keyed": {"label": "Keyed", "tip": "Key it", "tipDisabled": "Cannot: {why}", "enabled": ["param.canKey"]},
+      "a.check": {"label": "Check", "checkable": true, "icon": "palette"},
+      "a.host": {"label": "Plain", "tip": "Plain tip", "labels": {"app": "App label"}, "tips": {"app": "App tip", "blender": "Blender tip"}},
+      "a.value": {"label": "Value"}
+    },
+    "menus": {
+      "inner": ["a.one", "-", "a.two"],
+      "labelled": {"label": "Labelled", "tip": "Its tip", "labels": {"app": "App labelled"}, "items": ["a.one"]},
+      "app": [{"id": "a.one", "hosts": ["app"]}]
+    },
+    "choices": {
+      "kind": {"items": [{"value": "x", "label": "Ex", "tip": "X tip"}, {"value": "y", "label": "Why", "convert": "To Why"}]}
+    },
+    "graph": {
+      "backdropColors": [{"label": "Blue", "rgb": [70, 90, 120]}]
+    }
+  },
+  "cases": [
+    {
+      "name": "dividers kept only between items, values filled",
+      "entries": ["-", "a.one", "-", "-", "a.two", "-", "a.part", "-"],
+      "values": {"n": 3},
+      "expected": {"*": [
+        {"id": "a.one", "label": "One", "tip": "First"},
+        "-",
+        {"id": "a.two", "label": "Two 3", "tip": "Second 3", "shortcut": "graph.frame"},
+        "-",
+        {"id": "a.part", "label": "Ungroup", "tip": "", "shortcut": "graph.group", "shortcutPart": 1}
+      ]}
+    },
+    {
+      "name": "hosts on actions and on entries",
+      "entries": ["a.one", "a.maya", "-", "a.app", {"id": "a.one", "label": "Place", "hosts": ["blender"]}],
+      "expected": {
+        "maya": [{"id": "a.one", "label": "One", "tip": "First"}, {"id": "a.maya", "label": "Maya only", "tip": ""}],
+        "blender": [{"id": "a.one", "label": "One", "tip": "First"}, "-", {"id": "a.one", "label": "Place", "tip": "First"}],
+        "app": [{"id": "a.one", "label": "One", "tip": "First"}, "-", {"id": "a.app", "label": "App only", "tip": ""}]
+      }
+    },
+    {
+      "name": "needs: a map, not a color one",
+      "entries": ["a.needs", "a.gray", {"id": "a.one", "needs": ["groom"]}],
+      "state": ["map"],
+      "expected": {"*": [{"id": "a.needs", "label": "Needs a map", "tip": ""}, {"id": "a.gray", "label": "Gray", "tip": ""}]}
+    },
+    {
+      "name": "needs: a color map",
+      "entries": ["a.needs", "a.gray", {"id": "a.one", "needs": ["groom"]}],
+      "state": ["map", "map.color"],
+      "expected": {"*": [{"id": "a.needs", "label": "Needs a map", "tip": ""}]}
+    },
+    {
+      "name": "needs ignored (an action bar)",
+      "entries": ["a.needs", "a.gray", {"id": "a.one", "needs": ["groom"]}],
+      "state": null,
+      "expected": {"*": [
+        {"id": "a.needs", "label": "Needs a map", "tip": ""},
+        {"id": "a.gray", "label": "Gray", "tip": ""},
+        {"id": "a.one", "label": "One", "tip": "First"}
+      ]}
+    },
+    {
+      "name": "enabled conditions and the disabled tip",
+      "entries": ["a.keyed"],
+      "values": {"why": "not linkable"},
+      "expected": {"*": [{"id": "a.keyed", "label": "Keyed", "tip": "Cannot: not linkable", "enabled": false}]}
+    },
+    {
+      "name": "enabled",
+      "entries": ["a.keyed"],
+      "state": ["param.canKey"],
+      "expected": {"*": [{"id": "a.keyed", "label": "Keyed", "tip": "Key it"}]}
+    },
+    {
+      "name": "submenus: items, empty ones left out, refs with and without their own label",
+      "entries": [
+        {"submenu": "Sub", "id": "s", "tip": "T", "items": ["a.one"]},
+        {"submenu": "Gone", "id": "gone", "items": [{"id": "a.one", "needs": ["never"]}]},
+        "-",
+        {"ref": "menus/labelled"},
+        {"submenu": "Ref", "id": "r", "ref": "menus/inner"},
+        {"submenu": "App", "id": "app", "ref": "menus/app"}
+      ],
+      "expected": {
+        "*": [
+          {"submenu": "Sub", "id": "s", "tip": "T", "items": [{"id": "a.one", "label": "One", "tip": "First"}]},
+          "-",
+          {"submenu": "Labelled", "id": "menus/labelled", "tip": "Its tip", "items": [{"id": "a.one", "label": "One", "tip": "First"}]},
+          {"submenu": "Ref", "id": "r", "tip": "", "items": [
+            {"id": "a.one", "label": "One", "tip": "First"}, "-", {"id": "a.two", "label": "Two {n}", "tip": "Second {n}", "shortcut": "graph.frame"}]}
+        ],
+        "app": [
+          {"submenu": "Sub", "id": "s", "tip": "T", "items": [{"id": "a.one", "label": "One", "tip": "First"}]},
+          "-",
+          {"submenu": "App labelled", "id": "menus/labelled", "tip": "Its tip", "items": [{"id": "a.one", "label": "One", "tip": "First"}]},
+          {"submenu": "Ref", "id": "r", "tip": "", "items": [
+            {"id": "a.one", "label": "One", "tip": "First"}, "-", {"id": "a.two", "label": "Two {n}", "tip": "Second {n}", "shortcut": "graph.frame"}]},
+          {"submenu": "App", "id": "app", "tip": "", "items": [{"id": "a.one", "label": "One", "tip": "First"}]}
+        ]
+      }
+    },
+    {
+      "name": "include in place",
+      "entries": [{"include": "menus/inner"}, "-", "a.one", {"include": "menus/app"}],
+      "expected": {
+        "*": [{"id": "a.one", "label": "One", "tip": "First"}, "-", {"id": "a.two", "label": "Two {n}", "tip": "Second {n}", "shortcut": "graph.frame"},
+              "-", {"id": "a.one", "label": "One", "tip": "First"}],
+        "app": [{"id": "a.one", "label": "One", "tip": "First"}, "-", {"id": "a.two", "label": "Two {n}", "tip": "Second {n}", "shortcut": "graph.frame"},
+                "-", {"id": "a.one", "label": "One", "tip": "First"}, {"id": "a.one", "label": "One", "tip": "First"}]
+      }
+    },
+    {
+      "name": "generators: choices, backdrop colors, the host's, one left to the host",
+      "entries": [
+        {"generator": "choices", "choices": "kind", "action": "a.value"},
+        "-",
+        {"generator": "choices", "choices": "kind", "action": "a.value", "labelField": "convert"},
+        {"generator": "backdropColors", "action": "a.value"},
+        "-",
+        {"generator": "made"},
+        {"generator": "unfilled"}
+      ],
+      "generators": {"made": [{"id": "a.value", "value": 7, "label": "Seven"}, "-", "a.one", {"submenu": "Made", "id": "m", "items": ["a.check"]}]},
+      "expected": {"*": [
+        {"id": "a.value", "label": "Ex", "tip": "X tip", "value": "x"},
+        {"id": "a.value", "label": "Why", "tip": "", "value": "y"},
+        "-",
+        {"id": "a.value", "label": "Ex", "tip": "X tip", "value": "x"},
+        {"id": "a.value", "label": "To Why", "tip": "", "value": "y"},
+        {"id": "a.value", "label": "Blue", "tip": "", "value": [70, 90, 120]},
+        "-",
+        {"id": "a.value", "label": "Seven", "tip": "", "value": 7},
+        "-",
+        {"id": "a.one", "label": "One", "tip": "First"},
+        {"submenu": "Made", "id": "m", "tip": "", "items": [{"id": "a.check", "label": "Check", "tip": "", "checkable": true, "icon": "palette"}]},
+        {"generator": "unfilled"}
+      ]}
+    },
+    {
+      "name": "per-host labels and tips: the place's first, then the action's",
+      "entries": [
+        "a.host",
+        {"id": "a.host", "tip": "Place tip"},
+        {"id": "a.host", "tips": {"app": "Place app tip"}},
+        {"id": "a.host", "label": "Place label"},
+        {"submenu": "S", "id": "s", "tip": "T", "labels": {"app": "App S"}, "tips": {"app": "App T"}, "items": ["a.one"]}
+      ],
+      "expected": {
+        "maya": [
+          {"id": "a.host", "label": "Plain", "tip": "Plain tip"},
+          {"id": "a.host", "label": "Plain", "tip": "Place tip"},
+          {"id": "a.host", "label": "Plain", "tip": "Plain tip"},
+          {"id": "a.host", "label": "Place label", "tip": "Plain tip"},
+          {"submenu": "S", "id": "s", "tip": "T", "items": [{"id": "a.one", "label": "One", "tip": "First"}]}
+        ],
+        "blender": [
+          {"id": "a.host", "label": "Plain", "tip": "Blender tip"},
+          {"id": "a.host", "label": "Plain", "tip": "Place tip"},
+          {"id": "a.host", "label": "Plain", "tip": "Blender tip"},
+          {"id": "a.host", "label": "Place label", "tip": "Blender tip"},
+          {"submenu": "S", "id": "s", "tip": "T", "items": [{"id": "a.one", "label": "One", "tip": "First"}]}
+        ],
+        "app": [
+          {"id": "a.host", "label": "App label", "tip": "App tip"},
+          {"id": "a.host", "label": "App label", "tip": "Place tip"},
+          {"id": "a.host", "label": "App label", "tip": "Place app tip"},
+          {"id": "a.host", "label": "Place label", "tip": "App tip"},
+          {"submenu": "App S", "id": "s", "tip": "App T", "items": [{"id": "a.one", "label": "One", "tip": "First"}]}
+        ]
+      }
+    }
+  ],
+  "listed": [
+    {
+      "name": "every id a host can show, conditions ignored, lists followed",
+      "entries": [
+        "a.one", "a.maya", {"id": "a.needs", "needs": ["never"]}, {"include": "menus/inner"},
+        {"generator": "choices", "choices": "kind", "action": "a.value"}, {"generator": "made"},
+        {"submenu": "S", "id": "s", "items": ["a.app"]}, {"ref": "menus/labelled"}, {"id": "a.one", "hosts": ["blender"]}
+      ],
+      "expected": {
+        "maya": ["a.one", "a.maya", "a.needs", "a.one", "a.two", "a.value", "a.one"],
+        "blender": ["a.one", "a.needs", "a.one", "a.two", "a.value", "a.one", "a.one"],
+        "app": ["a.one", "a.needs", "a.one", "a.two", "a.value", "a.app", "a.one"]
+      }
+    },
+    {
+      "name": "generated entries' ids from the host's names",
+      "entries": [{"generator": "made"}, {"generator": "choices", "choices": "kind", "action": "a.value"}],
+      "generators": {"made": "a.check"},
+      "expected": {"*": ["a.check", "a.value"]}
+    }
+  ]
+}

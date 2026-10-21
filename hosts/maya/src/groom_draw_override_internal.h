@@ -14,12 +14,8 @@
 
 #include "groom_draw_override.h"
 
-namespace MHWRender {
-class MBlendState;
-class MDepthStencilState;
-class MShaderInstance;
-class MShaderManager;
-}  // namespace MHWRender
+#include <maya/MApiNamespace.h>  // Maya's classes declared (MHWRender's are using-declarations of a
+                                  // versioned namespace's: a plain forward declaration conflicts, Clang/GCC)
 
 namespace groomlab::maya {
 

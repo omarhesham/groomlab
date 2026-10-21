@@ -3,14 +3,20 @@
 
 #include <cstdlib>
 
+// DirectX 11 and OpenGL through WGL: Windows only. Elsewhere the engine has no backend (engine/gpu,
+// look_engine_none.cpp): no device is found, so no engine, and the CPU writes the frames.
+#ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 #include <d3d11.h>
 #include <GL/gl.h>
+#endif
 
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 
 #include <maya/MHWGeometry.h>
 #include <maya/MViewport2Renderer.h>
@@ -21,10 +27,15 @@ namespace {
 
 bool& framesOn() {
     static bool on = [] {
+#ifdef _WIN32
         char* v = nullptr;
         std::size_t size = 0;
         const bool off = _dupenv_s(&v, &size, "GROOMLAB_GPU_FRAMES") == 0 && v && std::string(v) == "0";
         std::free(v);
+#else
+        const char* v = std::getenv("GROOMLAB_GPU_FRAMES");
+        const bool off = v && std::string(v) == "0";
+#endif
         return !off;
     }();
     return on;
@@ -37,10 +48,12 @@ struct Device {
     void* handle = nullptr;
 };
 Device viewportDevice() {
+#ifdef _WIN32
     MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer(false);
     if (!renderer) return {};
     if (renderer->drawAPI() == MHWRender::kDirectX11) return {gpu::GpuApi::D3D11, renderer->GPUDeviceHandle()};
     if (renderer->drawAPIIsOpenGL()) return {gpu::GpuApi::OpenGL, wglGetCurrentContext()};
+#endif
     return {};
 }
 
@@ -50,12 +63,15 @@ bool gpuFramesEnabled() { return framesOn(); }
 void setGpuFramesEnabled(bool on) { framesOn() = on; }
 
 GpuLineStreams::~GpuLineStreams() {
+#ifdef _WIN32
     for (ID3D11Buffer*& b : buffers) {
         if (b) b->Release();
         b = nullptr;
     }
+#endif
 }
 
+#ifdef _WIN32
 namespace {
 
 // The few OpenGL calls the ribbons' buffers take (made with no data, deleted), from the context
@@ -80,8 +96,10 @@ struct GlBuffers {
 constexpr GLenum kCopyWriteBuffer = 0x8F37, kCopyWriteBinding = 0x8F37, kStaticDraw = 0x88E4;
 
 }  // namespace
+#endif
 
 GpuRibbonStreams::~GpuRibbonStreams() {
+#ifdef _WIN32
     for (ID3D11Buffer*& b : buffers) {
         if (b) b->Release();
         b = nullptr;
@@ -94,6 +112,7 @@ GpuRibbonStreams::~GpuRibbonStreams() {
             n = 0;
         }
     }
+#endif
 }
 
 std::size_t GpuRibbonStreams::bytes() const {
@@ -173,6 +192,7 @@ std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bo
                                                               std::unique_ptr<MHWRender::MVertexBuffer>* vertices[7],
                                                               std::unique_ptr<MHWRender::MIndexBuffer>* indices) {
     if (!engine_) throw std::runtime_error("GPU ribbons: no device");
+#ifdef _WIN32
     const bool gl = engine_->api() == gpu::GpuApi::OpenGL;
     void* device = engine_->device();
     GlBuffers glCalls;
@@ -235,6 +255,10 @@ std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bo
     index->resourceHandle(handle(GpuRibbonStreams::kIndices), count * 6);
     *indices = std::move(index);
     return streams;
+#else
+    (void)count, (void)lit, (void)colors, (void)held, (void)vertices, (void)indices;
+    throw std::runtime_error("GPU ribbons: no backend on this platform");
+#endif
 }
 
 }  // namespace groomlab::maya

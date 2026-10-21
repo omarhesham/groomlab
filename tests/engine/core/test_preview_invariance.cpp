@@ -88,27 +88,6 @@ std::string strandDifference(const StrandSet& x, std::size_t a, const StrandSet&
     return {};
 }
 
-// The maps a preset reads, painted on the reference scalp as vertex maps varying over it (each
-// channel a wave of its own), so what reads them reads something to thin or keep.
-void paintRequiredMaps(const std::string& presetJson, GroomData& data) {
-    const std::vector<PresetMap> maps = presetRequiredMaps(presetJson);
-    if (maps.empty()) return;
-    auto scalp = std::make_shared<ScalpMesh>(*data.scalp);
-    for (const PresetMap& m : maps) {
-        std::vector<ScalpMesh::Color> colors(scalp->triangleCount() * 3);
-        for (std::size_t c = 0; c < colors.size(); ++c) {
-            const Vec3f p = scalp->points()[static_cast<std::size_t>(scalp->triangles()[c / 3][c % 3])];
-            for (int k = 0; k < 3; ++k) {
-                colors[c][static_cast<std::size_t>(k)] = 0.5f + 0.5f * std::sin(7.0f * p.x + 5.0f * p.y * static_cast<float>(k + 1) + 3.0f * p.z);
-            }
-            colors[c][3] = 1.0f;
-        }
-        scalp->setCornerColors(m.name, colors);
-        data.maps[m.name] = MapInfo{"vertices", "", m.color.empty() ? 1 : 4};
-    }
-    data.scalp = scalp;
-}
-
 StrandsPtr evaluateAt(const GroomData& data, const std::string& directory, float density) {
     GroomSession groom(data);
     groom.setPathResolver(searchPathResolver({directory, kShipped}));
@@ -131,7 +110,7 @@ TEST(PreviewInvariance, EveryPresetShowsTheRendersStrandsThinnedById) {
         text << in.rdbuf();
         GroomData data = reference.data;
         data.graphJson = thinnedGraph(presetGraphJson(text.str(), size));
-        paintRequiredMaps(text.str(), data);
+        test::paintRequiredMaps(text.str(), data);
         StrandsPtr full;
         try {
             full = evaluateAt(data, reference.directory, 1.0f);

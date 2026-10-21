@@ -29,8 +29,8 @@ struct OffscreenResult {
     int frames = 0;
 };
 
-// The device: GROOMLAB_APP_RHI picks it as the viewport's (d3d11, d3d12, vulkan, opengl, null),
-// else Direct3D 11 on Windows; Null when none can be made.
+// The device: GROOMLAB_APP_RHI picks it as the viewport's (d3d11, d3d12, vulkan, opengl, metal,
+// null), else Direct3D 11 on Windows, Metal on macOS; Null when none can be made.
 std::unique_ptr<QRhi> createOffscreenRhi();
 
 // A target to render frames into without a window, kept between frames (a benchmark's frame

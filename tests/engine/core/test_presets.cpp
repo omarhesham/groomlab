@@ -474,9 +474,9 @@ TEST(Presets, SearchDirsFollowTheEnvironment) {
 
 // ---------------------------------------------------------------------------
 // Preset looks: every shipped preset evaluated on a reference groom (the strokes fixture's scalp
-// and guides, the preset fitted to its size) at a low density, against digests recorded in
-// tests/data/golden/PresetLooks.json, so a change that alters what a preset makes (a default, an
-// operator's behaviour, the preset itself) is flagged. Re-record an intended change with
+// and guides, the preset fitted to its size, the maps it requires painted) at a low density,
+// against digests recorded in tests/data/golden/PresetLooks.json, so a change that alters what a
+// preset makes (a default, an operator's behaviour, the preset itself) is flagged. Re-record an intended change with
 // `python tools/dev/record_preset_looks.py` (GROOMLAB_UPDATE_GOLDEN=1 on this test) and review the
 // diff.
 
@@ -558,6 +558,7 @@ TEST(PresetLooks, EveryShippedPresetMakesWhatItMadeBefore) {
         text << in.rdbuf();
         GroomData data = reference.data;
         data.graphJson = presetGraphJson(text.str(), size);
+        test::paintRequiredMaps(text.str(), data);  // the maps a host makes on applying it, painted
         try {
             GroomSession groom(data);
             groom.setPathResolver(searchPathResolver({reference.directory, kShipped}));
@@ -809,9 +810,8 @@ TEST(Presets, EditingAnExposedParamEqualsEditingTheInnerNode) {
         definition["expose"] = json::object();
         const json before = lookOf(reference, inserted.dump());
         if (before.contains("error")) {
-            // What the look reads that this groom lacks: painted_maps' map, the strand attributes
-            // made upstream of flow_with_guides' look.
-            EXPECT_TRUE(p.name == "painted_maps" || p.name == "flow_with_guides") << p.name << ": " << before.dump();
+            // What the look reads that this groom lacks: painted_maps' map.
+            EXPECT_EQ(p.name, "painted_maps") << before.dump();
             continue;
         }
         const json edited = lookOf(reference, onCompound.dump());

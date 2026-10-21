@@ -16,8 +16,49 @@
 # SPIR-V (Vulkan) and Metal are compiled by a test (gpu.kernel_targets) and not embedded yet.
 if(NOT WIN32)
     # (Its OpenGL backend takes its functions from WGL and its kernels' DXBC from d3dcompiler: a
-    # Linux backend, GLX/EGL or Vulkan, is to come. The CPU operators it previews are the core's.)
-    message(STATUS "GPU look preview (engine/gpu): Windows only for now, left out with its tests (groomlab_gpu_tests)")
+    # Linux backend, GLX/EGL or Vulkan, and macOS's Metal (docs/MACOS.md) are to come. The CPU
+    # operators it previews are the core's.)
+    if(NOT (GROOMLAB_BUILD_MAYA OR GROOMLAB_BUILD_APP))
+        message(STATUS "GPU look preview (engine/gpu): Windows only for now, left out with its tests (groomlab_gpu_tests)")
+        return()
+    endif()
+    # The hosts compile against the engine (the Maya plugin, the app): its planning, run algorithm
+    # and LineFrames' shared part build without a backend (src/look_engine_none.cpp: every factory
+    # throws, so the hosts preview on the CPU). No slangc, no kernels embedded, no device tests.
+    add_library(groomlab_gpu STATIC
+        src/look_chain.cpp
+        src/look_engine.cpp
+        src/look_engine_internal.h
+        src/look_engine_none.cpp
+        src/look_preview.cpp
+        src/line_frames.cpp)
+    target_include_directories(groomlab_gpu PUBLIC include)
+    target_link_libraries(groomlab_gpu PUBLIC groomlab::core PRIVATE groomlab::warnings)
+    add_library(groomlab::gpu ALIAS groomlab_gpu)
+    message(STATUS "GPU look preview (engine/gpu): no backend on this platform yet, the hosts preview on the CPU")
+    # The kernels still compile for SPIR-V and Metal with a slangc of this platform's (Slang's
+    # macos-aarch64 or linux-x86_64 release): GROOMLAB_SLANGC.
+    set(GROOMLAB_SLANGC "" CACHE FILEPATH "slangc for the gpu.*kernel_targets tests (empty: they are left out)")
+    if(GROOMLAB_BUILD_TESTS AND GROOMLAB_SLANGC)
+        file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/groomlab/gpu/look_kernels.inc" _kernel_lines REGEX "^GROOMLAB_KERNEL\\(")
+        set(_kernels "")
+        foreach(_line IN LISTS _kernel_lines)
+            string(REGEX REPLACE "^GROOMLAB_KERNEL\\(([A-Za-z0-9_]+)\\).*" "\\1CS" _k "${_line}")
+            list(APPEND _kernels "${_k}")
+        endforeach()
+        set(_checks_kernel_targets look.slang ${_kernels})
+        set(_checks_line_kernel_targets lines.slang FramesCS WidthsCS RibbonsCS RibbonLayoutCS RibbonColorsCS)
+        set(_checks_follow_kernel_targets follow.slang FollowCS)
+        foreach(_name kernel_targets line_kernel_targets follow_kernel_targets)
+            set(_entries ${_checks_${_name}})
+            list(POP_FRONT _entries _file)
+            add_test(NAME gpu.${_name}
+                COMMAND "${CMAKE_COMMAND}" -DSLANGC=${GROOMLAB_SLANGC} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/shaders/${_file}
+                        "-DENTRIES=${_entries}" -DOUT=${CMAKE_CURRENT_BINARY_DIR}/${_name}
+                        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_kernel_targets.cmake")
+            set_tests_properties(gpu.${_name} PROPERTIES LABELS "quick;gpu")
+        endforeach()
+    endif()
     return()
 endif()
 

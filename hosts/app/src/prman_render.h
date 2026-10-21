@@ -43,6 +43,9 @@ struct PrmanScene {
     std::string procedurals;      // the folder holding groomlab_renderman ("" : prman's own search path)
     std::string imagePath;        // the PNG (a turntable: <stem>.0001.png...)
     std::string environmentTexture;  // the dome's texture (prmanEnvironmentTexture's); "" with no environment
+    // Render overrides (render_overrides.h) the procedural applies: the share of the strands, the
+    // widths' and lengths' scales (1: as groomed; left out of the RIB then).
+    float density = 1.0f, widthScale = 1.0f, lengthScale = 1.0f;
 };
 
 // Writes the RIB at `scenePath`. Throws std::runtime_error when it cannot be written.

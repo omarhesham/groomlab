@@ -9,7 +9,8 @@
 // another would improve the image, so the picture keeps converging while nothing moves.
 //
 // Keys: B enters brush mode (held: a left drag sets the radius, Shift+drag the strength), M
-// held: a left drag sets the strength (brush mode too), S select mode, Escape the camera. Alt with any button is always the camera (Maya's); without
+// held: a left drag sets the strength (brush mode too), Y held: a left press opens the marking
+// menu (markingMenuPressed; the drag and the release go to it), S select mode, Escape the camera. Alt with any button is always the camera (Maya's); without
 // Alt the plain buttons orbit, pan and dolly in camera mode. In brush mode a left drag strokes
 // (Ctrl: the opposite, Shift: smooth, Shift+click: solo the guide and pick its level), the middle button sets the
 // radius (Shift: the strength), the right orbits; in select mode a left click or box picks
@@ -92,6 +93,11 @@ signals:
     void deleteRequested();
     // Something went wrong in a stroke (the host says so; the stroke was dropped).
     void message(const QString& text);
+    // Y held and the left button pressed (in any tool): the host opens the marking menu at `at`
+    // (this widget's coordinates); the drag and the release that follow are the menu's.
+    void markingMenuPressed(QPointF at);
+    void markingMenuDragged(QPointF at);
+    void markingMenuReleased(QPointF at);
 
 protected:
     void initialize(QRhiCommandBuffer* cb) override;
@@ -108,7 +114,7 @@ protected:
     void leaveEvent(QEvent* event) override;
 
 private:
-    enum class Drag { None, Orbit, Pan, Dolly, Stroke, Radius, Strength, Box };
+    enum class Drag { None, Orbit, Pan, Dolly, Stroke, Radius, Strength, Box, Menu };
     void cameraMoved();
     bool cameraPress(QMouseEvent* event, bool alt);  // the camera's buttons; false: not a camera drag
     float pressure() const;
@@ -123,6 +129,7 @@ private:
     bool bHeld_ = false;      // B is down: a left drag sizes the brush
     bool bDragged_ = false;   // ... and did, so releasing B keeps the mode
     bool mHeld_ = false;      // M is down: a left drag sets the brush strength
+    bool yHeld_ = false;      // Y is down: a left press opens the marking menu
     float tabletPressure_ = 1.0f;
     bool tabletDown_ = false;  // a pen is pressed: its pressure scales the stroke
     bool initialized_ = false;

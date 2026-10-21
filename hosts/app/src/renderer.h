@@ -28,6 +28,7 @@
 
 #include <QColor>
 #include <QImage>
+#include <QRectF>
 #include <QVector3D>
 #include <rhi/qrhi.h>
 
@@ -70,6 +71,10 @@ public:
     void setBackground(const QColor& color) { background_ = color; }
     void setShowScalp(bool show);
     bool showScalp() const { return showScalp_; }
+    // The groom shown (the Groom Tools' eye): off, the frame's items (strands, guides, overlays)
+    // and the guide dots are not drawn; the host hands the lookdev no strands meanwhile.
+    void setGroomShown(bool shown) { groomShown_ = shown; }
+    bool groomShown() const { return groomShown_; }
     // Width as coverage (DisplaySettings::widthCoverage, on by default): the strand lines cover
     // each point's width's share of a pixel (display.h lineCoverage), the widths times `widthScale`
     // (DisplaySettings::ribbonWidthScale), at the render's density from a preview at `density`
@@ -164,6 +169,25 @@ public:
     // Draw calls the last render made (tests, stats).
     int lastDrawCalls() const { return drawCalls_; }
 
+    // ---- A reference photo (the Photos tab's Look Through) -------------------------------------
+    // The photo the viewport looks through, fitted inside the frame at its aspect (as the camera's
+    // field of view fits it: OrbitCamera::setLookThrough), at `opacity`: in front, over the
+    // strands and the meshes (the overlays stay on top); behind, the backdrop (the strands then
+    // draw as lines: the lookdev's own backdrop is opaque). A null image: none. `key` moving
+    // uploads the image again.
+    struct Photo {
+        QImage image;
+        std::uint64_t key = 0;
+        float opacity = 0.6f;
+        bool front = true;
+    };
+    void setPhoto(const Photo& photo);
+    void clearPhoto() { setPhoto({}); }
+    bool photoShown() const { return !photo_.image.isNull(); }
+    const Photo& photo() const { return photo_; }
+    // The photo's rectangle in a frame `size` big (pixels, y down): letterboxed at its aspect.
+    static QRectF photoRect(const QSize& size, double photoAspect);
+
 private:
     // StrandLines and StrandLinesColored: the strand lines flat (one color, or the color modes'),
     // with their uvs (u, width) for width as coverage, as LinesLit has them; Lines and
@@ -240,6 +264,7 @@ private:
     std::unique_ptr<LodDraw> lod_;
     LodStats lodStats_;
     bool showScalp_ = true;
+    bool groomShown_ = true;
     int drawCalls_ = 0;
     LookdevRenderer lookdev_;
     bool lookdevWanted_ = true;
@@ -258,6 +283,24 @@ private:
         std::vector<std::uint32_t> indices;
     };
     Scratch scratch_;
+    // The reference photo: its texture (uploaded when the key moves), quad uniforms and pipeline
+    // (for the host target's pass).
+    Photo photo_;
+    struct PhotoGpu {
+        std::unique_ptr<QRhiTexture> texture;
+        std::unique_ptr<QRhiSampler> sampler;
+        std::unique_ptr<QRhiBuffer> uniforms;
+        std::unique_ptr<QRhiShaderResourceBindings> bindings;
+        std::unique_ptr<QRhiGraphicsPipeline> pipeline;
+        QVector<quint32> format;
+        int sampleCount = 0;
+        std::uint64_t key = ~0ull;
+    };
+    PhotoGpu photoGpu_;
+    // The photo's texture and uniforms for this frame (its own batch, before any pass); false
+    // when none draws.
+    bool preparePhoto(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* target);
+    void drawPhoto(QRhiCommandBuffer* cb);
 };
 
 // The pixels of a texture the renderer drew into, rows top to bottom whatever the backend's

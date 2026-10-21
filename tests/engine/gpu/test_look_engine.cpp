@@ -3468,12 +3468,17 @@ TEST_P(LookEngineTest, BlendMixesItsLooksAsTheCpuDoes) {
     }
 }
 
-// A shipped preset fitted to the test's scalp, as a host applies it.
-std::string presetGraph(const std::string& name) {
+// A shipped preset's file.
+std::string presetText(const std::string& name) {
     std::ifstream file(std::filesystem::u8path(std::string(GROOMLAB_SHIPPED_PRESETS) + "/" + name + ".json"));
     std::stringstream text;
     text << file.rdbuf();
-    return presetGraphJson(text.str(), presetScalpSize(*groom("{}").scalp));
+    return text.str();
+}
+
+// A shipped preset fitted to the test's scalp, as a host applies it.
+std::string presetGraph(const std::string& name) {
+    return presetGraphJson(presetText(name), presetScalpSize(*groom("{}").scalp));
 }
 
 gpu::PointError cpuShake(GroomSession& session, const std::string& name, float by);
@@ -3490,7 +3495,8 @@ TEST_P(LookEngineTest, TheLookPresetsRunOnTheGpu) {
     // (B4b: gravity, flyaways, cinematic_hair and everyday_sim: Gravity, Flyaway and Collide;
     // wind_and_jiggle: Wind, its Jiggle with no motion handed on; blend_two_looks: a Blend of two
     // looks of Interpolate's strands, by a Control. creature_fur and flow_with_guides lay Scatter's
-    // strands with a Flow, before Interpolate in the latter: within what a rounding moves the CPU's
+    // strands with a Flow, in the latter as look a of a Blend whose look b is Interpolate's, by its
+    // guideAreas map (painted varying, so both looks show): within what a rounding moves the CPU's
     // own Flow, expectFlowClose; the test's groom has no arrows, and Scatter's strands stand straight
     // out of the skin, where which way a strand goes is a rounding's choice.)
     for (const char* name : {"creature_fur", "curly", "expression_driven", "flow_with_guides", "parted_style", "gravity", "flyaways",
@@ -3498,6 +3504,7 @@ TEST_P(LookEngineTest, TheLookPresetsRunOnTheGpu) {
         for (const float density : {0.25f, 0.003f}) {
             SCOPED_TRACE(std::string(name) + (density < 0.01f ? ", below the core share" : ""));
             GroomData data = groom(presetGraph(name));
+            test::paintRequiredMaps(presetText(name), data);  // (flow_with_guides' guideAreas: both looks)
             data.partsJson = meridianParts(*data.scalp);
             GroomSession session(data);
             ViewRequest request;

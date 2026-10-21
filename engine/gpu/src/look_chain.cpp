@@ -1890,10 +1890,15 @@ bool dependsOn(const Graph& graph, NodeId id, const std::set<NodeId>& targets) {
 // the CPU's, as before they did, for comparisons).
 bool centersBranchesOn() {
     static const bool on = [] {
+#ifdef _WIN32
         char* v = nullptr;
         std::size_t n = 0;
         const bool off = _dupenv_s(&v, &n, "GROOMLAB_GPU_CENTERS_BRANCH") == 0 && v && v[0] == '0';
         std::free(v);
+#else
+        const char* v = std::getenv("GROOMLAB_GPU_CENTERS_BRANCH");
+        const bool off = v && v[0] == '0';
+#endif
         return !off;
     }();
     return on;

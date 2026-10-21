@@ -9,7 +9,9 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <stdexcept>
+#include <variant>
 
 #include "groomlab/alembic_io.h"
 #include "groomlab/attributes.h"
@@ -114,6 +116,18 @@ GroomDocument::GroomDocument(GroomFile file, std::string path) : path_(std::move
     // panels edit values that are there and the file saved holds the whole look.
     loadGraph(scene_->file().data.graphJson);
     loadMaps();
+    // The groups' own colors and the hidden groups as the file keeps them (Maya's attributes' text).
+    {
+        std::istringstream words(scene_->file().guideGroupColors);
+        for (std::string word; words >> word;) {
+            const std::size_t colon = word.rfind(':');
+            if (colon == std::string::npos || colon == 0 || word.size() != colon + 8 || word[colon + 1] != '#') continue;
+            std::string color = word.substr(colon + 1);
+            std::transform(color.begin(), color.end(), color.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+            groupColors_[word.substr(0, colon)] = color;
+        }
+    }
+    hiddenGroups_ = parseHiddenGuideGroups(scene_->file().hiddenGuideGroups);
     // The caches' first frame is where an animated groom opens (Maya opens at the range's start).
     double first = 0.0;
     if (scene_->timeRange(&first, nullptr)) time_ = first;
@@ -315,20 +329,6 @@ std::string GroomDocument::renameMap(const std::string& from, const std::string&
     entry.whole = true;
     entry.graphBefore = before;
     entry.graphAfter = graph_;
-    return {};
-}
-
-std::string GroomDocument::removeMap(const std::string& name) {
-    maps();
-    const PaintedMap* source = map(name);
-    if (!source) return "no map named '" + name + "'";
-    if (source->kind == "guides") {
-        return editGuides("remove map " + name, [&](GuideHierarchy& h) { h.removeAttribute(name); });
-    }
-    ScalpMaps maps = session().scalpMaps();
-    maps.maps.erase(name);
-    paints_.erase(name);
-    commitMaps("remove map " + name, maps);
     return {};
 }
 
@@ -639,14 +639,60 @@ std::string GroomDocument::paintParam(const std::string& node, const std::string
 }
 
 std::string GroomDocument::addNode(const std::string& type, float x, float y, std::string* made, const std::string& name) {
+    AddOptions options;
+    options.name = name;
+    return addNode(type, x, y, made, options);
+}
+
+namespace {
+
+// GraphModel.insert_on_link (Maya's graph.py, the Blender helper's too): the one link from (its
+// output) -> to.input routed through `node`: node reads from on its first input that takes from's
+// output, to reads node. Throws GraphError (the edit as it was) when the link is not there or no
+// input of node fits.
+void insertOnLinkIn(GraphEdit& edit, const GroomDocument::NodeLink& link, const std::string& node) {
+    if (!edit.hasNode(node)) throw GraphError("no node '" + node + "'");
+    if (node == link.from || node == link.to) throw GraphError(node + " is an end of that link");
+    const json g = json::parse(edit.toJson());
+    bool linked = false;
+    for (const json& c : g.value("connections", json::array())) {
+        linked = linked || (c.value("from", std::string()) == link.from && c.value("to", std::string()) == link.to &&
+                            c.value("input", std::string()) == link.input && c.value("output", std::string()) == link.output);
+    }
+    if (!linked) throw GraphError(link.from + " is not connected to " + link.to + "." + link.input);
+    std::string why;
+    const json spec = json::parse(edit.nodeSpecJson(node));
+    for (const json& p : spec.value("inputs", json::array())) {
+        GraphEdit trial = edit;
+        try {
+            trial.connect(link.from, node, p.value("name", std::string()), link.output);
+            trial.connect(node, link.to, link.input);
+        } catch (const GraphError& e) {
+            if (why.empty()) why = e.what();
+            continue;
+        }
+        edit = std::move(trial);
+        return;
+    }
+    throw GraphError(node + " has no input that takes " + link.from + "'s " + edit.outputType(link.from, link.output) + " and feeds " +
+                     link.to + "." + link.input + (why.empty() ? "" : " (" + why + ")"));
+}
+
+}  // namespace
+
+std::string GroomDocument::addNode(const std::string& type, float x, float y, std::string* made, const AddOptions& options,
+                                   std::string* wired, std::string* note) {
+    if (wired) wired->clear();
+    if (note) note->clear();
     if (!spec(type)) return "no operator '" + type + "'";
     // Named, seeded and placed as every host's editor does it (graph_edit.h): the type's name
     // with its first letter lowered, numbered past the ones there (Maya's: noise, noise1, ...); a
     // library node's after its label.
-    std::string chosen = name;
+    std::string chosen = options.name;
     try {
         const std::string base = libraryNodeId(type).empty() ? type : libraryNodeName(spec(type)->value("label", type));
         if (chosen.empty()) chosen = GraphEdit(graph_.dump()).uniqueName(base);
+        else if (nodeJson(chosen)) chosen = GraphEdit(graph_.dump()).uniqueName(chosen);
     } catch (const std::exception& e) {
         return e.what();
     }
@@ -656,11 +702,238 @@ std::string GroomDocument::addNode(const std::string& type, float x, float y, st
     // (At the size the params are at: the groom's 1x when it is scaled with its scalp.)
     std::optional<double> size = scalp ? presetScalpSize(*scalp) : std::nullopt;
     if (size) *size /= session().groomScale();
-    return editGraph("add " + chosen, [&](json& g) {
+    std::string after, refused;
+    const std::string error = editGraph("add " + chosen, [&](json& g) {
         GraphEdit edit(g.dump());
-        edit.addNode(type, chosen, {}, x, y, size);
+        edit.addNode(type, chosen, options.params.is_object() ? options.params.dump() : std::string(), x, y, size);
+        if (options.onLink) {
+            // Tab over a wire: into it, else added unlinked (said).
+            try {
+                GraphEdit trial = edit;
+                insertOnLinkIn(trial, *options.onLink, chosen);
+                edit = std::move(trial);
+                after = options.onLink->from;
+            } catch (const GraphError& e) {
+                refused = std::string("Not inserted: ") + e.what();
+            }
+        } else if (!options.after.empty() && edit.hasNode(options.after)) {
+            // After the selected node: into its first link the new node fits in (it goes into the
+            // chain, as Maya's Add Node), else fed by it on its first input that takes its output.
+            const json now = json::parse(edit.toJson());
+            for (const json& c : now.value("connections", json::array())) {
+                if (c.value("from", std::string()) != options.after || !after.empty()) continue;
+                try {
+                    GraphEdit trial = edit;
+                    insertOnLinkIn(trial, {options.after, c.value("output", std::string()), c.value("to", std::string()), c.value("input", std::string())},
+                                   chosen);
+                    edit = std::move(trial);
+                    after = options.after;
+                } catch (const GraphError&) {
+                }
+            }
+            if (after.empty()) {
+                const json spec = json::parse(edit.nodeSpecJson(chosen));
+                for (const json& p : spec.value("inputs", json::array())) {
+                    try {
+                        GraphEdit trial = edit;
+                        trial.connect(options.after, chosen, p.value("name", std::string()));
+                        edit = std::move(trial);
+                        after = options.after;
+                        break;
+                    } catch (const GraphError&) {
+                    }
+                }
+            }
+        }
         g = json::parse(edit.toJson());
     });
+    if (error.empty()) {
+        if (wired) *wired = after;
+        if (note) *note = refused;
+    }
+    return error;
+}
+
+std::string GroomDocument::insertOnLink(const std::string& node, const NodeLink& link) {
+    if (!nodeJson(node)) return "no node '" + node + "'";
+    return editGraph("insert " + node, [&](json& g) {
+        GraphEdit edit(g.dump());
+        insertOnLinkIn(edit, link, node);
+        g = json::parse(edit.toJson());
+    });
+}
+
+std::vector<std::string> GroomDocument::shownInnerParams(const std::string& compound) const {
+    std::vector<std::string> out;
+    const json* n = nodeJson(compound);
+    if (!n || n->value("type", std::string()) != "Compound") return out;
+    const json params = n->value("params", json::object());
+    const json definition = params.is_object() ? params.value("definition", json::object()) : json::object();
+    const json expose = definition.is_object() ? definition.value("expose", json::object()) : json::object();
+    if (!expose.is_object()) return out;
+    for (const auto& [name, target] : expose.items()) {
+        if (target.is_string()) out.push_back(target.get<std::string>());
+    }
+    return out;
+}
+
+std::string GroomDocument::showInnerParam(const std::string& compound, const std::string& target, bool shown) {
+    const json* n = nodeJson(compound);
+    if (!n) return "no node '" + compound + "'";
+    if (n->value("type", std::string()) != "Compound") return compound + " is not a Compound";
+    const auto dot = target.find('.');
+    if (dot == std::string::npos) return "an inner param is \"node.param\" inside the compound";
+    const std::string inner = target.substr(0, dot), param = target.substr(dot + 1);
+    const std::vector<std::string> now = shownInnerParams(compound);
+    if ((std::find(now.begin(), now.end(), target) != now.end()) == shown) return {};
+    // Named after the param, or node + Param when the compound has a param of that name (Maya's).
+    std::string name = param;
+    if (shown) {
+        if (const json* s = nodeSpec(compound)) {
+            for (const json& p : s->value("params", json::array())) {
+                if (p.value("name", std::string()) == param) name = inner + static_cast<char>(std::toupper(static_cast<unsigned char>(param[0]))) + param.substr(1);
+            }
+        }
+    }
+    return editGraph((shown ? "show " : "hide ") + target + " on " + compound, [&](json& g) {
+        for (json& c : g["nodes"]) {
+            if (c.value("name", std::string()) != compound) continue;
+            json& params = c["params"];
+            if (!params.is_object()) params = json::object();
+            json& definition = params["definition"];
+            if (!definition.is_object()) definition = json::object();
+            json& expose = definition["expose"];
+            if (!expose.is_object()) expose = json::object();
+            json* innerNode = nullptr;
+            if (definition.contains("graph") && definition["graph"].is_object() && definition["graph"].contains("nodes")) {
+                for (json& x : definition["graph"]["nodes"]) {
+                    if (x.is_object() && x.value("name", std::string()) == inner) innerNode = &x;
+                }
+            }
+            if (shown) {
+                bool known = false;
+                if (innerNode) {
+                    if (const json* s = spec(innerNode->value("type", std::string()))) {
+                        for (const json& p : s->value("params", json::array())) known = known || p.value("name", std::string()) == param;
+                    }
+                }
+                if (!known) throw std::invalid_argument("the compound has no param '" + target + "'");
+                expose[name] = target;
+            } else {
+                // Its value goes back inside: the inner node keeps what the compound set last.
+                std::vector<std::string> names;
+                for (const auto& [key, t] : expose.items()) {
+                    if (t.is_string() && t.get<std::string>() == target) names.push_back(key);
+                }
+                for (const std::string& key : names) {
+                    if (params.contains(key)) {
+                        if (innerNode) (*innerNode)["params"][param] = params[key];
+                        params.erase(key);
+                    }
+                    expose.erase(key);
+                }
+            }
+        }
+    });
+}
+
+std::string GroomDocument::addControl(const std::string& node, const std::string& param, std::string* made) {
+    const json* n = nodeJson(node);
+    if (!n) return "no node '" + node + "'";
+    if (!spec("Control")) return "this build has no Control node";
+    const json value = paramOrDefault(node, param);
+    const double start = value.is_number() ? value.get<double>() : 0.0;
+    float x = 0.0f, y = 0.0f;
+    nodePosition(node, &x, &y);
+    std::string name;
+    const std::string error = editGraph("drive " + node + "." + param + " with a slider", [&](json& g) {
+        GraphEdit edit(g.dump());
+        name = edit.uniqueName(param + "Control");
+        // Its slider spans 0 to 1 (or to the value, past 1), starting where the param is.
+        const json params = {{"name", param}, {"default", start}, {"min", std::min(0.0, start)}, {"max", std::max(1.0, start)}};
+        edit.addNode("Control", name, params.dump(), x - 230.0, y + 160.0);
+        g = json::parse(edit.toJson());
+        for (json& m : g["nodes"]) {
+            if (m.value("name", std::string()) != node) continue;
+            json inputs = m.value("paramInputs", json::array());
+            if (std::find(inputs.begin(), inputs.end(), json(param)) == inputs.end()) inputs.push_back(param);
+            m["paramInputs"] = inputs;
+        }
+        GraphEdit wired(g.dump());
+        wired.connect(name, node, param);
+        g = json::parse(wired.toJson());
+    });
+    if (error.empty() && made) *made = name;
+    return error;
+}
+
+std::vector<GroomDocument::ControlSlider> GroomDocument::controlSliders() const {
+    std::vector<ControlSlider> out;
+    const std::map<std::string, float>& values = session().data().controls;
+    for (const json& n : graph_.value("nodes", json::array())) {
+        if (n.value("type", std::string()) != "Control") continue;
+        const json params = n.value("params", json::object());
+        ControlSlider c;
+        c.node = n.value("name", std::string());
+        c.name = params.value("name", std::string("control"));
+        const auto number = [&](const char* key, double fallback) {
+            const auto it = params.find(key);
+            return it != params.end() && it->is_number() ? it->get<double>() : fallback;
+        };
+        c.min = number("min", 0.0);
+        c.max = number("max", 1.0);
+        if (!(c.max > c.min)) c.max = c.min + 1.0;
+        const auto set = values.find(c.name);
+        c.value = set != values.end() ? static_cast<double>(set->second) : number("default", 0.0);
+        if (std::none_of(out.begin(), out.end(), [&](const ControlSlider& o) { return o.name == c.name; })) out.push_back(c);
+    }
+    return out;
+}
+
+bool GroomDocument::setControlValue(const std::string& name, double value) {
+    const std::vector<ControlSlider> sliders = controlSliders();
+    if (std::none_of(sliders.begin(), sliders.end(), [&](const ControlSlider& c) { return c.name == name; })) return false;
+    std::map<std::string, float> controls = session().data().controls;
+    if (controls.count(name) && controls[name] == static_cast<float>(value)) return true;
+    controls[name] = static_cast<float>(value);
+    session().setControls(std::move(controls));
+    dirty_ = true;
+    return true;
+}
+
+std::string GroomDocument::bakeNodeToGuides(const std::string& node, const std::string& group, float density, std::size_t* count) {
+    if (count) *count = 0;
+    if (!nodeJson(node)) return "no node '" + node + "'";
+    if (group.empty()) return "bake into a group: it needs a name";
+    if (!(density > 0.0f && density <= 1.0f)) return "the density is above 0, at most 1";
+    if (!session().scalp()) return "the groom has no scalp";
+    // The node as it is now (the last evaluation's inputs), one guide per strand.
+    GuideSet baked;
+    try {
+        const Value value = session().evaluateNode(node, density, time_);
+        if (const GuidesPtr* guides = std::get_if<GuidesPtr>(&value); guides && *guides) {
+            baked = **guides;
+        } else if (const StrandsPtr* strands = std::get_if<StrandsPtr>(&value); strands && *strands) {
+            for (std::size_t i = 0; i < (*strands)->strandCount(); ++i) {
+                const Vec3f* p = (*strands)->strandPoints(i);
+                baked.add((*strands)->ids()[i], std::vector<Vec3f>(p, p + (*strands)->strandPointCount(i)));
+            }
+        } else {
+            return node + " gives no guides or strands (nothing to bake)";
+        }
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    if (baked.empty()) return node + " made no guides";
+    std::size_t added = 0;
+    const std::string error = editGuides("bake " + node, [&](GuideHierarchy& h) {
+        GroupId gid = h.findGroup(group);
+        if (gid == kNoGroup) gid = h.addGroup(group);
+        else if (h.groupDepth(gid) != 0) throw std::invalid_argument("'" + group + "' is a child group: bake into a root group");
+        added = h.addGuides(gid, baked).size();
+    });
+    if (error.empty() && count) *count = added;
+    return error;
 }
 
 std::string GroomDocument::removeNode(const std::string& node) {
@@ -1622,11 +1895,9 @@ void GroomDocument::setSelection(std::vector<GuideId> ids) {
 }
 
 void GroomDocument::setGroupHidden(const std::string& name, bool hidden) {
-    if (hidden) {
-        hiddenGroups_.insert(name);
-    } else {
-        hiddenGroups_.erase(name);
-    }
+    // Saved with the groom ("hiddenGuideGroups"), as Maya keeps it on the groom.
+    const bool changed = hidden ? hiddenGroups_.insert(name).second : hiddenGroups_.erase(name) > 0;
+    if (changed) dirty_ = true;
 }
 
 std::string GroomDocument::hiddenGroupsText() const {
@@ -1679,7 +1950,7 @@ std::string GroomDocument::setEvaluation(const std::string& node, const std::str
 }
 
 std::string GroomDocument::editName(const Edit& edit) {
-    return edit.stroke || edit.whole ? edit.label : edit.node + "." + edit.name;
+    return edit.stroke || edit.whole || edit.side ? edit.label : edit.node + "." + edit.name;
 }
 
 std::string GroomDocument::undoText() const { return canUndo() ? "Undo " + editName(edits_[undoIndex_ - 1]) : std::string(); }
@@ -1714,6 +1985,7 @@ std::string GroomDocument::undo() {
         }
         error = applyGraph();
     }
+    applySide(edit, false);  // its files and group colors
     --undoIndex_;
     dirty_ = true;
     return error;
@@ -1741,6 +2013,7 @@ std::string GroomDocument::redo() {
         }
         error = applyGraph();
     }
+    applySide(edit, true);
     ++undoIndex_;
     dirty_ = true;
     return error;
@@ -1768,6 +2041,12 @@ const DisplayFrame& GroomDocument::updateDisplay(const DisplaySettings& settings
         };
         inputs.selectionHash = selectionVersion_;
     }
+    if (!groupColors_.empty() && settings.guideGroupColors.empty()) {
+        // The groups' own colors (the rest automatic: their level's).
+        DisplaySettings colored = settings;
+        colored.guideGroupColors = groupColorsText();
+        return display_.update(inputs, colored);
+    }
     return display_.update(inputs, settings);
 }
 
@@ -1792,9 +2071,14 @@ GroomFile GroomDocument::currentFile() const {
     GroomFile file = scene_->file();
     if (transferMarkers_) file.transferMarkers = *transferMarkers_;
     if (referencePhotos_) file.referencePhotos = *referencePhotos_;
+    // The groups' own colors and the hidden groups, in Maya's attributes' form (space separated).
+    file.guideGroupColors = groupColorsText();
+    file.hiddenGuideGroups.clear();
+    for (const std::string& name : hiddenGroups_) file.hiddenGuideGroups += (file.hiddenGuideGroups.empty() ? "" : " ") + name;
     file.data.graphJson = graph_.dump();
     // The guides and overlays as the session holds them now: the strokes' and edits' results.
     const GroomData& data = session().data();
+    file.data.controls = data.controls;  // the Controls sliders' values
     file.data.hierarchyJson = data.hierarchyJson;
     file.data.partsJson = data.partsJson;
     file.data.flowJson = data.flowJson;

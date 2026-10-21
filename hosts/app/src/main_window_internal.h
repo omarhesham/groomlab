@@ -3,11 +3,16 @@
 
 // MainWindow's own helpers, shared by its source files (main_window*.cpp).
 
+#include <algorithm>
+
 #include <QApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 #include <QString>
 #include <QStringList>
 
+#include "app_shell.h"
 #include "export_panel.h"
 #include "main_window.h"
 
@@ -31,9 +36,16 @@ struct BusyCursor {
 // The recent files (the empty-state card's), newest first, in the user's settings.
 inline QStringList recentFiles() { return QSettings().value(QStringLiteral("recentFiles")).toStringList(); }
 
-inline void rememberRecentFile(const QString& path) {
+inline void rememberRecentFile(const QString& given) {
+    // One spelling per file (absolute, forward slashes): the same file reached another way is not
+    // listed twice.
+    const QString path = QDir::cleanPath(QFileInfo(given).absoluteFilePath());
     QStringList recent = recentFiles();
-    recent.removeAll(path);
+    recent.erase(std::remove_if(recent.begin(), recent.end(),
+                                [&](const QString& p) {
+                                    return QDir::cleanPath(QFileInfo(p).absoluteFilePath()).compare(path, Qt::CaseInsensitive) == 0;
+                                }),
+                 recent.end());
     recent.prepend(path);
     while (recent.size() > 8) recent.removeLast();
     QSettings().setValue(QStringLiteral("recentFiles"), recent);

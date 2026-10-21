@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// The app's look: GroomLab's themes (hosts/maya/themes/*.json; Playful by default: charcoal and the
-// primaries, round and friendly) as the standalone app wears them, "like Plasticity but Pixar".
-// Everything floats over the viewport as translucent glass (or, for a theme with "glass": false
-// such as Charcoal, solid panels with a thin border); this module holds the colors, the fonts
-// (Figtree for the words, JetBrains Mono for the numbers, bundled as resources), the metrics
-// and the layout of the floating pieces (pure geometry, so the tests check it without a
-// window), the brush rail's order and the Qt style sheet the ordinary widgets inside the
-// panels take. No widgets here: the painted ones are in glass.h.
+// The app's look: GroomLab's themes (hosts/maya/themes/*.json; Charcoal by default: calm neutral
+// greys, flat, thin borders, as the Maya host wears it) in the standalone app's docked window
+// (app_shell.h: menu bar, tool bar, solid docks, clean and dark like Plasticity). Glass themes
+// (Playful, Polar) keep their translucent pieces over the viewport; every theme's docks are solid.
+// This module holds the colors, the fonts (Figtree for the words, JetBrains Mono for the numbers,
+// bundled as resources), the viewport's overlay colors (displayTheme), the layout of what stays
+// over the viewport (pure geometry, so the tests check it without a window), the brush tiles'
+// order and the Qt style sheet the window's widgets take. No widgets here: the painted ones are
+// in glass.h.
 
 #include <string>
 #include <vector>
 
 #include "groomlab/brush_catalog.h"
+#include "groomlab/display.h"
 
 #include <QColor>
 #include <QFont>
@@ -26,16 +28,32 @@ namespace groomlab::app::theme {
 
 // ---- The theme ------------------------------------------------------------------------------------
 // The shipped themes are embedded at build time (resources :/groomlab/themes/<name>.json, the
-// Maya host's files); one is current for the whole app. The widgets take their colors when they
-// are made, so a theme is chosen before the window is built: main() sets the saved one (or
-// --theme's), and View > Theme saves a new choice for the next start.
-QStringList themeNames();                  // "charcoal", "playful", "polar", "studio" (sorted)
+// Maya host's files); the user's are files in the folders of GROOMLAB_THEME_PATH and the user's
+// themes folder (userThemeDir), looked up in that order before the embedded ones, as the Maya
+// host's theme.py does. One is current for the whole app: main() sets the saved one (or --theme's)
+// before the window is built, and GroomLab > Theme switches it live (MainWindow::restyle: the
+// window's style sheet made again, the widgets' own sheets given the new colors, everything
+// repainted; the painted widgets read the theme when they paint).
+QStringList themeNames();                  // "charcoal", "playful", "polar", "studio" and the user's (sorted)
 QString themeLabel(const QString& name);   // "Charcoal"
-QString currentTheme();                    // "playful" until setTheme
-bool setTheme(const QString& name);        // false (nothing changes) for a theme that isn't embedded
-QString savedTheme();                      // QSettings ui/theme, "playful" when unset or unknown
+QString defaultTheme();                    // "charcoal" (themes without "extends" still extend Playful)
+QString currentTheme();                    // defaultTheme() until setTheme
+bool setTheme(const QString& name);        // false (nothing changes) for a theme there is no file of
+QString savedTheme();                      // QSettings ui/theme, defaultTheme() when unset or unknown
 void saveTheme(const QString& name);
 bool glassy();  // the theme's ui.glass (default true): translucent panels, else solid ones with an edge
+// The user's themes folder: GROOMLAB_USER_THEMES, else <the Maya user folder>/groomlab/themes (the
+// user presets' sibling, where the Maya host keeps them); "" when there is no home folder.
+QString userThemeDir();
+QStringList themeSearchDirs();             // GROOMLAB_THEME_PATH's folders, then userThemeDir()
+QString themeFile(const QString& name);    // the file a theme is read from (a resource path when embedded); "" none
+void reloadTheme();                        // the files read again (Theme > Reload Theme, after editing one)
+// Theme > New Theme from Current: the current theme filled in (no "extends", its "name" set) as
+// <userThemeDir>/<name>.json, to edit; *path the file. "" or why not (a bad name, one there already).
+QString createTheme(const QString& name, QString* path = nullptr);
+// Every color the theme gives the widgets (the functions below, the ui keys, the categories and
+// ports), in one fixed order: what restyle maps the old theme's colors to the new one's by.
+std::vector<QColor> namedColors();
 
 // ---- Colors (the palette, then the glass and text tones) -----------------------------------------
 // The palette, the UI tones, the graph's and the icons' colors are read from the current theme's
@@ -56,11 +74,11 @@ QColor text();         // #F3F1EC; solid: ui.text
 QColor textSoft();     // #D9D5CD, the inactive mode names
 QColor textDim();      // #B8B4AC, slider captions
 QColor textMuted();    // #8F8B84, shortcuts and counts; solid: ui.textDim
-QColor track();        // a slider's unfilled track: white at 12%
-QColor chip();         // a small button at rest: white at 8%
-QColor chipSoft();     // a quieter one (More settings): white at 6%
-QColor chipChecked();  // a glass button checked (a rail panel open, the Graph pill): white at 18%
-QColor divider();      // white at 12%
+QColor track();        // a slider's unfilled track: white at 12%; solid: ui.hover
+QColor chip();         // a small button at rest: white at 8%; solid: ui.raised
+QColor chipSoft();     // a quieter one (More settings): white at 6%; solid: ui.raised
+QColor chipChecked();  // a glass button checked (the Graph pill): white at 18%; solid: ui.hover
+QColor divider();      // white at 12%; solid: the edge (ui.outline, else ui.border)
 QColor renderRed();    // the Render pill: #E5383B; solid: the accent (the primary action)
 QColor backdrop();     // the viewport's default clear color: #17181B; solid: ui.background
 QColor ink();          // dark text on a bright fill: #1B1A17
@@ -126,7 +144,11 @@ QString brushTitle(const std::string& name);       // the catalog's label ("comb
 QColor nodeCategoryColor(const std::string& category);
 // A port's color by its type name ("strands", "guides", "mesh", "field", "curve", "curves").
 QColor portColor(const std::string& type);
-QColor nodeBody();  // #2A2C31 (opaque: the groom shows between nodes, not through them)
+QColor nodeBody();  // #2A2C31 (opaque)
+// The Graph Editor's opaque canvas and its grid (graph.canvas, graph.grid; else the backdrop and
+// a lighter line).
+QColor graphCanvas();
+QColor graphGrid();
 QColor nodeBorder();       // graph.nodeBorder: drawn when it differs from the body
 QColor nodeSelected();     // graph.selected: the selected node's ring and wire
 // The graph's status colors, as Maya's Graph Editor draws them: a failing node's badge
@@ -141,62 +163,36 @@ QColor graphWrites();
 qreal nodeRadius();        // graph.cornerRadius (14 in Playful)
 bool tintedHeaders();      // graph.headerStyle "tinted": a wash and an accent bar, else filled
 
+// ---- The viewport's overlay ------------------------------------------------------------------------
+// The theme's viewport section (guide levels, selection, frozen, parts, flow, tubes...) as the
+// core's DisplayTheme: linear RGB, palette names resolved, as the Maya host's theme.apply_viewport
+// sends groomLabDisplayTheme. Missing keys take Maya's fallbacks.
+DisplayTheme displayTheme();
+
 // ---- Layout --------------------------------------------------------------------------------------
-// Where the floating pieces go over a view of a size, from the mockup's margins. The rail's
-// buttons shrink (44 px down to 30) when the view is too short for every brush between the
-// logo and the stats, so no brush ever scrolls away.
+// The look card's width.
 struct OverlayMetrics {
-    int margin = 24;            // the panels' distance from the edges
-    int topHeight = 44;         // the top row's buttons
-    int railWidth = 56;         // the brush rail
-    int railButton = 44;        // ... its buttons at most
-    int railButtonMin = 30;
-    int railGap = 4;            // between buttons
-    int railDivider = 9;        // a divider's row (1 px line, 4 px margins)
-    int railPadding = 8;        // the rail's top and bottom padding
-    int panelButton = 48;       // the right rail's buttons
-    int panelGap = 8;
-    int barHeight = 56;         // the brush settings bar (12 px padding around 32 px controls)
-    int barBottom = 17;         // ... its distance from the bottom
-    int statsBottom = 34;       // the stats text's baseline distance from the bottom
     int lookCardWidth = 272;
-    int lookCardTop = 92;
 };
-struct OverlayLayout {
-    QRect logo;          // the logo and file name (top-left)
-    QRect modes;         // the mode switcher pill (top-center), given its width
-    QRect topRight;      // undo, redo, render (top-right), given its width
-    QRect rail;          // the brush rail (left, centered vertically; it widens to the right on hover)
-    int railButton = 0;  // the rail's button size after shrinking
-    int railGap = 4;     // ... and its gaps and dividers (tightened when the window is short)
-    int railDivider = 9;
-    QRect panelRail;     // the panel buttons (right, centered vertically; they widen to the left on hover)
-    QRect bar;           // the brush settings bar (bottom-center; right of the pills, or above them, when they would meet), given its width
-    QRect stats;         // the stats text (bottom-left, above the pills; right of the rail when the rail needs the height), given its size
-    QRect lookCard;      // the look panel (top-right), given its height
-    QRect graphPill;     // the Graph pill (bottom-left, every mode), given its size
-    QRect graphTools;    // the Presets pill after it (and the close button while the graph shows), given their width
-    QRect refine;        // the refining stats (bottom-right), given its size
-};
-struct OverlayRequest {
+// What stays over the viewport once the window has docks (overlay.h): the active tool's name
+// (top-left), Undo and Redo (top-right), the stats (bottom-left, Groom) and the refine line
+// (bottom-right, Look), the toast above them, the prompt and the empty-state card centered. Each
+// size is the piece's hint; the rects stay inside the view and never meet each other (except the
+// prompt and the card, which sit over the rest).
+struct ViewportOverlayRequest {
     QSize view;
-    int railButtons = 0;   // buttons in the brush rail
-    int railDividers = 0;  // dividers between its groups
-    int panelButtons = 0;  // buttons in the right rail
-    QSize logo{200, 30};
-    int modesWidth = 300;
-    int topRightWidth = 200;
-    int barWidth = 700;
-    QSize stats{300, 16};
-    int lookCardHeight = 320;
-    QSize graphPill{170, 44};
-    bool graphShown = false;   // the node graph is up: the close button joins the pills
-    int graphToolsWidth = 0;   // the Presets pill (and, with the graph, the gap and the close button)
-    bool barShown = true;      // the brush bar is up (Groom mode): it keeps clear of the pills
-    int railLabelsWidth = 0;   // the rail's width with its names shown (View > Rail Labels; 0: icons alone)
-    QSize refine{160, 16};
+    QSize toolLabel;  // empty: none
+    QSize history;    // Undo and Redo (top-right)
+    QSize stats;
+    QSize refine;
+    QSize toast;
+    QSize prompt;
+    QSize emptyCard;
 };
-OverlayLayout layoutOverlay(const OverlayRequest& request, const OverlayMetrics& metrics = OverlayMetrics());
+struct ViewportOverlayLayout {
+    QRect toolLabel, history, stats, refine, toast, prompt, emptyCard;
+};
+ViewportOverlayLayout layoutViewportOverlay(const ViewportOverlayRequest& request, int margin = 12);
 
 // ---- Windows on small screens ---------------------------------------------------------------------
 // A window's size for a screen: `wanted`, no more than `share` of the screen's usable area
@@ -206,8 +202,10 @@ QSize fitToAvailable(QSize wanted, const QRect& available, double share = 0.92, 
 // (glass.h fitWindowToScreen applies it to a window.)
 
 // ---- The style sheet ------------------------------------------------------------------------------
-// What the ordinary widgets inside the glass panels look like (spin boxes, combos, check
-// boxes, trees, scroll bars, menus, tool tips): flat, round, charcoal, the accent blue.
+// The window's widgets: the menu bar, the tool bar, the docks (solid, a 1 px edge, compact titles),
+// tab bars and splitters, and the ordinary widgets inside them (spin boxes, combos, check boxes,
+// trees, scroll bars, menus, tool tips): flat, the theme's tones (a solid theme's raised fields,
+// small radii; a glass theme's washes), the accent for what is on.
 QString styleSheet();
 
 }  // namespace groomlab::app::theme

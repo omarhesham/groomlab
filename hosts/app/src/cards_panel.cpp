@@ -186,6 +186,7 @@ CardsPanel::CardsPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     atlasImage_->setToolTip(tr("The baked atlas: the color map with the coverage as alpha"));
     atlasImage_->hide();
     layout->addWidget(atlasImage_, 0, Qt::AlignHCenter);
+    layout->addStretch(1);  // docked in a tall window: the rows at the top
 
     connect(nodes_, &QComboBox::currentIndexChanged, this, [this](int index) {
         if (updating_) return;

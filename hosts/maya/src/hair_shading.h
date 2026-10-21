@@ -26,10 +26,8 @@
 #include <maya/MDagPath.h>
 #include <maya/MShaderManager.h>
 
-namespace MHWRender {
-class MDrawContext;
-class MTexture;
-}
+#include <maya/MApiNamespace.h>  // Maya's classes declared (MHWRender's are using-declarations of a
+                                  // versioned namespace's: a plain forward declaration conflicts, Clang/GCC)
 
 namespace groomlab {
 struct HairLook;

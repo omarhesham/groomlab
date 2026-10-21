@@ -546,9 +546,9 @@ class GROOMLAB_OT_graph_preset(_GraphOperator):
         try:
             if self.mode == "APPLY":
                 r = graph.apply_preset(scalp, self.name)
-                missing = [m["name"] for m in r.get("missingMaps", [])]
-                if missing:
-                    self.report({"WARNING"}, "The preset reads maps this groom has not painted: %s. Paint them in Groom Tools > Paint" % ", ".join(missing))
+                note = graph.preset_maps_note(r)
+                if note:
+                    self.report(*note)
             else:
                 node = active_node(context)
                 after = node.gl_name if node is not None and node.select and not node.gl_is_output and _strands_output(node) else None

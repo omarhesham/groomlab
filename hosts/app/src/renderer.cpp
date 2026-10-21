@@ -513,8 +513,116 @@ void GroomRenderer::releaseResources() {
     lod_->release();
     hdr_ = PipelineSet();
     rhi_ = nullptr;
+    photoGpu_ = PhotoGpu();
     lookdev_.releaseResources();
     if (gpuPreview_) gpuPreview_->releaseResources();
+}
+
+// ---- The reference photo ------------------------------------------------------------------------
+
+void GroomRenderer::setPhoto(const Photo& photo) { photo_ = photo; }
+
+QRectF GroomRenderer::photoRect(const QSize& size, double photoAspect) {
+    const double w = std::max(size.width(), 1), h = std::max(size.height(), 1);
+    if (!(photoAspect > 0.0)) return QRectF(0.0, 0.0, w, h);
+    if (w / h >= photoAspect) {
+        const double pw = h * photoAspect;  // as tall as the frame, bars left and right
+        return QRectF((w - pw) * 0.5, 0.0, pw, h);
+    }
+    const double ph = w / photoAspect;  // as wide as the frame, bars above and below
+    return QRectF(0.0, (h - ph) * 0.5, w, ph);
+}
+
+bool GroomRenderer::preparePhoto(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* target) {
+    if (photo_.image.isNull()) return false;
+    PhotoGpu& g = photoGpu_;
+    QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
+    if (!g.uniforms) {
+        g.uniforms.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 32));
+        if (!g.uniforms->create()) g.uniforms.reset();
+    }
+    if (!g.sampler) {
+        g.sampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None, QRhiSampler::ClampToEdge,
+                                        QRhiSampler::ClampToEdge));
+        if (!g.sampler->create()) g.sampler.reset();
+    }
+    if (g.uniforms && g.sampler && (g.key != photo_.key || !g.texture)) {
+        // The image as uploaded: its first row at v 0 (the quad's top), at most the device's size.
+        QImage image = photo_.image.convertToFormat(QImage::Format_RGBA8888);
+        const int limit = std::max(rhi->resourceLimit(QRhi::TextureSizeMax), 256);
+        if (image.width() > limit || image.height() > limit) image = image.scaled(limit, limit, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        if (!g.texture || g.texture->pixelSize() != image.size()) {
+            g.texture.reset(rhi->newTexture(QRhiTexture::RGBA8, image.size()));
+            if (!g.texture->create()) g.texture.reset();
+            g.bindings.reset();
+        }
+        if (g.texture) batch->uploadTexture(g.texture.get(), image);
+        g.key = photo_.key;
+    }
+    if (!g.texture) {
+        batch->release();
+        return false;
+    }
+    if (!g.bindings) {
+        g.bindings.reset(rhi->newShaderResourceBindings());
+        g.bindings->setBindings({QRhiShaderResourceBinding::uniformBuffer(
+                                     0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, g.uniforms.get()),
+                                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, g.texture.get(),
+                                                                           g.sampler.get())});
+        if (!g.bindings->create()) g.bindings.reset();
+        g.pipeline.reset();
+    }
+    const QVector<quint32> format = target->renderPassDescriptor()->serializedFormat();
+    if (g.bindings && (!g.pipeline || g.format != format || g.sampleCount != target->sampleCount())) {
+        g.pipeline.reset(rhi->newGraphicsPipeline());
+        g.pipeline->setShaderStages({{QRhiShaderStage::Vertex, loadShader("photo.vert")}, {QRhiShaderStage::Fragment, loadShader("photo.frag")}});
+        g.pipeline->setVertexInputLayout({});
+        g.pipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
+        QRhiGraphicsPipeline::TargetBlend blend;
+        blend.enable = true;
+        blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+        blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        blend.srcAlpha = QRhiGraphicsPipeline::One;
+        blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        g.pipeline->setTargetBlends({blend});
+        g.pipeline->setCullMode(QRhiGraphicsPipeline::None);
+        g.pipeline->setDepthTest(false);
+        g.pipeline->setDepthWrite(false);
+        g.pipeline->setSampleCount(target->sampleCount());
+        g.pipeline->setShaderResourceBindings(g.bindings.get());
+        g.pipeline->setRenderPassDescriptor(target->renderPassDescriptor());
+        if (!g.pipeline->create()) {
+            qWarning("GroomLab: the reference photo's pipeline could not be made");
+            g.pipeline.reset();
+        }
+        g.format = format;
+        g.sampleCount = target->sampleCount();
+    }
+    // The photo's rectangle in normalized device coordinates (y up, or down where the backend's
+    // NDC has it so).
+    const QSize size = target->pixelSize();
+    const QRectF r = photoRect(size, static_cast<double>(photo_.image.width()) / std::max(photo_.image.height(), 1));
+    const float w = static_cast<float>(std::max(size.width(), 1)), h = static_cast<float>(std::max(size.height(), 1));
+    float top = 1.0f - 2.0f * static_cast<float>(r.top()) / h, bottom = 1.0f - 2.0f * static_cast<float>(r.bottom()) / h;
+    if (!rhi->isYUpInNDC()) {
+        top = -top;
+        bottom = -bottom;
+    }
+    const float u[8] = {2.0f * static_cast<float>(r.left()) / w - 1.0f, top, 2.0f * static_cast<float>(r.right()) / w - 1.0f, bottom,
+                        std::clamp(photo_.opacity, 0.0f, 1.0f), 0.0f, 0.0f, 0.0f};
+    batch->updateDynamicBuffer(g.uniforms.get(), 0, sizeof(u), u);
+    cb->resourceUpdate(batch);
+    return g.pipeline != nullptr;
+}
+
+void GroomRenderer::drawPhoto(QRhiCommandBuffer* cb) {
+    const PhotoGpu& g = photoGpu_;
+    if (!g.pipeline) return;
+    cb->setGraphicsPipeline(g.pipeline.get());
+    cb->setViewport(passViewport_);
+    cb->setShaderResources(g.bindings.get());
+    cb->draw(4);
+    ++drawCalls_;
 }
 
 void GroomRenderer::ensurePipelines(QRhi* rhi, QRhiRenderPassDescriptor* pass, int sampleCount, PipelineSet& set) {
@@ -1091,9 +1199,12 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
         }
         main_ = PipelineSet();
         hdr_ = PipelineSet();
+        photoGpu_ = PhotoGpu();
         if (gpuPreview_) gpuPreview_->releaseResources();
     }
     ensurePipelines(rhi, target->renderPassDescriptor(), target->sampleCount(), main_);
+    // The reference photo (looking through it): its texture and quad first, in a batch of its own.
+    const bool photo = preparePhoto(rhi, cb, target);
     lod_->item = nullptr;  // (the line path sets it: prepareLod)
     lodStats_.on = false;
     rhi_ = rhi;
@@ -1107,7 +1218,8 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
                                             static_cast<float>(std::max(size.height(), 1)));
     // The lookdev path: its targets and pipelines first (the HDR pass's descriptor is known
     // then, and the items' pipelines for it follow), the strands its own to draw.
-    bool lookdev = lookdevWanted_ && LookdevRenderer::supported(rhi) && lookdev_.prepare(rhi, cb, target);
+    // (A photo behind: the line path, over it; the lookdev's backdrop is opaque.)
+    bool lookdev = lookdevWanted_ && !(photo && !photo_.front) && LookdevRenderer::supported(rhi) && lookdev_.prepare(rhi, cb, target);
     if (lookdev) ensurePipelines(rhi, lookdev_.hdrPassDescriptor(), lookdev_.hdrSampleCount(), hdr_);
     const auto strandsIndex = static_cast<std::size_t>(DisplayItemId::Strands);
     const QMatrix4x4 hdrMvp = lookdev ? lookdev_.jitter(size) * mvp : mvp;
@@ -1124,18 +1236,22 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
     // these copies.
     prepare(*scalp_, !showScalp_ || lookdev);
     for (auto& item : propItems_) prepare(*item, lookdev);
-    for (std::size_t i = 0; i < items_.size(); ++i) prepare(*items_[i], lookdev && i == strandsIndex);
-    prepare(*dots_, false);
+    // (The groom hidden: none of its items, nor the guide dots.)
+    const bool groom = groomShown_;
+    for (std::size_t i = 0; i < items_.size(); ++i) prepare(*items_[i], (lookdev && i == strandsIndex) || !groom);
+    prepare(*dots_, !groom);
     prepare(*tool_, false);
     // The GPU preview's run, once this frame's uploads are recorded (its targets exist) and
     // before anything draws them.
     runGpuPreview(rhi, lookdev);
     // The overlays over everything, in order: the frame's, the guide dots, the tools'.
     auto drawOverlays = [&](QRhiCommandBuffer* passCb) {
-        for (auto& item : items_) {
-            if (item->shown && isOverlay(item->kind)) draw(passCb, *item, main_, false);
+        if (groom) {
+            for (auto& item : items_) {
+                if (item->shown && isOverlay(item->kind)) draw(passCb, *item, main_, false);
+            }
+            if (dots_->shown) draw(passCb, *dots_, main_, false);
         }
-        if (dots_->shown) draw(passCb, *dots_, main_, false);
         if (tool_->shown) draw(passCb, *tool_, main_, false);
     };
 
@@ -1149,7 +1265,7 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
             passViewport_ = lookdev_.passViewport();  // the HDR pass's (a reduced frame's corner)
             for (std::size_t i = 0; i < items_.size(); ++i) {
                 const GpuItem& item = *items_[i];
-                if (item.shown && i != strandsIndex && !isOverlay(item.kind)) draw(passCb, item, hdr_, true);
+                if (groom && item.shown && i != strandsIndex && !isOverlay(item.kind)) draw(passCb, item, hdr_, true);
             }
         };
         lookdevActive_ = lookdev_.render(rhi, cb, target, camera, hdrMvp, depthItems);
@@ -1160,6 +1276,7 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
         cb->setViewport(passViewport_);
         lookdev_.composite(cb, passViewport_);
         ++drawCalls_;
+        if (photo) drawPhoto(cb);  // (in front: behind takes the line path)
         drawOverlays(cb);
         cb->endPass();
         return;
@@ -1170,7 +1287,7 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
         // (the GPU preview's run, if any, waits for a frame where the lines are drawn as such).
         batch = rhi->nextResourceUpdateBatch();
         GpuItem& strands = *items_[strandsIndex];
-        if (strands.shown) {
+        if (strands.shown && groom) {
             upload(rhi, batch, strands);
             writeUniforms(batch, strands, mvp, eye, size, false, pixelScale);
         }
@@ -1191,20 +1308,22 @@ void GroomRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget* t
     cb->beginPass(target, QColor::fromRgbF(bg.redF(), bg.greenF(), bg.blueF(), 1.0f), {1.0f, 0}, batch);
     passViewport_ = QRhiViewport(0, 0, static_cast<float>(size.width()), static_cast<float>(size.height()));
     cb->setViewport(passViewport_);
+    if (photo && !photo_.front) drawPhoto(cb);  // the backdrop
     if (showScalp_ && scalp_->shown) draw(cb, *scalp_, main_, false);
     for (auto& item : propItems_) {
         if (item->shown) draw(cb, *item, main_, false);
     }
     // The builder's order is the drawing order: hair, instances, then the overlays over them.
     for (auto& item : items_) {
-        if (!item->shown || isOverlay(item->kind)) continue;
+        if (!groom || !item->shown || isOverlay(item->kind)) continue;
         if (item.get() == lod_->item) {
             drawLod(cb, false);
         } else {
             draw(cb, *item, main_, false);
         }
     }
-    drawLod(cb, true);  // (the blendable segments' blended fragments, after everything, depth not written)
+    if (groom) drawLod(cb, true);  // (the blendable segments' blended fragments, after everything, depth not written)
+    if (photo && photo_.front) drawPhoto(cb);  // over the strands and the meshes, under the overlays
     drawOverlays(cb);
     cb->endPass();
 }

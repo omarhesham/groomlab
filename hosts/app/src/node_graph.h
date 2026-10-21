@@ -12,9 +12,12 @@
 //   left drag on empty space       a rubber band: the nodes it touches are selected (with Ctrl or
 //                                  Shift: added); a click there deselects (as Maya's Graph Editor)
 //   middle drag, wheel             pan, zoom
-//   Alt + any button, Alt + wheel  the camera, as everywhere (the events go to the viewport)
+//   Alt + any button, Alt + wheel  over the viewport: the camera, as everywhere (the events go to
+//                                  the viewport); docked: Alt+left or middle drag pans, Alt+right
+//                                  drag zooms (right or down zooms in), as Maya's Graph Editor
 //   click a node, drag it          selects it (its params open in a floating panel), moves it (the
-//                                  whole selection when it is one of them)
+//                                  whole selection when it is one of them); a lone unwired node
+//                                  dropped on a wire goes into it (the wire lights up first)
 //   Ctrl+click, Shift+click        toggles a node in the selection, adds it
 //   drag from an output port       a new wire; dropped on an input, it connects (replacing what
 //                                  fed it); a drag from a fed input picks that wire up instead
@@ -24,10 +27,9 @@
 //   click a wire                   selects it; Delete removes it
 //   double-click a node            renames it (a glass prompt); a Compound opens instead: its
 //                                  nodes back in the graph (Ungroup)
-//   right-click                    a node's menu (Rename, Duplicate, Set as Output, View Up to
-//                                  Here, Bypass, Frame, Copy, Group, Ungroup, Add Backdrop,
-//                                  Delete), a backdrop's (Rename, Color, Delete) or the canvas's
-//                                  (Add node, Paste, Add Backdrop, Tidy layout, Frame all)
+//   right-click                    a node's menu, a backdrop's or the canvas's: the host fills
+//                                  them (setMenuFiller: graph_ui.json's nodeMenu, backdropMenu,
+//                                  addMenu, as Maya's Graph Editor)
 //   a backdrop's title bar         click selects it, drag moves it with the nodes on it; its
 //                                  corner grip resizes it; double-click renames it; Delete
 //                                  removes it (as Maya's Graph Editor's backdrops)
@@ -41,9 +43,10 @@
 //   Ctrl+L                         tidies the layout (every position dropped, laid out afresh)
 //   Ctrl+G, Ctrl+Shift+G           groups the selected nodes into a Compound (GraphEdit::collapse,
 //                                  Maya's Graph Editor's too), ungroups the selected Compounds
-//   Tab                            the add-node search at the cursor (Enter adds, connected after
-//                                  the selected node when their ports match; Escape closes),
-//                                  ranked as Maya's (nodeSearchRank), each type by its label
+//   Tab                            the add-node search at the cursor (Enter adds, into the wire
+//                                  under the cursor, else after the selected node when their
+//                                  ports match; Escape closes), ranked as Maya's (nodeSearchRank),
+//                                  each type by its label, the groom's painted maps after them
 //   F                              frames the selected node (none: the whole graph), as Maya's
 //   A                              frames the whole graph
 //   Escape                         closes the search, else hides the graph
@@ -74,6 +77,7 @@
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QMenu;
 class QTimer;
 
 namespace groomlab::app {
@@ -98,7 +102,10 @@ public:
     explicit NodeGraphView(QWidget* parent = nullptr);
 
     void setDocument(GroomDocument* document);  // null: nothing to draw
-    void setViewport(Viewport* viewport);       // where Alt-drags go
+    GroomDocument* document() const { return document_; }
+    // Where Alt-drags go when the graph lies over the viewport; none (the Graph Editor dock):
+    // an Alt-drag pans the graph, as Maya's.
+    void setViewport(Viewport* viewport);
     // The document's graph changed (an edit, undo, another graph): the cards follow it.
     void refresh();
     // The current node (the one whose params show): the last one clicked of the selection.
@@ -110,23 +117,66 @@ public:
     void setSelection(const std::vector<std::string>& names);
     // The rubber band over a view rectangle, as a drag on empty space makes it (`add`: Ctrl, Shift).
     void selectInRect(const QRectF& widgetRect, bool add);
+    // A (Frame All): the whole graph fitted, zoomed in no further than 1:1 and out no further than
+    // kReadableScale (a longer graph centered at that size: pan for its ends), as Maya's frame_all.
     void fitAll();
+    // The view a graph opens at (and keeps while the dock is resized, until panned or zoomed): the
+    // whole graph when it fits at a readable size, else a readable zoom on its look end (from the
+    // Interpolate node to the Output, or the Output near the right edge), as Maya's frame_readable.
+    void frameReadable();
+    // The least zoom the view frames at: node names and port labels stay readable in a short dock.
+    static constexpr qreal kReadableScale = 0.8;
     // F: the selected node framed (zoomed in no further than 1:1); none selected: fitAll.
     void frameSelected();
+    // The view panned (the zoom kept) just enough to show a node's card whole (a node picked
+    // from a list or a script); nothing when it shows already.
+    void bringIntoView(const std::string& node);
     qreal viewScale() const { return scale_; }  // scene to widget: widget = scene * viewScale + viewPan
     QPointF viewPan() const { return pan_; }
+    QPointF sceneAt(const QPointF& view) const { return toScene(view); }  // a view point in scene units
     // What fitAll keeps clear around the graph (the chrome over the view); unchanged margins
     // change nothing (the view stays where it was panned).
     void setFitMargins(const QMargins& margins);
     QMargins fitMargins() const { return fitMargins_; }
-    void openSearch();                         // at the cursor (off the view: its middle)
-    void openSearchAt(const QPointF& where);   // at a point of the view
+    // The add-node search at the cursor (off the view: its middle), or at a point of the view. Over
+    // a wire, the node it adds goes into that wire (Maya's Tab on a wire).
+    void openSearch();
+    void openSearchAt(const QPointF& where);
     void closeSearch();
     bool searchOpen() const;
     void setSearchText(const QString& text);  // as typed into the open search
-    // The search's rows as shown ("<label>    <category>") and their types, best first.
+    void acceptSearch();                      // as Enter does: the current row added
+    // The search's rows as shown ("<label>    <category>") and their types, best first: the node
+    // types, and the groom's painted maps ("map:<name>", Maya's MAP_ENTRY: a Map node reading it).
     QStringList searchRows() const;
     std::vector<std::string> searchTypes() const;
+    static constexpr const char* kMapEntry = "map:";
+    // The wire the open search adds into (-1 none: the search was opened off any wire).
+    int searchWire() const { return searchWire_; }
+    // A node of `type` added at `at` (scene units; NaN: the view's middle, or beside `after`), as
+    // the Add Node menu, the search and the library add one: wired after the current node when
+    // `wire` (into its first link the new node fits, else fed by it), into wire `onWire` when given
+    // (-1 none); `params` its params (null: the defaults), `name` its name (made unique; "" the
+    // type's). Selected after; the name made ("" refused, said).
+    std::string addNodeOfType(const std::string& type, const QPointF& at, bool wire, int onWire = -1,
+                              const nlohmann::json& params = nlohmann::json(), const std::string& name = {});
+    // A wire's link by index (from, output, to, input: the output "" for a node's first).
+    bool wireLink(int index, std::string* from, std::string* output, std::string* to, std::string* input) const;
+    // The wire a dragged node lies over (not one of its own), the one nearest its middle; -1 none.
+    int wireUnderNode(int node) const;
+    // While a lone unwired node is dragged: the wire it would go into when dropped (-1 none).
+    int dropWire() const { return dropWire_; }
+
+    // ---- The right-click menus: the host fills them (the shared definitions, graph_ui.json) ------
+    enum class MenuTarget { Canvas, Node, Backdrop };
+    // `menu` filled for what was right-clicked: a node (selected by then: the menu's actions act on
+    // the selected node), a backdrop (selected) or the canvas; `at` the click in view coordinates.
+    using MenuFiller = std::function<void(QMenu* menu, MenuTarget target, const QPointF& at)>;
+    void setMenuFiller(MenuFiller filler) { menuFiller_ = std::move(filler); }
+    // What a right-click at `at` (view coordinates) selects and the menu it gets, filled into
+    // `menu` without showing it (contextMenuEvent shows it; tests read it).
+    MenuTarget fillContextMenu(QMenu* menu, const QPointF& at);
+    QPointF menuPoint() const { return menuPoint_; }  // where the last menu was asked (view coordinates)
     QString searchAbout() const;  // the line under the list: the current row's description
     int nodeCount() const { return static_cast<int>(nodes_.size()); }
     int backdropCount() const { return static_cast<int>(backdrops_.size()); }
@@ -153,8 +203,6 @@ public:
     // (node, port) by index: "" when they fit.
     QString wireHint() const { return wireHint_; }
     QString connectionProblem(int fromNode, int fromPort, int toNode, int toPort) const;
-    // Pans so the current node is not under `area` (view coordinates: the Node panel), when it is.
-    void keepSelectedClearOf(const QRect& area);
     // A node's card in view coordinates (empty for an unknown name).
     QRectF nodeRect(const std::string& node) const;
     // A wire's path as drawn, scene units (tests: a backward link loops under its nodes).
@@ -222,7 +270,8 @@ signals:
     void selectionChanged(const std::string& node);
     // The graph changed through this view: the host evaluates and refreshes what shows it.
     void edited();
-    void message(const QString& text);
+    void message(const QString& text);  // an error (refused edits)
+    void status(const QString& text);   // what an edit did (the Graph Editor's status line)
     void hideRequested();
     // View Up to Here changed: the host evaluates the graph up to that node ("" the output).
     void viewNodeChanged(const std::string& node);
@@ -270,7 +319,7 @@ private:
         QRectF rect;  // scene units
         QColor color;
     };
-    enum class Drag { None, Pan, Move, Wire, Camera, Band, Backdrop, BackdropResize };
+    enum class Drag { None, Pan, Zoom, Move, Wire, Camera, Band, Backdrop, BackdropResize };
 
     void rebuild();      // nodes_, wires_ and backdrops_ from the document
     void autoLayout();   // positions for nodes the document gives none
@@ -338,6 +387,9 @@ private:
     QPointF pan_;
     QMargins fitMargins_{60, 90, 60, 100};
     bool fitted_ = false;
+    // The view panned, zoomed or framed by hand since the graph was fitted: a resize (the Graph
+    // Editor's dock dragged) keeps it; untouched, a resize fits the graph again.
+    bool viewTouched_ = false;
     Drag drag_ = Drag::None;
     QPointF last_;        // widget units
     QPointF pressScene_;  // where the press was
@@ -347,6 +399,14 @@ private:
     int dragWireFrom_ = -1, dragWirePort_ = -1;
     int dragWireInputNode_ = -1, dragWireInputPort_ = -1;
     QPointF dragWireTo_;  // scene units
+    // An Alt+right-drag zoom: the scene point pressed stays under the press, the zoom when it began.
+    QPointF zoomPress_, zoomAnchor_;
+    qreal zoomStart_ = 1.0;
+    bool zoomEnded_ = false;  // the right button's release ended a zoom: no menu
+    int dropWire_ = -1;       // the wire a dragged lone node would go into
+    int searchWire_ = -1;     // the wire the open search adds into
+    MenuFiller menuFiller_;
+    QPointF menuPoint_;
     // The add-node search.
     GlassPanel* search_ = nullptr;
     QLineEdit* searchEdit_ = nullptr;

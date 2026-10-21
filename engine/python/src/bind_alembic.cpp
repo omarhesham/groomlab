@@ -37,12 +37,18 @@ void bindAlembic(py::module_& m) {
 
     py::class_<UnrealGroomWriter>(m, "UnrealGroomWriter",
                                   "Writes a groom in Unreal Engine's Alembic groom conventions: strands, optional guides, "
-                                  "groom_id, groom_width and groom_root_uv (with scalp UVs).")
-        .def(py::init([](const std::string& path, const std::string& name, const std::string& group, double start, double step) {
-                 return std::make_unique<UnrealGroomWriter>(path, name, group, start, step);
+                                  "groom_id, groom_width and groom_root_uv (with scalp UVs). The points and widths go in "
+                                  "Unreal's space (Z up, left-handed, centimeters) from the groom's: `up_axis` \"Y\" "
+                                  "(x, y, z) -> (x, z, y), \"Z\" -> (x, -y, z), times `centimeters_per_unit`, so the "
+                                  "importer's default conversion lines it up with an FBX of the same scene.")
+        .def(py::init([](const std::string& path, const std::string& name, const std::string& group, double start, double step,
+                         const std::string& upAxis, double centimetersPerUnit) {
+                 auto w = std::make_unique<UnrealGroomWriter>(path, name, group, start, step);
+                 w->setSourceSpace(upAxis, centimetersPerUnit);
+                 return w;
              }),
              py::arg("path"), py::arg("name"), py::arg("group_name"), py::arg("start_seconds") = 0.0,
-             py::arg("seconds_per_frame") = 1.0 / 24.0)
+             py::arg("seconds_per_frame") = 1.0 / 24.0, py::arg("up_axis") = "Y", py::arg("centimeters_per_unit") = 1.0)
         .def("write_frame", &UnrealGroomWriter::writeFrame, py::arg("strands"), py::arg("guides") = nullptr, py::arg("scalp") = nullptr,
              py::call_guard<py::gil_scoped_release>())
         .def("frame_count", &UnrealGroomWriter::frameCount)

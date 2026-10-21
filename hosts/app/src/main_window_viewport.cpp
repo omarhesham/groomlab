@@ -17,10 +17,11 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QLabel>
+#include <QLocale>
 #include <QSignalBlocker>
 #include <QTimer>
 
-#include "brush_panel.h"
+#include "groom_tools.h"
 #include "cards_panel.h"
 #include "export_panel.h"
 #include "glass.h"
@@ -40,7 +41,7 @@ void MainWindow::refreshSurfaces() {
     for (const SurfacePtr& p : props_) surfaces.emplace_back(QString::fromStdString(p->name), p->material);
     updatingLook_ = true;
     look_->setSurfaces(surfaces);
-    host_->lookCard()->setSurfaces(surfaces);
+    shell_->lookCard()->setSurfaces(surfaces);
     updatingLook_ = false;
 }
 
@@ -78,6 +79,7 @@ void MainWindow::refreshDisplayChoices() {
     scaleSource_->setCurrentIndex(std::max(0, scaleSource_->findData(static_cast<int>(
                                                   document_ ? document_->session().scaleSource() : ScaleSource::Area))));
     groomScale_->setText(QString::number(document_ ? document_->session().groomScale() : 1.0, 'f', 2) + QStringLiteral("x"));
+    refreshProperties();  // the rest of the Properties dock that follows the groom
 }
 
 void MainWindow::applyDisplayOptions() {
@@ -98,7 +100,7 @@ void MainWindow::applyDisplayOptions() {
     // step aside while one is on and come back with the solid mode.
     viewport_->renderer().setLookdev(lookdevWanted_ && mode == kSolidColors);
     if (modeChanged) refreshDisplayChoices();
-    if (maps_) maps_->refresh();
+    if (maps_) maps_->invalidate();
     if (cardsChanged) reevaluate();  // the view builds the cards (ViewRequest::wantCards)
     else redisplay();
 }
@@ -260,7 +262,7 @@ bool MainWindow::saveImage(const QString& path) {
     // The view at the viewport's size; refined over frames in Look mode (what Render accumulates).
     const BusyCursor wait;
     const QSize size = viewport_->size() * viewport_->devicePixelRatioF();
-    const int frames = host_->mode() == OverlayHost::Mode::Look ? 32 : 1;
+    const int frames = shell_->mode() == OverlayHost::Mode::Look ? 32 : 1;
     const QImage image = renderOffscreen(size.isEmpty() ? QSize(1280, 720) : size, frames);
     if (image.isNull()) {
         report(tr("Cannot render the view to an image (no offscreen device)"));
@@ -331,25 +333,33 @@ void MainWindow::refreshStats() {
     const ViewResult* view = document_ ? &document_->lastView() : nullptr;
     const std::size_t strands = view && view->strands ? view->strands->strandCount() : 0;
     const bool gpu = r.lookdevActive();
+    if (strandCount_) strandCount_->setText(QLocale().toString(static_cast<qulonglong>(strands)));
+    // The guides the groom has (every level), as Maya's Strand Count HUD says them.
+    std::size_t guides = static_cast<std::size_t>(-1);
+    if (view && view->hierarchy) guides = view->hierarchy->guides().size();
+    else if (document_ && document_->session().authoredHierarchy()) guides = document_->session().authoredHierarchy()->guides().size();
+    else if (document_ && document_->file().data.guides) guides = document_->file().data.guides->guides().size();
     host_->setStats(strands, lastDabMs_ > 0.0 ? lastDabMs_ : lastEvaluateMs_, gpu ? tr("GPU") : tr("LINES"),
-                    gpu ? theme::purple() : theme::textMuted());
+                    gpu ? theme::purple() : theme::textMuted(), guides);
     const bool refining = r.lookdev() && r.lighting().quality == Quality::Refine;
     host_->setRefine(refining, r.accumulatedFrames(), std::clamp(r.lighting().refineFrames, 1, LookdevRenderer::kMaxAccumulatedFrames),
                      viewport_->lastFrameMs());
 }
 
-void MainWindow::refreshBrushBar() {
-    const BrushToolSettings& s = brush_.settings();
-    BrushBar::Values v;
-    v.mode = brush_.toolId();
-    v.radius = s.screenRadius;
-    v.strength = s.brush.strength;
-    v.hardness = s.brush.hardness;
-    v.mirrorAxis = s.brush.mirrorTopology ? 3 : s.brush.mirrorAxis;
-    v.pressure = s.pressure;
-    host_->bar()->setValues(v);
+void MainWindow::refreshTool() {
+    // The Groom Tools' tile and card follow the tool the viewport has (and the settings it uses).
     const Viewport::ToolMode mode = viewport_->toolMode();
-    host_->setTool(mode == Viewport::ToolMode::Brush ? v.mode : std::string(), mode == Viewport::ToolMode::Select);
+    shell_->setTool(mode == Viewport::ToolMode::Brush ? brush_.toolId() : std::string(), mode == Viewport::ToolMode::Select);
+}
+
+void MainWindow::setGroomVisible(bool on) {
+    if (groomVisible_ == on) return;
+    groomVisible_ = on;
+    groomTools_->setGroomVisible(on);
+    viewport_->renderer().setGroomShown(on);
+    if (headless_) headless_->renderer.setGroomShown(on);
+    if (document_) reevaluate();  // the lookdev's strands go (or come back)
+    viewport_->update();
 }
 
 void MainWindow::toggleSymmetry() {
@@ -361,8 +371,8 @@ void MainWindow::toggleSymmetry() {
     const QString shown = name == "topology" ? tr("Topology") : tr("World %1").arg(QString::fromStdString(name).toUpper());
     viewport_->syncView();
     viewport_->refreshOverlay();
-    brushPanel_->refresh();
-    refreshBrushBar();
+    groomTools_->refresh();
+    refreshTool();
     notify(on ? tr("Symmetry: %1 off").arg(shown) : tr("Symmetry: %1 on").arg(shown));
 }
 
@@ -426,6 +436,29 @@ bool MainWindow::setBrushText(const QString& text) {
         else if (name == QStringLiteral("solonewguides")) flag(&s.place.soloNewGuides);
         else if (name == QStringLiteral("attribute")) s.brush.attribute = value.toStdString();
         else if (name == QStringLiteral("value")) number(&s.brush.value);
+        else if (name == QStringLiteral("tubechannel")) s.brush.tubeChannel = tubeChannelFromString(value.toStdString());
+        else if (name == QStringLiteral("select")) {
+            // The guide selection: "all", "none" or guide IDs ("3,4,9"); a scripted run's Tubes targets.
+            ok = document_ != nullptr;
+            const HierarchyPtr h = ok ? document_->session().authoredHierarchy() : nullptr;
+            std::vector<GuideId> ids;
+            if (value.toLower() == QStringLiteral("all")) {
+                if (h) {
+                    for (const HierarchyGuide& g : h->guides()) ids.push_back(g.id);
+                }
+            } else if (value.toLower() != QStringLiteral("none")) {
+                for (const QString& word : value.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                    bool isId = false;
+                    const qulonglong id = word.trimmed().toULongLong(&isId);
+                    if (!isId || !h || !h->guide(static_cast<GuideId>(id))) ok = false;
+                    else ids.push_back(static_cast<GuideId>(id));
+                }
+            }
+            if (ok) {
+                document_->setSelection(std::move(ids));
+                redisplay();
+            }
+        }
         else ok = false;
     } catch (const std::invalid_argument& e) {
         report(tr("Cannot set the brush's %1: %2").arg(name, QString::fromUtf8(e.what())));
@@ -435,9 +468,9 @@ bool MainWindow::setBrushText(const QString& text) {
         report(tr("Cannot set the brush's %1 to %2").arg(name, value));
         return false;
     }
-    brushPanel_->refresh();
+    groomTools_->refresh();
     viewport_->refreshOverlay();
-    refreshBrushBar();
+    refreshTool();
     return true;
 }
 
@@ -615,7 +648,7 @@ void MainWindow::setToneMap(const QString& name) {
     const QString n = name.toLower();
     lighting.toneMap = n == QStringLiteral("none") ? ToneMap::None : n == QStringLiteral("agx") ? ToneMap::AgX : ToneMap::ACES;
     look_->setLighting(lighting);
-    host_->lookCard()->setLighting(lighting);
+    shell_->lookCard()->setLighting(lighting);
     applyLook();
 }
 
@@ -623,7 +656,7 @@ void MainWindow::setQuality(const QString& name) {
     LightingSetup lighting = look_->lighting();
     lighting.quality = name.compare(QStringLiteral("interactive"), Qt::CaseInsensitive) == 0 ? Quality::Interactive : Quality::Refine;
     look_->setLighting(lighting);
-    host_->lookCard()->setLighting(lighting);
+    shell_->lookCard()->setLighting(lighting);
     applyLook();
 }
 
@@ -631,7 +664,7 @@ void MainWindow::setInteractiveQuality(const QString& name) {
     LightingSetup lighting = look_->lighting();
     lighting.interactiveQuality = name.compare(QStringLiteral("full"), Qt::CaseInsensitive) == 0 ? InteractiveQuality::Full : InteractiveQuality::Adaptive;
     look_->setLighting(lighting);
-    host_->lookCard()->setLighting(lighting);
+    shell_->lookCard()->setLighting(lighting);
     applyLook();
 }
 

@@ -37,6 +37,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <dlfcn.h>
 #endif
 
 namespace groomlab::detail {
@@ -116,6 +118,12 @@ public:
         HMODULE self = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
                            reinterpret_cast<LPCWSTR>(&parallelRange), &self);
+#elif defined(__APPLE__)
+        // (macOS's linker has no -z nodelete: the image holding this code is opened once more,
+        // RTLD_NODELETE, and that reference is never closed: it stays even if a host dlcloses its own.)
+        static const char anchor = 0;
+        Dl_info image{};
+        if (dladdr(&anchor, &image) && image.dli_fname) dlopen(image.dli_fname, RTLD_LAZY | RTLD_NODELETE);
 #endif
         for (std::size_t i = 1; i < cores_; ++i) std::thread([this, i] { work(i); }).detach();
     }

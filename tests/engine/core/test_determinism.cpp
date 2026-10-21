@@ -44,6 +44,7 @@
 #include "groomlab/presets.h"
 #include "groomlab/random.h"
 #include "groomlab/scalp_mesh.h"
+#include "test_helpers.h"
 
 namespace groomlab {
 namespace {
@@ -107,6 +108,7 @@ std::uint64_t everything(const StrandSet& s) {
 struct Preset {
     std::string name;
     std::string graph;  // fitted to the reference groom's scalp
+    std::string text;   // the preset file's (what it requires)
 };
 
 // The reference groom and every shipped preset's graph fitted to it.
@@ -122,7 +124,7 @@ struct Reference {
             std::ifstream in(std::filesystem::u8path(p.path), std::ios::binary);
             std::stringstream text;
             text << in.rdbuf();
-            presets.push_back({p.name, presetGraphJson(text.str(), size)});
+            presets.push_back({p.name, presetGraphJson(text.str(), size), text.str()});
         }
     }
 };
@@ -130,6 +132,14 @@ struct Reference {
 const Reference& reference() {
     static const Reference r;
     return r;
+}
+
+// The reference groom with the preset's graph and the maps it requires (made on applying it), painted.
+GroomData dataOf(const Preset& preset) {
+    GroomData data = reference().file.data;
+    data.graphJson = preset.graph;
+    test::paintRequiredMaps(preset.text, data);
+    return data;
 }
 
 // What one evaluation made: its hash and size, or its error.
@@ -170,8 +180,7 @@ Made evaluateFresh(const GroomData& data, const std::string& directory, double s
 }
 
 Made evaluatePreset(const Preset& preset, double seconds = 0.0, bool cards = false) {
-    GroomData data = reference().file.data;
-    data.graphJson = preset.graph;
+    const GroomData data = dataOf(preset);
     return evaluateFresh(data, reference().file.directory, seconds, cards);
 }
 
@@ -260,9 +269,7 @@ TEST(Determinism, CardsAndFeathersBuildTheSameOnAnyThreadCount) {
         }
         EXPECT_EQ(one, all) << p.name;
         EXPECT_EQ(evaluatePreset(p, 0.0, true), all) << p.name << ": again";
-        GroomData data = reference().file.data;
-        data.graphJson = p.graph;
-        GroomSession session(data);
+        GroomSession session(dataOf(p));
         session.setPathResolver(searchPathResolver({reference().file.directory, kShipped}));
         const StrandsPtr strands = session.evaluate(kDensity, 0.0, true);
         if (strands) cardLayers += strands->cardLayers().size();
@@ -375,10 +382,8 @@ std::string differingParts(const json& got, const json& want) {
 TEST(Determinism, EveryPresetMakesTheRecordedBitsOnEveryPlatform) {
     json got = json::object();
     for (const Preset& p : reference().presets) {
-        GroomData data = reference().file.data;
-        data.graphJson = p.graph;
         try {
-            GroomSession session(data);
+            GroomSession session(dataOf(p));
             session.setPathResolver(searchPathResolver({reference().file.directory, kShipped}));
             const StrandsPtr strands = session.evaluate(kDensity, 0.0, true);
             got[p.name] = strands ? digests(*strands) : json{{"error", "nothing made"}};

@@ -13,9 +13,11 @@ look nodes. Short fur can be groomed without guides:
 1. Draw direction arrows on the body with the **Flow** brush ([Guides & brushes](/docs/guides-and-brushes#short-hair-without-guides)).
 2. Load the `creature_fur` preset, or build `Scatter → Length → Flow → Width`; the **Flow** node
    orients the strands along the arrows.
-3. Add guides only where you need tufts and cowlicks (the `flow_with_guides` preset), with
-   Interpolate's `limitDistance` so the guides only affect strands near them
-   ([Guide influence](/docs/node-graph#interpolate-and-guide-influence)).
+3. Add guides only where you need tufts and cowlicks: the `flow_with_guides` preset blends the
+   flow fur with the guided hair by a painted map, `guideAreas`, made black (all fur) when you apply
+   it. Paint it white in Groom Tools > Paint where the guides should take over. (Or give
+   Interpolate a `limitDistance` so the guides only affect strands near them:
+   [Guide influence](/docs/node-graph#interpolate-and-guide-influence).)
 
 - **Fur only near the guides:** Scatter's `guideRadius` keeps only roots within that distance of a
   guide, for a patch, a stripe or a mane.

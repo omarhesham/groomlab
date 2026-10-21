@@ -192,7 +192,12 @@ void writePrmanScene(const std::string& scenePath, const PrmanScene& scene, cons
         }
         s << "AttributeBegin\n  Attribute \"identifier\" \"string name\" [\"groom\"]\n" << hairNetwork(scene.hairTilt);
         s << "  Procedural2 \"DynamicLoad\" \"DSOBound\" \"string dsoname\" [\"groomlab_renderman\"] \"string filename\" ["
-          << path(scene.groomPath) << "] \"float frame\" [" << num(scene.frame) << "] \"string name\" [\"groom\"]\n";
+          << path(scene.groomPath) << "] \"float frame\" [" << num(scene.frame) << "] \"string name\" [\"groom\"]";
+        // The render overrides, as Maya's Arnold procedural takes them.
+        if (scene.density != 1.0f) s << " \"float density\" [" << num(scene.density) << "]";
+        if (scene.widthScale != 1.0f) s << " \"float widthScale\" [" << num(scene.widthScale) << "]";
+        if (scene.lengthScale != 1.0f) s << " \"float lengthScale\" [" << num(scene.lengthScale) << "]";
+        s << "\n";
         s << "AttributeEnd\nWorldEnd\nFrameEnd\n";
     }
 

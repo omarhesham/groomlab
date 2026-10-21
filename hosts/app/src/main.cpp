@@ -34,7 +34,7 @@
 // it with its floating UI after the first frame and quits (no dialog ever opens). --display
 // sets the display options (strand colors, the map on the scalp, the guides, the card view).
 // --theme picks this run's theme (View > Theme saves one for every start; scripted runs use the
-// default, Playful, unless --theme says otherwise).
+// default, Charcoal, unless --theme says otherwise).
 
 #include <algorithm>
 #include <cstdio>
@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
     int benchmarkOrbit = 0;
     bool drawDabs = false;
     int gpuPreview = -1;  // -1: the preference
-    QString uiScreenshot, uiMode, uiPanel, uiLookTab, uiNode, uiHover, uiPreset, uiMenu, uiPrompt, uiPaintParam, uiSearch, themeName;
+    QString uiScreenshot, uiMode, uiPanel, uiLookTab, uiNode, uiHover, uiPreset, uiMenu, uiPrompt, uiPaintParam, uiSearch, themeName, uiTheme;
     bool hasUiSearch = false;
     bool uiGraph = false;
     QStringList sets, displays;
@@ -321,6 +321,8 @@ int main(int argc, char** argv) {
             uiMenu = QString::fromLocal8Bit(argv[++i]);
         } else if (std::strcmp(arg, "--ui-prompt") == 0 && hasValue) {
             uiPrompt = QString::fromLocal8Bit(argv[++i]);
+        } else if (std::strcmp(arg, "--ui-theme") == 0 && hasValue) {
+            uiTheme = QString::fromLocal8Bit(argv[++i]);  // switched live once the window is up (GroomLab > Theme)
         } else if (std::strcmp(arg, "--ui-search") == 0 && hasValue) {
             uiSearch = QString::fromLocal8Bit(argv[++i]);
             hasUiSearch = true;
@@ -420,8 +422,8 @@ int main(int argc, char** argv) {
                         "                [--display name=value]... [--theme charcoal|playful|polar|studio]\n"
                         "                [--ui-screenshot out.png [--ui-mode groom|look|cards|export] [--ui-graph] [--ui-panel name]\n"
                         "                                         [--ui-look-tab material|lighting|render[,more]] [--ui-node name]\n"
-                        "                                         [--ui-hover rail|panels|all|labels] [--ui-preset name] [--ui-menu presets]\n"
-                        "                                         [--ui-prompt unsaved|reload|info|error]\n"
+                        "                                         [--ui-hover rail|panels|all|labels] [--ui-preset name] [--ui-menu presets|add|edit|node|groups|editguides|maps|convert|correctives|marking|bar:Menu/Submenu]\n"
+                        "                                         [--ui-prompt unsaved|reload|info|error|autosave] [--ui-theme name]\n"
                         "                                         [--ui-paint-param node.param]]\n"
                         "surface presets: clay, scalp, plastic, metal, skin, skin light, skin dark, eye brown, eye blue, eye green\n"
                         "display options: colorMode (solid, colorset, attribute, random, clump, density), colorSource, colorMin,\n"
@@ -430,7 +432,8 @@ int main(int argc, char** argv) {
                         "brush settings: mode (comb, smooth, slide, lift, length, cut, curl, twist, straighten, attract,\n"
                         "                clump, paint, tube, erase, place, draw, part, flow, freeze), radius (px), strength, hardness,\n"
                         "                symmetry (x|y|z|none), symmetryCenter, level, group, pressure, maskByScalp, selectedOnly,\n"
-                        "                collide, stretch, sculptDensity, length, spacing, attribute, value\n");
+                        "                collide, stretch, sculptDensity, length, spacing, attribute, value,\n"
+                        "                tubeChannel (width|flatness|twist), select (all|none|guide IDs: 3,4,9)\n");
             return 0;
         } else if (arg[0] == '-') {
             std::fprintf(stderr, "GroomLab: unknown option %s\n", arg);
@@ -444,6 +447,13 @@ int main(int argc, char** argv) {
     const bool headless = !screenshot.isEmpty() || benchmark > 0 || !benchmarkDrags.isEmpty() || benchmarkOrbit > 0 || drawDabs ||
                           (writes && uiScreenshot.isEmpty());
     const bool scripted = headless || !uiScreenshot.isEmpty();  // a run no one sits at: errors end it
+    // The settings before anything reads them: GROOMLAB_SETTINGS_DIR's folder, else a run no one
+    // sits at gets a throwaway one (never the user's recent files, theme or autosaves; main_window.h).
+    const groomlab::app::RunSettings runSettings(scripted || liveBenchmark > 0);
+    if (!runSettings.valid()) {
+        std::fprintf(stderr, "GroomLab: no folder for this run's settings under %s\n", qPrintable(QDir::tempPath()));
+        return 1;
+    }
     if (!scripted && liveBenchmark <= 0) startLog();
     // The theme, before any widget takes its colors: --theme's, else the saved choice (View >
     // Theme) for a window someone sits at; scripted runs stay on the default unless asked.
@@ -481,13 +491,19 @@ int main(int argc, char** argv) {
     window.setAsyncDabs(((!scripted && !headless) || liveBenchmark > 0) && qEnvironmentVariable("GROOMLAB_APP_ASYNC_DABS") != QStringLiteral("0"));
     // A window someone sits at: its default size within the screen (a 1366x768 laptop, or 1920x1080
     // with 125-150% text, is smaller than it), centered.
-    if (!headless && uiScreenshot.isEmpty() && liveBenchmark <= 0) groomlab::app::fitWindowToScreen(&window, window.size());
+    // The docks as that window left them last time (its size and place too).
+    if (!headless && uiScreenshot.isEmpty() && liveBenchmark <= 0) {
+        groomlab::app::fitWindowToScreen(&window, window.size());
+        window.restoreLayout();
+    }
     // Someone sits at it: unsaved edits are asked about before they go, info messages toast.
     window.setInteractive(!scripted && liveBenchmark <= 0);
-    if (!scripted && liveBenchmark <= 0) window.firstRunRailLabels();
+    if (!scripted && liveBenchmark <= 0) window.restoreRailLabels();
     if (!headless) window.show();
     if (!uiMode.isEmpty() && !window.setUiMode(uiMode) && scripted) return 1;
     if (!path.isEmpty() && !window.openPath(path) && headless) return 1;
+    // A groom left with unsaved changes when GroomLab last closed (a crash): its autosave offered.
+    if (!scripted && liveBenchmark <= 0 && path.isEmpty()) window.offerAutosave();
     if (!graph.isEmpty() && !window.loadGraphFile(graph) && headless) return 1;
     for (const QString& set : sets) {
         if (set.startsWith(QStringLiteral("bypass:"))) {
@@ -604,6 +620,7 @@ int main(int argc, char** argv) {
         if (!uiPanel.isEmpty() && !window.showUiPanel(uiPanel)) return 1;
         if (!uiHover.isEmpty() && !window.setUiHover(uiHover)) return 1;
         if (!uiMenu.isEmpty() && !window.setUiMenu(uiMenu)) return 1;
+        if (!uiTheme.isEmpty() && !window.chooseTheme(uiTheme)) return 1;
         if (!uiPrompt.isEmpty() && !window.setUiPrompt(uiPrompt)) return 1;
         if (!uiLookTab.isEmpty() && !window.setUiLookTab(uiLookTab)) return 1;
         if (hasUiSearch && !window.setUiSearch(uiSearch)) return 1;

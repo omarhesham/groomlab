@@ -5,6 +5,8 @@
 #include "transfer_window.h"
 #include "main_window_internal.h"
 
+#include <algorithm>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -29,7 +31,8 @@
 #include <QFileInfo>
 #include <QTimer>
 
-#include "brush_panel.h"
+#include "definitions.h"
+#include "groom_tools.h"
 #include "card_preview.h"
 #include "cards_panel.h"
 #include "correctives_panel.h"
@@ -41,6 +44,7 @@
 #include "mesh_io.h"
 #include "node_graph.h"
 #include "overlay.h"
+#include "photos_panel.h"
 #include "param_panel.h"
 #include "viewport.h"
 
@@ -51,7 +55,7 @@ namespace groomlab::app {
 // ---- Time ------------------------------------------------------------------------------------------
 
 void MainWindow::refreshTimeline() {
-    Timeline* timeline = host_->timeline();
+    Timeline* timeline = shell_->timeline();
     const bool animated = document_ && document_->animated();
     if (animated) {
         // The caches' span; a graph that reads the time without a cache (Wind, Jiggle on a
@@ -66,13 +70,13 @@ void MainWindow::refreshTimeline() {
     } else if (timeline->playing()) {
         timeline->setPlaying(false);
     }
-    host_->setTimelineShown(animated);
+    shell_->setTimelineShown(animated);
     refreshSimulation();
     refreshExportState();
 }
 
 void MainWindow::refreshSimulation() {
-    Timeline* timeline = host_->timeline();
+    Timeline* timeline = shell_->timeline();
     const bool shown = document_ && !document_->simulateNodes().empty();
     timeline->setSimulationShown(shown);
     if (!shown) return;
@@ -99,7 +103,7 @@ bool MainWindow::runSimulation(double lastFrame, bool bake) {
         report(tr("The graph has no Simulate node: add one between the guides and Interpolate"));
         return false;
     }
-    Timeline* timeline = host_->timeline();
+    Timeline* timeline = shell_->timeline();
     if (timeline->playing()) timeline->setPlaying(false);
     const double last = lastFrame >= 0.0 ? lastFrame : timeline->last();
     timeline->setSimulationBusy(true);
@@ -158,7 +162,7 @@ void MainWindow::showFrame(double frame) {
     reevaluate(true);
     ++shownFrames_;
     refreshExportState();
-    correctives_->refresh();  // a shot sculpt records at the frame shown
+    correctives_->frameChanged();  // a shot sculpt records at the frame shown
 }
 
 bool MainWindow::setFrame(double frame) {
@@ -167,7 +171,7 @@ bool MainWindow::setFrame(double frame) {
         return false;
     }
     document_->setFrame(frame);
-    host_->timeline()->setFrame(frame);
+    shell_->timeline()->setFrame(frame);
     reevaluate();
     refreshExportState();
     return true;
@@ -188,12 +192,12 @@ bool MainWindow::setFollowScalp(bool on) {
 // ---- Cards -----------------------------------------------------------------------------------------
 
 void MainWindow::setShowCards(bool on) {
-    host_->cardsPanel()->setShowCards(on);
+    shell_->cardsPanel()->setShowCards(on);
     reevaluate();
 }
 
 void MainWindow::refreshCards() {
-    CardsPanel* panel = host_->cardsPanel();
+    CardsPanel* panel = shell_->cardsPanel();
     if (!document_) {
         panel->setStats(0, 0, 0, false);
         return;
@@ -210,7 +214,7 @@ void MainWindow::refreshCards() {
 
 void MainWindow::bakeCards() {
     if (!document_) return;
-    CardsPanel* panel = host_->cardsPanel();
+    CardsPanel* panel = shell_->cardsPanel();
     bakeCardsTo(QString::fromStdString(document_->defaultBakeDirectory()), QString::fromStdString(document_->defaultBakeName()),
                 panel->bakeResolution(), panel->bakeOcclusion());
 }
@@ -233,7 +237,7 @@ bool MainWindow::bakeCardsTo(const QString& directory, const QString& name, int 
         files = document_->bakeCards(dir, base, resolution, occlusion);
     } catch (const std::exception& e) {
         report(tr("Cannot bake the cards: %1").arg(QString::fromUtf8(e.what())));
-        host_->cardsPanel()->setBakeStatus(tr("Bake failed: %1").arg(QString::fromUtf8(e.what())));
+        shell_->cardsPanel()->setBakeStatus(tr("Bake failed: %1").arg(QString::fromUtf8(e.what())));
         return false;
     }
     notify(tr("Baked %1 cards (%2 textures) at %3 px in %4 ms to %5")
@@ -248,9 +252,9 @@ bool MainWindow::bakeCardsTo(const QString& directory, const QString& name, int 
     cardSurface_.reset();
     cardSurfaceMap_.clear();
     applyProps();
-    host_->cardsPanel()->setShowCards(true);
+    shell_->cardsPanel()->setShowCards(true);
     reevaluate();
-    host_->cardsPanel()->refresh();
+    shell_->cardsPanel()->refresh();
     refreshCards();
     return true;
 }
@@ -258,8 +262,8 @@ bool MainWindow::bakeCardsTo(const QString& directory, const QString& name, int 
 // ---- Exports ----------------------------------------------------------------------------------------
 
 void MainWindow::refreshExportState() {
-    ExportPanel* panel = host_->exportPanel();
-    const Timeline* timeline = host_->timeline();
+    ExportPanel* panel = shell_->exportPanel();
+    const Timeline* timeline = shell_->timeline();
     const bool animated = document_ && document_->animated();
     panel->setDocumentState(document_ != nullptr, document_ ? document_->frame() : 1.0, animated,
                             animated ? timeline->first() : 1.0, animated ? timeline->last() : 1.0,
@@ -272,12 +276,12 @@ bool MainWindow::setExportTarget(const QString& target) {
         report(tr("No export target '%1' (alembic, usd, vrscene, unreal, unity, cards, maps)").arg(target));
         return false;
     }
-    host_->exportPanel()->setTarget(t);
+    shell_->exportPanel()->setTarget(t);
     return true;
 }
 
 void MainWindow::runExport() {
-    ExportPanel* panel = host_->exportPanel();
+    ExportPanel* panel = shell_->exportPanel();
     if (!document_ || panel->busy()) return;
     const QString path = panel->outputPath();
     if (path.isEmpty()) {
@@ -294,7 +298,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
         report(tr("No groom open to export to %1").arg(path));
         return false;
     }
-    ExportPanel* panel = host_->exportPanel();
+    ExportPanel* panel = shell_->exportPanel();
     if (panel->busy()) {
         report(tr("An export is running"));
         return false;
@@ -306,7 +310,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
     }
     panel->setTarget(t);
     panel->setOutputPath(path);
-    if (host_->timeline()->playing()) host_->timeline()->setPlaying(false);  // (its frames would evaluate meanwhile)
+    if (shell_->timeline()->playing()) shell_->timeline()->setPlaying(false);  // (its frames would evaluate meanwhile)
     panel->setBusy(true);
     beginJob(tr("export"), panel->exportButton());
     // The panel's bar and the toast keep up between frames: the export runs on this thread
@@ -357,7 +361,7 @@ bool MainWindow::exportTo(const QString& target, const QString& path, const Expo
 }
 
 void MainWindow::chooseExportPath() {
-    ExportPanel* panel = host_->exportPanel();
+    ExportPanel* panel = shell_->exportPanel();
     const QString current = panel->outputPath();
     const QString path = QFileDialog::getSaveFileName(this, tr("Export"), current, tr("All files (*)"));
     if (!path.isEmpty()) panel->setOutputPath(path);
@@ -387,7 +391,7 @@ bool MainWindow::openGroom(const QString& path) {
     return true;
 }
 
-bool MainWindow::newGroomOnMesh(const QString& meshPath) {
+bool MainWindow::newGroomOnMesh(const QString& meshPath, const QString& group) {
     if (refuseWhileBusy(tr("starting a new groom"))) return false;
     try {
         working(tr("Creating the groom on %1...").arg(QFileInfo(meshPath).fileName()));
@@ -396,17 +400,19 @@ bool MainWindow::newGroomOnMesh(const QString& meshPath) {
         if (QFileInfo(meshPath).suffix().compare(QStringLiteral("abc"), Qt::CaseInsensitive) == 0) {
             setDocument(GroomDocument::newOnAlembic(meshPath.toStdString()));
         } else {
-            setDocument(GroomDocument::newOnMesh(readMeshFile(meshPath.toStdString()), meshPath.toStdString()));
+            const std::string mesh = meshPath.toStdString();
+            setDocument(GroomDocument::newOnMesh(group.isEmpty() ? readMeshFile(mesh) : readObjMesh(mesh, group.toStdString()), mesh));
         }
     } catch (const std::exception& e) {
         report(tr("Cannot make a groom on the mesh: %1 (%2)").arg(QString::fromUtf8(e.what()), meshPath));
         return false;
     }
-    rememberRecentFile(meshPath);
-    host_->setRecentFiles(recentFiles());
-    notify(tr("New groom on %1").arg(QFileInfo(meshPath).fileName()));
-    // A bald scalp: the next step on a card (pick Place, click the scalp; or a look from Presets).
-    host_->setStartHintShown(true);
+    if (group.isEmpty()) {
+        rememberRecentFile(meshPath);
+        host_->setRecentFiles(recentFiles());
+    }
+    notify(tr("New groom on %1").arg(group.isEmpty() ? QFileInfo(meshPath).fileName() : group));
+    // A bald scalp: the Groom Tools' first-groom steps say what comes next (Place some guides).
     return true;
 }
 
@@ -418,6 +424,7 @@ void MainWindow::paramDragged(bool on) {
 }
 
 void MainWindow::setDocument(std::unique_ptr<GroomDocument> document) {
+    dropAutosave();  // the old groom's: saved or let go of before another takes its place
     landDab(false);  // the old document's dab and commit go with it
     landCommit(false);
     lastRequest_.reset();
@@ -432,12 +439,21 @@ void MainWindow::setDocument(std::unique_ptr<GroomDocument> document) {
     correctives_->setDocument(nullptr);
     gpu_.setDocument(nullptr);
     maps_->setDocument(nullptr);
-    if (host_->timeline()->playing()) host_->timeline()->setPlaying(false);
-    host_->cardsPanel()->setDocument(nullptr);
+    if (shell_->timeline()->playing()) shell_->timeline()->setPlaying(false);
+    shell_->cardsPanel()->setDocument(nullptr);
     document_ = std::move(document);
     framed_ = false;
     lastDabMs_ = 0.0;
-    settings_.hiddenGuideGroups.clear();
+    settings_.hiddenGuideGroups = document_ ? document_->hiddenGroupsText() : std::string();  // (saved with the groom)
+    // The old groom's photo camera goes with it.
+    if (!lookPhoto_.isEmpty()) {
+        viewport_->camera().leaveLookThrough();
+        lookPhoto_.clear();
+    }
+    viewport_->renderer().clearPhoto();
+    if (headless_) headless_->renderer.clearPhoto();
+    photos_->setDocument(document_.get());
+    if (document_) document_->setRenderOverrides(renderOverrides_);  // (Properties > Rendering: kept across grooms)
     cardSurface_.reset();
     cardSurfaceMap_.clear();
     applyProps();
@@ -468,8 +484,8 @@ void MainWindow::setDocument(std::unique_ptr<GroomDocument> document) {
     maps_->setDocument(document_.get());
     if (transferWindow_) transferWindow_->reloadGroom();  // the new groom's scalp and markers
     if (referenceWindow_) referenceWindow_->reloadGroom();  // the new groom's scalp and photos
-    host_->cardsPanel()->setDocument(document_.get());
-    host_->cardsPanel()->setShowCards(host_->mode() == OverlayHost::Mode::Cards && document_ && !document_->cardsNodes().empty());
+    shell_->cardsPanel()->setDocument(document_.get());
+    shell_->cardsPanel()->setShowCards(shell_->mode() == OverlayHost::Mode::Cards && document_ && !document_->cardsNodes().empty());
     refreshNodes();
     refreshGroups();
     refreshTimeline();
@@ -478,7 +494,8 @@ void MainWindow::setDocument(std::unique_ptr<GroomDocument> document) {
     refreshUndoActions();
     refreshTitle();
     refreshGroomColor();
-    host_->setNodeCount(document_ ? static_cast<int>(document_->nodes().size()) : 0);
+    refreshProperties();
+    shell_->setNodeCount(document_ ? static_cast<int>(document_->nodes().size()) : 0);
     if (graphWasShown) setGraphShown(document_ != nullptr);
 }
 
@@ -490,9 +507,9 @@ ViewRequest MainWindow::viewRequest() const {
     request.sculptDensity = brush_.sculptDensity;
     // The cards are built (at full density, on the session's own card document) while they
     // show, or while Cards mode is up so its panel's numbers are live.
-    const CardsPanel* cardsPanel = host_->cardsPanel();
-    request.wantCards = settings_.cardsView || cardsPanel->showCards() || host_->mode() == OverlayHost::Mode::Cards;
-    request.cardDensity = 1.0f;
+    const CardsPanel* cardsPanel = shell_->cardsPanel();
+    request.wantCards = settings_.cardsView || cardsPanel->showCards() || shell_->mode() == OverlayHost::Mode::Cards;
+    request.cardDensity = cardDensity_;  // (Game Cards > Card Density; the bake and the export: every strand)
     // View Up to Here: the graph's result at that node (the session shows the output for a node
     // giving no strands); exports and renders build their own requests: always the output.
     if (!viewNode_.empty() && document_) {
@@ -506,7 +523,7 @@ ViewRequest MainWindow::viewRequest() const {
 void MainWindow::reevaluate(bool quiet) {
     if (!document_) return;
     ViewRequest request = viewRequest();
-    const CardsPanel* cardsPanel = host_->cardsPanel();
+    const CardsPanel* cardsPanel = shell_->cardsPanel();
     // A live stroke the GPU draws: after its press was shown, each dab's evaluation stops at
     // the Interpolate the GPU runs from (the guides alone are evaluated, the view keeps its
     // strands) and the frame runs the dab's guides through the GPU. A dab the GPU cannot take
@@ -540,8 +557,6 @@ void MainWindow::reevaluate(bool quiet) {
         scaleNoticeShown_ = s.scaleNoticeSerial();
         report(QString::fromStdString(s.scaleNotice()));
     }
-    // The first guide placed: the bald-scalp hint has done its job.
-    if (host_->startHintShown() && shown.hierarchy && !shown.hierarchy->guides().empty()) host_->setStartHintShown(false);
     const MeshPtr scalp = shown.scalp ? shown.scalp : document_->file().data.scalp;
     viewport_->setScalp(scalp);
     // The cards instead of the strands: flat (the builder's item), or textured by the last
@@ -553,15 +568,16 @@ void MainWindow::reevaluate(bool quiet) {
     settings_.drawCards = showCards && !textured;
     // The cards are judged on their own, as a game sees them; the guides belong to Groom mode
     // (Look mode shows the hair alone).
-    settings_.guides = guides_->isChecked() && !showCards && host_->mode() == OverlayHost::Mode::Groom;
-    settings_.tubes = tubes_->isChecked() && !showCards && host_->mode() == OverlayHost::Mode::Groom;
+    settings_.guides = guides_->isChecked() && !showCards && shell_->mode() == OverlayHost::Mode::Groom;
+    settings_.tubes = tubes_->isChecked() && !showCards && shell_->mode() == OverlayHost::Mode::Groom;
     // How the strands differ from the ones shown before (a dab's incremental evaluation): the
     // renderers write only those.
     const HairChanges changes{shown.strandsSerial, shown.changesBase, shown.strandsChanges};
-    viewport_->renderer().setHairStrands(showCards ? nullptr : shown.strands, shown.versions.strands, changes);
+    // (The Groom Tools' eye off: no strands.)
+    viewport_->renderer().setHairStrands(showCards || !groomVisible_ ? nullptr : shown.strands, shown.versions.strands, changes);
     if (headless_) {
         headless_->renderer.setScalp(scalp);
-        headless_->renderer.setHairStrands(showCards ? nullptr : shown.strands, shown.versions.strands, changes);
+        headless_->renderer.setHairStrands(showCards || !groomVisible_ ? nullptr : shown.strands, shown.versions.strands, changes);
     }
     if (textured) {
         if (!cardSurface_ || cardSurfaceVersion_ != shown.versions.cards || cardSurfaceMap_ != bake->preview) {
@@ -780,7 +796,8 @@ void MainWindow::guidesEdited() {
     reevaluate();
     refreshUndoActions();
     refreshGroups();
-    maps_->refresh();
+    refreshProperties();  // (Inputs > Guides)
+    maps_->invalidate();  // (a stroke: rebuilt only when what it lists changed, and only while it shows)
 }
 
 std::string MainWindow::lastNodeOfType(const char* type) const {
@@ -814,7 +831,8 @@ void MainWindow::refreshGroomColor() {
         rgb("color", color.color);
         rgb("tipColor", color.tipColor);
     }
-    host_->lookCard()->setGroomColor(color);
+    shell_->lookCard()->setGroomColor(color);
+    refreshHairColorRows();  // the Properties' Hair Color rows
 }
 
 void MainWindow::graphEdited() {
@@ -823,27 +841,55 @@ void MainWindow::graphEdited() {
     refreshUndoActions();
     refreshNodes();
     refreshGroomColor();
-    host_->setNodeCount(document_ ? static_cast<int>(document_->nodes().size()) : 0);
+    refreshStarter();  // a look node added: the first-groom step ticks
+    shell_->setNodeCount(document_ ? static_cast<int>(document_->nodes().size()) : 0);
     if (graphShown()) graph_->refresh();
     params_->refresh();
     graphParams_->refresh();
-    maps_->refresh();
+    maps_->invalidate();
+    correctives_->invalidate();  // (a Sculpt node added or gone)
+    groomTools_->refreshTubes();  // Fill Tubes and Tube Blend (the Interpolate nodes')
     refreshDisplayChoices();
-    host_->cardsPanel()->refresh();
+    shell_->cardsPanel()->refresh();
     refreshCards();
 }
 
-void MainWindow::refreshGroups() {
-    std::vector<std::string> names;
+void MainWindow::refreshStarter() {
+    // The first-groom steps (palette.starter): a guide placed; a look of the groom's own in the
+    // graph (one of palette.starter.lookTypes).
+    bool guides = false, look = false;
     if (document_) {
-        if (const HierarchyPtr h = document_->session().authoredHierarchy()) {
-            for (const GuideGroup& g : h->groups()) names.push_back(g.name);
+        if (const HierarchyPtr h = document_->session().authoredHierarchy()) guides = !h->guides().empty();
+        const ui::json& types = ui::Definitions::shipped().get("palette/starter/lookTypes");
+        for (const GroomDocument::NodeInfo& n : document_->nodes()) {
+            if (std::find(types.begin(), types.end(), n.type) != types.end()) look = true;
         }
     }
-    brushPanel_->setGroups(names);
-    brushPanel_->refresh();
-    guidesPanel_->refresh();
-    correctives_->refresh();
+    groomTools_->setStarterProgress(guides, look);
+}
+
+void MainWindow::refreshGroups() {
+    // The Groom Tools' Group choice: the groups in tree order (children under their parents).
+    std::vector<GroomTools::GroupRow> rows;
+    if (document_) {
+        if (const HierarchyPtr h = document_->session().authoredHierarchy()) {
+            const std::vector<GuideGroup>& groups = h->groups();
+            std::function<void(GroupId, int)> walk = [&](GroupId parent, int depth) {
+                for (const GuideGroup& g : groups) {
+                    if (g.parent != parent) continue;
+                    rows.push_back({g.name, depth});
+                    if (depth < 16) walk(g.id, depth + 1);
+                }
+            };
+            walk(kNoGroup, 0);
+        }
+    }
+    groomTools_->setGroups(rows);
+    groomTools_->setParts(guidesPanel_->partNames());
+    refreshStarter();
+    groomTools_->refresh();
+    guidesPanel_->invalidate();
+    correctives_->invalidate();
 }
 
 void MainWindow::askReload() {
@@ -887,6 +933,8 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         return;
     }
     if (closing_ || !interactive_ || !document_ || !document_->dirty()) {
+        if (interactive_) saveLayout();  // the docks as they are, for the next start
+        dropAutosave();                  // (saved, discarded, or nothing to keep)
         QMainWindow::closeEvent(event);
         return;
     }
@@ -1025,6 +1073,12 @@ ReferenceWindow* MainWindow::openReferenceWindow() {
     if (!referenceWindow_) {
         referenceWindow_ = new ReferenceWindow(this, this);  // a window of its own (Qt::Window), owned here
         connect(referenceWindow_, &ReferenceWindow::guidesChanged, this, [this] { guidesEdited(); });
+        // Its edits (landmarks, a solved camera) show in the Photos tab and through the photo.
+        connect(referenceWindow_, &ReferenceWindow::photosStored, this, [this] {
+            photos_->refresh();
+            refreshPhotoBackdrop();
+            refreshTitle();
+        });
         fitWindowToScreen(referenceWindow_, referenceWindow_->size());  // a small screen: within it
     } else {
         referenceWindow_->reloadGroom();
@@ -1128,6 +1182,7 @@ void MainWindow::save() {
     }
     try {
         document_->save(document_->path());
+        dropAutosave();
         notify(tr("Saved %1").arg(QFileInfo(QString::fromStdString(document_->path())).fileName()));
     } catch (const std::exception& e) {
         report(tr("Cannot save: %1. Try Save As to another folder").arg(QString::fromUtf8(e.what())));
@@ -1143,6 +1198,9 @@ void MainWindow::saveAs() {
     if (!path.endsWith(QStringLiteral(".groom"), Qt::CaseInsensitive)) path += QStringLiteral(".groom");
     try {
         document_->save(path.toStdString());
+        dropAutosave();
+        rememberRecentFile(path);
+        host_->setRecentFiles(recentFiles());
         notify(tr("Saved %1").arg(QFileInfo(path).fileName()));
     } catch (const std::exception& e) {
         report(tr("Cannot save: %1. Try Save As to another folder").arg(QString::fromUtf8(e.what())));

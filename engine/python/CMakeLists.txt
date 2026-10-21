@@ -31,10 +31,26 @@ if(_maya_python_h)
         set(Python_EXECUTABLE "${MAYA_LOCATION}/bin/mayapy${CMAKE_EXECUTABLE_SUFFIX}" CACHE FILEPATH "" FORCE)
         if(WIN32)
             set(Python_LIBRARY "${MAYA_LOCATION}/lib/python${_py_xy}.lib" CACHE FILEPATH "" FORCE)
+        elseif(APPLE)
+            # (macOS: the module links no libpython: pybind11 leaves Python's symbols to the process.)
         elseif(_py_xy STREQUAL "37")
             set(Python_LIBRARY "${MAYA_LOCATION}/lib/libpython3.7m.so" CACHE FILEPATH "" FORCE)
         else()
             set(Python_LIBRARY "${MAYA_LOCATION}/lib/libpython${_py_major}.${_py_minor}.so" CACHE FILEPATH "" FORCE)
+        endif()
+    elseif(APPLE)
+        # macOS: a module links no libpython (pybind11 leaves Python's symbols to the process that
+        # imports it: -undefined dynamic_lookup), so the devkit's headers and an interpreter of their
+        # minor version are all it takes: the Maya install's mayapy (GROOMLAB_MAYA_APP/bin/mayapy),
+        # else GROOMLAB_PYTHON_ROOT's bin/python3.x (a python.org or Homebrew Python of that version).
+        if(GROOMLAB_MAYA_APP AND EXISTS "${GROOMLAB_MAYA_APP}/bin/mayapy")
+            set(Python_EXECUTABLE "${GROOMLAB_MAYA_APP}/bin/mayapy" CACHE FILEPATH "" FORCE)
+        elseif(GROOMLAB_PYTHON_ROOT)
+            set(Python_EXECUTABLE "${GROOMLAB_PYTHON_ROOT}/bin/python${_py_major}.${_py_minor}" CACHE FILEPATH "" FORCE)
+        else()
+            message(FATAL_ERROR "The Maya devkit at ${MAYA_LOCATION} has Python ${_py_major}.${_py_minor}'s headers: set "
+                                "GROOMLAB_MAYA_APP (Maya.app/Contents, for its mayapy) or GROOMLAB_PYTHON_ROOT to a "
+                                "Python ${_py_major}.${_py_minor} (docs/MACOS.md)")
         endif()
     else()
         if(NOT GROOMLAB_PYTHON_ROOT)
@@ -49,6 +65,9 @@ if(_maya_python_h)
                                 "it must be a CPython ${_py_major}.${_py_minor}, the devkit's")
         endif()
     endif()
+elseif(APPLE AND GROOMLAB_MAYA_APP AND EXISTS "${GROOMLAB_MAYA_APP}/bin/mayapy")
+    # A macOS devkit without Python's headers: mayapy's own (the Python.framework inside Maya.app).
+    set(Python_EXECUTABLE "${GROOMLAB_MAYA_APP}/bin/mayapy" CACHE FILEPATH "" FORCE)
 endif()
 
 set(PYBIND11_FINDPYTHON ON)

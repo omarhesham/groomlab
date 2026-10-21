@@ -28,7 +28,10 @@ def export_unreal_groom(groom, path, start=None, end=None, step=1.0, density=1.0
     """Alembic for Unreal Engine's groom importer: strands and primary guides with groom_* attributes.
 
     One frame (the default: the current one) is a static groom; a range makes
-    a groom cache. Import in Unreal with Import > the .abc file (Groom).
+    a groom cache. The points are written in Unreal's space (Z up, left-handed, centimeters) from
+    the scene's up axis, as Unreal's FBX importer turns this scene's meshes: import the .abc in
+    Unreal (Groom) with the default conversion settings (Rotation 0, Scale 1) and it lines up with
+    the head's FBX; bind it to the skeletal mesh with a Groom Binding.
 
     groups: "auto" (default) writes each groom group as a curves object of its own, with its
       groom_group_id and groom_group_name: the hair is group 0 (named after the groom), each
