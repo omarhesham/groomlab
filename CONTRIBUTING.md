@@ -9,10 +9,27 @@ Thanks for helping. Bug reports, presets, docs fixes and code are all welcome.
 - **Bigger changes** (a new node, a file-format change, a new host): open an issue first so we can
   agree on the shape before you write it.
 
+## Branches
+
+- **`dev`** is where work happens: open pull requests against `dev`.
+- **`main`** holds released versions only. A release merges `dev` into `main` and tags it
+  (`v0.24.0`); the website deploys from `main`, so it always matches the published downloads.
+- There is no CI: a maintainer builds and runs the tests for each pull request before merging,
+  so say in the description what you built and which tests you ran.
+
 ## Making a change
 
 1. Build and test as [BUILDING.md](BUILDING.md) describes. The engine-only presets
-   (`win-core`, `linux-core`) need no proprietary SDK.
+   (`win-core`, `linux-core`, `ninja-core`) need no proprietary SDK. Maya work needs the Maya
+   devkit (a free download from Autodesk) for the version you build (`ninja-maya2022`...); the
+   standalone app (`ninja-app`) needs Qt only. Run the tests for what you changed, by label:
+   `ctest --preset <preset> -L quick` always, plus `-L app`, `-L maya` or `-L blender` for those
+   hosts.
+1. GroomLab runs in Maya, Blender and the standalone app from one engine. UI that exists in
+   several hosts (menus, the Groom Tools, list menus, Graph Editor menus, Properties) is defined
+   once in `engine/ui/*.json` ([docs/UI_DEFINITIONS.md](docs/UI_DEFINITIONS.md)): change it
+   there so every host gets it, and bind any new action id in each host (the binding tests list
+   what a host has not done yet).
 2. Follow the conventions in [docs/DEVELOPING.md](docs/DEVELOPING.md), section 6 ("Rules").
    Format C++ with the repository's `.clang-format`. Stored formats change in place, with no
    migrations. Add or update tests with the change. Golden files change only for intended
