@@ -225,8 +225,7 @@ export function StrandViewport({
       <canvas
         ref={glRef}
         aria-hidden="true"
-        // The head fades out toward the bottom, like a bust, so the hair holds the eye.
-        style={{ touchAction: 'pan-y', maskImage: 'linear-gradient(to bottom, #000 58%, transparent 94%)' }}
+        style={{ touchAction: 'pan-y' }}
         className={cn(
           'absolute inset-0 block size-full cursor-grab opacity-0 transition-opacity duration-500',
           three && 'opacity-100',

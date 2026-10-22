@@ -74,12 +74,8 @@ export function TryGraph() {
     <div className="mt-14 grid gap-6 sm:mt-16 lg:grid-cols-12 lg:gap-10">
       {/* The viewport: first (and pinned under the header) on phones, beside the nodes on wide screens. */}
       <div className="sticky top-14 z-10 lg:order-2 lg:col-span-7 lg:self-start lg:top-20">
-        <div className="overflow-hidden rounded-[18px] bg-[#f6f6f8]">
-          <div className="flex h-10 items-center justify-between gap-3 border-b border-[#ebebef] px-3 font-mono text-[11.5px] text-gl-ink-2">
-            <span className="flex items-center gap-2">
-              <span aria-hidden="true" className="size-2 rounded-full bg-gl-ink" />
-              Output · persp
-            </span>
+        <div className="bg-white lg:bg-transparent">
+          <div className="flex h-8 items-center justify-end gap-3 font-mono text-[11.5px] text-gl-ink-3">
             <span className="flex items-center gap-1">
               <span className="mr-2 tabular-nums" aria-live="polite">
                 {strands} strands
@@ -92,7 +88,7 @@ export function TryGraph() {
               </IconButton>
             </span>
           </div>
-          <div className="h-[min(46svh,360px)] bg-[#fafafb] lg:h-auto lg:aspect-[7/6]">
+          <div className="h-[min(46svh,360px)] lg:h-auto lg:aspect-[7/6]">
             <StrandViewport
               params={params}
               onStats={setStats}

@@ -160,23 +160,13 @@ function OutputViewport({ live }: { live: (t: number) => Partial<StrandParams> }
   const pct = (n: NodeSpec[], vbw: number) => `${(outputX(n) / vbw) * 100}%`;
   return (
     <div className="relative">
-      <div className="overflow-hidden rounded-[18px] border border-[#e4e4e9] bg-[#f6f6f8]">
-        <div className="flex h-10 items-center justify-between gap-3 border-b border-[#ebebef] px-3.5 font-mono text-[11.5px] text-gl-ink-2">
-          <span className="flex items-center gap-2">
-            <span aria-hidden="true" className="h-4 rounded-full px-2 text-[10.5px] leading-4 font-semibold text-white" style={{ background: category.Output.hue }}>
-              Output
+      <div>
+        <div className="relative h-[min(112vw,440px)] sm:h-[clamp(420px,46vw,600px)]">
+          {count !== null && (
+            <span className="absolute right-0 bottom-0 z-10 font-mono text-[11.5px] text-gl-ink-3 tabular-nums">
+              {count.toLocaleString('en-US')} strands
             </span>
-            <span>
-              <span className="text-gl-ink">head.groom</span> · persp
-            </span>
-          </span>
-          <span className="flex items-center gap-2 tabular-nums">
-            {count !== null && <span>{count.toLocaleString('en-US')} strands</span>}
-            <span aria-hidden="true" className="live-dot size-1.5 rounded-full bg-gl-emerald" />
-            live
-          </span>
-        </div>
-        <div className="h-[min(112vw,440px)] sm:h-[clamp(420px,46vw,600px)]">
+          )}
           <StrandViewport
             params={params}
             live={live}
