@@ -602,6 +602,10 @@ public:
     // guides a hand-placed feather. *made the first design's node.
     std::string addFeathers(const std::vector<std::pair<std::string, std::string>>& designs, const std::vector<double>& weights,
                             const std::string& source, const std::string& group = "feathers", std::string* made = nullptr);
+    // The guide groups whose guides grow one feather each (the groups of the Guides nodes feeding a
+    // feather design), in the graph's order; a "feathers" group the graph does not read yet too
+    // (Maya's feather_guide_groups).
+    std::vector<std::string> featherGuideGroups();
     // A Braid node after the Interpolate, its paths guide group `group` (made when missing; draw the
     // paths in it with the Draw tool): Maya's add_braid. `style` three, fishtail, rope or cornrow.
     std::string addBraid(const std::string& style, const std::string& group = "braids", std::string* made = nullptr);

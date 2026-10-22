@@ -30,6 +30,7 @@
 #include "guarded.h"
 #include "groom_shape.h"
 #include "groomlab/curve.h"
+#include "groomlab/display.h"
 #include "groomlab/guide_hierarchy.h"
 #include "groomlab/guide_set.h"
 #include "groomlab/guide_selection.h"
@@ -192,11 +193,17 @@ std::vector<MString> multiStrings(const MArgDatabase& db, const char* flag) {
     return values;
 }
 
-void describeGroups(const GuideHierarchy& h, MStringArray& out) {
+// A row per group: name|parent|depth|guides|color, the color the group draws in when the groom's
+// guideGroupColors gives it none (its own, a ToGuides node's, else its automatic one), "#rrggbb".
+void describeGroups(const GuideHierarchy& h, const std::string& colorSeed, MStringArray& out) {
+    const std::map<GroupId, std::array<float, 3>> automatic = autoGuideColors(h, guideHueSeed(colorSeed));
     for (const GuideGroup& g : h.groups()) {
         const GuideGroup* parent = h.group(g.parent);
+        const auto shown = automatic.find(g.id);
+        const std::array<float, 3> drawn = g.hasColor ? g.color : shown != automatic.end() ? shown->second : std::array<float, 3>{};
         const MString row = MString(g.name.c_str()) + "|" + (parent ? parent->name.c_str() : "") + "|" +
-                            h.groupDepth(g.id) + "|" + static_cast<unsigned>(h.guidesInGroup(g.id).size());
+                            h.groupDepth(g.id) + "|" + static_cast<unsigned>(h.guidesInGroup(g.id).size()) + "|" +
+                            guideColorHex(drawn).c_str();
         out.append(row);
     }
 }
@@ -335,7 +342,7 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
                 const std::shared_ptr<const GuideHierarchy> stored = shape->storedHierarchy(&error);
                 if (!stored) return fail(kName, error.c_str());
                 MStringArray rows;
-                describeGroups(*stored, rows);
+                describeGroups(*stored, guideColorSeedOf(groomFn.object()), rows);
                 setResult(rows);
                 return MS::kSuccess;
             }
@@ -492,7 +499,7 @@ MStatus GuidesCmd::doIt(const MArgList& args) {
         }
         if (db.isFlagSet(kListGroups[0])) {  // a groom node that is not loaded
             MStringArray rows;
-            describeGroups(*h, rows);
+            describeGroups(*h, guideColorSeedOf(groomFn.object()), rows);
             setResult(rows);
             return MS::kSuccess;
         }

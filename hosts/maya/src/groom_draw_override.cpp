@@ -537,15 +537,7 @@ DisplaySettings GroomSubSceneOverride::readSettings() {
     s.guideDisplaySegments = MPlug(object_, GroomShape::aGuideDisplaySegments).asInt();
     s.hiddenGuideGroups = MPlug(object_, GroomShape::aHiddenGuideGroups).asString().asChar();
     s.guideGroupColors = MPlug(object_, GroomShape::aGuideGroupColors).asString().asChar();  // "name:#rrggbb ..."
-    // The automatic guide colors start from the groom's own hue: its transform's name (as Blender's
-    // object and the app's file name), so two grooms' first groups differ.
-    {
-        MStatus status;
-        MFnDagNode dag(object_, &status);
-        const MObject parent = status ? dag.parent(0, &status) : MObject::kNullObj;
-        const MString name = status && !parent.isNull() ? MFnDependencyNode(parent).name() : dag.name();
-        s.guideColorSeed = name.asChar();
-    }
+    s.guideColorSeed = guideColorSeedOf(object_);  // the groom's own hue: two grooms' groups differ
     s.flow = displayFlag(GroomShape::aDisplayFlow);
     s.theme = displayTheme();
     return s;

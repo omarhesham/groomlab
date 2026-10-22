@@ -9,6 +9,9 @@ __pycache__/
 *.pyc
 dist/
 
-.claude/worktrees/
-.claude/settings.local.json
+# Local agent tooling and settings
+.claude/
 CLAUDE.local.md
+
+# Generated preset contact sheets (ctest -L sheet): local only
+design/presets/*.png

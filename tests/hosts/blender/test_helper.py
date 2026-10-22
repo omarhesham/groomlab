@@ -1417,6 +1417,13 @@ class ToolsTest(HelperTestCase):
         info = self.call("guides_info")
         self.assertEqual(info["levels"], 2)
         self.assertEqual(info["guides"], 4 + 12)
+        # Each group its own automatic color (the child group's not its parent's), from the groom's name.
+        hair = [g["autoColor"] for g in self.call("guides_info", guideColorSeed="hair")["groups"]]
+        self.assertEqual(len(hair), 2)
+        self.assertNotEqual(hair[0], hair[1])
+        brows = [g["autoColor"] for g in self.call("guides_info", guideColorSeed="brows")["groups"]]
+        self.assertNotEqual(hair, brows)
+        self.assertTrue(all(g["color"] is None for g in info["groups"]))
         self.after.append(self.texts())
         self.stroke("erase", self.comb_events(), settings={"radius": 25.0})
         history = [initial] + self.after

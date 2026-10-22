@@ -364,10 +364,13 @@ def apply_preset(scalp, name):
     """The preset's graph on the groom (fitted, its control values set), with the painted maps it
     reads made when the groom has none of that name, as Maya and the app make them (its "requires":
     kind, fill value or color), so it evaluates at once: `mapsMade` in the answer; `missingMaps` the
-    ones that could not be made."""
+    ones that could not be made. The guide groups it reads too, made empty (`groupsMade`); its
+    `drawGroup` the one its Draw tool draws into (a hand-placed look), or None."""
     rt = groom.ensure(scalp)
     r = _call("apply_preset", session=rt.session, name=name)
     r["mapsMade"], r["missingMaps"] = make_required_maps(scalp, r.get("missingMaps") or [])
+    r["groupsMade"] = make_required_groups(scalp, r.get("groups") or [])
+    r["drawGroup"] = next((g["name"] for g in r.get("groups") or [] if g.get("draw")), None)
     from . import graph_tree
     graph_tree.mark_replaced(scalp)  # the preset's layout, not the tree's
     _changed(scalp, rt)
@@ -382,6 +385,8 @@ def preset_maps_note(r):
         return {"WARNING"}, "The preset reads maps this groom has not painted: %s. Paint them in Groom Tools > Paint" % ", ".join(missing)
     if r.get("mapsMade"):
         return {"INFO"}, "Made the map %s the preset reads: paint it in Groom Tools > Paint" % ", ".join(r["mapsMade"])
+    if r.get("drawGroup"):
+        return {"INFO"}, "Draw guides from the skin into %s with the Draw tool: each one grows the look" % r["drawGroup"]
     return None
 
 
@@ -406,6 +411,40 @@ def make_required_maps(scalp, wanted):
     if made:
         tools.refresh_info(scalp)
     return made, failed
+
+
+def make_required_groups(scalp, wanted):
+    """Make the guide groups `wanted` ([{name, draw}], the helper's groups) the groom lacks, empty,
+    each one undo step on the helper's stack (a groom of GroomLab guides; Blender curve guides have
+    no groups). Returns the names made."""
+    from . import tools
+    if not wanted or not tools.is_hierarchy(scalp):
+        return []
+    have = [g.get("name") for g in (tools.call(scalp, "guides_info").get("groups") or [])]
+    made = []
+    for g in wanted:
+        if g["name"] not in have:
+            tools.guides_edit(scalp, "add_group", name=g["name"])
+            made.append(g["name"])
+    return made
+
+
+def draw_into(context, scalp, group):
+    """The GroomLab Draw tool drawing into guide group `group`, so every guide drawn is one of its
+    own (a hand-placed feather). Not in background mode (no viewport). Returns whether it started."""
+    import bpy
+    from . import tools
+    if bpy.app.background or scalp is None or not tools.is_hierarchy(scalp):
+        return False
+    tools.refresh_info(scalp, context.scene)
+    t = context.scene.groomlab_tools
+    if not any(g.name == group for g in t.groups):
+        return False
+    t.group = group
+    try:
+        return "FINISHED" in bpy.ops.groomlab.tool(tool="draw")
+    except RuntimeError:
+        return False
 
 
 def insert_preset(scalp, name, after=None):

@@ -29,7 +29,7 @@
   --color-gl-white: #f5f5f7;
   --color-gl-dim: #a1a1a6;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-site), ui-sans-serif, system-ui, sans-serif;
 
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-rise: cubic-bezier(0.2, 1.2, 0.35, 1);
@@ -162,17 +162,18 @@ section[id] {
   padding-block: clamp(6rem, 3.5rem + 7vw, 10rem);
 }
 
-/* Apple-style display type: tight, heavy, optically sized. One scale. */
+/* Display type: heavy and optically sized (Google Sans Flex's display cut is already tightly
+   spaced at these sizes, so the tracking only nudges it). One scale. */
 .display {
   font-weight: 700;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
   line-height: 1.04;
   text-wrap: balance;
 }
 @utility t-hero {
   font-size: clamp(2.75rem, 1.1rem + 6.6vw, 6rem);
   line-height: 1.02;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.025em;
 }
 @utility t-section {
   font-size: clamp(2.5rem, 1.35rem + 4.3vw, 4.5rem);
@@ -184,13 +185,13 @@ section[id] {
 @utility t-lede {
   font-size: clamp(1.125rem, 1.02rem + 0.35vw, 1.3125rem);
   line-height: 1.5;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.005em;
   text-wrap: pretty;
 }
 @utility t-eyebrow {
   font-size: 0.9375rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 /* Horizontal galleries scroll without a visible bar. */

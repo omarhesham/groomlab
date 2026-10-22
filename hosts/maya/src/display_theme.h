@@ -16,7 +16,7 @@ using DisplayTheme = groomlab::DisplayTheme;
 DisplayTheme& displayTheme();
 
 // `groomLabDisplayTheme`: sets the viewport colors. Each flag takes a string
-// of linear RGB floats ("r g b"; -levels takes any number of triples).
+// of linear RGB floats ("r g b"); -pointSize a number.
 // -reset goes back to the defaults. Redraws every view.
 class DisplayThemeCmd : public MPxCommand {
 public:

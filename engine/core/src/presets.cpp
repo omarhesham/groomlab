@@ -863,6 +863,24 @@ std::vector<PresetMap> presetRequiredMaps(const std::string& presetJson) {
     return out;
 }
 
+std::vector<PresetGroup> presetRequiredGroups(const std::string& presetJson) {
+    std::vector<PresetGroup> out;
+    const json data = parsePreset(presetJson);
+    const auto requires = data.find("requires");
+    if (requires == data.end() || !requires->is_object()) return out;
+    const auto groups = requires->find("groups");
+    if (groups == requires->end() || !groups->is_array()) return out;
+    for (const json& g : *groups) {
+        if (!g.is_object() || !g.contains("name") || !g["name"].is_string() || g["name"].get<std::string>().empty()) continue;
+        PresetGroup group;
+        group.name = g["name"].get<std::string>();
+        group.draw = g.contains("draw") && g["draw"].is_boolean() && g["draw"].get<bool>();
+        const bool seen = std::any_of(out.begin(), out.end(), [&](const PresetGroup& o) { return o.name == group.name; });
+        if (!seen) out.push_back(std::move(group));
+    }
+    return out;
+}
+
 // ---- Making one ---------------------------------------------------------------------------------
 
 std::string makePresetJson(const std::string& graphJson, std::optional<double> size, const std::string& title,

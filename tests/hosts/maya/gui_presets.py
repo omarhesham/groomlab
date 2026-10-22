@@ -189,22 +189,29 @@ def comb_graph(length, spacing, colliders=()):
 
 def give_guides(groom, preset, size, colliders=()):
     """Guides for a preset that reads them: for hair, a shoulder-length style (1.3 times the scalp
-    size at the back, whatever the preset's own strand length); otherwise its strand length."""
+    size at the back, whatever the preset's own strand length); otherwise its strand length. A
+    hand-placed look (a guide group it requires, hand_placed_feathers) gets a few guides drawn into
+    that group, as an artist draws them."""
     import groomlab
+    from groomlab import presets
     groomlab.clear_guides(groom)
     if not _uses_guides(preset):
         return 0
+    groups = presets.required_groups_of(preset)
     category = (preset.get("about") or {}).get("category")
-    if category in HAIR_CATEGORIES:
+    spacing = size / 10.0
+    if groups:
+        length, spacing = 0.7 * size, size / 4.0
+    elif category in HAIR_CATEGORIES:
         length = 1.3 * size
     else:
         length = (_scatter_length(preset) or 10.0) * size / float(preset.get("size") or size)
-    groomlab.set_graph(groom, comb_graph(length, spacing=size / 10.0, colliders=colliders))
+    groomlab.set_graph(groom, comb_graph(length, spacing=spacing, colliders=colliders))
     errors = groomlab.errors(groom)
     if errors:
         raise RuntimeError("the guide graph: %s" % "; ".join(errors))
     from groomlab import bake
-    made = bake.bake_guides(groom, "resample", density=1.0)
+    made = bake.bake_guides(groom, "resample", group=groups[0]["name"] if groups else "primary", density=1.0)
     return len(made)
 
 

@@ -16,6 +16,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
@@ -233,11 +234,20 @@ TEST(AppOutput, FeathersAndBraidsAskInThePrompt) {
     ASSERT_TRUE(designs.contains(QStringLiteral("contour")));
     ASSERT_TRUE(designs.contains(QStringLiteral("down")));
 
-    // An assortment on scattered shafts: two designs through a Split, merged with the hair.
+    // An assortment of scattered feathers: two designs through a Split, merged with the hair. The
+    // prompt's words: "scattered feathers" and "one feather per guide", never shafts.
     bindings.at("add.feathers").trigger(nullptr, false);
     ASSERT_TRUE(window.overlay()->promptShown());
+    EXPECT_EQ(window.overlay()->promptLine(), QStringLiteral("contour"));
+    {
+        QString shown;
+        for (const QLabel* l : window.overlay()->prompt()->findChildren<QLabel*>()) shown += l->text() + QLatin1Char('\n');
+        EXPECT_TRUE(shown.contains(QStringLiteral("Scattered feathers (shaped by the guides)"))) << shown.toStdString();
+        EXPECT_TRUE(shown.contains(QStringLiteral("One feather per guide (hand-placed)"))) << shown.toStdString();
+        EXPECT_FALSE(shown.contains(QStringLiteral("shaft"), Qt::CaseInsensitive)) << shown.toStdString();
+    }
     window.overlay()->setPromptLine(QStringLiteral("contour 3, down 1"));
-    ASSERT_TRUE(window.overlay()->choosePrompt(QStringLiteral("Scatter")));
+    ASSERT_TRUE(window.overlay()->choosePrompt(QStringLiteral("Scattered feathers")));
     EXPECT_EQ(countOfType(*doc, "Compound"), 2u) << window.lastReport().toStdString();
     const std::string split = nodeOfType(*doc, "Split");
     ASSERT_FALSE(split.empty());
@@ -257,6 +267,25 @@ TEST(AppOutput, FeathersAndBraidsAskInThePrompt) {
     for (const GroomDocument::NodeInfo& n : doc->nodes()) shafts = shafts || (n.type == "Guides" && doc->param(n.name, "group") == json("feathers"));
     EXPECT_TRUE(shafts);
     EXPECT_FALSE(window.addFeathers({QStringLiteral("no_such_design")}, false));
+    EXPECT_EQ(doc->featherGuideGroups(), std::vector<std::string>{"feathers"});
+    // The feathers group has no guides yet: the Draw tool draws into it.
+    EXPECT_EQ(window.brush().toolId(), "draw");
+    EXPECT_EQ(window.brush().settings().brush.group, "feathers");
+
+    // One feather per guide in a group of its own, from the prompt: the groom has a feathers group,
+    // so one per guide comes first; the group asked next (a new name: flight_left).
+    bindings.at("add.feathers").trigger(nullptr, false);
+    ASSERT_TRUE(window.overlay()->promptShown());
+    EXPECT_EQ(window.overlay()->promptLine(), QStringLiteral("flight"));
+    ASSERT_TRUE(window.overlay()->choosePrompt(QStringLiteral("One feather per guide")));
+    ASSERT_TRUE(window.overlay()->promptShown()) << "the guide group is asked next";
+    EXPECT_EQ(window.overlay()->promptLine(), QStringLiteral("feathers"));
+    window.overlay()->setPromptLine(QStringLiteral("flight_left"));
+    ASSERT_TRUE(window.overlay()->choosePrompt(QStringLiteral("Add Feathers")));
+    ASSERT_NE(doc->session().authoredHierarchy()->findGroup("flight_left"), kNoGroup) << window.lastReport().toStdString();
+    EXPECT_NE(doc->param(hair, "exclude").get<std::string>().find("flight_left"), std::string::npos);
+    EXPECT_EQ(doc->featherGuideGroups(), (std::vector<std::string>{"feathers", "flight_left"}));
+    EXPECT_EQ(window.brush().settings().brush.group, "flight_left");
 
     // Braid on Curves: the style picked in the prompt, a Braid after the Interpolate along the braids group.
     bindings.at("add.braid").trigger(nullptr, false);
@@ -268,6 +297,44 @@ TEST(AppOutput, FeathersAndBraidsAskInThePrompt) {
     ASSERT_NE(doc->session().authoredHierarchy()->findGroup("braids"), kNoGroup);
     EXPECT_NE(doc->param(hair, "exclude").get<std::string>().find("braids"), std::string::npos);
     EXPECT_TRUE(linked(*doc, "interpolate", braid, "strands") || !nodeOfType(*doc, "Interpolate").empty());
+}
+
+TEST(AppOutput, HandPlacedFlightFeathersPresetDrawsIntoItsGroup) {
+    MainWindow window;
+    window.resize(1280, 800);
+    window.show();
+    ASSERT_TRUE(window.openGroom(QString::fromStdString(sampleCopy("groomlab_app_output_hand_placed"))));
+    GroomDocument* doc = window.document();
+    // Applied: the feathers group made, empty, and the Draw tool drawing into it.
+    ASSERT_TRUE(window.applyPreset(QStringLiteral("hand_placed_feathers"))) << window.lastReport().toStdString();
+    HierarchyPtr h = doc->session().authoredHierarchy();
+    ASSERT_TRUE(h);
+    const GroupId group = h->findGroup("feathers");
+    ASSERT_NE(group, kNoGroup);
+    EXPECT_TRUE(h->guidesInGroup(group).empty());
+    EXPECT_EQ(window.brush().toolId(), "draw");
+    EXPECT_EQ(window.brush().settings().brush.group, "feathers");
+    EXPECT_EQ(doc->featherGuideGroups(), std::vector<std::string>{"feathers"});
+    ViewRequest request;
+    request.density = 1.0f;
+    {
+        const ViewResult& view = doc->evaluate(request);
+        EXPECT_TRUE(view.errors.empty()) << view.errors.front();
+        EXPECT_TRUE(!view.strands || view.strands->strandCount() == 0u) << "no feather before a guide is drawn";
+    }
+    // Every guide drawn into the group is one flight feather: 70 barbs a side and the shaft.
+    std::vector<std::vector<Vec3f>> drawn;
+    for (const HierarchyGuide& g : h->guides()) {
+        if (drawn.size() < 3 && g.group != group) drawn.push_back(g.points);
+    }
+    ASSERT_EQ(drawn.size(), 3u);
+    ASSERT_EQ(doc->editGuides("draw guides", [&](GuideHierarchy& hierarchy) {
+        for (const std::vector<Vec3f>& points : drawn) hierarchy.addGuide(hierarchy.findGroup("feathers"), points);
+    }), "");
+    const ViewResult& view = doc->evaluate(request);
+    EXPECT_TRUE(view.errors.empty()) << view.errors.front();
+    ASSERT_TRUE(view.strands);
+    EXPECT_EQ(view.strands->strandCount(), 3u * (1u + 140u));
 }
 
 TEST(AppOutput, ImportUtilitiesAndScales) {

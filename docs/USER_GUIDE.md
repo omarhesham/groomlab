@@ -191,8 +191,8 @@ Frozen guides draw blue and brushes leave them alone.
 **Guide groups & edits** (Tools tab) lists the groups your guides live in: `primary`, the child
 groups, `braids` for braid paths. It shows each group's count, level and the graph nodes that read
 it, and can select, rename (the graph follows), hide or delete a group. **+ New Group** makes your
-own (say `bangs`); pick it in **Group** and Place and Draw put new guides there. **Hue per group**
-colors each group in the viewport. In the Graph Editor, a Guides node's `group` and `exclude` pick
+own (say `bangs`); pick it in **Group** and Place and Draw put new guides there. Each group is drawn in a
+color of its own (its swatch; click it to pick another). In the Graph Editor, a Guides node's `group` and `exclude` pick
 from these names.
 - **Reparent...** makes selected children follow another parent.
 - **Promote / Demote...** moves a whole group up or down a level, keeping every guide's shape.
@@ -493,8 +493,11 @@ own paths about `region` apart: box braids with nothing drawn (the **Box braids*
 
 Every strand fed to a **Propagate** node (Add Node > Feathers) is a shaft that grows barbs. The
 barbs are ordinary strands for the nodes after it.
-- **From the menu:** **GroomLab > Add > Feathers...** asks the design and where the shafts come
-  from. With curves selected, each becomes a hand-placed feather.
+- **From the menu:** **GroomLab > Add > Feathers...** asks the design and how they grow:
+  **Scattered feathers (shaped by the guides)**, or **One feather per guide (hand-placed)** in a
+  guide group you pick or name (`feathers`, `flight_left`, `tail`). With curves selected, each joins
+  the group as a hand-placed feather; with none, the Draw tool draws into the group. The preset
+  **Flight feathers (hand-placed)** starts a wing or tail the same way.
 - **From Python:** `groomlab.add_feathers(groom, "contour")` scatters shafts that lie with your
   guides. Designs: `contour`, `down`, `flight`, `afterfeather`, `barred`. Hand-placed:
   `add_feathers(groom, "flight", source="guides", curves=curves)`. Assortments:

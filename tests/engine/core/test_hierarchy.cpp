@@ -500,6 +500,27 @@ TEST(Hierarchy, GuidesOperatorFlattensLevelsAndGroups) {
     EXPECT_THROW(g.evaluate(guides, ctx), GraphError);
 }
 
+TEST(Hierarchy, AGuidesNodeOnAGroupMadeEmptyGivesNoGuidesBeforeAnyIsDrawn) {
+    // A groom with no guides yet and its hand-placed group made (the hand_placed_feathers preset):
+    // an empty set, so the feathers it feeds grow nothing rather than missing their input.
+    auto hierarchy = std::make_shared<GuideHierarchy>();
+    hierarchy->addGroup("feathers");
+    ExternalInputs ext;
+    ext.set("hierarchy", HierarchyPtr(hierarchy), hierarchy->contentHash());
+    EvalContext ctx;
+    ctx.externals = &ext;
+    Graph g;
+    const NodeId guides = g.addNode(op::kGuides);
+    g.node(guides).params().set("group", std::string("feathers"));
+    const GuidesPtr none = valueAs<GuidesPtr>(g.evaluate(guides, ctx));
+    ASSERT_TRUE(none);
+    EXPECT_EQ(none->size(), 0u);
+    g.node(guides).params().set("group", std::string("feathers tail"));  // a group not made: as before, nothing
+    EXPECT_FALSE(valueAs<GuidesPtr>(g.evaluate(guides, ctx)));
+    g.node(guides).params().set("group", std::string());  // no group named: the flat guides (none here)
+    EXPECT_FALSE(valueAs<GuidesPtr>(g.evaluate(guides, ctx)));
+}
+
 // Scalp shaped like a step: a horizontal face (normal +Y, x in [-1, 0]) meeting
 // a vertical face (normal +X, y in [-1, 0]) along the Z axis.
 std::shared_ptr<const ScalpMesh> makeStep() {

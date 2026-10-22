@@ -134,6 +134,29 @@ TEST(AppLists, GuideGroupsBarMenusAndEdits) {
     ASSERT_TRUE(panel->generateChildren(root, 3));
     EXPECT_EQ(doc->undoText(), "Undo generate children");
     EXPECT_GE(doc->session().authoredHierarchy()->guides().size(), before);
+    {
+        // Each swatch in the color its group draws in: the child group its own automatic hue (not
+        // its parent's, whose own color is the orange), filled inside the dashed outline.
+        const HierarchyPtr after = doc->session().authoredHierarchy();
+        const GroupId rootId = after->findGroup(root);
+        const GuideGroup* child = nullptr;
+        for (const GuideGroup& g : after->groups()) {
+            if (g.parent == rootId) child = &g;
+        }
+        ASSERT_TRUE(child);
+        const auto automatic = autoGuideColors(*after, guideHueSeed(doc->guideColorSeed()));
+        panel->refresh();
+        auto swatchAt = [&](const std::string& name) {
+            const QList<QTreeWidgetItem*> found = tree->findItems(QString::fromStdString(name), Qt::MatchExactly | Qt::MatchRecursive, 0);
+            return found.isEmpty() ? QColor() : found.front()->icon(1).pixmap(QSize(16, 16)).toImage().pixelColor(8, 8);
+        };
+        const QColor want(QString::fromStdString(guideColorHex(automatic.at(child->id)))), got = swatchAt(child->name);
+        EXPECT_NEAR(got.red(), want.red(), 3);
+        EXPECT_NEAR(got.green(), want.green(), 3);
+        EXPECT_NEAR(got.blue(), want.blue(), 3);
+        EXPECT_NE(swatchAt(root).rgb(), got.rgb());
+        EXPECT_NE(automatic.at(rootId), automatic.at(child->id));
+    }
     EXPECT_EQ(doc->undo(), "");
     doc->setSelection(rootGuides);
     panel->mirrorSelection();

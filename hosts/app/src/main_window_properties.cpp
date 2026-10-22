@@ -333,8 +333,8 @@ void MainWindow::buildProperties() {
     displayLevel_ = spin(-1, 32, settings_.displayLevel);
     displayLevel_->setSpecialValueText(tr("All levels"));
     p->setControl("displayLevel", displayLevel_);
-    guideColorMode_ = combo({tr("Level"), tr("Layer"), tr("Group")});
-    guideColorMode_->setCurrentIndex(settings_.guideColorMode);
+    guideColorMode_ = combo({tr("Group"), tr("Painted Layer")});
+    guideColorMode_->setCurrentIndex(settings_.guideColorMode == 1 ? 1 : 0);
     p->setControl("guideColorMode", guideColorMode_);
 
     // ---- Display > Strand Shading.
@@ -462,8 +462,6 @@ void MainWindow::buildProperties() {
     number(displayLevel_, &DisplaySettings::displayLevel);
     connect(guideColorMode_, &QComboBox::currentIndexChanged, this, [this](int mode) {
         settings_.guideColorMode = mode;
-        const QSignalBlocker block(guidesPanel_);
-        guidesPanel_->setHuePerGroup(mode == 2);
         redisplay();
     });
     connect(lodError, &ValueSlider::valueChanged, this, [this](double v) {
@@ -554,11 +552,11 @@ void MainWindow::refreshProperties() {
         w->setEnabled(open && (w != followScalp_ || followScalp_->isEnabled()));
     }
     refreshScalpSubdivision();
-    // The display's own state as other panels change it (Isolate, Hue per group, While sculpting).
+    // The display's own state as other panels change it (Isolate, While sculpting).
     {
         const QSignalBlocker a(displayLevel_), b(guideColorMode_), c(sculptDisplay_);
         displayLevel_->setValue(settings_.displayLevel);
-        guideColorMode_->setCurrentIndex(std::clamp(settings_.guideColorMode, 0, 2));
+        guideColorMode_->setCurrentIndex(settings_.guideColorMode == 1 ? 1 : 0);
         sculptDisplay_->setCurrentIndex(std::clamp(settings_.sculptDisplay, 0, std::max(0, sculptDisplay_->count() - 1)));
         if (!sculptDensity_->editing()) sculptDensity_->setValue(brush_.sculptDensity);
     }

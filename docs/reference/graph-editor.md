@@ -75,7 +75,8 @@ file, as curves, a turntable), **Transfer...** and **Import** (the GroomLab menu
   `groomlab.set_guide_group_color`; right-click to clear), its guide count and level; the name's
   tooltip lists the graph nodes naming it. **+ New Group** and the small buttons over the list
   make a new group, rename, select the group's guides and delete; right-click a row for the
-  same and Color. **Hue per group** colors groups without their own color by hue. Clicking a
+  same and Color. A group without a color of its own draws in an automatic hue of its own (the
+  swatch shows it, dashed). Clicking a
   group makes it the brush group. **Segments** (a slider under it) shows the selected guides' point count, or every guide's with none
   selected, resamples them live while dragged and applies on release (one undo step). **Edit Guides** holds Children..., Sync +X → -X, Sync -X → +X, Mirror
   Selection, Mirror Group..., Reparent..., Promote / Demote..., From Curves and Clear Selection.
@@ -261,6 +262,7 @@ gets more clumps of the same size than a head, not the same number stretched ove
 | Fur | `white_wool` | Dense, crimped white fleece in soft locks: a picked off-white (HairColor's `color` mode, so no pigment browns it), a little brightness variation, white tips |
 | Fur | `flow_with_guides` | Flow fur and guided, clumped hair blended by a painted map (`guideAreas`, made black on apply: paint it white where the guides take over) |
 | Feathers | `layered_feathers` | The contour design's feathers laid over one another like roof tiles and off the body (Plume) |
+| Feathers | `hand_placed_feathers` | Flight feathers (hand-placed): one flight feather per guide of the `feathers` group, made empty on apply with the Draw tool drawing into it (`"requires": {"groups"}`), for wings and tails (see [Feathers](feathers-braids-scales.md#feathers)) |
 | Feathers | `feathers_contour`, `feathers_down`, `feathers_flight`, `feathers_afterfeather`, `feathers_barred` | The Feathers tool's designs, as Compounds (see [Feathers](feathers-braids-scales.md#feathers); `feathers_barred`: [Color patterns](looks-and-maps.md#color-patterns)) |
 | Feathers | `feathers_spotted`, `feathers_eye_spot`, `feathers_iridescent` | The barred design's other color patterns: pale spots on both vanes, a ringed eye spot that shimmers blue, a dark feather shimmering green to blue (stylized; see [Color patterns](looks-and-maps.md#color-patterns)) |
 | Scales | `dragon_scales` | Scales laid out by strands: a Bend combs them down the body, Transform (`scale`, `scaleRandom`) and Width size them (bigger on the back), HairColor colors them (darker tips), a Scales node lays a built-in keeled plate on each root (shields on the belly), tiled and bent onto the skin |
@@ -300,7 +302,11 @@ graph:
 
 `size` is the scalp size it was made on (for fitting); `about` is what the menu shows (the
 categories, in order: `Hair`, `Fur`, `Feathers`, `Scales`, `Motion`, `Techniques`, `Games`, `Add-ons`); `requires` lists
-painted maps the graph reads, made as `add_map` makes them when the groom has none of that name;
+painted maps the graph reads, made as `add_map` makes them when the groom has none of that name,
+and (`"groups": [{"name": "feathers", "draw": true}]`) guide groups the graph reads, made empty
+when missing; with `draw` the Graph Editor (the app, Blender) then picks the Draw tool drawing
+into that group (`hand_placed_feathers`: every guide drawn is a feather; `presets.required_groups`,
+`presets.draw_group`; the core's `presetRequiredGroups`);
 `exposed` lists the params the Compound shows when the preset is inserted (Insert after selected
 node): a look node and its param each, `name` optional (the param's name; node and param,
 `clumpStrength`, when the Compound has that name already), entries naming a node outside the

@@ -1222,8 +1222,9 @@ def delete_all_flow_arrows(groom=None):
 
 def _ask(title, fields, note=None):
     """A small form: fields are (key, label, kind, value[, choices][, tip]) with kind "choice"
-    (a drop-down), "edit" (a drop-down you may type in), "int", "float" or "bool". Returns
-    {key: value} on OK, None on Cancel."""
+    (a drop-down), "edit" (a drop-down you may type in), "int", "float" or "bool". A choice may
+    be (value, label): the label shown, the value returned. Returns {key: value} on OK, None on
+    Cancel."""
     from groomlab.ui import qt
     from groomlab.ui.qt import QtWidgets
     from groomlab.ui import theme
@@ -1239,7 +1240,8 @@ def _ask(title, fields, note=None):
             w = QtWidgets.QComboBox()
             w.setEditable(kind == "edit")
             for c in choices or []:
-                w.addItem(str(c), c)
+                value, text = c if isinstance(c, tuple) else (c, str(c))
+                w.addItem(text, value)
             index = w.findData(value)
             if index >= 0:
                 w.setCurrentIndex(index)
@@ -1545,37 +1547,98 @@ def find_missing_files_dialog(folder=None, grooms=None, recursive=True):
 FEATHER_DESIGNS = ("contour", "down", "flight", "afterfeather", "barred")
 
 
-def add_feathers_dialog(design=None, source=None, weights=None, groom=None):
-    """Add > Feathers...: feathers on the groom (groomlab.add_feathers). With curves selected they
-    become hand-placed feathers (`source` "guides", each curve a shaft); else the shafts are
-    scattered. `design` is one name, or several (an assortment, `weights` their shares). Asked in
-    a small form when not given (a menu click); scripted callers pass them."""
+def feathers_form(groom, curves=()):
+    """Add > Feathers' form for `groom` with `curves` selected: (fields, note) as _ask takes them.
+    The choice reads "Scattered feathers (shaped by the guides)" or "One feather per guide
+    (hand-placed)" (engine/ui/choices.json's featherSource), one per guide when curves are
+    selected or the groom has a feathers group already; the guide group the hand-placed feathers
+    go into is picked from the groom's groups or typed (a new one: flight_left, tail), the
+    groom's feathers group first (default "feathers")."""
+    import groomlab
+    from groomlab.ui import definitions
+    feather_groups = groomlab.feather_guide_groups(groom)
+    group = feather_groups[0] if feather_groups else "feathers"
+    groups = [group] + [g for g in feather_groups + [x["name"] for x in groomlab.list_guide_groups(groom)]
+                        if g != group]
+    groups = [g for i, g in enumerate(groups) if g not in groups[:i]]
+    source = "guides" if (curves or feather_groups) else definitions.choice_default("featherSource")
+    sources = definitions.choices("featherSource")
+    fields = [
+        ("design", "Design", "edit", "contour", list(FEATHER_DESIGNS),
+         "One design, or several separated by commas (an assortment: contour, down)"),
+        ("weights", "Weights", "edit", "", [], "The assortment's shares, one per design (3, 1); empty: equal"),
+        ("source", definitions.get("choices/featherSource").get("label", "Feathers"), "choice", source,
+         [(c["value"], c["label"]) for c in sources], "\n".join("%s: %s" % (c["label"], c["tip"]) for c in sources)),
+        ("group", "Guide group", "edit", group, groups,
+         "One feather per guide: the guide group whose guides are the feathers, left out of the hair (pick one, "
+         "or type a new name: flight_left, flight_right, tail)")]
+    if curves:
+        note = "%d curve(s) selected: with One feather per guide each becomes a feather in the guide group." % len(curves)
+    else:
+        note = ("One feather per guide: each guide of the group is a feather. A group without guides yet: the "
+                "Draw tool draws into it, every guide drawn from the skin a feather.")
+    return fields, note
+
+
+def draw_guides_into(groom, group):
+    """The Draw tool drawing into guide group `group` of `groom` (the Groom Tools' group picked
+    when they are open), so every guide drawn is one of the group's: a hand-placed feather. Not in
+    batch mode (no viewport). Returns whether the tool started."""
+    import groomlab
+    if cmds.about(batch=True):
+        return False
+    from groomlab.ui import palette
+    window = palette.current()
+    try:
+        if window is not None:
+            window.fill_levels(groom, select=group)
+            window.target_changed()
+            window.activate("draw")
+        else:
+            groomlab.brush_tool("draw", group=group)
+    except (RuntimeError, ValueError) as e:
+        cmds.warning("GroomLab: cannot start the Draw tool: %s" % e)
+        return False
+    cmds.inViewMessage(amg="GroomLab: draw guides from the skin into <hl>%s</hl>: each one is a feather" % group,
+                       pos="topCenter", fade=True)
+    return True
+
+
+def add_feathers_dialog(design=None, source=None, weights=None, groom=None, group=None):
+    """Add > Feathers...: feathers on the groom (groomlab.add_feathers). `source` "scatter":
+    scattered feathers shaped by the guides; "guides": one feather per guide of guide group
+    `group` (default: the groom's feathers group, else "feathers"), the selected curves joining
+    it first; with no curves selected and a group without guides, the Draw tool draws into it.
+    `design` is one name, or several (an assortment, `weights` their shares). Asked in a small form
+    (feathers_form) when not given (a menu click); scripted callers pass them."""
     import groomlab
     groom = groom or _selected_groom()
     if not groom:
         return None
     curves = cmds.ls(selection=True, dag=True, type="nurbsCurve", long=True) or []
     if design is None:
-        answer = _ask("Add Feathers", [
-            ("design", "Design", "edit", "contour", list(FEATHER_DESIGNS),
-             "One design, or several separated by commas (an assortment: contour, down)"),
-            ("weights", "Weights", "edit", "", [],
-             "The assortment's shares, one per design (3, 1); empty: equal"),
-            ("source", "Shafts from", "choice", "guides" if curves else "scatter", ["scatter", "guides"],
-             "scatter: shafts scattered over the scalp, shaped by the guides; guides: the selected curves (or "
-             "the feathers group's guides), each one a hand-placed feather")],
-            note="%d curve(s) selected: each becomes a feather with 'guides'." % len(curves) if curves else
-                 "Draw curves from the scalp and select them for hand-placed feathers.")
+        fields, note = feathers_form(groom, curves)
+        answer = _ask("Add Feathers", fields, note=note)
         if not answer:
             return None
         design = [d.strip() for d in answer["design"].split(",") if d.strip()]
         weights = [float(w) for w in answer["weights"].replace(",", " ").split()] or None
         source = answer["source"]
+        group = answer["group"].strip() or None
     designs = [design] if isinstance(design, str) else list(design)
-    source = source or ("guides" if curves else "scatter")
+    defaults = groomlab.feather_guide_groups(groom)
+    source = source or ("guides" if (curves or defaults) else "scatter")
+    group = group or (defaults[0] if defaults else "feathers")
     made = groomlab.add_feathers(groom, designs if len(designs) > 1 else designs[0], source=source, weights=weights,
-                                 curves=curves if source == "guides" and curves else None)
-    _say("added %s feathers to %s (%s)" % (", ".join(designs), groom, made["shafts"]))
+                                 curves=curves if source == "guides" and curves else None, group=group)
+    if source == "guides":
+        count = len(groomlab.guide_ids(groom, group))
+        _say("added %s feathers to %s: one per guide of %s (%d now)" % (", ".join(designs), groom, group, count))
+        if not count:
+            cmds.select(groom, replace=True)
+            draw_guides_into(groom, group)
+    else:
+        _say("added scattered %s feathers to %s" % (", ".join(designs), groom))
     return made
 
 

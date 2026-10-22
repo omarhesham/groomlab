@@ -82,7 +82,6 @@
     "ink": "white"
   },
   "viewport": {
-    "guideLevels": ["blue", "emerald", "yellow", "red", "white"],
     "pointSize": 6,
     "selected": "white",
     "softSelected": "yellow",

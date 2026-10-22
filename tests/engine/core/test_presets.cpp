@@ -298,6 +298,22 @@ TEST(Presets, RequiredMapsAndMakingOne) {
     EXPECT_EQ(maps[0].color.size(), 3u);
     EXPECT_TRUE(presetRequiredMaps(R"({"nodes": []})").empty());
 
+    // The guide groups a preset reads: the hand-placed flight feathers' (made empty, drawn into).
+    std::ifstream handPlaced(std::filesystem::u8path(presetPath("hand_placed_feathers", {kShipped})));
+    std::stringstream handText;
+    handText << handPlaced.rdbuf();
+    const std::vector<PresetGroup> groups = presetRequiredGroups(handText.str());
+    ASSERT_EQ(groups.size(), 1u);
+    EXPECT_EQ(groups[0].name, "feathers");
+    EXPECT_TRUE(groups[0].draw);
+    EXPECT_TRUE(presetRequiredMaps(handText.str()).empty());
+    EXPECT_TRUE(presetRequiredGroups(text.str()).empty());
+    const std::vector<PresetGroup> some =
+        presetRequiredGroups(R"({"requires": {"groups": [{"name": "tail"}, {"name": ""}, {"name": "tail", "draw": true}, 3]}, "nodes": []})");
+    ASSERT_EQ(some.size(), 1u) << "named once, nameless entries skipped";
+    EXPECT_EQ(some[0].name, "tail");
+    EXPECT_FALSE(some[0].draw);
+
     // A preset made from the default graph: titled, sized, the layout kept, and it loads again.
     json graph = json::parse(defaultGraphJson());
     graph["backdrops"] = json::array({{{"title", "All"}, {"x", 0}, {"y", 0}, {"w", 100}, {"h", 100}}});

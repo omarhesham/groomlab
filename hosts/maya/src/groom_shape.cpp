@@ -21,6 +21,7 @@
 #include <maya/MFloatArray.h>
 #include <maya/MFloatPointArray.h>
 #include <maya/MFnCompoundAttribute.h>
+#include <maya/MFnDagNode.h>
 #include <maya/MFnEnumAttribute.h>
 #include <maya/MFnGeometryData.h>
 #include <maya/MFnMesh.h>
@@ -894,11 +895,13 @@ MStatus GroomShape::initialize() {
     CHECK_MSTATUS_AND_RETURN_IT(status);
     nAttr.setMin(-1);
     nAttr.setStorable(true);
+    // Each guide group's own color (theirs, else an automatic one per group), or the painted layer
+    // guideColorLayer from black to white.
     aGuideColorMode = eAttr.create("guideColorMode", "glgcm", 0, &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
-    eAttr.addField("level", 0);
-    eAttr.addField("layer", 1);
-    eAttr.addField("group", 2);
+    eAttr.addField("Group", 0);
+    eAttr.addField("Painted Layer", 1);
+    eAttr.setNiceNameOverride("Guide Color");
     eAttr.setStorable(true);
     aGuideColorLayer = tAttr.create("guideColorLayer", "glgcl", MFnData::kString, stringData.create(""), &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
@@ -2761,6 +2764,14 @@ MBoundingBox GroomShape::boundingBox() const {
         return MBoundingBox(MPoint(-0.5, -0.5, -0.5), MPoint(0.5, 0.5, 0.5));
     }
     return bounds;
+}
+
+std::string guideColorSeedOf(const MObject& groomShape) {
+    MStatus status;
+    MFnDagNode dag(groomShape, &status);
+    if (!status) return {};
+    const MObject parent = dag.parent(0, &status);
+    return (status && !parent.isNull() ? MFnDependencyNode(parent).name() : dag.name()).asChar();
 }
 
 void* GroomShapeUI::creator() { return new GroomShapeUI(); }

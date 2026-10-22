@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "groom_document.h"
+#include "groomlab/guide_hierarchy.h"
 
 namespace groomlab::app {
 
@@ -126,6 +127,17 @@ void makeRequiredMaps(GroomDocument& document, const std::string& body, PresetAp
     }
 }
 
+// The guide groups a preset's graph reads, made empty when the groom has none of that name (the
+// Maya host's prepare); the one its Draw tool draws into.
+void makeRequiredGroups(GroomDocument& document, const std::string& body, PresetApplied& done) {
+    for (const PresetGroup& g : presetRequiredGroups(body)) {
+        const HierarchyPtr h = document.session().authoredHierarchy();
+        const bool had = h && h->findGroup(g.name) != kNoGroup;
+        if (!had && document.ensureGuideGroup(g.name).empty()) done.groupsMade.push_back(g.name);
+        if (g.draw && done.drawGroup.empty()) done.drawGroup = g.name;
+    }
+}
+
 // How far the preset's sizes scale to this scalp.
 void noteFit(const GroomDocument& document, const json& preset, PresetApplied& done) {
     const std::optional<double> size = scalpSizeOf(document);
@@ -147,7 +159,10 @@ std::string applyPresetText(GroomDocument& document, const std::string& text, bo
     }
     PresetApplied done;
     done.title = titleOf(preset, "the graph");
-    if (makeMaps) makeRequiredMaps(document, body, done);
+    if (makeMaps) {
+        makeRequiredMaps(document, body, done);
+        makeRequiredGroups(document, body, done);
+    }
     // The graph fitted to this scalp, its control values set where the graph holds them.
     const std::optional<double> size = scalpSizeOf(document);
     noteFit(document, preset, done);
@@ -228,6 +243,10 @@ std::string presetMessage(const PresetApplied& a) {
     if (!a.mapsMade.empty()) {
         text += ", made the map" + std::string(a.mapsMade.size() == 1 ? " " : "s ");
         for (std::size_t i = 0; i < a.mapsMade.size(); ++i) text += (i ? ", " : "") + a.mapsMade[i];
+    }
+    if (!a.groupsMade.empty()) {
+        text += ", made the guide group" + std::string(a.groupsMade.size() == 1 ? " " : "s ");
+        for (std::size_t i = 0; i < a.groupsMade.size(); ++i) text += (i ? ", " : "") + a.groupsMade[i];
     }
     return text;
 }

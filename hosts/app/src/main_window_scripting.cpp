@@ -518,6 +518,13 @@ bool MainWindow::applyPreset(const QString& nameOrPath) {
         graph_->refresh();
         graph_->frameReadable();
     }
+    if (!applied.groupsMade.empty()) refreshGroups();
+    // A hand-placed look: the Draw tool draws into its group, every guide drawn grows one.
+    if (!applied.drawGroup.empty() && drawGuidesInto(applied.drawGroup)) {
+        notify(tr("Applied the preset %1. Draw guides from the skin into %2: each one grows the look")
+                   .arg(QString::fromStdString(presetMessage(applied)), QString::fromStdString(applied.drawGroup)));
+        return true;
+    }
     notify(tr("Applied the preset %1").arg(QString::fromStdString(presetMessage(applied))));
     return true;
 }

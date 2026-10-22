@@ -10,11 +10,14 @@ transparent background, then groomlab-press-kit.zip with every file and a README
 The artwork is the shipped logo, nothing redrawn:
 - the mark is hosts/app/icons/ui_logo.svg (the same strands as web/components/logo.tsx), read from that
   file, in its own 30 x 30 box;
-- the wordmark is "GroomLab" as the site header sets it (web/components/logo.tsx: Inter bold,
-  tracking-tight, 1.05rem beside the 28 px mark with a 0.5rem gap, the strands' roots on the baseline),
-  turned into outlines with fontTools, so the SVGs need no font. The font is the Inter the site ships
-  (next/font): by default the first Inter woff2 under web/.next/static/media or web/out/_next/static/media
-  that has the letters, so run `npm run build` in web/ once first, or pass --font.
+- the wordmark is "GroomLab" as the site header sets it (web/components/logo.tsx: Google Sans Flex
+  bold, tracking-tight, 1.05rem beside the 28 px mark with a 0.5rem gap, the strands' roots on the
+  baseline), turned into outlines with fontTools, so the SVGs need no font. The font is the Google Sans
+  Flex the site ships (next/font, SIL OFL 1.1; nothing is committed): by default the variable woff2 under
+  web/.next/static/media or web/out/_next/static/media with the most characters among those that have
+  the letters, so run `npm run build` in web/ once first, or pass --font (a variable or static file).
+  A variable font is instanced at the header's weight and optical size (other axes at their defaults)
+  before outlining.
 
 PNGs are rasterized by sharp from web/node_modules (`npm ci` in web/), through node. Needs fontTools
 (with brotli for woff2). Output is deterministic: the zip has fixed timestamps.
@@ -85,6 +88,9 @@ def mark_bounds(strands):
     return min(xs), min(ys), max(xs), max(ys)
 
 
+FAMILY = "Google Sans Flex"
+
+
 def find_font(explicit):
     if explicit:
         return explicit
@@ -92,12 +98,17 @@ def find_font(explicit):
         os.path.join(WEB, ".next", "static", "media", "*.woff2"),
         os.path.join(WEB, "out", "_next", "static", "media", "*.woff2"),
     ]
+    # next/font writes one file per unicode-range subset; several carry Latin letters, so take the
+    # biggest (the latin subset) for a stable pick.
+    found = []
     for path in sorted(p for pat in pattern for p in glob.glob(pat)):
         font = TTFont(path)
         cmap = font.getBestCmap() or {}
-        if "fvar" in font and font["name"].getDebugName(1) == "Inter" and all(ord(c) in cmap for c in NAME):
-            return path
-    sys.exit("no Inter woff2 found: run `npm run build` in web/ first, or pass --font")
+        if "fvar" in font and font["name"].getDebugName(1) == FAMILY and all(ord(c) in cmap for c in NAME):
+            found.append((-len(cmap), os.path.basename(path), path))
+    if not found:
+        sys.exit(f"no {FAMILY} woff2 found: run `npm run build` in web/ first, or pass --font")
+    return min(found)[2]
 
 
 def kerning(font, left, right):
@@ -128,7 +139,14 @@ def kerning(font, left, right):
 
 def wordmark(font_path, x0):
     """'GroomLab' as one outline path, its pen starting at x0 on the baseline; returns (d, bounds)."""
-    font = instancer.instantiateVariableFont(TTFont(font_path), {"wght": WEIGHT, "opsz": OPSZ})
+    font = TTFont(font_path)
+    if "fvar" in font:
+        # Pin every axis: the header's weight and optical size, the rest (grade, roundness, slant,
+        # width in the full family) at their defaults, as the site loads them.
+        want = {"wght": WEIGHT, "opsz": OPSZ}
+        font = instancer.instantiateVariableFont(
+            font, {a.axisTag: want.get(a.axisTag, a.defaultValue) for a in font["fvar"].axes}
+        )
     upm = font["head"].unitsPerEm
     cmap = font.getBestCmap()
     glyphs = font.getGlyphSet()
@@ -256,8 +274,8 @@ const jobs = JSON.parse(fs.readFileSync(0, 'utf8'));
 def main():
     global WEIGHT, OUT
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--font", help="the Inter variable font (woff2 or ttf); default: the site's build output")
-    ap.add_argument("--weight", type=int, default=WEIGHT, help="the wordmark's Inter weight (default %d)" % WEIGHT)
+    ap.add_argument("--font", help="the Google Sans Flex font (woff2 or ttf, variable or static); default: the site's build output")
+    ap.add_argument("--weight", type=int, default=WEIGHT, help="the wordmark's weight (default %d)" % WEIGHT)
     ap.add_argument("--out", default=OUT, help="the folder to write (default web/public/press)")
     args = ap.parse_args()
     WEIGHT, OUT = args.weight, os.path.abspath(args.out)

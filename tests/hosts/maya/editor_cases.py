@@ -1088,6 +1088,28 @@ class GraphEditorTest(unittest.TestCase):
         self.assertIn("groomMasks", groomlab.list_maps(self.groom))
         self.assertEqual(groomlab.errors(self.groom), [])
 
+    def test_hand_placed_feathers_preset_and_add_feathers_draw_into_their_group(self):
+        # A preset that requires a guide group: made empty, and the Draw tool draws into it, so
+        # every guide drawn is a flight feather.
+        cmds.select(self.groom)
+        self.editor.load_preset("hand_placed_feathers")
+        self.assertIn("feathers", [g["name"] for g in groomlab.list_guide_groups(self.groom)])
+        self.assertEqual(groomlab.errors(self.groom), [])
+        self.assertEqual(cmds.currentCtx(), groomlab.BRUSH_CONTEXT)
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), "draw")
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, group=True), "feathers")
+        self.assertIn("draws into feathers", self.editor.status.text())
+        # Add > Feathers, one per guide in a new group with no guides yet: the Draw tool on it.
+        from groomlab.ui import menu
+        cmds.setToolTo("selectSuperContext")
+        cmds.select(self.groom)
+        menu.add_feathers_dialog(design="flight", source="guides", group="tail", groom=self.groom)
+        self.assertEqual(cmds.currentCtx(), groomlab.BRUSH_CONTEXT)
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, mode=True), "draw")
+        self.assertEqual(cmds.groomLabBrushCtx(groomlab.BRUSH_CONTEXT, query=True, group=True), "tail")
+        self.assertEqual(groomlab.feather_guide_groups(self.groom), ["feathers", "tail"])
+        cmds.setToolTo("selectSuperContext")
+
     def test_the_presets_menu_has_a_submenu_per_category(self):
         from groomlab import presets
         user = os.environ.get("GROOMLAB_USER_PRESETS")
@@ -2500,8 +2522,13 @@ class GuidesTabTest(unittest.TestCase):
         tree.setCurrentItem(tree.findItems("kids", QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive)[0])
         self.tab.select_group()
         self.assertEqual(len(groomlab.selected_guides(self.groom)), 2)
-        self.tab.color.setChecked(True)
-        self.assertEqual(cmds.getAttr(self.groom + ".guideColorMode"), 2)
+        # Each group's swatch in the color it draws in (its automatic one, dashed: none of its own).
+        self.assertEqual(cmds.getAttr(self.groom + ".guideColorMode"), 0)
+        automatic = dict((g["name"], g["color"]) for g in groomlab.list_guide_groups(self.groom))
+        kids = tree.findItems("kids", QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive)[0]
+        self.assertIn(automatic["kids"], tree.itemWidget(kids, 1).styleSheet())
+        self.assertIn("dashed", tree.itemWidget(kids, 1).styleSheet())
+        self.assertNotEqual(automatic["kids"], automatic["primary"])
         # A group's own color, from its swatch; renaming keeps it; clearing goes back.
         self.tab.set_color("kids", "#ff8800")
         self.assertEqual(groomlab.guide_group_colors(self.groom), {"kids": "#ff8800"})
@@ -2771,11 +2798,15 @@ class CachedQueriesTest(unittest.TestCase):
         cmds.file(new=True, force=True)
         groom = groomlab.create_groom(cmds.polySphere(radius=1, subdivisionsX=40, subdivisionsY=20)[0])
         groomlab.guides_from_curves(groom, [cmds.curve(degree=1, point=[(0, 1, 0), (0, 2, 0)])])
-        listed = lambda: list(cmds.groomLabGuides(groom, listGroups=True) or [])
+        # (Each row ends in the color the group draws in: checked below, not in the stored text.)
+        listed = lambda: ["|".join(r.split("|")[:4]) for r in cmds.groomLabGuides(groom, listGroups=True) or []]
         self.assertEqual(listed(), self.rows_from_json(groom))
         groomlab.add_guide_group(groom, "kids", "primary")
         self.assertEqual(listed(), self.rows_from_json(groom))
         self.assertIn("kids|primary|1|0", listed())
+        colors = dict((g["name"], g["color"]) for g in groomlab.list_guide_groups(groom))
+        self.assertTrue(all(len(c) == 7 and c.startswith("#") for c in colors.values()), colors)
+        self.assertNotEqual(colors["kids"], colors["primary"])  # a child group its own color
         data = json.loads(cmds.getAttr(groom + ".guideData"))
         data["groups"][0]["name"] = "renamed"
         cmds.setAttr(groom + ".guideData", json.dumps(data), type="string")

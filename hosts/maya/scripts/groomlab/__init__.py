@@ -53,8 +53,8 @@ from groomlab.paths import (  # noqa: F401
 from groomlab.collision import add_collider, colliders, remove_collider, set_collider_friction  # noqa: F401
 from groomlab.extra_scalps import add_scalp, remove_scalp, scalps, valid_name as valid_scalp_name  # noqa: F401
 from groomlab.guides import (  # noqa: F401
-    SELECT_CONTEXT, add_guide_group, add_guides, clear_guide_selection, clear_guides, color_guides_by_group,
-    color_guides_by_map, demote_group, end_guide_preview, generate_children, get_hierarchy, group_users,
+    SELECT_CONTEXT, add_guide_group, add_guides, clear_guide_selection, clear_guides, color_guides_by_map,
+    demote_group, end_guide_preview, generate_children, get_hierarchy, group_users,
     guide_group_colors, guide_ids, guide_segments, guides_from_curves, hidden_guide_groups, import_guides_from_alembic,
     isolate_level, list_guide_groups, lock_guides, mirror_group, mirror_guide_selection, preview_resample_guides,
     promote_group, remove_guide_group, rename_guide_group, reparent_guides, resample_guides, select_guides, select_tool,
@@ -99,8 +99,8 @@ from groomlab.exports import (  # noqa: F401
     viewport_points)
 from groomlab.braids import add_braid, add_instances, braid_paths_from_curves, set_instance_prototype  # noqa: F401
 from groomlab.feathers import (  # noqa: F401
-    add_feathers, create_feather_cards, create_rachis_mesh, export_rachis, feather_designs, feather_groups, rachis_mesh,
-    rachis_width, set_rachis_width)
+    add_feathers, create_feather_cards, create_rachis_mesh, export_rachis, feather_designs, feather_groups,
+    feather_guide_groups, rachis_mesh, rachis_width, set_rachis_width)
 from groomlab.game import (  # noqa: F401
     UNITY_CARD_MAPS, UNITY_HAIR_PACKAGES, UNITY_MAX_STRANDS, UNITY_STRAND_POINTS, UNREAL_LODS, export_cards_gltf,
     export_cards_unity, export_cards_unreal, export_unity_feathers, export_unity_strands, export_unreal_groom)

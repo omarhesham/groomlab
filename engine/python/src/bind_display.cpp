@@ -51,9 +51,8 @@ py::object frameDict(const DisplayFrame& frame) {
 void bindDisplay(py::module_& m) {
     py::class_<FloatArray, std::shared_ptr<FloatArray>>(m, "_FloatArray");
 
-    py::class_<DisplayTheme>(m, "DisplayTheme", "The overlays' colors (linear RGB): guide levels, selection, parts, flow...")
+    py::class_<DisplayTheme>(m, "DisplayTheme", "The overlays' colors (linear RGB): selection, frozen guides, parts, flow...")
         .def(py::init<>())
-        .def_readwrite("levels", &DisplayTheme::levels)
         .def_readwrite("point_size", &DisplayTheme::pointSize)
         .def_readwrite("selected", &DisplayTheme::selected)
         .def_readwrite("soft_selected", &DisplayTheme::softSelected)
@@ -65,8 +64,7 @@ void bindDisplay(py::module_& m) {
         .def_readwrite("instances", &DisplayTheme::instances)
         .def_readwrite("cards", &DisplayTheme::cards)
         .def_readwrite("clump_centers", &DisplayTheme::clumpCenters)
-        .def_readwrite("version", &DisplayTheme::version, "Bump it on a change: the guides build again.")
-        .def("level", &DisplayTheme::level, py::arg("depth"));
+        .def_readwrite("version", &DisplayTheme::version, "Bump it on a change: the guides build again.");
 
     py::class_<DisplaySettings>(m, "DisplaySettings",
                                 "The display attributes (Maya: the groom shape's): strand colors and modes, ribbons, "
@@ -95,7 +93,7 @@ void bindDisplay(py::module_& m) {
         .def_readwrite("guides", &DisplaySettings::guides)
         .def_readwrite("tubes", &DisplaySettings::tubes)
         .def_readwrite("guide_width", &DisplaySettings::guideWidth)
-        .def_readwrite("guide_color_mode", &DisplaySettings::guideColorMode, "0 by level, 1 by layer, 2 by group.")
+        .def_readwrite("guide_color_mode", &DisplaySettings::guideColorMode, "1 by the painted layer guide_color_layer; else (0) by group.")
         .def_readwrite("guide_color_layer", &DisplaySettings::guideColorLayer)
         .def_readwrite("display_level", &DisplaySettings::displayLevel)
         .def_readwrite("guide_points", &DisplaySettings::guidePoints, "0 off, 1 roots and tips, 2 all.")

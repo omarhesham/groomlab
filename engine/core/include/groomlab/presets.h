@@ -15,7 +15,10 @@
 //   "about"      {"title", "description", "category"}: what the Presets menu shows (the category
 //                as a submenu, presetCategories; the description as the item's tooltip).
 //   "requires"   {"maps": [{"name", "kind", "value", "color"}]}: painted maps the graph reads,
-//                made when the groom has none of that name.
+//                made when the groom has none of that name; "groups": [{"name", "draw"}]: guide
+//                groups the graph reads (a Guides node's group), made empty when the groom has
+//                none of that name. With "draw" true a host with a Draw tool picks it, drawing
+//                into that group (a hand-placed look: each guide drawn is a feather).
 //   "backdrops"  the node editors' backdrops framing parts of the graph (layout only).
 //   "controls"   {"ctl_<name>": value or [x, y, z]}: the values of the groom's controls (Control
 //                nodes, keyable Expression variables, keyed params), set after the graph is applied.
@@ -143,6 +146,12 @@ struct PresetMap {
     std::vector<double> color;    // r g b (a): a color map filled with this; empty: a gray map
 };
 std::vector<PresetMap> presetRequiredMaps(const std::string& presetJson);
+// A guide group a preset's graph reads ("requires": {"groups": [...]}), each name once.
+struct PresetGroup {
+    std::string name;
+    bool draw = false;  // the host's Draw tool picked, drawing into it, once the preset is applied
+};
+std::vector<PresetGroup> presetRequiredGroups(const std::string& presetJson);
 
 // The preset a groom's graph makes (Save as Preset, Copy Graph): its graph with "version" first,
 // "size" (when given), "about" (the fields given, empty ones left out), then the nodes,

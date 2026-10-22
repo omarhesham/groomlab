@@ -233,7 +233,7 @@ them is Maya's and the app's.
 
 ## Viewport display
 
-Guides are drawn as in Maya: colored by level (or by a painted layer, or a hue per group), frozen
+Guides are drawn as in Maya: each group in a color of its own (or by a painted layer), frozen
 guides blue, the selection white with its soft-selection falloff orange, root and tip dots, tubes
 when shown, part lines red, flow arrows orange. **Display** (under Groom Tools) has Maya's toggles: Guides,
 Tubes, Flow, Strands, the guide points, the guide colors and the **Strand Colors** (Solid,
@@ -475,10 +475,13 @@ Nick Rutlinh (GroomLab), CC BY 4.0".
 
 - **Feathers...**: a feather design (contour, down, flight, afterfeather, barred, or a
   `feathers_<name>` preset of yours), or several separated by commas with their shares in
-  **Weights**. **Shafts From: Scatter** scatters the shafts over the scalp, shaped by the guides;
-  **Guides** makes one feather per curve of the selected curve objects (drawn from the scalp, the
-  first point the root), which join the **feathers** guide group. The feathers merge with the hair
-  before the output.
+  **Weights**. **Scattered feathers (shaped by the guides)** scatters them over the scalp, laid the
+  way the guides are combed; **One feather per guide (hand-placed)** makes each guide of the
+  **Guide Group** (`feathers`, another of the groom's groups, or a new name such as `flight_left`
+  or `tail`) one feather, and the selected curve objects (drawn from the scalp, the first point the
+  root) join that group. A group with no guides yet gets the **Draw** tool drawing into it. The
+  feathers merge with the hair before the output ([Hand-placed flight
+  feathers](/docs/fur-and-feathers#hand-placed-flight-feathers)).
 - **Braid on Curves...**: the selected curve objects become the **braids** guide group (without
   any, the group's guides are the paths: draw them with **Draw**), and a **Braid** node after the
   Interpolate braids the strands along them, in the style you pick (three, fishtail, rope,

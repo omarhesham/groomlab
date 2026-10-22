@@ -181,6 +181,8 @@ class GROOMLAB_OT_apply_preset(GroomOperator):
         note = graph.preset_maps_note(r)
         if note:
             self.report(*note)
+        if r.get("drawGroup"):
+            graph.draw_into(context, scalp, r["drawGroup"])  # a hand-placed look: draw its guides
         return {"FINISHED"}
 
 

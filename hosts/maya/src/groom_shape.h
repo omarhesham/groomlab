@@ -217,8 +217,8 @@ public:
     // all (2); 0 leaves them alone.
     static MObject aSculptDisplay;
     static MObject aSculptDensity;
-    // Guides: displayLevel >= 0 isolates a level (others dim); guideColorMode 1
-    // colors guides by the layer guideColorLayer (black to white ramp).
+    // Guides: displayLevel >= 0 isolates a level (others dim); guideColorMode 0
+    // colors them by group, 1 by the layer guideColorLayer (black to white ramp).
     static MObject aDisplayLevel;
     static MObject aGuideColorMode;
     static MObject aGuideColorLayer;
@@ -270,7 +270,7 @@ public:
     static MObject aPreviewPointBudget;  // millions of points the viewport may hold; the preview thins past it
 
     // Display only
-    static MObject aDisplayGuides;  // draw hierarchy guides, colored by level
+    static MObject aDisplayGuides;  // draw hierarchy guides, colored by group
     static MObject aDisplayTubes;   // draw guide tubes as rings
     static MObject aDisplayHair;    // draw the hair (strands, instances, cards): the Groom Tools' eye
 
@@ -824,6 +824,10 @@ private:
 };
 
 // (parseCardMaps, the cardMaps attribute as map -> path: groom_session.h.)
+
+// The name the groom's automatic guide colors start from (DisplaySettings::guideColorSeed): its
+// transform's (as Blender's object and the app's file name), so two grooms' groups differ.
+std::string guideColorSeedOf(const MObject& groomShape);
 
 // Legacy-viewport UI class; registerShape requires one even when drawing
 // happens through Viewport 2.0.

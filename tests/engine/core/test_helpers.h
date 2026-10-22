@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "groomlab/groom.h"
+#include "groomlab/guide_hierarchy.h"
 #include "groomlab/guide_set.h"
 #include "groomlab/portable_math.h"
 #include "groomlab/presets.h"
@@ -148,11 +149,31 @@ inline float curlEase(float arc, float t, float frequency) {
     return x * x * (3.0f - 2.0f * x);
 }
 
+// The guide groups a preset reads ("requires": {"groups"}), made as a host makes them on applying
+// it, but drawn in: each holds a copy of every fourth of the groom's guides (the hierarchy's, else
+// the flat ones), as an artist would draw a few hand-placed feathers, so what reads it grows
+// something. A group the groom has already is left alone.
+inline void drawRequiredGroups(const std::string& presetJson, GroomData& data) {
+    const std::vector<PresetGroup> groups = presetRequiredGroups(presetJson);
+    if (groups.empty()) return;
+    GuideHierarchy hierarchy = data.hierarchyJson.empty() ? GuideHierarchy() : GuideHierarchy::fromJson(data.hierarchyJson);
+    const GuideSet existing = !hierarchy.guides().empty() ? hierarchy.flatten(-1) : data.guides ? *data.guides : GuideSet();
+    for (const PresetGroup& g : groups) {
+        if (hierarchy.findGroup(g.name) != kNoGroup) continue;
+        const GroupId id = hierarchy.addGroup(g.name);
+        for (std::size_t i = 0; i < existing.guides().size(); i += 4) hierarchy.addGuide(id, existing.guides()[i].points);
+    }
+    hierarchy.evaluate(data.scalp.get());
+    data.hierarchyJson = hierarchy.toJson();
+}
+
 // The painted maps a preset reads ("requires"), made as a host makes them on applying it, but
 // painted: each a vertex map over the scalp, its channels triangle waves across the scalp's bounds
 // (bands of 0 to 1, from basic arithmetic alone, so the same bits on every platform), so what
-// reads them reads something varying (both looks of a Blend by a map, for one).
+// reads them reads something varying (both looks of a Blend by a map, for one). The guide groups
+// it reads too (drawRequiredGroups).
 inline void paintRequiredMaps(const std::string& presetJson, GroomData& data) {
+    drawRequiredGroups(presetJson, data);
     const std::vector<PresetMap> maps = presetRequiredMaps(presetJson);
     if (maps.empty() || !data.scalp) return;
     auto scalp = std::make_shared<ScalpMesh>(*data.scalp);

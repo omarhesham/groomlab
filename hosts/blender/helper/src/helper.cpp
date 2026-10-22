@@ -1111,7 +1111,15 @@ json applyPreset(Session& s, const json& args) {
             missing.push_back(std::move(entry));
         }
     }
-    return {{"preset", stem}, {"fitFactor", factor}, {"nodes", GraphEdit(graph).nodeNames().size()}, {"missingMaps", missing}};
+    // The guide groups it reads (the add-on makes the missing ones, empty; "draw": its Draw tool
+    // then draws into that group).
+    json groups = json::array();
+    for (const PresetGroup& g : presetRequiredGroups(text)) groups.push_back({{"name", g.name}, {"draw", g.draw}});
+    return {{"preset", stem},
+            {"fitFactor", factor},
+            {"nodes", GraphEdit(graph).nodeNames().size()},
+            {"missingMaps", missing},
+            {"groups", groups}};
 }
 
 // ---- State --------------------------------------------------------------------------------------

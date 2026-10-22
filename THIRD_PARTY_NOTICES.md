@@ -50,8 +50,9 @@ CMake's FetchContent downloads these, pinned by tag or SHA-256 (`cmake/GroomLabD
 The site's npm dependencies (Next.js, React, Fumadocs, Tailwind CSS, lucide-react, TypeScript,
 ESLint and their dependencies) are under permissive licenses (mainly MIT, ISC, Apache-2.0 and
 BSD). `web/package-lock.json` lists the exact versions. Run `npx license-checker --summary` in
-`web/` to list every license. The Inter font comes from Google Fonts through `next/font`
-(SIL OFL 1.1).
+`web/` to list every license. The Google Sans Flex font comes from Google Fonts through
+`next/font` (SIL OFL 1.1); no font file is in the repository. The press kit's wordmark
+(`web/public/press/`) is that font's letters turned into outlines.
 
 The renderer logos in `web/public/renderers/` (Arnold, RenderMan) are their owners' trademarks.
 They are there only to say that GroomLab works with those renderers. They are **not** covered by

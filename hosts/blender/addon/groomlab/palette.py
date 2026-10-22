@@ -483,11 +483,12 @@ class GROOMLAB_UL_groups(bpy.types.UIList):
         row.label(text="    " * item.depth + item.name)
         sub = row.row(align=True)
         sub.alignment = "RIGHT"
-        if item.has_color:
-            swatch = sub.row(align=True)
-            swatch.enabled = False  # Color... in the right-click menu changes it (one undo step)
-            swatch.scale_x = 0.4
-            swatch.prop(item, "color", text="")
+        # The color it draws in (its own, else its automatic one): Color... in the right-click
+        # menu changes it (one undo step).
+        swatch = sub.row(align=True)
+        swatch.enabled = False
+        swatch.scale_x = 0.4
+        swatch.prop(item, "color", text="")
         sub.label(text="%d" % item.guides)
         sub.label(text="L%d" % item.level)
         op = sub.operator("groomlab.group_edit", text="", icon="HIDE_ON" if item.hidden else "HIDE_OFF", emboss=False)
@@ -553,9 +554,6 @@ class VIEW3D_PT_groomlab_tools_guides(GroomToolsSubpanel, bpy.types.Panel):
         row = layout.row(align=True)
         row.menu("GROOMLAB_MT_guide_edits", text=lists["edits"]["label"])
         row.prop(t, "children_count", text="x")
-        scalp = active_groom(context)
-        if scalp is not None:
-            layout.prop(scalp.groomlab_tools, "guide_color_mode")
         layout.prop(t, "resample_segments", text="Segments (%s)" % t.segments_scope if t.segments_scope else "Segments")
         layout.label(text="%d guides, %d selected, %d frozen" % (t.guide_count, t.selected_count, t.frozen_count))
 

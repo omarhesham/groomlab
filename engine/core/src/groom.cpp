@@ -46,7 +46,9 @@ void setGroomExternals(ExternalInputs& externals, const MeshPtr& scalp, const Gu
                       hashCombine(piece->surfaceHash(), static_cast<std::uint64_t>(piece->wholeFaceOffset())));
     }
     if (guides && !guides->empty()) externals.set("guides", guides, guides->contentHash());
-    if (hierarchy && !hierarchy->guides().empty()) {
+    // A hierarchy of groups alone too (no guides drawn yet): a Guides node on a group made empty
+    // gives no guides instead of nothing (sources.cpp).
+    if (hierarchy && (!hierarchy->guides().empty() || !hierarchy->groups().empty())) {
         externals.set("hierarchy", hierarchy, hierarchy->contentHash());
     }
 }
