@@ -815,8 +815,8 @@ class GraphApiTest(unittest.TestCase):
         fitted = presets.fitted(design, 20.0, catalog)
         node = next(n for n in fitted["nodes"] if n["type"] == "Compound")
         original = next(n for n in design["nodes"] if n["type"] == "Compound")
-        self.assertAlmostEqual(node["params"]["length"], original["params"]["length"] * 10.0)
-        self.assertAlmostEqual(node["params"]["width"], original["params"]["width"] * 10.0)
+        self.assertAlmostEqual(node["params"]["vaneWidth"], original["params"]["vaneWidth"] * 10.0)
+        self.assertAlmostEqual(node["params"]["barbWidth"], original["params"]["barbWidth"] * 10.0)
         self.assertEqual(node["params"]["count"], original["params"]["count"])  # no unit
         inner = {n["name"]: n for n in node["params"]["definition"]["graph"]["nodes"]}
         was = {n["name"]: n for n in original["params"]["definition"]["graph"]["nodes"]}

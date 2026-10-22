@@ -1759,7 +1759,7 @@ TEST(AppPanels, ParamPanelShowsCompoundParamsAndTheDescription) {
     const std::string compound = nodeOfType(*doc, "Compound");
     panel.showNode(compound);
     EXPECT_NE(panel.editorKind("count"), "") << "an exposed param of the design";
-    EXPECT_NE(panel.editorKind("length"), "");
+    EXPECT_NE(panel.editorKind("vaneWidth"), "");
     EXPECT_EQ(panel.editorKind("definition"), "") << "the definition is not a row (a Compound's params are the exposed ones)";
     EXPECT_FALSE(panel.description().isEmpty());
 }

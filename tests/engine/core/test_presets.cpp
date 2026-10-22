@@ -171,8 +171,8 @@ TEST(Presets, FittingReachesInsideCompoundsAndKeyedControls) {
     const json fitted = json::parse(fitPresetJson(text.str(), 20.0));
     const json& node = nodeOfType(fitted, "Compound");
     const json& original = nodeOfType(design, "Compound");
-    EXPECT_NEAR(node["params"]["length"].get<double>(), original["params"]["length"].get<double>() * 10.0, 1e-9);
-    EXPECT_NEAR(node["params"]["width"].get<double>(), original["params"]["width"].get<double>() * 10.0, 1e-9);
+    EXPECT_NEAR(node["params"]["vaneWidth"].get<double>(), original["params"]["vaneWidth"].get<double>() * 10.0, 1e-9);
+    EXPECT_NEAR(node["params"]["barbWidth"].get<double>(), original["params"]["barbWidth"].get<double>() * 10.0, 1e-9);
     EXPECT_EQ(node["params"]["count"], original["params"]["count"]) << "no unit";
     const json& inner = node["params"]["definition"]["graph"];
     const json& was = original["params"]["definition"]["graph"];
