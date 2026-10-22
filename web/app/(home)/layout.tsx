@@ -2,7 +2,7 @@
 import { SiteFooter } from '@/components/home/site-footer';
 import { SiteHeader } from '@/components/home/site-header';
 
-/** The landing page is always paper-white, whatever theme the docs use. */
+/** The landing pages are always paper-white (a light graph canvas), whatever theme the docs use. */
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
     <div data-landing="" className="flex flex-1 flex-col bg-gl-paper text-gl-ink [color-scheme:light]">
@@ -12,8 +12,10 @@ export default function Layout({ children }: LayoutProps<'/'>) {
       >
         Skip to content
       </a>
+      {/* The graph canvas's dot grid, drifting a little slower than the page (.canvas-grid). */}
+      <div aria-hidden="true" className="canvas-grid" />
       <SiteHeader />
-      <main id="main" className="flex-1">
+      <main id="main" className="relative flex-1">
         {children}
       </main>
       <SiteFooter />
