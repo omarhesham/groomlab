@@ -30,6 +30,10 @@ struct Ramp {
     // The monotone cubic's tangent (slope) at key k: the GPU preview takes them with the keys (0
     // with fewer than two keys).
     float tangent(std::size_t k) const;
+    // Every key's tangent, and the ramp at t from them (`tangents`: as tangents() lists them): the
+    // same value as operator(), for a ramp taken at many places without working them out each time.
+    std::vector<float> tangents() const;
+    float at(float t, const float* tangents) const;
 
     bool operator==(const Ramp& o) const { return keys == o.keys && straight == o.straight; }
     bool operator!=(const Ramp& o) const { return !(*this == o); }

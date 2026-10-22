@@ -11,7 +11,12 @@ void Ramp::sort() {
     std::stable_sort(keys.begin(), keys.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
 }
 
-float Ramp::operator()(float t) const {
+namespace {
+
+// The ramp at t, `tangent(k)` key k's tangent (operator(), at).
+template <class Tangent>
+float rampAt(const Ramp& ramp, float t, const Tangent& tangent) {
+    const auto& keys = ramp.keys;
     if (keys.empty()) return 1.0f;
     if (!(t > keys.front().first)) return keys.front().second;  // also NaN
     if (t >= keys.back().first) return keys.back().second;
@@ -20,12 +25,28 @@ float Ramp::operator()(float t) const {
     const float span = hi->first - lo->first;
     if (span <= 0.0f) return hi->second;
     const float f = (t - lo->first) / span;
-    if (straight) return lo->second + (hi->second - lo->second) * f;
+    if (ramp.straight) return lo->second + (hi->second - lo->second) * f;
 
     // Monotone cubic Hermite: tangents from the neighboring secants.
     const std::size_t i = static_cast<std::size_t>(lo - keys.begin());
     const float m0 = tangent(i) * span, m1 = tangent(i + 1) * span;
     return shared::rampHermite(f, lo->second, m0, hi->second, m1);
+}
+
+}  // namespace
+
+float Ramp::operator()(float t) const {
+    return rampAt(*this, t, [&](std::size_t k) { return tangent(k); });
+}
+
+std::vector<float> Ramp::tangents() const {
+    std::vector<float> out(keys.size());
+    for (std::size_t k = 0; k < keys.size(); ++k) out[k] = tangent(k);
+    return out;
+}
+
+float Ramp::at(float t, const float* tangents) const {
+    return rampAt(*this, t, [&](std::size_t k) { return tangents[k]; });
 }
 
 float Ramp::tangent(std::size_t k) const {

@@ -1738,9 +1738,15 @@ TEST(Budget, LookOperatorsHalfMillion) {
     worldNoise->params().set("amplitude", 0.5);
     worldNoise->params().set("space", std::string("world"));
     const double worldMs = best([&] { run(*worldNoise, strands); });
+    // Curl at its default tolerance: points added to every strand (each segment cut in two or more),
+    // reported only.
+    auto adding = reg.create(op::kCurl);
+    adding->params().set("radius", 0.3);
+    adding->params().set("frequency", 0.5);
+    const double addingMs = best([&] { run(*adding, noised); });
     std::printf("[ budget ] look operators, %zu strands x %zu points: noise %.1f ms (world space %.1f ms), curl %.1f ms, "
-                "width %.1f ms (the positions' copy-on-write clone alone: %.1f ms)\n",
-                kStrands, kPoints, noiseMs, worldMs, curlMs, widthMs, copyMs);
+                "width %.1f ms (the positions' copy-on-write clone alone: %.1f ms); curl adding points (tolerance 0.5) %.1f ms\n",
+                kStrands, kPoints, noiseMs, worldMs, curlMs, widthMs, copyMs, addingMs);
     // Before the strand-space noise cache, four-lane frames and recycled arrays: ~150 ms.
     EXPECT_BUDGET(noiseMs + curlMs + widthMs, 120.0);
 
