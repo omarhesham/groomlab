@@ -19,6 +19,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include "groomlab/curve.h"
 #include "groomlab/export_view.h"
@@ -2078,16 +2079,42 @@ constexpr const char* kGroupIdChannels[] = {kClumpIdChannel, "braidId", kFeather
 // Scatters with the same seed still give strands of their own. IDs that do
 // not collide stay as they are. Returns old -> new for the IDs changed.
 std::unordered_map<StrandId, StrandId> makeIdsUnique(const StrandSet& a, StrandSet& b) {
+    // The IDs taken, in one flat table (open addressing, at most half full: every ID either side
+    // adds fits), 0 apart as the empty slot's mark; a node per ID cost most of a Merge's time.
+    class Taken {
+    public:
+        explicit Taken(std::size_t most) {
+            std::size_t size = 16;
+            while (size < 2 * most) size <<= 1;
+            slots_.assign(size, 0);
+            mask_ = size - 1;
+        }
+        bool insert(StrandId id) {
+            if (id == 0) return !std::exchange(zero_, true);
+            for (std::size_t i = static_cast<std::size_t>(hash64(id)) & mask_;; i = (i + 1) & mask_) {
+                if (slots_[i] == id) return false;
+                if (slots_[i] == 0) {
+                    slots_[i] = id;
+                    return true;
+                }
+            }
+        }
+
+    private:
+        std::vector<StrandId> slots_;
+        std::size_t mask_ = 0;
+        bool zero_ = false;
+    };
     std::unordered_map<StrandId, StrandId> renamed;
-    std::unordered_set<StrandId> taken(a.ids().begin(), a.ids().end());
-    taken.reserve(a.strandCount() + b.strandCount());
+    Taken taken(a.strandCount() + b.strandCount());
+    for (const StrandId id : a.ids()) taken.insert(id);
     for (std::size_t s = 0; s < b.strandCount(); ++s) {
         const StrandId id = b.ids()[s];
-        if (taken.insert(id).second) continue;
+        if (taken.insert(id)) continue;
         StrandId fresh = id;
         do {
             fresh = hashCombine(fresh, 0x9E3779B97F4A7C15ull);
-        } while (!taken.insert(fresh).second);
+        } while (!taken.insert(fresh));
         b.mutableIds()[s] = fresh;
         renamed.emplace(id, fresh);
     }
