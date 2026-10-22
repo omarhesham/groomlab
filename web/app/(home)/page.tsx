@@ -10,7 +10,7 @@ import { Toolkit } from '@/components/home/toolkit';
 import { TrySection } from '@/components/home/try-section';
 import { UnderTheHood } from '@/components/home/under-the-hood';
 
-// The hero: a head of curls in 3D beside the promise. Then a small GroomLab window to play with, and
+// The hero: a head of curls in 3D beside the promise. Then how a groom is made, in words, and
 // below it the page is one graph, every section a node on the page wire: try the graph, one groom
 // in every app, the toolkit, the proof (performance), the depth (under the hood), open source, then
 // getting it.

@@ -29,12 +29,12 @@ const nodes = categories.flatMap((c) => c.nodes.map((n) => ({ name: n, cat: c.ca
 const half = Math.ceil(nodes.length / 2);
 const rows = [nodes.slice(0, half), nodes.slice(half)];
 
-const specs: { title: string; cat: Category; href: string }[] = [
-  { title: 'A procedural for the farm', cat: 'Shape', href: '/docs/rendering' },
-  { title: 'The same groom on every machine', cat: 'Sources', href: '/docs/groom-format' },
-  { title: 'Maps and keys on any parameter', cat: 'Fields', href: '/docs/painting-maps' },
-  { title: 'Python API and a headless CLI', cat: 'Utility', href: '/docs/python-api' },
-  { title: 'An MCP server for AI agents', cat: 'Color', href: '/docs/ai-agents' },
+const specs: { title: string; href: string }[] = [
+  { title: 'A procedural for the farm', href: '/docs/rendering' },
+  { title: 'The same groom on every machine', href: '/docs/groom-format' },
+  { title: 'Maps and keys on any parameter', href: '/docs/painting-maps' },
+  { title: 'Python API and a headless CLI', href: '/docs/python-api' },
+  { title: 'An MCP server for AI agents', href: '/docs/ai-agents' },
 ];
 
 /* From the Python API docs (content/docs/python-api.mdx). */
@@ -93,9 +93,8 @@ export function UnderTheHood() {
               <li key={s.title}>
                 <a
                   href={s.href}
-                  className="group relative flex items-center gap-3 border-b border-white/[0.08] py-3.5 pr-1 text-[15px] font-semibold tracking-tight text-gl-ink transition-colors hover:text-gl-blue-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
+                  className="group flex items-center gap-3 border-b border-white/[0.08] py-3.5 pr-1 text-[15px] font-semibold tracking-tight text-gl-ink transition-colors hover:text-gl-blue-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
                 >
-                  <span aria-hidden="true" className="absolute top-1/2 -left-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-gl-paper" style={{ background: category[s.cat].hue }} />
                   {s.title}
                   <svg aria-hidden="true" viewBox="0 0 16 16" className="ml-auto size-3.5 text-gl-ink-3 transition-transform duration-500 ease-spring group-hover:translate-x-1 group-hover:text-gl-ink" fill="none">
                     <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

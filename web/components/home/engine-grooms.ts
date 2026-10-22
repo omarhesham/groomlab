@@ -47,9 +47,7 @@ export const HERO_GROOM: EngineSource = {
   fullStrands: 79040,
   strands: 11000,
 };
-export const HERO_CHIP = { curl: { id: 'param:curl.radius', value: 0.42 }, length: { id: 'param:length.scale', value: 1.8 } };
-
-/** Short curls on the Try section's chain, node for node; the play bust uses it too. */
+/** Short curls on the Try section's chain, node for node. */
 export const SHORT_CURLS_URL = '/samples/manny_short_curls.groom';
 export const SHORT_CURLS_FULL = 85908;
 /** Scatter's seed in the file (a new seed: new roots). */

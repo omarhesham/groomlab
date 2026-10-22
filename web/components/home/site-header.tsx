@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import Link from 'next/link';
+import { DiscordMark } from '@/components/discord-mark';
 import { GitHubMark } from '@/components/github-mark';
 import { Logo } from '@/components/logo';
 import { button } from '@/components/store-buttons';
@@ -8,7 +9,6 @@ import { siteConfig } from '@/site.config';
 
 const links = [
   { href: '/#features', label: 'Features', mobile: false },
-  { href: '/#try', label: 'Try it', mobile: false },
   { href: '/docs', label: 'Docs', mobile: true },
 ];
 
@@ -39,6 +39,15 @@ export function SiteHeader() {
           </ul>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
+          <a
+            href={siteConfig.discordUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden items-center gap-2 rounded-lg px-3 py-2 text-[14.5px] text-gl-ink/80 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue sm:inline-flex"
+          >
+            <DiscordMark className="size-4" />
+            Discord
+          </a>
           <a
             href={siteConfig.repoUrl}
             className="hidden items-center gap-2 rounded-lg px-3 py-2 text-[14.5px] text-gl-ink/80 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue sm:inline-flex"

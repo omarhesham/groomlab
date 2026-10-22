@@ -173,7 +173,7 @@ the nodes after the one changed, so sliders stay live at full density.
 
 ## The home page
 
-Every strand on the home page is the engine's: three viewers, one worker, no stand-in. `strand-3d.ts`
+Every strand on the home page is the engine's: two viewers, one worker, no stand-in. `strand-3d.ts`
 draws the bare Manny head at once, then, once the page is idle, imports `home-engine.ts`, which
 starts the page's one engine (`createGroomEngine`, so `groomlab.wasm` is only fetched then) and
 loads each viewer's groom into its own slot. The engine's strands, scalp and guides come into the
@@ -182,9 +182,8 @@ empty.
 
 | Viewer | Groom | Strands drawn | What the page sets |
 | --- | --- | --- | --- |
-| Hero | `manny_curls.groom`: Curly, tuned, on guides standing off the head; a Transform node, `length` (scale 1.8), between Interpolate and Clump | ~11,000 (phones ~6,000) | nothing; its chip reads `param:curl.radius` and `param:length.scale` from `listControls()` |
-| "Made to be played with" | `manny_short_curls.groom` | ~7,000 (~3,900) | `param:curl.radius` (the slider), `param:scatter.seed` (new random roots); guides shown from the evaluation |
-| "Try the node graph" | the same file, its own slot | ~7,000, more with Scatter's density, up to 16,000 | each card's switch: `setBypass` on `clump`, `curl`, `noise`, `color`; each slider: the groom's `"exposed"` params, ranges and labels from `listControls()`; the seed |
+| Hero | `manny_curls.groom`: Curly, tuned, on guides standing off the head; a Transform node, `length` (scale 1.8), between Interpolate and Clump | ~11,000 (phones ~6,000) | nothing |
+| "Try the node graph" | `manny_short_curls.groom` | ~7,000, more with Scatter's density, up to 16,000 | each card's switch: `setBypass` on `clump`, `curl`, `noise`, `color`; each slider: the groom's `"exposed"` params, ranges and labels from `listControls()`; the seed |
 
 `manny_short_curls.groom`'s chain is the Try section's, node for node: Scalp, Scatter, Interpolate
 (with the Guides node), Clump, Curl, Noise, HairColor, Output. Its Scatter density is a plain number
