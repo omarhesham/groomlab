@@ -905,13 +905,23 @@ TEST(Graph, EachScatterGrowsWithTheResampleOfItsOwnBranch) {
     ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));
     EXPECT_EQ(valueAs<StrandsPtr>(doc.graph.cachedValue(doc.node("fur"))), furBefore);
     EXPECT_EQ(pointsOf("whiskers"), 14u);
-    // A Resample fed nothing sets the default of the Scatters with none after them; a downstream one
-    // still wins on its branch.
+    // A Resample fed nothing changes nothing (it set the default of the Scatters with none after
+    // them, a node left unconnected changing the groom): the bare Scatter keeps the default.
+    const std::size_t bareBefore = pointsOf("bare");
     const NodeId loose = doc.graph.addNode(op::kResample);
     doc.graph.node(loose).params().set("segments", std::int64_t{3});
     ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));
-    EXPECT_EQ(pointsOf("bare"), 4u);
+    EXPECT_EQ(pointsOf("bare"), bareBefore);
     EXPECT_EQ(pointsOf("fur"), 6u);
+    EXPECT_NE(doc.graph.strandResolutionNote(loose).find("sets no Scatter"), std::string::npos) << doc.graph.strandResolutionNote(loose);
+    // Nor does one on a branch that reaches no Output (after the bare Scatter, leading nowhere).
+    const NodeId deadEnd = doc.graph.addNode(op::kResample);
+    doc.graph.node(deadEnd).params().set("segments", std::int64_t{30});
+    doc.graph.connect(doc.node("bare"), deadEnd, 0);
+    ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));
+    EXPECT_EQ(pointsOf("bare"), bareBefore);
+    EXPECT_NE(doc.graph.strandResolutionNote(deadEnd).find("reach no Output"), std::string::npos)
+        << doc.graph.strandResolutionNote(deadEnd);
     // Set by the context: every Scatter alike.
     ctx.strandSegments = 7;
     ASSERT_TRUE(doc.graph.evaluateStrands(doc.output, ctx));

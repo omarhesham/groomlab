@@ -567,8 +567,9 @@ struct EvalContext {
     bool keepPreviewCore = false;
     // Segments each Scatter grows its strands with (points = segments + 1), for every Scatter.
     // 0: each Scatter's own branch sets it (Graph::strandResolution): the most "segments" any
-    // Resample downstream of it asks for, except one bypassed or fed guides; without one, the
-    // most a Resample fed nothing asks for (the graph's default), else 8. The graph hands each
+    // Resample downstream of it asks for, except one bypassed or fed guides (with an Output node,
+    // only those on the way to it); without one, 8 (with no Output node, the most a Resample fed
+    // nothing asks for). The graph hands each
     // node its own (a Compound its inner graph's Scatters, 0 when it has none: they go by the
     // inner graph's Resamples).
     int strandSegments = 0;
@@ -940,9 +941,9 @@ public:
     const std::map<NodeId, std::string>& lastNotes() const { return lastNotes_; }
     // The strand resolution a node is evaluated with when the context leaves it to the graph
     // (EvalContext::strandSegments 0): the most segments any Resample downstream of it asks for
-    // (one not bypassed in the viewport or in renders, as `viewport` says, nor fed guides), else
-    // the most a Resample fed nothing asks for (the graph's default), and the Resample asking it
-    // (`segments` 0 and `from` 0: none, a Scatter there grows 8).
+    // (one not bypassed in the viewport or in renders, as `viewport` says, nor fed guides; with an
+    // Output node, one on the way to it), else (with no Output node) the most a Resample fed nothing
+    // asks for, and the Resample asking it (`segments` 0 and `from` 0: none, a Scatter there grows 8).
     struct Resolution {
         int segments = 0;
         NodeId from = 0;  // (kNoNode)
@@ -950,6 +951,9 @@ public:
     Resolution strandResolution(NodeId id, bool viewport = true) const;
     // Every node's (strandResolution), in one pass.
     std::map<NodeId, Resolution> strandResolutions(bool viewport) const;
+    // The nodes whose results reach an Output node; empty for a graph without one (a Compound's
+    // inner graph), where every node counts. A Resample outside it sets no resolution.
+    std::set<NodeId> nodesReachingOutput() const;
     // A Scatter's or a Resample's resolution in plain words, for the graph editors (empty for any
     // other node, a bypassed one, or a Resample fed guides).
     std::string strandResolutionNote(NodeId id, bool viewport = true) const;

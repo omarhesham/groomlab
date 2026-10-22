@@ -136,14 +136,15 @@ struct Case {
     bool sculpt = false;  // the Sculpt node "op" given edits of the guides it is fed (sculptEdits)
 };
 
-// Every case shares scalp -> scatter -> interpolate (guides, scalp); the
-// unconnected Resample node holds the strands' segments.
+// Every case shares scalp -> scatter -> interpolate (guides, scalp); the strands grow with
+// kSegments segments (the context's, every Scatter alike).
+constexpr int kSegments = 7;
+
 std::string graphFor(const Case& c) {
     std::string graph = R"({"version": 1, "nodes": [
       {"name": "scalp", "type": "Scalp"},
       {"name": "guides", "type": "Guides"},
       {"name": "primaries", "type": "Guides", "params": {"level": 0}},
-      {"name": "segments", "type": "Resample", "params": {"segments": 7}},
       {"name": "scatter", "type": "Scatter", "params": {"density": 300.0}},
       {"name": "interp", "type": "Interpolate"})";
     if (!c.nodes.empty()) graph += ",\n" + c.nodes;
@@ -604,6 +605,7 @@ struct Scene {
     StrandSet run(const Case& c) {
         GraphDocument doc = loadGraphJson(graphFor(c));
         EvalContext ctx;
+        ctx.strandSegments = kSegments;
         ctx.externals = c.flap ? &flapExt : &ext;
         ExternalInputs withParts;
         if (c.parts) {
@@ -690,6 +692,7 @@ struct Scene {
     StrandsPtr runCards(const Case& c) {
         GraphDocument doc = loadGraphJson(graphFor(c));
         EvalContext ctx;
+        ctx.strandSegments = kSegments;
         ctx.externals = &ext;
         ctx.buildCards = true;
         return doc.graph.evaluateStrands(doc.node(c.output), ctx);

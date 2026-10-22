@@ -56,7 +56,8 @@ TEST(Flow, TheFlowNodeLaysGuidelessFurAlongTheArrows) {
         {"name": "flow", "type": "Flow", "params": {"lift": 30.0, "bend": 0.0, "rollRandom": 0.0}},
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 5}}],
       "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"},
-                      {"from": "scatter", "to": "flow", "input": "strands"},
+                      {"from": "scatter", "to": "resolution", "input": "strands"},
+                      {"from": "resolution", "to": "flow", "input": "strands"},
                       {"from": "flow", "to": "out", "input": "strands"}]})";
     Groom groom(d);
     const StrandsPtr s = groom.evaluate(1.0f, 0.0);
@@ -86,7 +87,8 @@ TEST(Flow, StrandsCurveAsTheArrowsTurn) {
         {"name": "flow", "type": "Flow", "params": {"lift": 2.0, "bend": 0.0, "rollRandom": 0.0}},
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 24}}],
       "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"},
-                      {"from": "scatter", "to": "flow", "input": "strands"},
+                      {"from": "scatter", "to": "resolution", "input": "strands"},
+                      {"from": "resolution", "to": "flow", "input": "strands"},
                       {"from": "flow", "to": "out", "input": "strands"}]})";
     const StrandsPtr s = Groom(d).evaluate(1.0f, 0.0);
     std::size_t checked = 0;
@@ -128,7 +130,8 @@ TEST(Flow, StrandsWrapAroundACurvedScalp) {
         {"name": "flow", "type": "Flow", "params": {"lift": 5.0, "bend": 1.0, "rollRandom": 0.0}},
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 16}}],
       "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"},
-                      {"from": "scatter", "to": "flow", "input": "strands"},
+                      {"from": "scatter", "to": "resolution", "input": "strands"},
+                      {"from": "resolution", "to": "flow", "input": "strands"},
                       {"from": "flow", "to": "out", "input": "strands"}]})";
     const StrandsPtr s = Groom(d).evaluate(1.0f, 0.0);
     std::size_t checked = 0;

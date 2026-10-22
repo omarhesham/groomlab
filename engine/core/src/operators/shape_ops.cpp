@@ -344,8 +344,8 @@ private:
 // Sets the strands' resolution, best after Interpolate: strands (or guides)
 // through it are resampled to `segments`, and every Scatter before it grows its
 // strands with them in the first place (the most any Resample after the Scatter
-// asks for: each branch its own, EvalContext::strandSegments; one fed nothing sets
-// the default), so nodes before it, like Interpolate, already
+// asks for on the way to the Output: each branch its own, EvalContext::strandSegments; one
+// fed nothing, or reaching no Output, sets none), so nodes before it, like Interpolate, already
 // work at that resolution. `mode` (even by default: what the GPU look preview hands
 // on, look_chain.h) or fewer points where they aren't needed, for render and export:
 //   even       every strand gets `segments`, evenly spaced
@@ -366,9 +366,8 @@ public:
     std::vector<ParamSpec> paramSpecs() const override {
         return {
             notAnimatable({"segments", std::int64_t{16}, "Segments per strand (points = segments + 1); every Scatter before it "
-                                                        "grows its strands with them (the most any Resample after it asks "
-                                                        "for; fed nothing, it sets the default of every Scatter with "
-                                                        "none after it). 0: keep each strand's"})
+                                                        "grows its strands with them (the most any Resample after it, on "
+                                                        "the way to the Output, asks for). 0: keep each strand's"})
                 .range(0, 1024)
                 .soft(0, 64),
             {"mode", std::string("even"), "even: segments for every strand; curvature: fewer points for render and export, "

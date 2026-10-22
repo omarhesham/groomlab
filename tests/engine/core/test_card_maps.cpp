@@ -37,7 +37,7 @@ const char* kFurGraph = R"j({"version": 1, "output": "out", "nodes": [
         {"name": "clump", "type": "Clump", "params": {"count": 12, "strength": 0.8}},
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 10}}],
       "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"},
-        {"from": "scatter", "to": "clump", "input": "strands"},
+        {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "clump", "input": "strands"},
         {"from": "clump", "to": "out", "input": "strands"}]})j";
 
 StrandsPtr clumpedFur() {
@@ -56,7 +56,7 @@ StrandsPtr furWithCards(const MeshPtr& scalp) {
         {"name": "cards", "type": "Cards", "params": {"segments": 4}},
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 10}}],
       "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"},
-        {"from": "scatter", "to": "clump", "input": "strands"},
+        {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "clump", "input": "strands"},
         {"from": "clump", "to": "cards", "input": "strands"}, {"from": "cards", "to": "out", "input": "strands"}]})j");
     ExternalInputs externals;
     setGroomExternals(externals, scalp, nullptr, nullptr);

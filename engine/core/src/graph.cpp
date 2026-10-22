@@ -841,8 +841,30 @@ bool Graph::inputSource(NodeId dst, std::size_t inputSlot, NodeId* src, std::siz
     return true;
 }
 
+std::set<NodeId> Graph::nodesReachingOutput() const {
+    std::set<NodeId> live;
+    std::vector<NodeId> stack;
+    for (const auto& [id, node] : nodes_) {
+        if (node.op->typeName() == op::kOutput) stack.push_back(id);
+    }
+    while (!stack.empty()) {
+        const NodeId n = stack.back();
+        stack.pop_back();
+        if (n == kNoNode || !live.insert(n).second) continue;
+        const Node& up = nodeRecord(n);
+        stack.insert(stack.end(), up.inputs.begin(), up.inputs.end());
+    }
+    return live;
+}
+
 std::map<NodeId, Graph::Resolution> Graph::strandResolutions(bool viewport) const {
-    // What each Resample asks for (a bypassed one, or one fed guides, nothing), and who reads each node.
+    // With an Output node (a groom's graph), only the Resamples on the way to it count: one on a
+    // branch reaching no Output, or fed nothing, never changes the groom. Without one (a Compound's
+    // inner graph, a graph built in code), every Resample counts, and one fed nothing sets the
+    // default of the Scatters with none after them.
+    const std::set<NodeId> live = nodesReachingOutput();
+    // What each Resample asks for (a bypassed one, one fed guides or one not counted, nothing), and
+    // who reads each node.
     std::map<NodeId, int> asks;
     std::map<NodeId, std::vector<NodeId>> readers;
     Resolution fallback;
@@ -851,6 +873,7 @@ std::map<NodeId, Graph::Resolution> Graph::strandResolutions(bool viewport) cons
             if (src != kNoNode) readers[src].push_back(id);
         }
         if (node.op->typeName() != op::kResample || off(node, viewport)) continue;
+        if (!live.empty() && !live.count(id)) continue;
         PortType type = PortType::Curves;
         try {
             type = outputType(id);
@@ -858,9 +881,11 @@ std::map<NodeId, Graph::Resolution> Graph::strandResolutions(bool viewport) cons
         }
         if (type == PortType::Guides) continue;
         const int segments = static_cast<int>(std::clamp<std::int64_t>(node.op->params().getInt("segments"), 0, 256));
+        if (node.inputs.empty() || node.inputs[0] == kNoNode) {
+            if (live.empty() && segments > fallback.segments) fallback = {segments, id};
+            continue;
+        }
         asks[id] = segments;
-        // One fed nothing sets the graph's default: what a Scatter with no Resample after it takes.
-        if ((node.inputs.empty() || node.inputs[0] == kNoNode) && segments > fallback.segments) fallback = {segments, id};
     }
     // Downstream first: each node takes the most any reader asks for or takes (the first such
     // reader's Resample, by ID, on a tie).
@@ -931,6 +956,10 @@ std::string Graph::strandResolutionNote(NodeId id, bool viewport) const {
     } catch (const GraphError&) {
         return {};
     }
+    const std::set<NodeId> live = nodesReachingOutput();
+    if (fedNothing(id) && !live.empty()) {
+        return "Fed nothing: it sets no Scatter's resolution (connect it after the strands it should resample)";
+    }
     if (fedNothing(id)) {
         std::string list;
         for (const auto& [n, r] : all) {
@@ -943,6 +972,9 @@ std::string Graph::strandResolutionNote(NodeId id, bool viewport) const {
                             : "Fed nothing: it sets the default resolution, " +
                                   points(static_cast<int>(std::clamp<std::int64_t>(node.op->params().getInt("segments"), 0, 256))) +
                                   ", of every Scatter with no Resample after it (Scatter " + list + ")";
+    }
+    if (!live.empty() && !live.count(id)) {
+        return "Its strands reach no Output: it sets no Scatter's resolution (connect it on the way to the Output)";
     }
     // The Scatters before it, and the ones it sets.
     std::vector<NodeId> scatters, sets;
@@ -1748,8 +1780,8 @@ std::vector<Value> Graph::evaluateOutputs(NodeId id, const EvalContext& ctx) {
     // Strand resolution is the Resample node's: Scatter only places roots and grows them with the
     // most segments any Resample downstream of it asks for (8 without), whichever node is being
     // evaluated (viewNode too, so a node viewed before the Resample shows what the output is made
-    // from). Each branch its own: a Resample on the whiskers leaves the fur as it is. A Resample
-    // fed nothing sets the default of Scatters with none after them.
+    // from). Each branch its own: a Resample on the whiskers leaves the fur as it is. With an
+    // Output node, a Resample fed nothing or on a branch reaching no Output sets nothing.
     Keys keys;
     if (ctx.strandSegments <= 0) keys.segments = strandResolutions(ctx.viewport);
     const ScopedPathResolver paths(ctx.paths);  // operators and cache keys resolve file paths through it
