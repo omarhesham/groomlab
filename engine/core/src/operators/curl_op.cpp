@@ -65,6 +65,13 @@
 #include "incremental.h"
 #include "internal.h"
 
+#if defined(_M_X64) || defined(__SSE2__)
+#define GROOMLAB_CURL_SSE2 1
+#include <emmintrin.h>
+#else
+#define GROOMLAB_CURL_SSE2 0
+#endif
+
 namespace groomlab {
 
 namespace {
@@ -191,12 +198,16 @@ Frame firstFrame(const Vec3f& normal, const Vec3f& tangent, const Vec3f& leave) 
     Frame f;
     f.tangent = tangent;
     const Vec3f across = normal - leave * normal.dot(leave);
-    f.normal = anyPerpendicular(tangent);
+    bool seeded = false;
     if (across.dot(across) > 1e-8f) {
         const Vec3f seed = unit(across);
         const Vec3f square = seed - tangent * seed.dot(tangent);
-        if (square.dot(square) > 1e-8f) f.normal = unit(square);
+        if (square.dot(square) > 1e-8f) {
+            f.normal = unit(square);
+            seeded = true;
+        }
     }
+    if (!seeded) f.normal = anyPerpendicular(tangent);
     f.binormal = tangent.cross(f.normal);
     return f;
 }
@@ -251,11 +262,7 @@ struct Curve {
     std::vector<Vec3f> s, d;
     std::vector<float> h;
     void make(const Vec3f* points, std::size_t count) {
-        p = points;
-        n = count;
-        s.resize(n > 1 ? n - 1 : 0);
-        h.resize(s.size());
-        d.resize(n);
+        size(points, count);
         for (std::size_t j = 0; j + 1 < n; ++j) s[j] = secantOf(p[j], p[j + 1], &h[j]);
         for (std::size_t i = 0; i < n; ++i) {
             if (n == 2) {
@@ -267,6 +274,14 @@ struct Curve {
                 d[i] = slopeFrom(s[a], h[a], s[a + 1], h[a + 1], which);
             }
         }
+    }
+    // Its points, and room for the rest (make's, or makeFour's).
+    void size(const Vec3f* points, std::size_t count) {
+        p = points;
+        n = count;
+        s.resize(n > 1 ? n - 1 : 0);
+        h.resize(s.size());
+        d.resize(n);
     }
     // Segment j at u (0 < u < 1).
     Vec3f at(std::size_t j, float u) const { return hermiteAt(p[j], p[j + 1], d[j], d[j + 1], h[j], u); }
@@ -373,6 +388,24 @@ struct Axis {
     // points as its samples: theirs). `same`: a curve through these very samples (its slopes and
     // lengths are theirs).
     void make(const Vec3f& normal, std::size_t n, const Vec3f& leaveTo, const Curve* same = nullptr) {
+        shape(same);
+        start(normal, leaveTo);
+        carry();
+        finish(n);
+    }
+    // make's steps (makeFour and carryFour take some for four axes at once): the slopes and
+    // lengths, arcs and profiled arcs; the first frame; the frames carried along the samples;
+    // weighted curls and the table.
+    void shape(const Curve* same) {
+        slopes(same);
+        arcLengths();
+        profiled();
+    }
+    void arcLengths() {
+        arc[0] = 0.0f;
+        for (std::size_t k = 0; k + 1 < samples; ++k) arc[k + 1] = arc[k] + segmentArc(x[k], x[k + 1], d[k], d[k + 1], h[k], 1.0f);
+    }
+    void slopes(const Curve* same) {
         if (same) {
             std::copy_n(same->h.data(), samples - 1, h.data());
             std::copy_n(same->d.data(), samples, d.data());
@@ -390,20 +423,26 @@ struct Axis {
                 d[k] = slopeFrom(s[a], h[a], s[a + 1], h[a + 1], which);
             }
         }
-        arc[0] = 0.0f;
-        for (std::size_t k = 0; k + 1 < samples; ++k) arc[k + 1] = arc[k] + segmentArc(x[k], x[k + 1], d[k], d[k + 1], h[k], 1.0f);
+    }
+    void profiled() {
         if (profile) {
             profiledArc[0] = 0.0f;
             for (std::size_t k = 0; k + 1 < samples; ++k) {
                 profiledArc[k + 1] = profiledArc[k] + profiledSegmentArc(x[k], x[k + 1], d[k], d[k + 1], h[k], 1.0f, k, samples, profile);
             }
         }
+    }
+    void start(const Vec3f& normal, const Vec3f& leaveTo) {
         const Vec3f t0 = tangentOf(d[0], Vec3f{0, 0, 1});
         f[0] = firstFrame(normal, t0, tangentOf(leaveTo - x[0], t0));
+    }
+    void carry() {
         for (std::size_t k = 1; k < samples; ++k) {
             f[k] = f[k - 1];
             reflectFrame(x[k - 1], f[k], x[k], tangentOf(d[k], f[k - 1].tangent));
         }
+    }
+    void finish(std::size_t n) {
         if (load > 0.0f) weigh();
         count = n;
         if (n == samples) return;  // (arcAt takes them from the samples)
@@ -436,6 +475,215 @@ struct Axis {
         }
     }
 };
+
+#if GROOMLAB_CURL_SSE2
+// Four lanes of Vec3f, each operation the scalar one per lane (in Vec3f's order), so each lane
+// gets the scalar code's floats bit for bit (frames.cpp's).
+struct V4 {
+    __m128 x, y, z;
+};
+inline V4 operator+(const V4& a, const V4& b) { return {_mm_add_ps(a.x, b.x), _mm_add_ps(a.y, b.y), _mm_add_ps(a.z, b.z)}; }
+inline V4 operator-(const V4& a, const V4& b) { return {_mm_sub_ps(a.x, b.x), _mm_sub_ps(a.y, b.y), _mm_sub_ps(a.z, b.z)}; }
+inline V4 operator*(const V4& a, __m128 s) { return {_mm_mul_ps(a.x, s), _mm_mul_ps(a.y, s), _mm_mul_ps(a.z, s)}; }
+inline __m128 dot(const V4& a, const V4& b) {
+    return _mm_add_ps(_mm_add_ps(_mm_mul_ps(a.x, b.x), _mm_mul_ps(a.y, b.y)), _mm_mul_ps(a.z, b.z));
+}
+inline V4 cross(const V4& a, const V4& b) {
+    return {_mm_sub_ps(_mm_mul_ps(a.y, b.z), _mm_mul_ps(a.z, b.y)), _mm_sub_ps(_mm_mul_ps(a.z, b.x), _mm_mul_ps(a.x, b.z)),
+            _mm_sub_ps(_mm_mul_ps(a.x, b.y), _mm_mul_ps(a.y, b.x))};
+}
+inline __m128 pick(__m128 mask, __m128 a, __m128 b) { return _mm_or_ps(_mm_and_ps(mask, a), _mm_andnot_ps(mask, b)); }
+inline V4 pick(__m128 mask, const V4& a, const V4& b) { return {pick(mask, a.x, b.x), pick(mask, a.y, b.y), pick(mask, a.z, b.z)}; }
+// unit (and tangentOf): v times the reciprocal of its length where that is above 0, else `other`.
+inline V4 unitOr(const V4& v, const V4& other) {
+    const __m128 l = _mm_sqrt_ps(dot(v, v));
+    return pick(_mm_cmpgt_ps(l, _mm_setzero_ps()), v * _mm_div_ps(_mm_set1_ps(1.0f), l), other);
+}
+inline V4 lanes(const Vec3f& a, const Vec3f& b, const Vec3f& c, const Vec3f& d) {
+    return {_mm_setr_ps(a.x, b.x, c.x, d.x), _mm_setr_ps(a.y, b.y, c.y, d.y), _mm_setr_ps(a.z, b.z, c.z, d.z)};
+}
+inline void unpack(const V4& v, Vec3f out[4]) {
+    alignas(16) float x[4], y[4], z[4];
+    _mm_store_ps(x, v.x);
+    _mm_store_ps(y, v.y);
+    _mm_store_ps(z, v.z);
+    for (int k = 0; k < 4; ++k) out[k] = {x[k], y[k], z[k]};
+}
+// anyPerpendicular (frames.cpp): v across the axis least along it, normalized.
+inline V4 anyPerpendicularFour(const V4& v) {
+    const __m128 sign = _mm_set1_ps(-0.0f), zero = _mm_setzero_ps(), one = _mm_set1_ps(1.0f);
+    const __m128 ax = _mm_andnot_ps(sign, v.x), ay = _mm_andnot_ps(sign, v.y), az = _mm_andnot_ps(sign, v.z);
+    const __m128 onX = _mm_and_ps(_mm_cmple_ps(ax, ay), _mm_cmple_ps(ax, az));
+    const __m128 onY = _mm_andnot_ps(onX, _mm_cmple_ps(ay, az));
+    const V4 c = cross(v, V4{pick(onX, one, zero), pick(onY, one, zero), pick(_mm_or_ps(onX, onY), zero, one)});
+    const __m128 len = _mm_sqrt_ps(dot(c, c));
+    return pick(_mm_cmpgt_ps(len, zero), V4{_mm_div_ps(c.x, len), _mm_div_ps(c.y, len), _mm_div_ps(c.z, len)}, V4{zero, zero, zero});
+}
+// firstFrame: the normal `n` and binormal `b` of the frame of tangent t.
+inline void firstFrameFour(const V4& normal, const V4& t, const V4& leave, V4& n, V4& b) {
+    const __m128 zero = _mm_setzero_ps(), small = _mm_set1_ps(1e-8f);
+    const V4 none{zero, zero, zero};
+    const V4 across = normal - leave * dot(normal, leave);
+    const V4 seed = unitOr(across, none);
+    const V4 square = seed - t * dot(seed, t);
+    const __m128 seeded = _mm_and_ps(_mm_cmpgt_ps(dot(across, across), small), _mm_cmpgt_ps(dot(square, square), small));
+    n = unitOr(square, none);
+    if (_mm_movemask_ps(seeded) != 0xF) n = pick(seeded, n, anyPerpendicularFour(t));
+    b = cross(t, n);
+}
+// reflectFrameBy: the frame (t, n, b) carried along v1, to where the tangent is t1.
+inline void reflectFour(V4& t, V4& n, V4& b, const V4& v1, const V4& t1) {
+    const __m128 eps = _mm_set1_ps(1e-12f), two = _mm_set1_ps(2.0f), zero = _mm_setzero_ps();
+    const __m128 c1 = dot(v1, v1);
+    const __m128 keep = _mm_cmplt_ps(c1, eps);  // a repeated point keeps the frame
+    const __m128 k1 = _mm_div_ps(two, c1);
+    const V4 rL = n - v1 * _mm_mul_ps(k1, dot(v1, n));
+    const V4 tL = t - v1 * _mm_mul_ps(k1, dot(v1, t));
+    const V4 v2 = t1 - tL;
+    const __m128 c2 = dot(v2, v2);
+    const V4 r = pick(_mm_cmplt_ps(c2, eps), rL, rL - v2 * _mm_mul_ps(_mm_div_ps(two, c2), dot(v2, rL)));
+    V4 next = unitOr(r - t1 * dot(r, t1), V4{zero, zero, zero});
+    const __m128 none = _mm_cmpeq_ps(dot(next, next), zero);
+    if (_mm_movemask_ps(none)) next = pick(none, anyPerpendicularFour(t1), next);
+    const V4 across = cross(t1, next);
+    t = pick(keep, t, t1);
+    n = pick(keep, n, next);
+    b = pick(keep, b, across);
+}
+inline void storeFrames(Axis* const a[4], std::size_t k, const V4& t, const V4& n, const V4& b) {
+    Vec3f tt[4], nn[4], bb[4];
+    unpack(t, tt);
+    unpack(n, nn);
+    unpack(b, bb);
+    for (int l = 0; l < 4; ++l) a[l]->f[k] = Frame{tt[l], nn[l], bb[l]};
+}
+// segmentArc over a whole segment (u = 1): hermiteDerivative's weights at the two Gauss points,
+// as segmentArc takes them.
+struct WholeArc {
+    float w0[2], w1[2], w2[2], half;
+    WholeArc() {
+        const float u = 1.0f;
+        for (int g = 0; g < 2; ++g) {
+            const float v = u * (g == 0 ? kGauss0 : kGauss1);
+            w0[g] = 6.0f * v * (1.0f - v);
+            w1[g] = (1.0f - v) * (1.0f - 3.0f * v);
+            w2[g] = v * (3.0f * v - 2.0f);
+        }
+        half = 0.5f * u;
+    }
+    __m128 operator()(const V4& p0, const V4& p1, const V4& d0, const V4& d1, __m128 h) const {
+        const V4 dd = p1 - p0, a = d0 * h, b = d1 * h;
+        __m128 speed[2];
+        for (int g = 0; g < 2; ++g) {
+            const V4 v = dd * _mm_set1_ps(w0[g]) + a * _mm_set1_ps(w1[g]) + b * _mm_set1_ps(w2[g]);
+            speed[g] = _mm_sqrt_ps(dot(v, v));
+        }
+        return _mm_mul_ps(_mm_set1_ps(half), _mm_add_ps(speed[0], speed[1]));
+    }
+};
+#endif
+
+// Axis::carry for four axes of as many samples, their frames side by side (SIMD lanes where the
+// CPU has them: the same operations in the same order, the branches as per-lane picks). A frame
+// carried along a sample is a chain of dependent steps; four at once keep the CPU busy while
+// each waits on the last.
+void carryFour(Axis* const a[4]) {
+#if GROOMLAB_CURL_SSE2
+    auto at = [&](const auto& member, std::size_t k) {
+        return lanes((a[0]->*member)[k], (a[1]->*member)[k], (a[2]->*member)[k], (a[3]->*member)[k]);
+    };
+    V4 t = lanes(a[0]->f[0].tangent, a[1]->f[0].tangent, a[2]->f[0].tangent, a[3]->f[0].tangent);
+    V4 n = lanes(a[0]->f[0].normal, a[1]->f[0].normal, a[2]->f[0].normal, a[3]->f[0].normal);
+    V4 b = lanes(a[0]->f[0].binormal, a[1]->f[0].binormal, a[2]->f[0].binormal, a[3]->f[0].binormal);
+    V4 x0 = at(&Axis::x, 0);
+    for (std::size_t k = 1; k < a[0]->samples; ++k) {
+        const V4 x1 = at(&Axis::x, k);
+        reflectFour(t, n, b, x1 - x0, unitOr(at(&Axis::d, k), t));  // (tangentOf(d[k], f[k - 1].tangent))
+        storeFrames(a, k, t, n, b);
+        x0 = x1;
+    }
+#else
+    for (int l = 0; l < 4; ++l) a[l]->carry();
+#endif
+}
+
+// Curve::make, and Axis::make up to its profiled arcs and table (profiled, finish), for four
+// strands of as many points n (3 to kAxisSamples), each its own axis's samples, side by side as
+// carryFour; `normals`: the scalp's at their roots. The arcs and the frames walk the strands
+// together (the arcs' work goes on while each frame's step waits on the last).
+void makeFour(Curve* const c[4], Axis* const a[4], const Vec3f* const points[4], std::size_t n,
+              const Vec3f normals[4]) {
+    const float leaveAt = 1.0f / static_cast<float>(kAxisSamples - 1);  // (Axis::start's point a 31st along)
+    for (int l = 0; l < 4; ++l) {
+        c[l]->size(points[l], n);
+        a[l]->samples = n;
+        std::copy_n(points[l], n, a[l]->x.data());
+    }
+#if GROOMLAB_CURL_SSE2
+    std::array<V4, kAxisSamples> p, d;
+    std::array<V4, kAxisSamples - 1> s;
+    std::array<__m128, kAxisSamples - 1> h;
+    const __m128 zero = _mm_setzero_ps(), one = _mm_set1_ps(1.0f);
+    const V4 none{zero, zero, zero};
+    Vec3f out[4];
+    alignas(16) float values[4];
+    for (std::size_t i = 0; i < n; ++i) p[i] = lanes(points[0][i], points[1][i], points[2][i], points[3][i]);
+    for (std::size_t j = 0; j + 1 < n; ++j) {  // secantOf
+        const V4 v = p[j + 1] - p[j];
+        h[j] = _mm_sqrt_ps(dot(v, v));
+        s[j] = pick(_mm_cmpgt_ps(h[j], zero), v * _mm_div_ps(one, h[j]), none);
+        unpack(s[j], out);
+        _mm_store_ps(values, h[j]);
+        for (int l = 0; l < 4; ++l) {
+            c[l]->s[j] = out[l];
+            c[l]->h[j] = a[l]->h[j] = values[l];
+        }
+    }
+    for (std::size_t i = 0; i < n; ++i) {  // slopeFrom
+        std::size_t k = 0;
+        int which = 0;
+        slopeSpan(i, n, &k, &which);
+        const V4 &s0 = s[k], &s1 = s[k + 1];
+        const __m128 h0 = h[k], h1 = h[k + 1], w = _mm_add_ps(h0, h1), spaced = _mm_cmpgt_ps(w, zero);
+        if (which == 1) d[i] = pick(spaced, (s0 * h1 + s1 * h0) * _mm_div_ps(one, w), none);
+        else if (which == 0) d[i] = pick(spaced, s0 + (s0 - s1) * _mm_div_ps(h0, w), s0);
+        else d[i] = pick(spaced, s1 + (s1 - s0) * _mm_div_ps(h1, w), s1);
+        unpack(d[i], out);
+        for (int l = 0; l < 4; ++l) c[l]->d[i] = a[l]->d[i] = out[l];
+    }
+    // Axis::start: from the tangent at the root and the way to the point a 31st along
+    // (Curve::pointAt: hermiteAt).
+    const float x = leaveAt * static_cast<float>(n - 1);
+    const std::size_t i = x <= 0.0f ? 0 : std::min(static_cast<std::size_t>(x), n - 2);
+    const float u = x - static_cast<float>(i), u2 = u * u;
+    const V4 leaveTo = u == 0.0f ? p[i]
+                                 : p[i] + (p[i + 1] - p[i]) * _mm_set1_ps(u2 * (3.0f - 2.0f * u)) +
+                                       d[i] * h[i] * _mm_set1_ps(u * (1.0f - u) * (1.0f - u)) +
+                                       d[i + 1] * h[i] * _mm_set1_ps(u2 * (u - 1.0f));
+    V4 ft = unitOr(d[0], V4{zero, zero, one}), fn, fb;
+    firstFrameFour(lanes(normals[0], normals[1], normals[2], normals[3]), ft, unitOr(leaveTo - p[0], ft), fn, fb);
+    storeFrames(a, 0, ft, fn, fb);
+    // The arcs, and the frames carried along the samples (Axis::arcLengths, carry).
+    const WholeArc whole;
+    __m128 arc = zero;
+    for (int l = 0; l < 4; ++l) a[l]->arc[0] = 0.0f;
+    for (std::size_t k = 1; k < n; ++k) {
+        arc = _mm_add_ps(arc, whole(p[k - 1], p[k], d[k - 1], d[k], h[k - 1]));
+        _mm_store_ps(values, arc);
+        for (int l = 0; l < 4; ++l) a[l]->arc[k] = values[l];
+        reflectFour(ft, fn, fb, p[k] - p[k - 1], unitOr(d[k], ft));
+        storeFrames(a, k, ft, fn, fb);
+    }
+#else
+    for (int l = 0; l < 4; ++l) {
+        c[l]->make(points[l], n);
+        a[l]->slopes(c[l]);
+        a[l]->arcLengths();
+        a[l]->start(normals[l], c[l]->pointAt(leaveAt));
+        a[l]->carry();
+    }
+#endif
+}
 
 // Where a point Curl writes lies on its strand: segment j at u (u == 0: point j itself).
 struct Place {
@@ -741,20 +989,75 @@ bool CurlOp::run(const EvalContext& ctx, const std::vector<Value>& inputs, const
     // Strand s's curve and the axis it curls about: its clump's, or made from it into `own`: its
     // own points, or kAxisSamples on the curve through more (finer detail than that, a kink
     // where a Clump's center bends, would make the curl's arc length depend on the points).
-    auto prepare = [&](std::size_t s, Curve& curve, Axis& own) -> const Axis& {
+    // `beginAxis` makes them up to the axis's first frame (returning its clump's axis, or null for
+    // its own, in `own`), `prepare` all of it. `prepareFour` makes four strands' from `first` into
+    // `axes` (null for a strand of fewer than 2 points): the frames of four strands curling alone
+    // on as many samples side by side (carryFour), and four strands of as many points, each its
+    // own axis's samples, side by side all through (makeFour).
+    auto beginAxis = [&](std::size_t s, Curve& curve, Axis& own) -> const Axis* {
         const std::size_t n = in->strandPointCount(s);
         curve.make(in->strandPoints(s), n);
         const std::uint32_t c = byClump ? clumps.of[s] : kAlone;
-        if (c != kAlone) return clumps.axes[c];
+        if (c != kAlone) return &clumps.axes[c];
         own.samples = std::min(n, kAxisSamples);
         set.spacing(own);
         own.draw = drawFor(in->ids()[s], set);  // (before its table: weighted curls count its turns)
         for (std::size_t k = 0; k < own.samples; ++k) {
             own.x[k] = own.samples == n ? curve.p[k] : curve.pointAt(static_cast<float>(k) / static_cast<float>(own.samples - 1));
         }
-        own.make(rootNormalOn(scalp, in->roots()[s]), n, curve.pointAt(1.0f / static_cast<float>(kAxisSamples - 1)),
-                 own.samples == n ? &curve : nullptr);
+        own.shape(own.samples == n ? &curve : nullptr);
+        own.start(rootNormalOn(scalp, in->roots()[s]), curve.pointAt(1.0f / static_cast<float>(kAxisSamples - 1)));
+        return nullptr;
+    };
+    auto prepare = [&](std::size_t s, Curve& curve, Axis& own) -> const Axis& {
+        if (const Axis* clump = beginAxis(s, curve, own)) return *clump;
+        own.carry();
+        own.finish(in->strandPointCount(s));
         return own;
+    };
+    auto prepareFour = [&](std::size_t first, Curve* curves, Axis* owns, const Axis** axes) {
+        const std::size_t count = std::min<std::size_t>(4, strandCount - first);
+        const std::size_t n = in->strandPointCount(first);
+        bool same = count == 4 && !byClump && n >= 3 && n <= kAxisSamples;
+        for (std::size_t k = 1; k < count && same; ++k) same = in->strandPointCount(first + k) == n;
+        if (same) {
+            Curve* const c[4] = {&curves[0], &curves[1], &curves[2], &curves[3]};
+            Axis* const a[4] = {&owns[0], &owns[1], &owns[2], &owns[3]};
+            const Vec3f* points[4];
+            Vec3f normals[4];
+            for (std::size_t k = 0; k < 4; ++k) {
+                points[k] = in->strandPoints(first + k);
+                normals[k] = rootNormalOn(scalp, in->roots()[first + k]);
+                set.spacing(owns[k]);
+                owns[k].draw = drawFor(in->ids()[first + k], set);
+            }
+            makeFour(c, a, points, n, normals);
+            for (std::size_t k = 0; k < 4; ++k) {
+                owns[k].profiled();
+                owns[k].finish(n);
+                axes[k] = &owns[k];
+            }
+            return;
+        }
+        bool four = count == 4;
+        for (std::size_t k = 0; k < count; ++k) {
+            axes[k] = nullptr;
+            if (in->strandPointCount(first + k) < 2) {
+                four = false;
+                continue;
+            }
+            if ((axes[k] = beginAxis(first + k, curves[k], owns[k])) != nullptr || owns[k].samples != owns[0].samples) four = false;
+        }
+        if (four) {
+            Axis* const all[4] = {&owns[0], &owns[1], &owns[2], &owns[3]};
+            carryFour(all);
+        }
+        for (std::size_t k = 0; k < count; ++k) {
+            if (axes[k] || in->strandPointCount(first + k) < 2) continue;
+            if (!four) owns[k].carry();
+            owns[k].finish(in->strandPointCount(first + k));
+            axes[k] = &owns[k];
+        }
     };
 
     // The share of the strand within its segment j of n at which the curl about `axis` is at
@@ -973,21 +1276,19 @@ bool CurlOp::run(const EvalContext& ctx, const std::vector<Value>& inputs, const
         }
         const bool hasWidths = in->widths().size() == in->pointCount();
         std::vector<float>& outWidths = out->mutableWidths();
-        parallelFor(0, made, [&](std::size_t k) {
-            thread_local Curve curve;
-            thread_local Axis own;
-            thread_local std::vector<Place> places;
+        // Strand k of the set made: its source's curve curled about `axis` (null: fewer than 2
+        // points, as they are).
+        auto fill = [&](std::size_t k, const Curve& curve, const Axis* axis, std::vector<Place>& places) {
             const std::size_t s = source(k);
             const std::size_t n = in->strandPointCount(s), begin = in->strandBegin(s), to = out->strandBegin(k);
-            if (n < 2) {
+            if (!axis) {
                 for (std::size_t i = 0; i < n; ++i) out->strandPoints(k)[i] = in->strandPoints(s)[i];
                 if (hasWidths) std::copy_n(in->widths().data() + begin, n, outWidths.data() + to);
                 for (std::size_t ch = 0; ch < outPoint.size(); ++ch) std::copy_n(inPoint[ch]->data() + begin, n, outPoint[ch]->data() + to);
                 return;
             }
-            const Axis& axis = prepare(s, curve, own);
-            plan(s, axis, places);
-            curl(s, curve, axis, places, out->strandPoints(k));
+            plan(s, *axis, places);
+            curl(s, curve, *axis, places, out->strandPoints(k));
             auto sample = [&](const float* values, float* into) {
                 for (std::size_t p = 0; p < places.size(); ++p) {
                     const Place at = places[p];
@@ -996,7 +1297,25 @@ bool CurlOp::run(const EvalContext& ctx, const std::vector<Value>& inputs, const
             };
             if (hasWidths) sample(in->widths().data() + begin, outWidths.data() + to);
             for (std::size_t ch = 0; ch < outPoint.size(); ++ch) sample(inPoint[ch]->data() + begin, outPoint[ch]->data() + to);
-        }, which ? 16 : 64);
+        };
+        if (which) {
+            parallelFor(0, made, [&](std::size_t k) {
+                thread_local Curve curve;
+                thread_local Axis own;
+                thread_local std::vector<Place> places;
+                const std::size_t s = source(k);
+                fill(k, curve, in->strandPointCount(s) < 2 ? nullptr : &prepare(s, curve, own), places);
+            }, 16);
+        } else {
+            parallelFor(0, (made + 3) / 4, [&](std::size_t g) {
+                thread_local std::array<Curve, 4> curves;
+                thread_local std::array<Axis, 4> owns;
+                thread_local std::vector<Place> places;
+                const Axis* axes[4];
+                prepareFour(4 * g, curves.data(), owns.data(), axes);
+                for (std::size_t k = 4 * g; k < std::min(4 * g + 4, made); ++k) fill(k, curves[k - 4 * g], axes[k - 4 * g], places);
+            }, 16);
+        }
         out->setInstances(in->instances());
         for (const auto& layer : in->cardLayers()) out->addCardLayer(layer);
         for (const auto& layer : in->featherLayers()) out->addFeatherLayer(layer);
@@ -1052,24 +1371,29 @@ bool CurlOp::run(const EvalContext& ctx, const std::vector<Value>& inputs, const
     {
         auto out = std::make_shared<StrandSet>(*in);
         out->overwritePositions();  // every point written below
-        parallelFor(0, strandCount, [&](std::size_t s) {
-            thread_local Curve curve;
-            thread_local Axis own;
+        parallelFor(0, (strandCount + 3) / 4, [&](std::size_t g) {
+            thread_local std::array<Curve, 4> curves;
+            thread_local std::array<Axis, 4> owns;
             thread_local std::vector<Place> places;
-            const std::size_t n = in->strandPointCount(s);
-            counts[s] = n;
-            if (n < 2) {
-                copyStrandPoints(*out, *in, s);
-                return;
+            const Axis* axes[4];
+            const std::size_t first = 4 * g;
+            prepareFour(first, curves.data(), owns.data(), axes);
+            for (std::size_t s = first; s < std::min(first + 4, strandCount); ++s) {
+                const std::size_t n = in->strandPointCount(s);
+                counts[s] = n;
+                if (n < 2) {
+                    copyStrandPoints(*out, *in, s);
+                    continue;
+                }
+                const Axis& axis = *axes[s - first];
+                if (plan(s, axis, places)) {
+                    counts[s] = places.size();
+                    adds = true;
+                } else if (!adds.load(std::memory_order_relaxed)) {
+                    curl(s, curves[s - first], axis, places, out->strandPoints(s));
+                }
             }
-            const Axis& axis = prepare(s, curve, own);
-            if (plan(s, axis, places)) {
-                counts[s] = places.size();
-                adds = true;
-            } else if (!adds.load(std::memory_order_relaxed)) {
-                curl(s, curve, axis, places, out->strandPoints(s));
-            }
-        }, 64);
+        }, 16);
         std::size_t added = 0;
         for (std::size_t s = 0; s < strandCount; ++s) added += counts[s] != in->strandPointCount(s);
         added_.store(added, std::memory_order_relaxed);
