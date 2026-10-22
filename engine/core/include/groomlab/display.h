@@ -268,8 +268,10 @@ void appendPartLines(DisplayGeometry& geometry, const PartLines& parts);
 // Flow arrows (strokes as smooth curves with heads, lone pins, sinks' rings and streamlines) and
 // the field sampled over the scalp.
 void buildFlowOverlay(const FlowField& flow, const ScalpMesh& scalp, DisplayGeometry& arrows, DisplayGeometry& field);
-// Per point: how much of `pull` it may move toward `camera` (0..1) before hitting one of
-// `occluders` (a ray per point, every stride-th on big batches; parallel).
+// Per point: how much of `pull` it may move toward `camera` (0..1): all of it, or with one of
+// `occluders` in the way, nine tenths of the way to it (a ray per point, every stride-th on big
+// batches; parallel). A point hidden behind the scalp stays behind it: pulled right up to it, a
+// guide's dot on the far side showed half of itself through the front.
 std::vector<float> overlayPullLimits(const std::vector<Vec3f>& points, const Vec3f& camera, float pull,
                                      const std::vector<std::shared_ptr<const ScalpMesh>>& occluders);
 std::vector<float> overlayPullLimits(const DisplayGeometry& geometry, const Vec3f& camera, float pull,

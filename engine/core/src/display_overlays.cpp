@@ -154,6 +154,8 @@ std::vector<float> overlayPullLimits(const std::vector<Vec3f>& points, const Vec
                 float t = 0.0f;
                 if (mesh && mesh->intersectRay(origin, dir, &hit, &t) && t < nearest) nearest = std::max(t, 0.0f);
             }
+            // Something in the way: short of it, so a dot drawn about the point stays behind it.
+            if (nearest < pull) nearest *= 0.9f;
             limit = std::clamp(nearest / pull, 0.0f, 1.0f);
         }
         for (std::size_t j = i; j < std::min(i + stride, points.size()); ++j) limits[j] = limit;

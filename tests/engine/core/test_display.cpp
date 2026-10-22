@@ -1101,12 +1101,14 @@ TEST(Display, LitLinesTakeTheStrandsOwnColors) {
 TEST(Display, OverlayPullLimitsStopAtTheScalp) {
     const Fixture& f = fixture();
     const std::vector<std::shared_ptr<const ScalpMesh>> occluders{f.view.scalp};
-    // In front of the sphere toward the camera: free; behind it: stopped short.
+    // In front of the sphere toward the camera: free; behind it: stopped short of it (a dot pulled
+    // right up to the surface showed half of itself through it: issue 12).
     const std::vector<Vec3f> points{{0.0f, 0.0f, 1.2f}, {0.0f, 0.0f, -1.2f}, {0.0f, 0.0f, -3.0f}};
     const std::vector<float> limits = overlayPullLimits(points, {0.0f, 0.0f, 5.0f}, 1.0f, occluders);
     ASSERT_EQ(limits.size(), 3u);
     EXPECT_FLOAT_EQ(limits[0], 1.0f);
-    EXPECT_NEAR(limits[1], 0.2f, 0.02f);  // the sphere's back 0.2 away
+    EXPECT_NEAR(limits[1], 0.18f, 0.02f);  // the sphere's back 0.2 away: nine tenths of the way
+    EXPECT_LT(limits[1], 0.2f);
     EXPECT_FLOAT_EQ(limits[2], 1.0f);     // more than the pull away from it
     EXPECT_EQ(overlayPullLimits(points, {0.0f, 0.0f, 5.0f}, 0.0f, occluders), std::vector<float>(3, 1.0f));
     DisplayGeometry g;
