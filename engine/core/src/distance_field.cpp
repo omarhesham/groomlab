@@ -16,6 +16,15 @@
 #include "groomlab/point_index.h"
 #include "groomlab/process_caches.h"
 
+// A push's steps (locate, regionAt, brickOf), inlined into it also where a build inlines only what
+// it is told to (MSVC's RelWithDebInfo, /Ob1): most points a strand's walk asks are settled within a
+// few loads of the region or brick they fall in, and the calls around those loads cost as much.
+#if defined(_MSC_VER)
+#define GROOMLAB_FIELD_INLINE __forceinline
+#else
+#define GROOMLAB_FIELD_INLINE inline __attribute__((always_inline))
+#endif
+
 namespace groomlab {
 
 namespace {
@@ -72,7 +81,7 @@ std::uint16_t halfUp(float v) {
     if (mantissa & 0x1FFF) ++half;  // round up (a carry into the exponent is still right)
     return static_cast<std::uint16_t>(std::min<std::uint32_t>(half, 0x7C00));
 }
-float fromHalf(std::uint16_t h) {
+inline float fromHalf(std::uint16_t h) {
     if (h >= 0x7C00) return kInf;
     const std::uint32_t exponent = (h >> 10) & 0x1F, mantissa = h & 0x3FF;
     if (exponent == 0) return static_cast<float>(mantissa) * (1.0f / 16777216.0f);  // 2^-24
@@ -103,7 +112,7 @@ void toOctahedral(const Vec3f& n, std::int16_t out[2]) {
 }
 // Unnormalized (on the octahedron): the blends and crease tests take it as it is, the push's
 // normal is normalized once.
-Vec3f fromOctahedral(const std::int16_t in[2]) {
+inline Vec3f fromOctahedral(const std::int16_t in[2]) {
     const float u = static_cast<float>(in[0]) * (1.0f / 32767.0f), v = static_cast<float>(in[1]) * (1.0f / 32767.0f);
     Vec3f n(u, v, 1.0f - std::fabs(u) - std::fabs(v));
     if (n.z < 0.0f) {
@@ -196,7 +205,6 @@ struct MeshDistanceField::Region {
 
 struct MeshDistanceField::Located {
     const Region* region = nullptr;
-    const Brick* brick = nullptr;  // when the thread's memo held it
     int bx = 0, by = 0, bz = 0;  // the brick, in the whole grid
     int cell = 0;                // its cell's first corner, as a node of the brick
     Vec3f f;                     // p's place in the cell, 0-1 per axis
@@ -276,11 +284,19 @@ float MeshDistanceField::reachFor(float searchRadius) {
     return pm::exp2(std::ceil(pm::log2(std::max(searchRadius, 1e-6f))));
 }
 
-const MeshDistanceField::Region& MeshDistanceField::regionAt(int bx, int by, int bz) const {
-    const int rx = bx / kRegionBricks, ry = by / kRegionBricks, rz = bz / kRegionBricks;
-    Region& r = regions_[static_cast<std::size_t>(rx) +
-                         static_cast<std::size_t>(regionDims_[0]) * (ry + static_cast<std::size_t>(regionDims_[1]) * rz)];
+GROOMLAB_FIELD_INLINE const MeshDistanceField::Region& MeshDistanceField::regionAt(int bx, int by, int bz) const {
+    // (Bricks of the grid: none negative, divided as unsigned.)
+    auto regionOf = [](int b) { return static_cast<int>(static_cast<unsigned>(b) / kRegionBricks); };
+    const int rx = regionOf(bx), ry = regionOf(by), rz = regionOf(bz);
+    const std::size_t index = static_cast<std::size_t>(rx) +
+                              static_cast<std::size_t>(regionDims_[0]) * (ry + static_cast<std::size_t>(regionDims_[1]) * rz);
+    const Region& r = regions_[index];
     if (r.state.load(std::memory_order_acquire) == kMade) return r;
+    return makeRegion(index, rx, ry, rz);
+}
+
+const MeshDistanceField::Region& MeshDistanceField::makeRegion(std::size_t index, int rx, int ry, int rz) const {
+    Region& r = regions_[index];
     std::uint8_t expected = kEmpty;
     if (!r.state.compare_exchange_strong(expected, kMaking, std::memory_order_acq_rel)) {
         waitFor(r.state);
@@ -412,8 +428,7 @@ MeshDistanceField::Node MeshDistanceField::nodeAt(const Brick& brick, int index,
         toOctahedral(sp.normal, node.normal);
         nodes.faces[index] = static_cast<std::uint32_t>(sp.root.face);  // (released with the node)
     }
-    queries_.fetch_add(1, std::memory_order_relaxed);
-    nodes_.fetch_add(1, std::memory_order_relaxed);
+    nodes_.fetch_add(1, std::memory_order_relaxed);  // (a query each: stats counts them)
     std::memcpy(&word, &node, sizeof(node));  // a distance's bits never reach 0xFFFF: never a marker
     slot.store(word, std::memory_order_release);
     return node;
@@ -422,46 +437,58 @@ MeshDistanceField::Node MeshDistanceField::nodeAt(const Brick& brick, int index,
 namespace {
 
 // The bricks a thread met last (by field and grid place): a strand's walk meets the same few
-// again on every pass, and the region and slot tables are then not read again.
+// again on every pass, and the slot tables are then not read again. (No initializers: zeroed, a
+// field serial no field has, and nothing to construct on a thread's first use.)
 struct BrickMemo {
-    std::uint64_t field = 0;  // the field's serial (an address may be another field's later)
-    int bx = -1, by = -1, bz = -1;
-    const void* region = nullptr;
-    const void* brick = nullptr;
+    std::uint64_t field;  // the field's serial (an address may be another field's later)
+    int bx, by, bz;
+    const void* brick;
 };
 constexpr int kBrickMemo = 32;
 thread_local BrickMemo tBrickMemo[kBrickMemo];
 
+// floor(g) for g within 2^23 of 0 (the grid's cells: whole floats), as the int it is.
+inline int wholeBelow(float g) {
+    const int i = static_cast<int>(g);
+    return static_cast<float>(i) > g ? i - 1 : i;
+}
+// std::clamp(v, 0, 1), by value.
+inline float unitClamp(float v) { return v < 0.0f ? 0.0f : 1.0f < v ? 1.0f : v; }
+
 }  // namespace
 
-bool MeshDistanceField::locate(const Vec3f& p, Located* at) const {
+GROOMLAB_FIELD_INLINE bool MeshDistanceField::locate(const Vec3f& p, Located* at) const {
     if (!regions_) return false;
     // In cells from the world's origin (a power-of-two cell: exact), from p alone: the same cell
     // and place in it whatever grid holds it.
-    const float g[3] = {p.x * inverseCell_ - kGridShift, p.y * inverseCell_ - kGridShift, p.z * inverseCell_ - kGridShift};
-    int local[3];
-    float f[3];
-    for (int a = 0; a < 3; ++a) {
-        if (!(g[a] >= cellLo_[a] && g[a] < cellHi_[a])) return false;  // outside the grid (or not a number)
-        const float whole = std::floor(g[a]);
-        local[a] = static_cast<int>(whole - cellLo_[a]);  // the cell from the grid's first (exact: whole floats)
-        f[a] = std::clamp(g[a] - whole, 0.0f, 1.0f);
+    const float gx = p.x * inverseCell_ - kGridShift, gy = p.y * inverseCell_ - kGridShift, gz = p.z * inverseCell_ - kGridShift;
+    if (!(gx >= cellLo_[0] && gx < cellHi_[0] && gy >= cellLo_[1] && gy < cellHi_[1] && gz >= cellLo_[2] && gz < cellHi_[2])) {
+        return false;  // outside the grid (or not a number)
     }
-    at->bx = local[0] / kBrickCells;
-    at->by = local[1] / kBrickCells;
-    at->bz = local[2] / kBrickCells;
-    BrickMemo& memo = tBrickMemo[(at->bx * 7 + at->by * 13 + at->bz * 31) & (kBrickMemo - 1)];
-    if (memo.field == serial_ && memo.bx == at->bx && memo.by == at->by && memo.bz == at->bz) {
-        at->region = static_cast<const Region*>(memo.region);
-        at->brick = static_cast<const Brick*>(memo.brick);
-    } else {
-        at->region = &regionAt(at->bx, at->by, at->bz);
-        at->brick = nullptr;
-    }
-    const int cx = local[0] - at->bx * kBrickCells, cy = local[1] - at->by * kBrickCells, cz = local[2] - at->bz * kBrickCells;
-    at->cell = cx + cy * kBrickNodes + cz * kBrickNodes * kBrickNodes;
-    at->f = Vec3f(f[0], f[1], f[2]);
+    // The cell from the grid's first (exact: whole floats; at or past it, so none negative), and
+    // p's place in it.
+    const int wx = wholeBelow(gx), wy = wholeBelow(gy), wz = wholeBelow(gz);
+    const unsigned lx = static_cast<unsigned>(wx - static_cast<int>(cellLo_[0]));
+    const unsigned ly = static_cast<unsigned>(wy - static_cast<int>(cellLo_[1]));
+    const unsigned lz = static_cast<unsigned>(wz - static_cast<int>(cellLo_[2]));
+    at->bx = static_cast<int>(lx / kBrickCells);
+    at->by = static_cast<int>(ly / kBrickCells);
+    at->bz = static_cast<int>(lz / kBrickCells);
+    at->region = &regionAt(at->bx, at->by, at->bz);
+    at->cell = static_cast<int>(lx % kBrickCells + (ly % kBrickCells) * kBrickNodes + (lz % kBrickCells) * kBrickNodes * kBrickNodes);
+    at->f = Vec3f(unitClamp(gx - static_cast<float>(wx)), unitClamp(gy - static_cast<float>(wy)),
+                  unitClamp(gz - static_cast<float>(wz)));
     return true;
+}
+
+GROOMLAB_FIELD_INLINE const MeshDistanceField::Brick& MeshDistanceField::brickOf(const Located& at) const {
+    BrickMemo& memo = tBrickMemo[(at.bx * 7 + at.by * 13 + at.bz * 31) & (kBrickMemo - 1)];
+    if (memo.field == serial_ && memo.bx == at.bx && memo.by == at.by && memo.bz == at.bz) {
+        return *static_cast<const Brick*>(memo.brick);
+    }
+    const Brick& brick = brickAt(*at.region, at.bx, at.by, at.bz);
+    memo = BrickMemo{serial_, at.bx, at.by, at.bz, &brick};
+    return brick;
 }
 
 bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, float maxDepth, float searchRadius, float offset,
@@ -586,7 +613,7 @@ bool MeshDistanceField::bounds(const Vec3f& p, float radius, float* heightLow, f
     }
     float h = at.region->heightLow, d = at.region->distanceLow;
     if (!at.region->far) {
-        const Brick& brick = at.brick ? *at.brick : brickAt(*at.region, at.bx, at.by, at.bz);
+        const Brick& brick = brickOf(at);
         h = brick.heightLow;
         d = brick.distanceLow;
     }
@@ -596,11 +623,10 @@ bool MeshDistanceField::bounds(const Vec3f& p, float radius, float* heightLow, f
 }
 MeshDistanceField::Push MeshDistanceField::push(const Vec3f& p, float offset, float maxDepth, float searchRadius,
                                                 Vec3f* delta, Probe* probe) const {
-    const bool fieldOnly = probe && probe->fieldOnly && regions_;
-    Located at;
     if (searchRadius > reach_) return Push::Ask;
+    Located at;
     if (!locate(p, &at)) {
-        if (!fieldOnly) return Push::Ask;
+        if (!(probe && probe->fieldOnly && regions_)) return Push::Ask;
         probe->learnt(-kInf, searchRadius);  // beyond the search: the grid reaches past it
         return Push::Kept;
     }
@@ -608,25 +634,31 @@ MeshDistanceField::Push MeshDistanceField::push(const Vec3f& p, float offset, fl
         if (probe) probe->learnt(heightLow, std::max(distanceLow, 0.0f));
         return distanceLow > searchRadius || heightLow >= offset;
     };
-    // A far region's bounds first (whether or not the thread's memo held the brick: what the
+    // A far region's bounds first (whether or not the thread's memo holds the brick: what the
     // probe learns is the same whichever thread asks).
     if (at.region->far && settles(at.region->heightLow, at.region->distanceLow)) return Push::Kept;
-    if (!at.brick) {
-        at.brick = &brickAt(*at.region, at.bx, at.by, at.bz);
-        BrickMemo& memo = tBrickMemo[(at.bx * 7 + at.by * 13 + at.bz * 31) & (kBrickMemo - 1)];
-        memo = BrickMemo{serial_, at.bx, at.by, at.bz, at.region, at.brick};
-    }
-    const Brick& brick = *at.brick;
+    const Brick& brick = brickOf(at);
     if (!brick.fine) {
         if (settles(brick.heightLow, brick.distanceLow)) return Push::Kept;
-        if (!fieldOnly) return Push::Ask;
-        std::uint32_t seeds[8];
-        farSeeds(at, brick, seeds);
-        return answerNear(p, seeds, 8, offset, maxDepth, searchRadius, delta, *probe);
+        if (!(probe && probe->fieldOnly)) return Push::Ask;
+        return pushFar(p, at, brick, offset, maxDepth, searchRadius, delta, *probe);
     }
     // Probing (a strand walked point by point, most points well clear of the surface): a fine
     // brick's bounds first, as a far brick's, which settle a point without sampling its nodes.
     if (probe && settles(brick.heightLow, brick.distanceLow)) return Push::Kept;
+    return pushFine(p, at, brick, offset, maxDepth, searchRadius, delta, probe);
+}
+
+MeshDistanceField::Push MeshDistanceField::pushFar(const Vec3f& p, const Located& at, const Brick& brick, float offset,
+                                                   float maxDepth, float searchRadius, Vec3f* delta, Probe& probe) const {
+    std::uint32_t seeds[8];
+    farSeeds(at, brick, seeds);
+    return answerNear(p, seeds, 8, offset, maxDepth, searchRadius, delta, probe);
+}
+
+MeshDistanceField::Push MeshDistanceField::pushFine(const Vec3f& p, const Located& at, const Brick& brick, float offset,
+                                                    float maxDepth, float searchRadius, Vec3f* delta, Probe* probe) const {
+    const bool fieldOnly = probe && probe->fieldOnly;
     float height = 0.0f;
     Vec3f normal;
     bool clear = false;
@@ -915,7 +947,7 @@ MeshDistanceField::Stats MeshDistanceField::stats() const {
     s.farBricks = far_.load(std::memory_order_relaxed);
     s.fineBricks = fine_.load(std::memory_order_relaxed);
     s.nodes = nodes_.load(std::memory_order_relaxed);
-    s.queries = queries_.load(std::memory_order_relaxed);
+    s.queries = queries_.load(std::memory_order_relaxed) + s.nodes;  // (regions' and bricks', and a node's each)
     const std::size_t regions = static_cast<std::size_t>(regionDims_[0]) * regionDims_[1] * regionDims_[2];
     s.bytes = regions * sizeof(Region) + (s.fineBricks + s.farBricks) * sizeof(Brick) +
               nodeBlocks_.load(std::memory_order_relaxed) * sizeof(Nodes);
@@ -1321,7 +1353,15 @@ bool CollisionSurface::pushOut(Vec3f& p, float offset, float maxDepth, float sea
         }
         return pushOutOf(*mesh, nullptr, p, offset, maxDepth, searchRadius, probe);
     }
-    return pushOutOf(*mesh, field.get(), p, offset, maxDepth, searchRadius, probe);
+    if (field) {  // (pushOutOf's, without the call)
+        Vec3f delta;
+        switch (field->push(p, offset, maxDepth, searchRadius, &delta, probe)) {
+            case MeshDistanceField::Push::Kept: return false;
+            case MeshDistanceField::Push::Moved: p += delta; return true;
+            case MeshDistanceField::Push::Ask: break;
+        }
+    }
+    return pushOutOf(*mesh, nullptr, p, offset, maxDepth, searchRadius, probe);
 }
 
 }  // namespace groomlab

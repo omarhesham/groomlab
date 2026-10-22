@@ -227,8 +227,15 @@ private:
     struct Region;
     struct Located;
     struct Rings;
-    const Region& regionAt(int bx, int by, int bz) const;
+    // (Those marked inline are steps of every push, inlined into it in distance_field.cpp.)
+    inline const Region& regionAt(int bx, int by, int bz) const;
+    // The region at `index` (regionAt's), made by its closest-point query (another thread's, when
+    // one makes it first).
+    const Region& makeRegion(std::size_t index, int rx, int ry, int rz) const;
     const Brick& brickAt(const Region& region, int bx, int by, int bz) const;
+    // The brick p falls in (made when first asked), through the thread's memo of the bricks it met
+    // last.
+    inline const Brick& brickOf(const Located& at) const;
     Brick* makeBrick(int bx, int by, int bz) const;
     // A fine brick's nodes, made on first use (none sampled yet).
     Nodes& nodesOf(const Brick& brick) const;
@@ -242,6 +249,12 @@ private:
     // those of the 7 bricks beside it on p's side of its middle (the 8 middles around p; kTableNone
     // beyond the grid or in another region far from the surface).
     void farSeeds(const Located& at, const Brick& brick, std::uint32_t* seeds) const;
+    // push past the bounds: a far brick's answer (Probe::fieldOnly), and a fine brick's blend (or
+    // the answer where it asks). Apart from push, which most points leave by a bound.
+    Push pushFar(const Vec3f& p, const Located& at, const Brick& brick, float offset, float maxDepth, float searchRadius,
+                 Vec3f* delta, Probe& probe) const;
+    Push pushFine(const Vec3f& p, const Located& at, const Brick& brick, float offset, float maxDepth, float searchRadius,
+                  Vec3f* delta, Probe* probe) const;
     const Rings& rings() const;
     // Node `index` of a fine brick, sampled on first use. `within`: a distance the surface is known
     // to be within from it (a neighbour's, plus the way between them), which bounds the query (the
@@ -250,7 +263,7 @@ private:
     Node nodeAt(const Brick& brick, int index, float within, std::uint32_t seedFace = kTableNone) const;
     // Where p falls: its region, brick and cell (bricks made only when asked: `bricks`); false
     // outside the grid.
-    bool locate(const Vec3f& p, Located* at) const;
+    inline bool locate(const Vec3f& p, Located* at) const;
     // The trilinear blend of a fine cell's corners at the cell's fraction f; false where the cell
     // asks the mesh; *clear where every point there is left alone.
     bool blend(const Brick& brick, int cell, const Vec3f& f, float maxDepth, float searchRadius, float offset,
@@ -265,12 +278,16 @@ private:
     float cellLo_[3] = {0, 0, 0}, cellHi_[3] = {0, 0, 0};  // the grid, in cells from the world's origin
     int regionDims_[3] = {0, 0, 0};
     std::unique_ptr<Region[]> regions_;
-    mutable std::atomic<std::size_t> regionsMade_{0}, far_{0}, fine_{0}, nodes_{0}, queries_{0}, nodeBlocks_{0};
     mutable std::once_flag ringsMade_;
     mutable std::unique_ptr<Rings> rings_;
     mutable std::mutex tablesMutex_;
     mutable Tables tables_;
     mutable float tablesOffset_ = 0.0f, tablesRadius_ = 0.0f;
+    // The counts (stats; queries_ the regions' and bricks', a node's counted in nodes_), a cache line
+    // away from everything above: while a field is being made, every thread's queries write them,
+    // and every push reads the grid above.
+    [[maybe_unused]] char apart_[64] = {};
+    mutable std::atomic<std::size_t> regionsMade_{0}, far_{0}, fine_{0}, nodes_{0}, queries_{0}, nodeBlocks_{0};
 };
 
 using DistanceFieldPtr = std::shared_ptr<const MeshDistanceField>;
