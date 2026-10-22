@@ -107,7 +107,10 @@ def create_card_mesh(groom):
     returns its transform. Reuses the one already there. Not needed to see the cards (the groom
     draws them in its cards view, with the baked maps) or to bake or export them (Export for
     Unreal makes one of its own and removes it). While it exists it shows the cards in the cards
-    view (its visibility follows displayCards) and the groom draws none, so they never show twice."""
+    view (its visibility follows displayCards) and the groom draws none, so they never show twice.
+    Once baked it gets a material from the maps (card_material, as bake_cards gives it later):
+    Maya's own transparency, so Viewport 2.0's ambient occlusion, which leaves the groom's own
+    textured cards out, takes it as Maya's materials (Hardware 2.0's transparency settings)."""
     transform = cmds.listRelatives(groom, parent=True)[0]
     existing = cmds.listConnections(groom + ".outCards", destination=True, source=False, shapes=True) or []
     if existing:
@@ -121,6 +124,10 @@ def create_card_mesh(groom):
     cmds.connectAttr(material + ".outColor", group + ".surfaceShader")
     cmds.sets(mesh, edit=True, forceElement=group)
     _follow_cards_view(groom, cards)
+    maps = {m: resolve_path(p, groom) for m, p in _card_maps(groom).items() if m in CARD_MAPS and p}
+    maps = {m: p for m, p in maps.items() if os.path.isfile(p)}
+    if maps.get("Coverage"):
+        card_material(cards, maps)
     return cards
 
 

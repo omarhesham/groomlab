@@ -741,12 +741,18 @@ void GroomSubSceneOverride::bindCardTextures(ItemBuffers& buffers) {
         }
     };
     bind("map", cardMaps_[kCardColorMap].texture);  // color x AO, the coverage in its alpha
-    if (!buffers.hair) bindCardIridescence(buffers, bind);  // (GroomLab's hair: the cards' tint carries it)
+    if (!buffers.hair) {
+        bindCardIridescence(buffers, bind);  // (GroomLab's hair: the cards' tint carries it)
+        // Maya's hair graph: its alpha to coverage after its last fragment reads the map's alpha too.
+        bind("coverageMap", cardMaps_[kCardColorMap].texture);
+    }
     if (MHWRender::MTexture* map = cardMaps_[kCardColorMap].texture) {
         // Its size: how many texels a pixel spans, for the coverage kept as it shrinks.
         MHWRender::MTextureDescription desc;
         map->textureDescription(desc);
-        buffers.shader->setParameter("mapSize", static_cast<float>(std::max(desc.fWidth, desc.fHeight)));
+        const float size = static_cast<float>(std::max(desc.fWidth, desc.fHeight));
+        buffers.shader->setParameter("mapSize", size);
+        if (!buffers.hair) buffers.shader->setParameter("coverageMapSize", size);
     }
 }
 

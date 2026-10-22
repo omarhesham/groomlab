@@ -271,6 +271,8 @@ private:
     // whether the effect compiles), what the groom's hair shaders share (the lights it ignores,
     // refreshed now and then: lightsChecked_).
     bool hairShading_ = true;
+    // The cards drawn with their baked maps this update (style(): out of the post effects).
+    bool cardsTextured_ = false;
     std::shared_ptr<HairGroomState> hairState_;
     std::chrono::steady_clock::time_point lightsChecked_{};
     // The shader the lit strands (kinds 2 and 9) draw with now: GroomLab's hair effect or Maya's

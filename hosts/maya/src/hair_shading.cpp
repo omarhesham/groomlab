@@ -486,6 +486,34 @@ float cutoff = 0.5;
 float solid = 1.0;            // 1: no maps (the solidColor)
 float3 solidColor = float3(0.58, 0.50, 0.42);
 float mapSize = 2048.0;
+float cardPass = 0.0;         // 1: a shadow map's depth, 2: a point light's (cardPassPreDraw)
+float gLightRange : LightRange;
+
+// The samples of the pixel's `samples` a card of map coverage `a` at `uv` covers, none clipped.
+// Magnified: cut at the cutoff, across a ramp a pixel wide on a multisampled target (the viewport's
+// anti-aliasing), so the samples smooth the edge (alpha to coverage's, decorrelated: a run of
+// samples turned by a hash of the pixel's place on the card, line_coverage.glsl lineSampleMask, so
+// cards over each other cover samples of their own), else hard. A texel or more to a pixel: the
+// coverage kept as the texture shrinks (each mip level down averages thin strands with the gaps
+// beside them, so a quarter more a level), that share of the samples, or on one sample a pixel
+// kept at a threshold hashed per pixel (in uv), so a strand thinner than a pixel shows as often as
+// it covers it instead of not at all. The derivatives are taken before any branch.
+uint cardMask(float a, float2 uv, uint samples) {
+    float2 footprint = max(fwidth(uv), float2(1e-7, 1e-7));
+    float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6)), 0.0);
+    float kept = a * (1.0 + 0.25 * lod);
+    float ramp = max(fwidth(kept), 1e-4);
+    float2 cell = floor(uv / footprint);
+    float noise = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453);
+    if (samples > 1u) {
+        float c = lerp(saturate((kept - cutoff) / ramp + 0.5), saturate(kept), saturate(lod));
+        uint mask = lineSampleMask(c, max(noise, 1e-6), uint(noise * 16777216.0), samples);
+        if (mask == 0u) discard;
+        return mask;
+    }
+    clip(kept - lerp(cutoff, noise, saturate(lod)));
+    return 0xFFFFFFFFu;
+}
 
 struct appdataCard {
     float3 Position : POSITION;
@@ -515,16 +543,27 @@ cardOutput hairCardVS(appdataCard IN) {
     return OUT;
 }
 
-float4 hairCardPS(cardOutput IN) : SV_Target {
+struct cardPixel {
+    float4 Color : SV_Target;
+    uint Mask : SV_Coverage;
+};
+
+cardPixel hairCardPS(cardOutput IN) {
+    cardPixel OUT;
+    OUT.Mask = 0xFFFFFFFFu;
     float3 base = solidColor;
+    if (cardPass > 0.5) {
+        // Viewport 2.0 draws the cards' shadows with this shader too: the shadow map's depth (Maya's
+        // mayaShadower's), a point light's distance over its range, the card cut out as drawn.
+        if (solid < 0.5) cardMask(map.Sample(mapSampler, IN.Uv).a, IN.Uv, 1u);
+        float z = IN.HPosition.z;
+        float d = length(IN.Pw - gEye) / max(gLightRange, 1e-6);
+        OUT.Color = cardPass > 1.5 ? float4(d, 0.0, 0.0, d) : (z + fwidth(z)).xxxx;
+        return OUT;
+    }
     if (solid < 0.5) {
         float4 m = map.Sample(mapSampler, IN.Uv);
-        // (The coverage kept as the texture shrinks: the cards' own effect's rule.)
-        float2 footprint = max(fwidth(IN.Uv), float2(1e-7, 1e-7));
-        float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6)), 0.0);
-        float2 cell = floor(IN.Uv / footprint);
-        float noise = frac(sin(dot(cell, float2(12.9898, 78.233))) * 43758.5453);
-        clip(m.a * (1.0 + 0.25 * lod) - lerp(cutoff, noise, saturate(lod)));
+        OUT.Mask = cardMask(m.a, IN.Uv, GetRenderTargetSampleCount());
         float3 c = m.rgb;
         // The bake holds the hair's appearance color (a card in an engine is matte): shaded as hair,
         // its base color (hairBaseOfAppearance).
@@ -533,7 +572,8 @@ float4 hairCardPS(cardOutput IN) : SV_Target {
     }
     // (No strand of its own: the strands' variation is the bake's.)
     float4 none = float4(0.5, 0.5, 0.5, 0.5);
-    return float4(hairShade(IN.Pw, normalize(IN.Tw), IN.Nw, float4(base, IN.Color.a), 0.0, gEye, none, none), 1.0);
+    OUT.Color = float4(hairShade(IN.Pw, normalize(IN.Tw), IN.Nw, float4(base, IN.Color.a), 0.0, gEye, none, none), 1.0);
+    return OUT;
 }
 
 technique11 HairCard {
@@ -611,6 +651,8 @@ uniform float cutoff = 0.5;
 uniform float solid = 1.0;
 uniform vec3 solidColor = {0.58, 0.50, 0.42};
 uniform float mapSize = 2048.0;
+uniform float cardPass = 0.0;
+uniform float gLightRange : LightRange;
 
 attribute appdataCard {
     vec3 inPosition : POSITION;
@@ -701,24 +743,50 @@ GLSLShader hairCardVS {
 
 GLSLShader hairCardPS {
 )x";
+    text += kLineCoverageText;
     text += kGridSampleGlsl;
     text += glslOf(grid);
     text += kHairBsdfText;
     text += glslOf(kHairShared);
     text += R"x(
+    // (The HLSL's cardMask.)
+    uint cardMask(float a, vec2 uv, uint samples) {
+        vec2 footprint = max(fwidth(uv), vec2(1e-7, 1e-7));
+        float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6)), 0.0);
+        float kept = a * (1.0 + 0.25 * lod);
+        float ramp = max(fwidth(kept), 1e-4);
+        vec2 cell = floor(uv / footprint);
+        float noise = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+        if (samples > 1u) {
+            float c = mix(clamp((kept - cutoff) / ramp + 0.5, 0.0, 1.0), clamp(kept, 0.0, 1.0), clamp(lod, 0.0, 1.0));
+            uint mask = lineSampleMask(c, max(noise, 1e-6), uint(noise * 16777216.0), samples);
+            if (mask == 0u) discard;
+            return mask;
+        }
+        if (kept - mix(cutoff, noise, clamp(lod, 0.0, 1.0)) < 0.0) discard;
+        return 0xFFFFFFFFu;
+    }
+
     void main() {
         vec3 base = solidColor;
+        if (cardPass > 0.5) {
+            // (The HLSL's notes; OpenGL's depth in [0, 1] as Maya's mayaShadower writes it.)
+            if (solid < 0.5) cardMask(texture(mapSampler, cardIn.Uv).a, cardIn.Uv, 1u);
+            float z = gl_FragCoord.z;
+            float d = length(cardIn.Pw - gEye) / max(gLightRange, 1e-6);
+            gl_SampleMask[0] = -1;
+            outColor = cardPass > 1.5 ? vec4(d, 0.0, 0.0, d) : vec4(z + fwidth(z));
+            return;
+        }
+        uint mask = 0xFFFFFFFFu;
         if (solid < 0.5) {
             vec4 m = texture(mapSampler, cardIn.Uv);
-            vec2 footprint = max(fwidth(cardIn.Uv), vec2(1e-7, 1e-7));
-            float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6)), 0.0);
-            vec2 cell = floor(cardIn.Uv / footprint);
-            float noise = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
-            if (m.a * (1.0 + 0.25 * lod) - mix(cutoff, noise, clamp(lod, 0.0, 1.0)) < 0.0) discard;
+            mask = cardMask(m.a, cardIn.Uv, uint(max(gl_NumSamples, 1)));
             vec3 c = m.rgb;
             base = hairBaseOfAppearance(mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)) * 2.0 *
                                         cardIn.Color.rgb, hairAzimuthalRoughness);
         }
+        gl_SampleMask[0] = int(mask);
         vec4 none = vec4(0.5, 0.5, 0.5, 0.5);
         outColor = vec4(hairShade(cardIn.Pw, normalize(cardIn.Tw), cardIn.Nw, vec4(base, cardIn.Color.a), 0.0, gEye, none, none), 1.0);
     }
@@ -938,6 +1006,7 @@ struct HairShaderEntry {
     // never at the plugin's unloading, when the renderer is gone.)
     std::weak_ptr<HairGroomState> groom;
     bool coverage = false;
+    bool card = false;  // technique HairCard: the pass handed to it (cardPassPreDraw)
     std::uint64_t lightsHash = 0;
     // The density grid it was last given (setHairGrid): the texture's number, the grid's.
     std::uint64_t gridVolume = 0, gridSerial = 0;
@@ -1006,6 +1075,7 @@ void hairPreDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemL
     }
     if (!entry) ++unknownDraws();
     if (entry && entry->coverage) coveragePreDraw(context, items, shader);
+    if (entry && entry->card) cardPassPreDraw(context, shader);
     if (!colorPass(context)) return;
     LightCache& cache = lightCache();
     const MUint64 frame = context.getFrameStamp();
@@ -1061,11 +1131,13 @@ MHWRender::MShaderInstance* acquireHairShader(const MHWRender::MShaderManager& s
     state = 1;
     // Hashed in the opaque pass, depth written (the blended top of the coverage: coveragePreDraw).
     shader->setIsTransparent(false);
+    if (card) noteCardShader(shader);
     std::lock_guard<std::mutex> lock(registryMutex());
     HairShaderEntry& entry = registry()[shader];  // (a released instance's address may come again: made anew)
     entry = HairShaderEntry{};
     entry.groom = groom;
     entry.coverage = coverage;
+    entry.card = card;
     return shader;
 }
 

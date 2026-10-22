@@ -150,7 +150,10 @@ void GroomSubSceneOverride::updateItem(MHWRender::MSubSceneContainer& container,
             if (!hairState_) hairState_ = std::make_shared<HairGroomState>();
             shader = acquireHairShader(*shaders, false, false, hairState_, true);
         } else if (kind == 6) {  // hair shading with the baked card maps (or solid)
-            shader = shaders->getFragmentShader("groomLabCardSurface", "outSurfaceFinal", true);
+            // (Its draw callbacks: alpha to coverage on a multisampled target.)
+            shader = shaders->getFragmentShader("groomLabCardSurface", "outSurfaceFinal", true, cardCoveragePreDraw,
+                                                cardCoveragePostDraw);
+            if (shader) noteCardShader(shader);
         } else if (kind == 10) {  // scales: Maya's hair tube shading in their own colors, lit from their normals
             shader = shaders->getFragmentShader("groomLabScaleSurface", "outSurfaceFinal", true);
         } else if (kind == 2 || kind == 9) {  // lit strands: in one color (2) or their own (9, the colors stream)
@@ -185,10 +188,11 @@ void GroomSubSceneOverride::updateItem(MHWRender::MSubSceneContainer& container,
         }
         if (kind == 7) buffers.shader->setIsTransparent(false);
         if (kind == 6) {
-            // Cut out in the opaque pass (the fragment clips), as masked cards in engines:
-            // depth-correct, no sorting.
+            // Cut out in the opaque pass (the fragment clips, or its alpha says the samples covered:
+            // alpha to coverage), as masked cards in engines: depth-correct, no sorting.
             buffers.shader->setIsTransparent(false);
             buffers.shader->setParameter("cutoff", 0.5f);
+            if (!hair) buffers.shader->setParameter("coverageCutoff", 0.5f);  // (Maya's hair graph's coverage fragment)
         }
         if (!buffers.hair) hairShaderDefaults(*buffers.shader, kind);
     }

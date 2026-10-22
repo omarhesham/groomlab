@@ -659,6 +659,102 @@ void coveragePostDraw(MHWRender::MDrawContext& context, const MHWRender::MRender
     if (states && b.kept) states->setBlendState(b.kept);
 }
 
+namespace {
+
+// The cards' draws (cardCoveragePreDraw, cardPassPreDraw): the alpha to coverage blend state (made
+// once), the state each draw found (put back after), the color draws on a multisampled target and
+// on one sample a pixel, and the value each card shader instance was last given (cardPass, or
+// alphaToCoverage).
+struct CardDraws {
+    const MHWRender::MBlendState* blend = nullptr;
+    const MHWRender::MBlendState* kept = nullptr;
+    bool set = false;
+    long long sampled = 0, tested = 0;
+    std::mutex mutex;
+    std::map<const MHWRender::MShaderInstance*, int> given;
+};
+CardDraws& cardDraws() {
+    static CardDraws c;
+    return c;
+}
+
+// `value` to the shader's `parameter` (and 1 - value to `inverse`'s) when it is not what the
+// instance was last given.
+void giveCardShader(MHWRender::MDrawContext& context, MHWRender::MShaderInstance* shader, const char* parameter, int value,
+                    const char* inverse = nullptr) {
+    CardDraws& c = cardDraws();
+    {
+        std::lock_guard<std::mutex> lock(c.mutex);
+        auto [it, added] = c.given.try_emplace(shader, 0);
+        if (it->second == value) return;
+        it->second = value;
+    }
+    shader->setParameter(parameter, static_cast<float>(value));
+    if (inverse) shader->setParameter(inverse, static_cast<float>(1 - value));
+    shader->updateParameters(context);
+}
+
+}  // namespace
+
+void cardCoveragePreDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemList&, MHWRender::MShaderInstance* shader) {
+    CardDraws& c = cardDraws();
+    c.set = false;
+    MHWRender::MStateManager* states = context.getStateManager();
+    const bool color = colorPass(context);
+    if (states && color && multisampled(context)) {
+        if (!c.blend) {
+            // Blending off, as the opaque pass draws: the alpha only says which samples the card covers.
+            MHWRender::MBlendStateDesc desc;
+            desc.setDefaults();
+            desc.alphaToCoverageEnable = true;
+            c.blend = MHWRender::MStateManager::acquireBlendState(desc);
+        }
+        if (c.blend) {
+            c.kept = states->getBlendState();
+            states->setBlendState(c.blend);
+            c.set = true;
+        }
+    }
+    if (color) ++(c.set ? c.sampled : c.tested);
+    // The alpha test (in the color fragment) off while the alpha says the samples. Only in the color
+    // pass: Viewport 2.0 draws the cards' shadow maps with the graph too, and parameters updated
+    // from a shadow pass's callback left the scene without shadows; there the graph keeps what the
+    // last color draw left, the alpha test (cardCoveragePostDraw), so the shadows are cut out.
+    if (shader && c.set) giveCardShader(context, shader, "alphaToCoverage", 1, "alphaTest");
+}
+
+void cardCoveragePostDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemList&, MHWRender::MShaderInstance* shader) {
+    CardDraws& c = cardDraws();
+    if (!c.set) return;
+    c.set = false;
+    if (MHWRender::MStateManager* states = context.getStateManager(); states && c.kept) states->setBlendState(c.kept);
+    if (shader) giveCardShader(context, shader, "alphaToCoverage", 0, "alphaTest");
+}
+
+void cardPassPreDraw(MHWRender::MDrawContext& context, MHWRender::MShaderInstance* shader) {
+    if (!shader) return;
+    int pass = 0;
+    const MStringArray& semantics = context.getPassContext().passSemantics();
+    for (unsigned i = 0; i < semantics.length(); ++i) {
+        if (semantics[i] == MHWRender::MPassContext::kShadowPassSemantic) pass = 1;
+        if (semantics[i] == MHWRender::MPassContext::kPointLightShadowPassSemantic) pass = 2;
+    }
+    CardDraws& c = cardDraws();
+    if (colorPass(context)) ++(multisampled(context) ? c.sampled : c.tested);
+    giveCardShader(context, shader, "cardPass", pass);
+}
+
+void noteCardShader(const MHWRender::MShaderInstance* shader) {
+    CardDraws& c = cardDraws();
+    std::lock_guard<std::mutex> lock(c.mutex);
+    c.given[shader] = 0;  // (a released instance's address may come again: the shader's default)
+}
+
+void cardCoverageDraws(long long& sampled, long long& tested) {
+    sampled = cardDraws().sampled;
+    tested = cardDraws().tested;
+}
+
 // The flat lines' effect (technique Plain: the item's color; Colored: the colors stream) with the
 // lines' blending around its draws; null when it does not compile (said once: they draw opaque).
 MHWRender::MShaderInstance* acquireLinesShader(const MHWRender::MShaderManager& shaders, bool colored) {
@@ -715,6 +811,14 @@ void GroomSubSceneOverride::hairShaderDefaults(MHWRender::MShaderInstance& shade
     samplerDesc.addressU = samplerDesc.addressV = MHWRender::MSamplerState::kTexClamp;
     if (const MHWRender::MSamplerState* sampler = MHWRender::MStateManager::acquireSamplerState(samplerDesc)) {
         shader.setParameter("textureSampler", *sampler);
+        if (kind == 6) shader.setParameter("coverageMapSampler", *sampler);
+    }
+    if (MHWRender::MTexture* ramp = kind == 6 ? rootToTipTexture() : nullptr) {
+        // The card graph's coverage map before the maps are bound (bindCardTextures; never unbound:
+        // OpenGL reads a null texture), the solid cards' (coverageSolid: not read).
+        MHWRender::MTextureAssignment assignment;
+        assignment.texture = ramp;
+        shader.setParameter("coverageMap", assignment);
     }
 }
 
@@ -832,10 +936,18 @@ void GroomSubSceneOverride::style(MHWRender::MRenderItem& item, ItemBuffers& buf
     // Receiving is optional: dense strands shadowing each other in a shadow
     // map speckle.
     const int shadows = kind == 2 || kind == 6 || kind == 9 || kind == 10 ? MPlug(object_, GroomShape::aDisplayShadows).asShort() : 0;
-    // (Shadows from textured cards are their whole quads: Maya's shadow pass doesn't cut them out.)
+    // (Viewport 2.0 draws the cards' shadow maps with their own shaders, so the shadows are cut out
+    // as the cards are: GroomLab's hair's card effect writes the depth there, cardPassPreDraw; Maya's
+    // hair graph keeps its alpha test, cardCoveragePreDraw.)
     item.castsShadows(shadows >= 1);
     item.receivesShadows(shadows >= 2);
-    item.setExcludedFromPostEffects(kind != 2 && kind != 6 && kind != 9 && kind != 10);  // hair, cards and scales take the viewport's AO and the rest
+    // Hair, cards and scales take the viewport's ambient occlusion and the rest. Not the textured
+    // cards: the ambient occlusion's normals and depth are drawn with a shader of Viewport 2.0's own
+    // (it calls none of the item's there; on DirectX 11 it leaves GroomLab's hair's card effect out
+    // of that pass, on OpenGL and for Maya's hair graph it draws the item), so their whole quads
+    // would darken what is behind them in boxes; their maps carry the bake's ambient occlusion.
+    const bool cutCards = kind == 6 && cardsTextured_;
+    item.setExcludedFromPostEffects((kind != 2 && kind != 6 && kind != 9 && kind != 10) || cutCards);
     item.setMatrix(&MMatrix::identity);  // world space, whatever the groom's transform holds
 }
 }  // namespace groomlab::maya

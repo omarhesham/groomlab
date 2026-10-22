@@ -41,7 +41,10 @@ namespace {
 // alpha test inside the fragment: hard, depth-correct edges in the opaque pass, nothing to
 // sort; the coverage kept as the texture shrinks and hashed below a pixel, so thin strands
 // thin out as they do in the strands' drawing instead of vanishing), or, with `solid` on, the
-// card color whole (textures off, or nothing baked). Implementations in the languages Maya
+// card color whole (textures off, or nothing baked). The alpha test is off (alphaTest 0) while
+// a multisampled color draw turns the coverage into the samples covered instead
+// (kCardCoverageFragment, cardCoveragePreDraw); Viewport 2.0 draws the cards' shadow maps with
+// the graph too, so their shadows are cut out by it. Implementations in the languages Maya
 // composes fragment graphs in: Cg and HLSL (DirectX 11), GLSL (OpenGL Core Profile, whose
 // signature leaves the texture out: GLSL's sampler is the texture).
 const char* kCardColorFragment = R"x(<fragment uiName="groomLabCardColor" name="groomLabCardColor" type="plumbing" class="ShadeFragment" version="1.0" feature_level="0">
@@ -56,6 +59,7 @@ const char* kCardColorFragment = R"x(<fragment uiName="groomLabCardColor" name="
         <float name="solid" />
         <float3 name="solidColor" />
         <float name="mapSize" />
+        <float name="alphaTest" />
         <float4 name="tint" semantic="fcolor" flags="varyingInputParam" />
         <float3 name="irNormal" />
         <float3 name="irView" />
@@ -71,6 +75,7 @@ const char* kCardColorFragment = R"x(<fragment uiName="groomLabCardColor" name="
         <float name="solid" value="1.0" />
         <float3 name="solidColor" value="0.58,0.50,0.42" />
         <float name="mapSize" value="2048.0" />
+        <float name="alphaTest" value="1.0" />
         <float3 name="iridescenceColor" value="0.05,0.55,0.2" />
         <float name="iridescenceShift" value="0.3" />
     </values>
@@ -97,7 +102,7 @@ float3 groomLabCardHue(float3 c, float turns)
     return hi * (1.0f - s + s * k);
 }
 float3 groomLabCardColor(float3 color, float2 uv, int tubeDirection, texture2D map, sampler2D textureSampler,
-                         float cutoff, float solid, float3 solidColor, float mapSize, float4 tint,
+                         float cutoff, float solid, float3 solidColor, float mapSize, float alphaTest, float4 tint,
                          float3 irNormal, float3 irView, float3 iridescenceColor, float iridescenceShift, texture2D irMap,
                          sampler2D irMapSampler)
 {
@@ -112,7 +117,7 @@ float3 groomLabCardColor(float3 color, float2 uv, int tubeDirection, texture2D m
     float lod = max(log2(max(texels, 1e-6f)), 0.0f);
     float2 cell = floor(uv / footprint);
     float noise = frac(sin(dot(cell, float2(12.9898f, 78.233f))) * 43758.5453f);
-    clip(m.a * (1.0f + 0.25f * lod) - lerp(cutoff, noise, saturate(lod)));
+    if (alphaTest > 0.5f) clip(m.a * (1.0f + 0.25f * lod) - lerp(cutoff, noise, saturate(lod)));
     float3 c = m.rgb;
     c = lerp(c / 12.92f, pow((c + 0.055f) / 1.055f, 2.4f), step(0.04045f, c));
     // The card's own color: its tint (vertex color, 0.5 none) over the shared texture's.
@@ -148,7 +153,7 @@ float3 groomLabCardHue(float3 c, float turns)
     return hi * (1.0f - s + s * k);
 }
 float3 groomLabCardColor(float3 color, float2 uv, int tubeDirection, Texture2D map, sampler textureSampler,
-                         float cutoff, float solid, float3 solidColor, float mapSize, float4 tint,
+                         float cutoff, float solid, float3 solidColor, float mapSize, float alphaTest, float4 tint,
                          float3 irNormal, float3 irView, float3 iridescenceColor, float iridescenceShift, Texture2D irMap,
                          sampler irMapSampler)
 {
@@ -163,7 +168,7 @@ float3 groomLabCardColor(float3 color, float2 uv, int tubeDirection, Texture2D m
     float lod = max(log2(max(texels, 1e-6f)), 0.0f);
     float2 cell = floor(uv / footprint);
     float noise = frac(sin(dot(cell, float2(12.9898f, 78.233f))) * 43758.5453f);
-    clip(m.a * (1.0f + 0.25f * lod) - lerp(cutoff, noise, saturate(lod)));
+    if (alphaTest > 0.5f) clip(m.a * (1.0f + 0.25f * lod) - lerp(cutoff, noise, saturate(lod)));
     float3 c = m.rgb;
     c = lerp(c / 12.92f, pow((c + 0.055f) / 1.055f, 2.4f), step(0.04045f, c));
     // The card's own color: its tint (vertex color, 0.5 none) over the shared texture's.
@@ -199,7 +204,7 @@ vec3 groomLabCardHue(vec3 c, float turns)
     return hi * (1.0 - s + s * k);
 }
 vec3 groomLabCardColor(vec3 color, vec2 uv, int tubeDirection, sampler2D textureSampler, float cutoff, float solid,
-                       vec3 solidColor, float mapSize, vec4 tint,
+                       vec3 solidColor, float mapSize, float alphaTest, vec4 tint,
                        vec3 irNormal, vec3 irView, vec3 iridescenceColor, float iridescenceShift, sampler2D irMapSampler)
 {
     if (solid > 0.5) return solidColor;
@@ -209,7 +214,7 @@ vec3 groomLabCardColor(vec3 color, vec2 uv, int tubeDirection, sampler2D texture
     float lod = max(log2(max(texels, 1e-6)), 0.0);
     vec2 cell = floor(uv / footprint);
     float noise = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
-    if (m.a * (1.0 + 0.25 * lod) - mix(cutoff, noise, clamp(lod, 0.0, 1.0)) < 0.0) discard;
+    if (alphaTest > 0.5 && m.a * (1.0 + 0.25 * lod) - mix(cutoff, noise, clamp(lod, 0.0, 1.0)) < 0.0) discard;
     vec3 c = m.rgb;
     c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
     vec3 result = color * c * 2.0 * tint.rgb;
@@ -241,7 +246,7 @@ float3 groomLabCardHue(float3 c, float turns)
     return hi * (1.0f - s + s * k);
 }
 float3 groomLabCardColor(float3 color, float2 uv, int tubeDirection, Texture2D map, sampler textureSampler,
-                         float cutoff, float solid, float3 solidColor, float mapSize, float4 tint,
+                         float cutoff, float solid, float3 solidColor, float mapSize, float alphaTest, float4 tint,
                          float3 irNormal, float3 irView, float3 iridescenceColor, float iridescenceShift, Texture2D irMap,
                          sampler irMapSampler)
 {
@@ -256,7 +261,7 @@ float3 groomLabCardColor(float3 color, float2 uv, int tubeDirection, Texture2D m
     float lod = max(log2(max(texels, 1e-6f)), 0.0f);
     float2 cell = floor(uv / footprint);
     float noise = frac(sin(dot(cell, float2(12.9898f, 78.233f))) * 43758.5453f);
-    clip(m.a * (1.0f + 0.25f * lod) - lerp(cutoff, noise, saturate(lod)));
+    if (alphaTest > 0.5f) clip(m.a * (1.0f + 0.25f * lod) - lerp(cutoff, noise, saturate(lod)));
     float3 c = m.rgb;
     c = lerp(c / 12.92f, pow((c + 0.055f) / 1.055f, 2.4f), step(0.04045f, c));
     // The card's own color: its tint (vertex color, 0.5 none) over the shared texture's.
@@ -270,6 +275,116 @@ float3 groomLabCardColor(float3 color, float2 uv, int tubeDirection, Texture2D m
         result = lerp(result, groomLabCardHue(iridescenceColor, iridescenceShift * grazing), amount);
     }
     return result;
+}
+]]></source>
+    </implementation>
+    </implementation>
+</fragment>)x";
+
+// The card's alpha to coverage, after the card graph's last struct (mayaComputeSurfaceFinal's: the
+// color and its alpha): with alphaToCoverage on (cardCoveragePreDraw: a multisampled color draw,
+// its blend state turning the alpha into the share of the pixel's samples covered; the color
+// fragment's alpha test off), the alpha is the card map's coverage at the uvs (the same texture as
+// the color fragment's map, bound twice: coverageMap; the uvs through a pass-through feeding both):
+// magnified, a ramp a pixel wide across the cutoff, so the samples smooth the edge; a texel or more
+// to a pixel, the coverage kept as the texture shrinks (each mip level down averages thin strands
+// with the gaps beside them, so a quarter more a level). Off, the struct as it is. (A fragment of
+// the graph cannot write the coverage mask itself: kStrandCoverageFragment's notes.) The
+// derivatives are taken before any branch. coverageSolid: the solid cards (nothing to cut).
+const char* kCardCoverageFragment = R"x(<fragment uiName="groomLabCardCoverage" name="groomLabCardCoverage" type="plumbing" class="ShadeFragment" version="1.0" feature_level="0">
+    <description><![CDATA[Card coverage: the card map's alpha as the pixel's alpha, for alpha to coverage.]]></description>
+    <properties>
+        <struct name="input" struct_name="mayaSurfaceShaderOutput" />
+        <float2 name="uv" />
+        <texture2 name="coverageMap" />
+        <sampler name="coverageMapSampler" />
+        <float name="cutoff" />
+        <float name="mapSize" />
+        <float name="coverageSolid" />
+        <float name="alphaToCoverage" />
+    </properties>
+    <values>
+        <float name="cutoff" value="0.5" />
+        <float name="mapSize" value="2048.0" />
+        <float name="coverageSolid" value="1.0" />
+        <float name="alphaToCoverage" value="0.0" />
+    </values>
+    <outputs>
+        <struct name="groomLabCardCoverage" struct_name="mayaSurfaceShaderOutput" />
+    </outputs>
+    <implementation>
+    <implementation render="OGSRenderer" language="Cg" lang_version="2.1">
+        <function_name val="groomLabCardCoverage" />
+        <source><![CDATA[
+mayaSurfaceShaderOutput groomLabCardCoverage(mayaSurfaceShaderOutput input, float2 uv, texture2D coverageMap,
+                                             sampler2D coverageMapSampler, float cutoff, float mapSize, float coverageSolid,
+                                             float alphaToCoverage)
+{
+    float2 footprint = max(fwidth(uv), float2(1e-7f, 1e-7f));
+    float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6f)), 0.0f);
+    float kept = tex2D(coverageMapSampler, uv).a * (1.0f + 0.25f * lod);
+    float ramp = max(fwidth(kept), 1e-4f);
+    if (coverageSolid > 0.5f || alphaToCoverage < 0.5f) return input;
+    float alpha = lerp(saturate((kept - cutoff) / ramp + 0.5f), saturate(kept), saturate(lod));
+    clip(alpha - 1e-3f);
+    input.outSurfaceFinal.a = alpha;
+    return input;
+}
+]]></source>
+    </implementation>
+    <implementation render="OGSRenderer" language="HLSL" lang_version="11.0">
+        <function_name val="groomLabCardCoverage" />
+        <source><![CDATA[
+mayaSurfaceShaderOutput groomLabCardCoverage(mayaSurfaceShaderOutput input, float2 uv, Texture2D coverageMap,
+                                             sampler coverageMapSampler, float cutoff, float mapSize, float coverageSolid,
+                                             float alphaToCoverage)
+{
+    float2 footprint = max(fwidth(uv), float2(1e-7f, 1e-7f));
+    float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6f)), 0.0f);
+    float kept = coverageMap.Sample(coverageMapSampler, uv).a * (1.0f + 0.25f * lod);
+    float ramp = max(fwidth(kept), 1e-4f);
+    if (coverageSolid > 0.5f || alphaToCoverage < 0.5f) return input;
+    float alpha = lerp(saturate((kept - cutoff) / ramp + 0.5f), saturate(kept), saturate(lod));
+    clip(alpha - 1e-3f);
+    input.outSurfaceFinal.a = alpha;
+    return input;
+}
+]]></source>
+    </implementation>
+    <implementation render="OGSRenderer" language="GLSL" lang_version="3.0">
+        <function_name val="groomLabCardCoverage" />
+        <source><![CDATA[
+mayaSurfaceShaderOutput groomLabCardCoverage(mayaSurfaceShaderOutput surface, vec2 uv, sampler2D coverageMapSampler,
+                                             float cutoff, float mapSize, float coverageSolid, float alphaToCoverage)
+{
+    vec2 footprint = max(fwidth(uv), vec2(1e-7));
+    float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6)), 0.0);
+    float kept = texture(coverageMapSampler, uv).a * (1.0 + 0.25 * lod);
+    float ramp = max(fwidth(kept), 1e-4);
+    if (coverageSolid > 0.5 || alphaToCoverage < 0.5) return surface;
+    float alpha = mix(clamp((kept - cutoff) / ramp + 0.5, 0.0, 1.0), clamp(kept, 0.0, 1.0), clamp(lod, 0.0, 1.0));
+    if (alpha < 1e-3) discard;
+    surface.outSurfaceFinal.a = alpha;
+    return surface;
+}
+]]></source>
+    </implementation>
+    <implementation render="OGSRenderer" language="HLSL" lang_version="10.0">
+        <function_name val="groomLabCardCoverage" />
+        <source><![CDATA[
+mayaSurfaceShaderOutput groomLabCardCoverage(mayaSurfaceShaderOutput input, float2 uv, Texture2D coverageMap,
+                                             sampler coverageMapSampler, float cutoff, float mapSize, float coverageSolid,
+                                             float alphaToCoverage)
+{
+    float2 footprint = max(fwidth(uv), float2(1e-7f, 1e-7f));
+    float lod = max(log2(max(max(footprint.x, footprint.y) * mapSize, 1e-6f)), 0.0f);
+    float kept = coverageMap.Sample(coverageMapSampler, uv).a * (1.0f + 0.25f * lod);
+    float ramp = max(fwidth(kept), 1e-4f);
+    if (coverageSolid > 0.5f || alphaToCoverage < 0.5f) return input;
+    float alpha = lerp(saturate((kept - cutoff) / ramp + 0.5f), saturate(kept), saturate(lod));
+    clip(alpha - 1e-3f);
+    input.outSurfaceFinal.a = alpha;
+    return input;
 }
 ]]></source>
     </implementation>
@@ -849,11 +964,13 @@ bool strandSpecularFragmentRegistered(MHWRender::MFragmentManager& fragments) {
 // Maya's own color fragment kept), and, given `geomFragmentXml` (named `geomFragment`), its
 // geometry terms (mayaShaderGeom) for that one, the graph's properties given `properties` and
 // `values` beside its own. `strands`: the lit strands' graph, its specular fragment swapped for
-// the one without a bitangent stream (strandSpecularFragmentRegistered). False (said once, with
-// `fallback`: what draws instead) when this Maya's hair graph can't be adapted.
+// the one without a bitangent stream (strandSpecularFragmentRegistered); `cards`: the card graph,
+// with kCardCoverageFragment's alpha to coverage after its last fragment. False (said once, with `fallback`: what
+// draws instead) when this Maya's hair graph can't be adapted.
 bool registerHairGraph(int& state, const char* graphName, const char* fragment, const char* fragmentXml,
                        const std::string& properties, const std::string& values, const char* what, const char* fallback,
-                       const char* geomFragment = nullptr, const char* geomFragmentXml = nullptr, bool strands = false) {
+                       const char* geomFragment = nullptr, const char* geomFragmentXml = nullptr, bool strands = false,
+                       bool cards = false) {
     if (state != 0) return state > 0;
     state = -1;
     MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
@@ -962,6 +1079,50 @@ bool registerHairGraph(int& state, const char* graphName, const char* fragment, 
                          "<float name=\"lineSamples\" value=\"1.0\" />\n"
                          "    </values>");
     }
+    if (ok && cards) {
+        // Alpha to coverage (kCardCoverageFragment) after the graph's last fragment, reading the uvs
+        // through a pass-through feeding the color fragment too, its map (the color map, bound to it
+        // as well), cutoff and size the graph's own (coverageCutoff, coverageMapSize: the color
+        // fragment's alpha test has cutoff and mapSize).
+        ok = replaceOnce(graph,
+                         "<connect from=\"mayaComputeSurfaceFinal.mayaComputeSurfaceFinal\" "
+                         "to=\"mayaSurfaceShaderOutput.mayaSurfaceShaderOutput\" name=\"mayaSurfaceShaderOutput\" />",
+                         "<connect from=\"mayaComputeSurfaceFinal.mayaComputeSurfaceFinal\" to=\"groomLabCardCoverage.input\" "
+                         "name=\"input\" />\n"
+                         "        <connect from=\"groomLabCardCoverage.groomLabCardCoverage\" "
+                         "to=\"mayaSurfaceShaderOutput.mayaSurfaceShaderOutput\" name=\"mayaSurfaceShaderOutput\" />") &&
+             replaceOnce(graph, "<float2  name=\"uvCoord\" ref=\"mayaHairTubeShaderColor.uvCoord\" semantic=\"uvCoord\" "
+                                "flags=\"varyingInputParam\" />",
+                         "<float2  name=\"uvCoord\" ref=\"groomLabUvPassThrough.uvCoord\" semantic=\"uvCoord\" flags=\"varyingInputParam\" />") &&
+             replaceOnce(graph, "<fragment_ref name=\"mayaSurfaceShaderOutput\"",
+                         "<fragment_ref name=\"groomLabCardCoverage\" ref=\"groomLabCardCoverage\" />\n"
+                         "            <fragment_ref name=\"groomLabUvPassThrough\" ref=\"groomLabUvPassThrough\" />\n"
+                         "            <fragment_ref name=\"mayaSurfaceShaderOutput\"") &&
+             replaceOnce(graph, "</connections>",
+                         "    <connect from=\"groomLabUvPassThrough.groomLabUvPassThrough\" to=\"mayaHairTubeShaderColor.uvCoord\" "
+                         "name=\"uvCoord\" />\n"
+                         "        <connect from=\"groomLabUvPassThrough.groomLabUvPassThrough\" to=\"groomLabCardCoverage.uv\" name=\"uv\" />\n"
+                         "    </connections>") &&
+             replaceOnce(graph, "</properties>",
+                         "    <texture2 name=\"coverageMap\" ref=\"groomLabCardCoverage.coverageMap\" />\n"
+                         "        <sampler name=\"coverageMapSampler\" ref=\"groomLabCardCoverage.coverageMapSampler\" />\n"
+                         "        <float name=\"coverageCutoff\" ref=\"groomLabCardCoverage.cutoff\" />\n"
+                         "        <float name=\"coverageMapSize\" ref=\"groomLabCardCoverage.mapSize\" />\n"
+                         "        <float name=\"coverageSolid\" ref=\"groomLabCardCoverage.coverageSolid\" />\n"
+                         "        <float name=\"alphaToCoverage\" ref=\"groomLabCardCoverage.alphaToCoverage\" />\n"
+                         "    </properties>") &&
+             replaceOnce(graph, "</values>",
+                         "<float name=\"coverageCutoff\" value=\"0.5\" />\n<float name=\"coverageMapSize\" value=\"2048.0\" />\n"
+                         "<float name=\"coverageSolid\" value=\"1.0\" />\n<float name=\"alphaToCoverage\" value=\"0.0\" />\n"
+                         "    </values>");
+    }
+    for (const auto& [cardFragment, xml] : {std::pair<const char*, const char*>{"groomLabCardCoverage", kCardCoverageFragment},
+                                            std::pair<const char*, const char*>{"groomLabUvPassThrough", kUvPassThroughFragment}}) {
+        if (cards && ok && !fragments->hasFragment(cardFragment) && fragments->addShadeFragmentFromBuffer(xml, false).length() == 0) {
+            MGlobal::displayWarning(MString("GroomLab: the cards' coverage fragment did not register; ") + fallback);
+            return false;
+        }
+    }
     for (const auto& [name, xml] : {std::pair<const char*, const char*>{"groomLabStrandCoverage", strandCoverageFragment().c_str()},
                                     std::pair<const char*, const char*>{"groomLabUvPassThrough", kUvPassThroughFragment},
                                     std::pair<const char*, const char*>{"groomLabLineUv", kLineUvFragment}}) {
@@ -1003,6 +1164,7 @@ bool cardShaderRegistered() {
                              "        <float name=\"solid\" ref=\"mayaHairTubeShaderColor.solid\" />\n"
                              "        <float3 name=\"solidColor\" ref=\"mayaHairTubeShaderColor.solidColor\" />\n"
                              "        <float name=\"mapSize\" ref=\"mayaHairTubeShaderColor.mapSize\" />\n"
+                             "        <float name=\"alphaTest\" ref=\"mayaHairTubeShaderColor.alphaTest\" />\n"
                              "        <float4 name=\"tint\" ref=\"mayaHairTubeShaderColor.tint\" semantic=\"fcolor\" "
                              "flags=\"varyingInputParam\" />\n"
                              "        <float3 name=\"cardNormal\" ref=\"mayaShaderGeom.cardNormal\" semantic=\"bitangent\" "
@@ -1012,8 +1174,9 @@ bool cardShaderRegistered() {
                              "        <texture2 name=\"irMap\" ref=\"mayaHairTubeShaderColor.irMap\" />\n"
                              "        <sampler name=\"irMapSampler\" ref=\"mayaHairTubeShaderColor.irMapSampler\" />\n",
                              "<float name=\"cutoff\" value=\"0.5\" />\n<float name=\"solid\" value=\"1.0\" />\n"
-                             "<float3 name=\"solidColor\" value=\"0.58,0.50,0.42\" />\n<float name=\"mapSize\" value=\"2048.0\" />\n",
-                             "the cards", "they draw as a plain surface", "groomLabCardShaderGeom", kCardGeomFragment);
+                             "<float3 name=\"solidColor\" value=\"0.58,0.50,0.42\" />\n<float name=\"mapSize\" value=\"2048.0\" />\n"
+                             "<float name=\"alphaTest\" value=\"1.0\" />\n",
+                             "the cards", "they draw as a plain surface", "groomLabCardShaderGeom", kCardGeomFragment, false, true);
 }
 
 // The lit strands' graph in their own colors (kHairColorFragment), registered once; false when

@@ -39,6 +39,20 @@ namespace groomlab::maya {
 // lines' draws in a color pass.
 void coveragePreDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemList& items, MHWRender::MShaderInstance*);
 void coveragePostDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemList& items, MHWRender::MShaderInstance*);
+// The cards' draw callbacks (groom_draw_override_shaders.cpp). Maya's hair graph's cards
+// (cardCoveragePreDraw, cardCoveragePostDraw): in a color pass on a multisampled target (the
+// viewport's multisample anti-aliasing), a blend state with alpha to coverage, so the alpha the
+// card graph writes (its coverage) becomes the share of the pixel's samples it covers, and the
+// graph's alphaToCoverage on (else off: the alpha test). GroomLab's hair's (technique HairCard,
+// cardPassPreDraw: its coverage mask is its own): the pass it draws in handed to it (cardPass: 1 a
+// shadow map, 2 a point light's, 0 any other), as Viewport 2.0 draws the cards' shadows with it.
+// noteCardShader: a card shader just acquired (its value the shader's default, 0).
+void cardCoveragePreDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemList& items, MHWRender::MShaderInstance* shader);
+void cardCoveragePostDraw(MHWRender::MDrawContext& context, const MHWRender::MRenderItemList& items, MHWRender::MShaderInstance*);
+void cardPassPreDraw(MHWRender::MDrawContext& context, MHWRender::MShaderInstance* shader);
+void noteCardShader(const MHWRender::MShaderInstance* shader);
+// The cards' color draws on multisampled targets and on one sample a pixel (tests: groomLabGraphStats).
+void cardCoverageDraws(long long& sampled, long long& tested);
 // Whether a draw is in a pass drawing the scene's colors (not shadows, depth, selection...).
 bool colorPass(const MHWRender::MDrawContext& context);
 // The strand lines' width as coverage (engine/gpu/shaders/line_coverage.glsl, embedded: the app's

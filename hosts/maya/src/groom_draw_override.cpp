@@ -202,6 +202,12 @@ std::string lastDrawTimesJson() {
     std::snprintf(buffer, sizeof buffer, ", \"dots\": %zu, \"clumpCenterDots\": %zu, \"coverageDraws\": {\"hashed\": %lld, \"sampled\": %lld, \"blendItem\": %lld}",
                   lastDots().dots, lastDots().clumpCenters, coverageBlend().hashed, coverageBlend().sampled, coverageBlend().blendItemDraws);
     out += buffer;
+    // The textured cards' color draws since the plugin loaded: on multisampled targets (their
+    // coverage as the samples covered) and on one sample a pixel (the alpha test).
+    long long cardsSampled = 0, cardsTested = 0;
+    cardCoverageDraws(cardsSampled, cardsTested);
+    std::snprintf(buffer, sizeof buffer, ", \"cardDraws\": {\"sampled\": %lld, \"tested\": %lld}", cardsSampled, cardsTested);
+    out += buffer;
     // The screen-space level of detail (updateLod).
     const LodStats& lod = lastLod();
     std::snprintf(buffer, sizeof buffer,
@@ -590,6 +596,7 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
         if (hair != hairShading_) {
             hairShading_ = hair;
             builder_.invalidate(DisplayPart::Strands);
+            builder_.invalidate(DisplayPart::Cards);  // (the cards shade with it too: their shader swapped)
         }
         // The lights the groom ignores (light linking), looked at again now and then.
         const auto now = std::chrono::steady_clock::now();
@@ -682,6 +689,7 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     const bool textured = wantTextures && loadCardTextures(cardMaps);
     if (!wantTextures) releaseCardTextures();  // not shown: give the textures back
     settings.cardTextures = textured;
+    cardsTextured_ = textured;
     // The map shown on the scalp (Groom Tools > Paint): a texture map's image as a texture of its own.
     const GroomShape::ScalpMapView view = shape_->scalpMapView();
     scalpMapVersion_ = view.version;
@@ -768,7 +776,14 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     {
         ItemBuffers& cards = items_[kCardsItem.asChar()];
         if (textured) bindCardTextures(cards);
-        if (cards.shader && cards.shaderKind == 6) cards.shader->setParameter("solid", textured ? 0.0f : 1.0f);
+        if (cards.shader && cards.shaderKind == 6) {
+            cards.shader->setParameter("solid", textured ? 0.0f : 1.0f);
+            if (!cards.hair) cards.shader->setParameter("coverageSolid", textured ? 0.0f : 1.0f);  // (the graph's coverage fragment)
+            // Out of the post effects while textured (style()'s notes): the maps come and go without
+            // the item restyled.
+            MHWRender::MRenderItem* item = container.find(kCardsItem);
+            if (item && item->excludedFromPostEffects() != textured) item->setExcludedFromPostEffects(textured);
+        }
     }
     // Overlay items the camera moved past (not rebuilt just now): their pull limits again.
     if (!occluders_.empty() && displayFlag(GroomShape::aDisplayOverlaysOnTop)) {
