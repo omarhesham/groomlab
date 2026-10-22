@@ -47,6 +47,7 @@
 #include "groomlab/groom_file.h"
 #include "groomlab/parts.h"
 #include "groomlab/sculpt.h"
+#include "groomlab/subdivision.h"
 #include "groomlab/usd_writer.h"
 #include "look.h"
 #include "lookdev_renderer.h"
@@ -2701,6 +2702,125 @@ TEST(AppRender, HairEyeHidesTheStrandsAloneAtOnce) {
     EXPECT_GT(pixelsNot(guidesHidden.image, backdrop), pixelsNot(bothHidden.image, backdrop)) << "the strands drew with the guides hidden";
     if (lookdev) EXPECT_GT(meanDifference(lookAll.image, lookHairHidden.image), 0.5) << "the lookdev's strands went";
     renderer.releaseResources();
+}
+
+// A closed sphere of `radius` about the origin (a scalp all round), its triangles beyond -0.75 of
+// the radius along z (the back cap) first; `capTriangles` says how many those are.
+MeshPtr closedSphere(float radius, std::size_t* capTriangles) {
+    constexpr int kRings = 32, kSegments = 48;
+    std::vector<Vec3f> points;
+    for (int r = 0; r <= kRings; ++r) {
+        const float theta = 3.14159265f * static_cast<float>(r) / kRings;  // from +z to -z
+        for (int s = 0; s < kSegments; ++s) {
+            const float phi = 2.0f * 3.14159265f * static_cast<float>(s) / kSegments;
+            points.emplace_back(radius * std::sin(theta) * std::cos(phi), radius * std::sin(theta) * std::sin(phi), radius * std::cos(theta));
+        }
+    }
+    std::vector<ScalpMesh::Triangle> cap, rest;
+    for (int r = 0; r < kRings; ++r) {
+        for (int s = 0; s < kSegments; ++s) {
+            const int a = r * kSegments + s, b = r * kSegments + (s + 1) % kSegments, c = a + kSegments, d = b + kSegments;
+            // Outward: (b - a) x (c - a) points away from the center.
+            const bool back = points[static_cast<std::size_t>(c)].z < -0.75f * radius;
+            auto& to = back ? cap : rest;
+            if (r > 0) to.push_back({a, c, b});
+            if (r + 1 < kRings) to.push_back({b, c, d});
+        }
+    }
+    *capTriangles = cap.size();
+    cap.insert(cap.end(), rest.begin(), rest.end());
+    return std::make_shared<ScalpMesh>(std::move(points), std::move(cap));
+}
+
+TEST(AppRender, TheScalpHidesTheStrandsBehindIt) {
+    // A closed scalp with hair on its back cap alone, seen from the front: the scalp hides every
+    // strand behind it in the line path (lit, flat, colored; width as coverage with its level of
+    // detail) and in the lookdev (the default), the scalp's subdivided surface too. The hair shown
+    // or hidden draws the same frame inside the scalp's outline.
+    std::unique_ptr<QRhi> rhi = createOffscreenRhi();
+    ASSERT_TRUE(rhi);
+    if (rhi->backend() == QRhi::Null) GTEST_SKIP() << "no GPU device: the pixels are not checked";
+    std::size_t capCount = 0;
+    const MeshPtr sphere = closedSphere(10.0f, &capCount);
+    ASSERT_GT(capCount, 10u);
+    // The hair's roots: the cap's triangles (the sphere's first ones, the same points).
+    std::vector<ScalpMesh::Triangle> capTriangles(sphere->triangles().begin(), sphere->triangles().begin() + static_cast<std::ptrdiff_t>(capCount));
+    auto cap = std::make_shared<ScalpMesh>(sphere->points(), std::move(capTriangles));
+    GroomData data;
+    data.scalp = cap;
+    data.graphJson = R"({"version": 1, "output": "output", "nodes": [{"name": "scalp", "type": "Scalp"},
+        {"name": "scatter", "type": "Scatter", "params": {"density": 30.0, "length": 2.5}},
+        {"name": "output", "type": "Output"}],
+      "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"}, {"from": "scatter", "to": "output", "input": "strands"}]})";
+    GroomSession session(data);
+    ViewRequest request;
+    const StrandsPtr strands = session.evaluate(request).strands;
+    ASSERT_TRUE(strands);
+    ASSERT_GT(strands->strandCount(), 500u);
+    OrbitCamera camera;
+    Bounds b;
+    b.valid = true;
+    b.lo = {-13.0f, -13.0f, -13.0f};
+    b.hi = {13.0f, 13.0f, 13.0f};
+    camera.frame(b);
+    camera.orbit(-camera.yaw(), -camera.pitch());  // straight down the z axis: the cap behind the sphere
+    const QSize size(240, 240);
+    const QString dir = qEnvironmentVariable("GROOMLAB_OCCLUSION_DIR");
+    // The pixels inside the scalp's outline (a centered box well inside it) the hair changed.
+    auto changed = [&](const QImage& with, const QImage& without) {
+        int n = 0;
+        for (int y = size.height() / 4; y < size.height() * 3 / 4; ++y) {
+            for (int x = size.width() / 4; x < size.width() * 3 / 4; ++x) {
+                const QColor a = with.pixelColor(x, y), c = without.pixelColor(x, y);
+                if (std::abs(a.red() - c.red()) + std::abs(a.green() - c.green()) + std::abs(a.blue() - c.blue()) > 24) ++n;
+            }
+        }
+        return n;
+    };
+    LightingSetup lighting = lightingPreset("studio");
+    lighting.quality = Quality::Interactive;
+    lighting.background = Background::Solid;
+    for (const int levels : {0, 2}) {
+        const MeshPtr shown = levels > 0 ? subdivideScalp(sphere, levels) : sphere;
+        for (const int mode : {0, 1, 2, 3}) {  // the lookdev; lines lit, flat, colored
+            const char* name = mode == 0 ? "lookdev" : mode == 1 ? "lit" : mode == 2 ? "flat" : "colored";
+            SCOPED_TRACE(std::string(name) + " subdivision " + std::to_string(levels));
+            DisplaySettings settings;
+            settings.guides = false;
+            settings.lighting = mode != 2;
+            settings.colorMode = mode == 3 ? kRandomColors : kSolidColors;
+            DisplayInputs in;
+            in.strands = strands;
+            in.scalp = shown;
+            in.strandsVersion = 1;
+            DisplayBuilder builder;
+            builder.setWriteLines(true);
+            GroomRenderer renderer;
+            renderer.setFrame(builder.update(in, settings));
+            renderer.setScalp(shown);
+            renderer.setHairStrands(strands, 1);
+            renderer.setLighting(lighting);
+            renderer.setLookdev(mode == 0);
+            const OffscreenResult with = renderOffscreen(renderer, camera, size, 1, rhi.get());
+            if (mode == 0) EXPECT_EQ(renderer.lookdevActive(), LookdevRenderer::supported(rhi.get()));
+            // The scalp hidden: the hair behind it is what the box shows (the check sees strands there).
+            renderer.setShowScalp(false);
+            const OffscreenResult bare = renderOffscreen(renderer, camera, size, 1, rhi.get());
+            renderer.setShowScalp(true);
+            renderer.setHairShown(false);
+            const OffscreenResult without = renderOffscreen(renderer, camera, size, 1, rhi.get());
+            renderer.releaseResources();
+            ASSERT_FALSE(with.image.isNull());
+            EXPECT_GT(changed(bare.image, without.image), size.width() * size.height() / 4 / 4) << "the strands behind drew nothing";
+            if (!dir.isEmpty()) {
+                with.image.save(QDir(dir).filePath(QStringLiteral("occlusion_%1_sub%2.png").arg(QLatin1String(name)).arg(levels)));
+                without.image.save(QDir(dir).filePath(QStringLiteral("occlusion_%1_sub%2_nohair.png").arg(QLatin1String(name)).arg(levels)));
+            }
+            const int n = changed(with.image, without.image);
+            std::printf("[ occlusion ] %s, subdivision %d: %d pixels inside the scalp changed by the hair behind it\n", name, levels, n);
+            EXPECT_LE(n, size.width() * size.height() / 4 / 200) << "strands behind the scalp show through it";
+        }
+    }
 }
 
 // The mean color of the pixels inside a centered box of the image (a fraction of its size).
