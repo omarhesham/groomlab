@@ -54,6 +54,12 @@ BSD). `web/package-lock.json` lists the exact versions. Run `npx license-checker
 `next/font` (SIL OFL 1.1); no font file is in the repository. The press kit's wordmark
 (`web/public/press/`) is that font's letters turned into outlines.
 
+The groom viewer's engine (`web/public/wasm/groomlab.js` and `groomlab.wasm`, built from
+`engine/web` with Emscripten: [docs/WEB.md](docs/WEB.md)) is GroomLab's core with nlohmann/json
+(MIT) and stb_image (MIT) compiled in, and Emscripten's runtime: its JavaScript glue and musl libc
+(MIT) and libc++/libc++abi (Apache-2.0 WITH LLVM-exception). The sample groom beside it
+(`web/public/samples/manny_hair.groom`) holds the Manny head, CC BY 4.0.
+
 The renderer logos in `web/public/renderers/` (Arnold, RenderMan) are their owners' trademarks.
 They are there only to say that GroomLab works with those renderers. They are **not** covered by
 GroomLab's license. Use them only within Autodesk's and Pixar's brand guidelines.

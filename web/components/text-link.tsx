@@ -8,7 +8,7 @@ export function TextLink({
   href,
   children,
   className,
-  tone = 'light',
+  tone = 'dark',
 }: {
   href: string;
   children: ReactNode;

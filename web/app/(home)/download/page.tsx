@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Metadata } from 'next';
 import { ArrowDownToLine, Heart } from 'lucide-react';
-import { pill } from '@/components/store-buttons';
+import { button } from '@/components/store-buttons';
 import { TextLink } from '@/components/text-link';
 import { cn } from '@/lib/cn';
 import { siteConfig } from '@/site.config';
@@ -137,7 +137,7 @@ export default async function DownloadPage() {
         </h1>
         <p className="mt-5 text-[17px] leading-snug text-gl-ink-2 text-pretty">
           Free and open source, for any use: every feature and every export.{' '}
-          <a className="text-gl-blue-strong hover:underline" href={siteConfig.repoUrl}>
+          <a className="text-gl-blue-soft hover:underline" href={siteConfig.repoUrl}>
             Source on GitHub
           </a>
         </p>
@@ -146,7 +146,7 @@ export default async function DownloadPage() {
             href={siteConfig.donateUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className={cn(pill.base, pill.md, 'bg-white text-gl-ink ring-1 ring-black/[0.08] hover:ring-black/[0.16]')}
+            className={cn(button.base, button.md, button.quiet)}
           >
             Support GroomLab on Ko-fi
             <Heart aria-hidden="true" className="size-4 opacity-60" strokeWidth={2.4} />
@@ -160,7 +160,7 @@ export default async function DownloadPage() {
             key={p.name}
             className={cn(
               'rounded-[28px] p-6 sm:p-8',
-              p.status !== 'soon' ? 'bg-gl-mist' : 'border border-dashed border-gl-line',
+              p.status !== 'soon' ? 'border border-white/[0.08] bg-gl-mist' : 'border border-dashed border-white/[0.14]',
             )}
           >
             <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
@@ -168,17 +168,17 @@ export default async function DownloadPage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-[1.5rem] font-semibold tracking-tight">{p.name}</h2>
                   {p.status !== 'soon' && p.release && (
-                    <span className="rounded-full bg-white px-3 py-1 text-[13px] font-semibold text-gl-blue-strong ring-1 ring-black/[0.06]">
+                    <span className="rounded-full bg-gl-blue/15 px-3 py-1 text-[13px] font-semibold text-gl-blue-soft ring-1 ring-gl-blue/30">
                       v{p.release.version}
                     </span>
                   )}
                   {p.status === 'beta' && (
-                    <span className="rounded-full bg-gl-yellow/25 px-3 py-1 text-[13px] font-semibold text-gl-ink ring-1 ring-gl-yellow/60">
+                    <span className="rounded-full bg-gl-yellow/15 px-3 py-1 text-[13px] font-semibold text-gl-yellow ring-1 ring-gl-yellow/40">
                       Beta
                     </span>
                   )}
                   {p.status === 'soon' && (
-                    <span className="rounded-full bg-gl-mist px-3 py-1 text-[13px] font-medium text-gl-ink-2">
+                    <span className="rounded-full bg-white/[0.06] px-3 py-1 text-[13px] font-medium text-gl-ink-2">
                       Coming soon
                     </span>
                   )}
@@ -188,7 +188,7 @@ export default async function DownloadPage() {
               </div>
               {p.status !== 'soon' && p.download && (
                 <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
-                  <a href={p.download} className={cn(pill.base, pill.md, pill.primary)}>
+                  <a href={p.download} className={cn(button.base, button.md, button.primary)}>
                     Download
                     <ArrowDownToLine aria-hidden="true" className="size-4 opacity-80" strokeWidth={2.4} />
                   </a>
@@ -202,7 +202,7 @@ export default async function DownloadPage() {
             </div>
 
             {p.status !== 'soon' && (
-              <div className="mt-6 grid gap-6 border-t border-black/[0.06] pt-6 sm:grid-cols-2">
+              <div className="mt-6 grid gap-6 border-t border-white/[0.07] pt-6 sm:grid-cols-2">
                 {p.includes && (
                   <div>
                     <h3 className="text-[13px] font-semibold tracking-wide text-gl-ink-2 uppercase">Includes</h3>
@@ -242,8 +242,8 @@ export default async function DownloadPage() {
             )}
 
             {p.older && p.older.length > 0 && (
-              <details className="group mt-6 border-t border-black/[0.06] pt-5">
-                <summary className="cursor-pointer list-none text-[15px] font-semibold text-gl-blue-strong select-none hover:underline">
+              <details className="group mt-6 border-t border-white/[0.07] pt-5">
+                <summary className="cursor-pointer list-none text-[15px] font-semibold text-gl-blue-soft select-none hover:underline">
                   Previous versions ({p.older.length})
                   <span aria-hidden="true" className="ml-1 inline-block transition-transform group-open:rotate-90">
                     ›
@@ -251,7 +251,7 @@ export default async function DownloadPage() {
                 </summary>
                 <ul className="mt-4 space-y-4">
                   {p.older.map((r) => (
-                    <li key={r.version} className="rounded-2xl bg-white p-4 ring-1 ring-black/[0.06]">
+                    <li key={r.version} className="rounded-2xl bg-gl-paper p-4 ring-1 ring-white/[0.08]">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="font-semibold">v{r.version}</p>
@@ -261,7 +261,7 @@ export default async function DownloadPage() {
                         </div>
                         <a
                           href={r.url}
-                          className="inline-flex items-center gap-1.5 text-[15px] font-medium text-gl-blue-strong hover:underline"
+                          className="inline-flex items-center gap-1.5 text-[15px] font-medium text-gl-blue-soft hover:underline"
                         >
                           Download v{r.version}
                           <ArrowDownToLine aria-hidden="true" className="size-4" strokeWidth={2.4} />
@@ -299,7 +299,7 @@ export default async function DownloadPage() {
       <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-gl-ink-2">
         The Arnold and RenderMan procedurals and groomlab-cli in the Maya download render and cache GroomLab grooms on
         any machine. Questions? Write to{' '}
-        <a className="text-gl-blue-strong hover:underline" href={`mailto:${siteConfig.supportEmail}`}>
+        <a className="text-gl-blue-soft hover:underline" href={`mailto:${siteConfig.supportEmail}`}>
           {siteConfig.supportEmail}
         </a>
         .

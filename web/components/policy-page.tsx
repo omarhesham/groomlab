@@ -22,7 +22,7 @@ export function PolicySection({ title, children }: { title: string; children: Re
   return (
     <section>
       <h2 className="text-xl font-semibold tracking-tight text-gl-ink">{title}</h2>
-      <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-gl-ink-2 [&_a]:text-gl-blue-strong [&_a:hover]:underline [&_li]:ml-5 [&_li]:list-disc [&_ul]:space-y-1.5">
+      <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-gl-ink-2 [&_a]:text-gl-blue-soft [&_a:hover]:underline [&_li]:ml-5 [&_li]:list-disc [&_ul]:space-y-1.5">
         {children}
       </div>
     </section>

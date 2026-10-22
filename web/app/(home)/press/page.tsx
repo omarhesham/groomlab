@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { ArrowDownToLine, Check, X } from 'lucide-react';
-import { pill } from '@/components/store-buttons';
+import { button } from '@/components/store-buttons';
 import { cn } from '@/lib/cn';
 import { siteConfig } from '@/site.config';
 
@@ -90,7 +90,7 @@ const zipSize = () => {
 
 const preview: Record<Bg, string> = {
   light: 'bg-white ring-1 ring-inset ring-black/[0.06]',
-  dark: 'bg-[#1D1D1F]',
+  dark: 'bg-[#1D1D1F] ring-1 ring-inset ring-white/[0.08]',
 };
 
 function Section({ id, title, intro, children }: { id: string; title: string; intro?: ReactNode; children: ReactNode }) {
@@ -118,7 +118,7 @@ function Downloads({ stem, label }: { stem: string; label: string }) {
           <a
             href={f.href}
             download
-            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[13px] font-medium text-gl-blue-strong ring-1 ring-black/[0.08] transition hover:ring-black/[0.16] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white/[0.06] px-3 text-[13px] font-medium text-gl-blue-soft ring-1 ring-white/10 transition hover:ring-white/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
           >
             <ArrowDownToLine aria-hidden="true" className="size-3.5" strokeWidth={2.4} />
             {f.text}
@@ -142,7 +142,7 @@ export default function PressPage() {
           rules for using them.
         </p>
         <div className="mt-8 flex flex-col items-center gap-2">
-          <a href={ZIP} download className={cn(pill.base, pill.md, pill.primary)}>
+          <a href={ZIP} download className={cn(button.base, button.md, button.primary)}>
             Download everything (.zip)
             <ArrowDownToLine aria-hidden="true" className="size-4 opacity-80" strokeWidth={2.4} />
           </a>
@@ -164,7 +164,7 @@ export default function PressPage() {
           }
         >
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-[28px] bg-gl-mist p-6">
+            <div className="rounded-[28px] border border-white/[0.08] bg-gl-mist p-6">
               <p className="flex items-center gap-2 text-[13px] font-semibold tracking-wide text-gl-ink-2 uppercase">
                 <Check aria-hidden="true" className="size-4 text-gl-emerald" strokeWidth={3} />
                 Do
@@ -183,7 +183,7 @@ export default function PressPage() {
                 </li>
               </ul>
             </div>
-            <div className="rounded-[28px] bg-gl-mist p-6">
+            <div className="rounded-[28px] border border-white/[0.08] bg-gl-mist p-6">
               <p className="flex items-center gap-2 text-[13px] font-semibold tracking-wide text-gl-ink-2 uppercase">
                 <X aria-hidden="true" className="size-4 text-gl-red" strokeWidth={3} />
                 Don&apos;t
@@ -192,7 +192,7 @@ export default function PressPage() {
                 {nameDont.map((n) => (
                   <li
                     key={n}
-                    className="rounded-full bg-white px-3 py-1 text-[15px] text-gl-ink-2 line-through decoration-gl-red/70 ring-1 ring-black/[0.06]"
+                    className="rounded-full bg-white/[0.05] px-3 py-1 text-[15px] text-gl-ink-2 line-through decoration-gl-red/70 ring-1 ring-white/10"
                   >
                     {n}
                   </li>
@@ -214,7 +214,7 @@ export default function PressPage() {
                 const stem = `groomlab-${piece.id}-${a.version}`;
                 const label = `${piece.title}, ${a.label.toLowerCase()}`;
                 return (
-                  <li key={a.version} className="rounded-[28px] bg-gl-mist p-3">
+                  <li key={a.version} className="rounded-[28px] border border-white/[0.08] bg-gl-mist p-3">
                     <div className={cn('grid overflow-hidden rounded-[20px]', a.on.length > 1 && 'grid-cols-2')}>
                       {a.on.map((bg) => (
                         <div key={bg} className={cn('flex h-44 items-center justify-center px-6', preview[bg])}>
@@ -238,7 +238,7 @@ export default function PressPage() {
           <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             {colors.map((c) => (
               <li key={c.hex} className="overflow-hidden rounded-[20px] bg-gl-mist">
-                <div className="h-20 ring-1 ring-inset ring-black/[0.06]" style={{ backgroundColor: c.hex }} />
+                <div className="h-20 ring-1 ring-inset ring-white/[0.08]" style={{ backgroundColor: c.hex }} />
                 <div className="px-4 py-3">
                   <p className="text-[15px] font-semibold">{c.name}</p>
                   <p className="font-mono text-[13px] text-gl-ink">{c.hex}</p>
@@ -263,7 +263,7 @@ export default function PressPage() {
               </>,
               <>
                 When you mention GroomLab, link to{' '}
-                <a className="text-gl-blue-strong hover:underline" href={siteConfig.url}>
+                <a className="text-gl-blue-soft hover:underline" href={siteConfig.url}>
                   getgroomlab.com
                 </a>
                 .
@@ -286,7 +286,7 @@ export default function PressPage() {
             GroomLab&apos;s source code is open source under the Apache License 2.0, which doesn&apos;t grant rights to the
             GroomLab name or logo. GroomLab and the GroomLab logo are trademarks of Nick Rutlinh; the files on this page
             may be used to refer to GroomLab as described above. Questions, or a use not covered here? Write to{' '}
-            <a className="text-gl-blue-strong hover:underline" href={`mailto:${siteConfig.supportEmail}`}>
+            <a className="text-gl-blue-soft hover:underline" href={`mailto:${siteConfig.supportEmail}`}>
               {siteConfig.supportEmail}
             </a>
             .
