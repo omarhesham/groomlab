@@ -13,6 +13,26 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.25.0 (October 22, 2026)
+
+- **Isolate works by group.** Isolate, beside the Group choice in the Groom Tools, dimmed every
+  hierarchy level but the picked group's, so with several top-level groups nothing dimmed. It now
+  keeps the picked group and its child groups at full color and dims every other group (Maya, the
+  app and Blender). On the groom node, **Isolate Group** (`isolateGroup`) replaces Display Level: a
+  scene saved with Isolate on shows every group until you pick one again.
+- **Scatter's density expressions mask the roots.** With Randomness 0, a density expression let
+  roots spread past where it falls to 0 (roots on the neck); on a scalp with Subdivision 2 it gave
+  no strands at all. Both fixed.
+- **Faster curls.** Curl is about 1.8 times faster (a 500,000-strand groom: 62 to 35 ms), with the
+  same curls to the last bit, so clump, noise and brush edits on curly grooms come back sooner.
+- **Smoother orbiting.** The viewport's level of detail no longer works its strands out again on
+  every frame while the camera turns about the groom.
+- **Less memory for Keep Clearance.** Interpolate's skin distance field takes a quarter of the
+  memory it did.
+- **A new home page.** Every strand on [getgroomlab.com](https://getgroomlab.com) is grown by the
+  GroomLab engine itself, running in your browser, and [the groom viewer](/view) opens a `.groom`
+  file there, maps and all.
+
 ## 0.24.0 (October 21, 2026)
 
 - **GroomLab is developed in the open.** The source lives at
