@@ -16,10 +16,11 @@
 // the height at most about twice as fast), which settles most points clear of the surface
 // without another query. Near the surface (or where its bounds do not settle a point) its bricks
 // are made the same way, each by a query at its middle: far ones keep their own bounds, one within
-// a few cells of the surface holds its 5 x 5 x 5 nodes, each sampled the first time a query needs
-// it (hair touches few of them). A query the field cannot answer as the mesh would (bounds that do
-// not settle it, more than a few cells under the surface, a cell across a crease or the medial
-// axis where the closest point jumps, the edge of the search radius, outside the grid) says so,
+// a few cells of the surface holds its 5 x 5 x 5 nodes (made with the first one a query needs:
+// most such bricks a strand meets are settled by their bounds), each sampled the first time a
+// query needs it (hair touches few of them). A query the field cannot answer as the mesh would
+// (bounds that do not settle it, more than a few cells under the surface, a cell across a crease or
+// the medial axis where the closest point jumps, the edge of the search radius, outside the grid) says so,
 // and the caller asks the mesh: those points get the exact answer. Everything is made by whichever
 // thread first needs it (others wait), from exact queries alone, so the answers never depend on
 // the order threads meet them.
@@ -221,6 +222,7 @@ private:
         std::uint16_t distance;  // a half float's bits, rounded up (only compared against the search radius)
         std::int16_t normal[2];  // the unit normal, octahedral, in 1/32767ths
     };
+    struct Nodes;
     struct Brick;
     struct Region;
     struct Located;
@@ -228,6 +230,8 @@ private:
     const Region& regionAt(int bx, int by, int bz) const;
     const Brick& brickAt(const Region& region, int bx, int by, int bz) const;
     Brick* makeBrick(int bx, int by, int bz) const;
+    // A fine brick's nodes, made on first use (none sampled yet).
+    Nodes& nodesOf(const Brick& brick) const;
     // Probe::fieldOnly's answer where push would ask: the closest point to p among the triangles
     // around the faces `seeds` (each one's corners' triangles; kTableNone and repeats skipped), then
     // down the mesh from the nearest (while a triangle around its corners is nearer, kAnswerSteps
@@ -261,7 +265,7 @@ private:
     float cellLo_[3] = {0, 0, 0}, cellHi_[3] = {0, 0, 0};  // the grid, in cells from the world's origin
     int regionDims_[3] = {0, 0, 0};
     std::unique_ptr<Region[]> regions_;
-    mutable std::atomic<std::size_t> regionsMade_{0}, far_{0}, fine_{0}, nodes_{0}, queries_{0};
+    mutable std::atomic<std::size_t> regionsMade_{0}, far_{0}, fine_{0}, nodes_{0}, queries_{0}, nodeBlocks_{0};
     mutable std::once_flag ringsMade_;
     mutable std::unique_ptr<Rings> rings_;
     mutable std::mutex tablesMutex_;
