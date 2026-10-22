@@ -157,7 +157,9 @@ def main():
     plugin = os.path.join(a.build, "hosts", "maya", "RelWithDebInfo", "GroomLab.mll")
     extensions = os.path.join(a.build, "hosts", "maya", "extensions", "RelWithDebInfo")
     scripts = os.path.join(REPO, "hosts", "maya", "scripts")
-    for p in (plugin, extensions, scripts):
+    # groomlab_core, the engine's Python module the scripts import
+    python = os.path.join(a.build, "engine", "python", "RelWithDebInfo")
+    for p in (plugin, extensions, scripts, python):
         if not os.path.exists(p):
             sys.exit("missing %s (build first: see README.md)" % p)
     counts = [int(c) for c in a.counts.split(",") if c]
@@ -197,7 +199,7 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work)
         args = {"system": system, "count": count, "phase": phase, "out": os.path.join(work, "result.json"),
-                "work": work, "plugin": plugin, "scripts": scripts, "extensions": extensions,
+                "work": work, "plugin": plugin, "scripts": scripts, "python": python, "extensions": extensions,
                 "tweaks": a.tweaks, "self": os.path.join(HERE, "xgc_gui.py")}
         args_path = os.path.join(work, "args.json")
         with open(args_path, "w") as f:

@@ -25,6 +25,7 @@ with open(os.environ["XGC_ARGS"]) as _f:
     ARGS = json.load(_f)
 sys.path.insert(0, os.path.dirname(os.path.abspath(ARGS["self"])))
 sys.path.insert(0, ARGS["scripts"])
+sys.path.insert(0, ARGS["python"])
 
 import xgc_common as C  # noqa: E402
 

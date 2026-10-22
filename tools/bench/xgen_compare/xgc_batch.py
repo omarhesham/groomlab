@@ -24,6 +24,7 @@ with open(sys.argv[1]) as _f:
     ARGS = json.load(_f)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ARGS["scripts"])
+sys.path.insert(0, ARGS["python"])
 os.environ["MTOA_EXTENSIONS_PATH"] = os.pathsep.join(
     p for p in [ARGS.get("extensions", ""), os.environ.get("MTOA_EXTENSIONS_PATH", "")] if p)
 
