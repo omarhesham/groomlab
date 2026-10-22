@@ -121,6 +121,66 @@ TEST_F(ArnoldCurves, StrandsArnoldCannotTakeAreLeftOut) {
     EXPECT_TRUE(arnold::setPointsKey(curves, s, 1, &*plan));
 }
 
+TEST_F(ArnoldCurves, FeathersRenderTheirRachisAsAMeshNotTheirShafts) {
+    // Two feathers: each a shaft (isShaft 1) and a barb; with a rachis the shafts stay out of the
+    // curves and the rachis renders as a polymesh, each feather in its shaft's color.
+    StrandSet s;
+    for (int f = 0; f < 2; ++f) {
+        s.addStrand(static_cast<StrandId>(10 + f), strandPoints(static_cast<float>(f), 0, 5), std::vector<float>(5, 0.02f));
+        s.addStrand(static_cast<StrandId>(20 + f), strandPoints(static_cast<float>(f) + 0.2f, 0, 3), std::vector<float>(3, 0.001f));
+    }
+    std::vector<float>& isShaft = s.addStrandChannel("isShaft", 0.0f);
+    std::vector<float>& featherId = s.addStrandChannel("featherId", 0.0f);
+    std::vector<float>& rachisShafts = s.addStrandChannel(kRachisChannel, 0.0f);  // (Propagate with a shaftWidth)
+    isShaft[0] = isShaft[2] = 1.0f;
+    rachisShafts[0] = rachisShafts[2] = 1.0f;
+    featherId[2] = featherId[3] = 1.0f;
+    std::vector<float>& red = s.addStrandChannel("colorR", 0.1f);
+    s.addStrandChannel("colorG", 0.1f);
+    s.addStrandChannel("colorB", 0.1f);
+    red[2] = 0.8f;
+    // No rachis yet: every strand a curve.
+    std::size_t dropped = 0;
+    EXPECT_FALSE(arnold::curvesPlan(s, nullptr, &dropped));
+    auto layer = std::make_shared<FeatherLayer>();
+    for (int shaft : {0, 2}) {
+        for (int k = 0; k < 5; ++k) {
+            RachisRing ring;
+            ring.center = {static_cast<float>(shaft / 2), 0.1f * static_cast<float>(k), 0.0f};
+            ring.tangent = {0.0f, 1.0f, 0.0f};
+            ring.normal = {0.0f, 0.0f, 1.0f};
+            ring.side = ring.tangent.cross(ring.normal);
+            ring.radius = 0.01f;
+            ring.u = 0.25f * static_cast<float>(k);
+            layer->rings.push_back(ring);
+        }
+        layer->offsets.push_back(layer->rings.size());
+        layer->featherIds.push_back(shaft / 2);
+    }
+    s.addFeatherLayer(layer);
+    const std::optional<LodPlan> plan = arnold::curvesPlan(s, nullptr, &dropped);
+    ASSERT_TRUE(plan);
+    EXPECT_EQ(dropped, 0u) << "the shafts are not unrenderable";
+    EXPECT_EQ(plan->kept, (std::vector<std::size_t>{1, 3}));  // the barbs
+    const RachisMesh mesh = buildRachisMesh(s.featherLayers());
+    AtNode* polymesh = AiNode(universe, AtString("polymesh"), AtString("rachis"));
+    arnold::setRachisMesh(polymesh, mesh, rachisColors(s, mesh, {0.5f, 0.5f, 0.5f}), 2);
+    const AtArray* vlist = AiNodeGetArray(polymesh, AtString("vlist"));
+    EXPECT_EQ(AiArrayGetNumElements(vlist), mesh.points.size());
+    EXPECT_EQ(AiArrayGetNumKeys(vlist), 2u);
+    EXPECT_EQ(AiArrayGetNumElements(AiNodeGetArray(polymesh, AtString("nsides"))), mesh.faceCount());
+    EXPECT_EQ(AiArrayGetNumElements(AiNodeGetArray(polymesh, AtString("vidxs"))), mesh.faceVertices.size());
+    const AtArray* colors = AiNodeGetArray(polymesh, AtString("rachisColor"));
+    ASSERT_TRUE(colors);
+    bool redSeen = false;
+    for (uint32_t i = 0; i < AiArrayGetNumElements(colors); ++i) redSeen = redSeen || AiArrayGetRGB(colors, i).r == 0.8f;
+    EXPECT_TRUE(redSeen) << "feather 1 in its shaft's color";
+    EXPECT_TRUE(arnold::setRachisMeshKey(polymesh, mesh, mesh, 1));
+    RachisMesh other = mesh;
+    other.points.pop_back();
+    EXPECT_FALSE(arnold::setRachisMeshKey(polymesh, mesh, other, 1)) << "another mesh: the key stays";
+}
+
 TEST_F(ArnoldCurves, AReExportLeavesNothingOfTheLastBehind) {
     // An interactive update exports onto the same node: a strand channel the graph no longer writes,
     // or root UVs the scalp no longer has, must not stay behind sized for the strands before.

@@ -295,6 +295,9 @@ DisplayGeometry cardGeometry(const CardMesh& cards, bool textured);
 // `color` without them), uvs x root (0) to tip (1).
 DisplayGeometry strandMeshGeometry(const std::vector<StrandMeshSource>& meshes, const ScalpMesh* scalp,
                                    const std::array<float, 3>& color);
+// The feathers' rachis tubes (buildRachisMesh of the strands' feather layers: a Propagate node's
+// shaftWidth) as the same lit surface, each feather in its shaft strand's color (`color` without).
+DisplayGeometry rachisGeometry(const StrandSet& strands, const std::array<float, 3>& color);
 // The card map: `color` (sRGB) darkened by half of `ao` (when given), the coverage in the
 // alpha; RGBA8 images of one size (as read: the rows' order is kept).
 std::vector<std::uint8_t> combineCardMaps(const std::uint8_t* color, const std::uint8_t* coverage, const std::uint8_t* ao,

@@ -192,6 +192,7 @@
     "strand.isShaft": "752f485999eef2c1",
     "strand.melanin": "a02150cce0ded56b",
     "strand.melaninRedness": "dc523d8876e6eace",
+    "strand.rachis": "3b0886eb97f52f54",
     "strand.roughness": "f0606f24b4ee51ac",
     "strand.shaftU": "8cb8dfe980440ffe",
     "strand.side": "05cf5a0841bb2fe6",
@@ -203,13 +204,13 @@
     "strand.vaneTipV": "bfd3a3c7db3289ae",
     "strand.vaneU": "1f33720db60e927d"
    },
-   "everything": "866a6ec0be211055",
+   "everything": "50c70276020eb37c",
    "ids": "d4cd893c387c02f4",
    "points": 904468,
    "positions": "fa6680a385fcbad9",
    "roots": "b857798ad3499341",
    "strands": 198198,
-   "widths": "04439b7560d4cff6"
+   "widths": "740ab46f3ccac6ec"
   },
   "feathers_barred": {
    "channels": {
@@ -227,6 +228,7 @@
     "strand.isShaft": "3ecd367e07a74263",
     "strand.melanin": "d8e90038dbbc9c3d",
     "strand.melaninRedness": "59467efc4e78c9a8",
+    "strand.rachis": "3ecd367e07a74263",
     "strand.roughness": "743a7a6bf4dbd81a",
     "strand.shaftU": "9b8867fc43d19c53",
     "strand.side": "5d42fc753c111501",
@@ -238,13 +240,13 @@
     "strand.vaneTipV": "0680454078df9031",
     "strand.vaneU": "02ff9dde6469322a"
    },
-   "everything": "8ec1c45cdd1835f3",
+   "everything": "e76ed5f24560d4a8",
    "ids": "eeba676015557d46",
    "points": 265902,
    "positions": "52583395caa2c526",
    "roots": "374f4d5f08ad4024",
    "strands": 22750,
-   "widths": "84a7fda3f8b23428"
+   "widths": "9dbd52ff43aef9c0"
   },
   "feathers_contour": {
    "channels": {
@@ -252,6 +254,7 @@
     "strand.clumpId": "d2bcc71b45a7ea17",
     "strand.featherId": "4cf9ea8ae8089e7d",
     "strand.isShaft": "fffe156d0ec541cd",
+    "strand.rachis": "fffe156d0ec541cd",
     "strand.shaftU": "5f0abd370f5ebd43",
     "strand.side": "0825bda64662a8bc",
     "strand.vaneNormalX": "b6febae493b047f3",
@@ -261,13 +264,13 @@
     "strand.vaneTipV": "a151d1c9b9bf2893",
     "strand.vaneU": "0c000f7390e9999a"
    },
-   "everything": "b666fa7d9db2f03b",
+   "everything": "c5e6e95bba6fc7e5",
    "ids": "a8030cdcf1120f7f",
    "points": 103558,
    "positions": "212e794a00da449c",
    "roots": "1fa40968ed072dfa",
    "strands": 14742,
-   "widths": "937a86d369a5747f"
+   "widths": "7975f64dd9e03a12"
   },
   "feathers_down": {
    "channels": {
@@ -275,6 +278,7 @@
     "strand.clumpId": "a695286666028ecb",
     "strand.featherId": "cad5daa08e6a75df",
     "strand.isShaft": "e8ec134e4d3e92ba",
+    "strand.rachis": "e8ec134e4d3e92ba",
     "strand.shaftU": "f3f39db90cbca408",
     "strand.side": "513cb97bbfc27eea",
     "strand.vaneNormalX": "030befe06efb74cb",
@@ -284,13 +288,13 @@
     "strand.vaneTipV": "573b70428b69e676",
     "strand.vaneU": "a0bb33239ae071a7"
    },
-   "everything": "56758493420fadaf",
+   "everything": "17024b0d4df09ecd",
    "ids": "8ef411d0e95f3cbd",
    "points": 110676,
    "positions": "92222d0a6a385ef0",
    "roots": "6f66daaa3e86fc6c",
    "strands": 7540,
-   "widths": "2adce0245ff3ff79"
+   "widths": "a0486c1685e86c31"
   },
   "feathers_eye_spot": {
    "channels": {
@@ -308,6 +312,7 @@
     "strand.isShaft": "3ecd367e07a74263",
     "strand.melanin": "ce4a26f7d0b97422",
     "strand.melaninRedness": "bbe629517fe4b49f",
+    "strand.rachis": "3ecd367e07a74263",
     "strand.roughness": "743a7a6bf4dbd81a",
     "strand.shaftU": "9b8867fc43d19c53",
     "strand.side": "5d42fc753c111501",
@@ -319,13 +324,13 @@
     "strand.vaneTipV": "0680454078df9031",
     "strand.vaneU": "02ff9dde6469322a"
    },
-   "everything": "0e2a1dea58269483",
+   "everything": "658cc25754cc1a29",
    "ids": "eeba676015557d46",
    "points": 265902,
    "positions": "52583395caa2c526",
    "roots": "374f4d5f08ad4024",
    "strands": 22750,
-   "widths": "84a7fda3f8b23428"
+   "widths": "9dbd52ff43aef9c0"
   },
   "feathers_flight": {
    "channels": {
@@ -333,6 +338,7 @@
     "strand.clumpId": "45cf8767f95592de",
     "strand.featherId": "d98837810a091575",
     "strand.isShaft": "fb8b069889a448c7",
+    "strand.rachis": "fb8b069889a448c7",
     "strand.shaftU": "017b4f7923fefef9",
     "strand.side": "c90f6cba8c76f650",
     "strand.vaneNormalX": "9be708d0f35f95d4",
@@ -342,13 +348,13 @@
     "strand.vaneTipV": "5041932900b4cd79",
     "strand.vaneU": "4f707aea7e3ce59f"
    },
-   "everything": "8a9894226c9ba277",
+   "everything": "3911e661f6b18181",
    "ids": "c7ad5b05413a7f32",
    "points": 55384,
    "positions": "2cdb1e5ee1e60429",
    "roots": "c078a2fc55f1cc0a",
    "strands": 7896,
-   "widths": "677b662f3b5b1d14"
+   "widths": "2041326d4c39db04"
   },
   "feathers_iridescent": {
    "channels": {
@@ -366,6 +372,7 @@
     "strand.isShaft": "3ecd367e07a74263",
     "strand.melanin": "126315ed24e5d5a9",
     "strand.melaninRedness": "59467efc4e78c9a8",
+    "strand.rachis": "3ecd367e07a74263",
     "strand.roughness": "743a7a6bf4dbd81a",
     "strand.shaftU": "9b8867fc43d19c53",
     "strand.side": "5d42fc753c111501",
@@ -377,13 +384,13 @@
     "strand.vaneTipV": "0680454078df9031",
     "strand.vaneU": "02ff9dde6469322a"
    },
-   "everything": "80c9c6930278f802",
+   "everything": "2f9259a13dedc5fc",
    "ids": "eeba676015557d46",
    "points": 265902,
    "positions": "52583395caa2c526",
    "roots": "374f4d5f08ad4024",
    "strands": 22750,
-   "widths": "84a7fda3f8b23428"
+   "widths": "9dbd52ff43aef9c0"
   },
   "feathers_spotted": {
    "channels": {
@@ -400,6 +407,7 @@
     "strand.isShaft": "3ecd367e07a74263",
     "strand.melanin": "877b7cbf9237f2dd",
     "strand.melaninRedness": "1809f4e41e240cec",
+    "strand.rachis": "3ecd367e07a74263",
     "strand.roughness": "743a7a6bf4dbd81a",
     "strand.shaftU": "9b8867fc43d19c53",
     "strand.side": "5d42fc753c111501",
@@ -411,13 +419,13 @@
     "strand.vaneTipV": "0680454078df9031",
     "strand.vaneU": "02ff9dde6469322a"
    },
-   "everything": "43312e9e55018276",
+   "everything": "5e6cd995e74f8c70",
    "ids": "eeba676015557d46",
    "points": 265902,
    "positions": "52583395caa2c526",
    "roots": "374f4d5f08ad4024",
    "strands": 22750,
-   "widths": "84a7fda3f8b23428"
+   "widths": "9dbd52ff43aef9c0"
   },
   "flow_with_guides": {
    "channels": {
@@ -509,6 +517,7 @@
     "strand.featherId": "1793de8dd010aa04",
     "strand.groupId": "67aa56d9a8e48d5c",
     "strand.isShaft": "f31ff9c0e20c99f7",
+    "strand.rachis": "f31ff9c0e20c99f7",
     "strand.shaftU": "22a6444d33eae0e3",
     "strand.side": "87992bcaf9ec7408",
     "strand.vaneNormalX": "00a582b2f40175e4",
@@ -518,13 +527,13 @@
     "strand.vaneTipV": "011e6ba912a113e1",
     "strand.vaneU": "d8b5172718e6ce7b"
    },
-   "everything": "2ecc34a1e61b257f",
+   "everything": "35da7c154b061a80",
    "ids": "a5872ccd8e038a9d",
    "points": 5020,
    "positions": "c834bb3b4ca443d2",
    "roots": "11d349cd79470c72",
    "strands": 705,
-   "widths": "292b8c0f33cb90d1"
+   "widths": "4d02f090f67de092"
   },
   "layered_feathers": {
    "channels": {
@@ -532,6 +541,7 @@
     "strand.clumpId": "6bbcbc3d824c755a",
     "strand.featherId": "97be3a1a3fff4841",
     "strand.isShaft": "493be311cd6897cf",
+    "strand.rachis": "493be311cd6897cf",
     "strand.shaftU": "86468fd286b86c15",
     "strand.side": "ed58e5d47ab00772",
     "strand.vaneNormalX": "a43633f8b9265155",
@@ -541,13 +551,13 @@
     "strand.vaneTipV": "b5fdd724a031d8d3",
     "strand.vaneU": "e865b23531cb1a83"
    },
-   "everything": "5d3695bbdd12dc6f",
+   "everything": "fa643a11f23ed805",
    "ids": "252d8c2be301b249",
    "points": 147940,
    "positions": "0ed3543135be4ded",
    "roots": "e3681135a30a5c17",
    "strands": 21060,
-   "widths": "e3c03061ab159190"
+   "widths": "f9f89445eafc9132"
   },
   "merge_layers": {
    "channels": {

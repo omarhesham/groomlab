@@ -249,6 +249,7 @@ public:
             const groomlab::StrandsPtr strands = m_evaluator ? groomlab::applyRenderOverrides(
                 m_evaluator->evaluate(m_overrides.densityTimes(1.0f), &error, &scalp), m_overrides) : nullptr;
             if (m_scales) ExportScalesKey(strands, scalp);
+            if (m_rachis) ExportRachisKey(strands);
             // The instances at this step: their own key of instance_matrix, and the groom's transform keys.
             if (m_instancer) {
                 if (const AtArray* matrix = AiNodeGetArray(node, AtString("matrix"))) {
@@ -398,6 +399,9 @@ private:
         m_scaleBuilder.clear();
         m_scenePrototypes.clear();
         m_scalesWarned = false;
+        m_rachis = nullptr;
+        m_rachisMesh = groomlab::RachisMesh{};
+        m_rachisWarned = false;
         m_full = m_reference;
         m_lod = lodPlan(curves, *m_full, scalp.get());
         if (m_lod) {
@@ -427,7 +431,48 @@ private:
         // Strands that only lay scales out render as the scales alone.
         if (m_reference->instances() && m_reference->instances()->hidesStrands) AiNodeSetByte(curves, AtString("visibility"), 0);
         ExportInstances(curves, scalp);
+        ExportRachis(curves);
         warnHeavyInteractive(curveStrands->strandCount(), t0);
+    }
+
+    // The feathers' rachis (a Propagate node's shaftWidth; feathers.h): their tubes as one polymesh
+    // (setRachisMesh) rendered with a standard_surface reading each feather's shaft color; the
+    // shafts stay out of the curves (curvesPlan). Not when a mesh of the scene shows it (a live
+    // rachis mesh on outRachis, create_rachis_mesh): MtoA renders that one.
+    void ExportRachis(AtNode* curves) {
+        if (!groomlab::hasRachis(m_full->featherLayers())) return;
+        MPlug out = mayaPlug("outRachis");
+        if (!out.isNull() && out.isSource()) return;
+        groomlab::RachisMesh mesh = groomlab::buildRachisMesh(m_full->featherLayers());
+        if (mesh.faceCount() == 0) return;
+        AtNode* surface = AddArnoldNode("standard_surface", "rachisSurface");
+        groomlab::arnold::setDefaultRachisShader(surface, AddArnoldNode("user_data_rgb", "rachisColor"));
+        AtNode* polymesh = AddArnoldNode("polymesh", "rachis");
+        // As many point keys as the curves; ExportMotion fills them (ExportRachisKey).
+        groomlab::arnold::setRachisMesh(polymesh, mesh, groomlab::rachisColors(*m_full, mesh, {0.5f, 0.45f, 0.4f}), motionKeys());
+        groomlab::arnold::setShader(polymesh, surface);
+        if (const AtArray* matrix = AiNodeGetArray(curves, AtString("matrix"))) {
+            AiNodeSetArray(polymesh, AtString("matrix"), AiArrayCopy(matrix));
+        }
+        setMotionRange(polymesh);
+        if (motionKeys() > 1) {
+            m_rachis = polymesh;
+            m_rachisMesh = std::move(mesh);
+        }
+    }
+
+    // This motion step's key of the rachis: from the step's feathers.
+    void ExportRachisKey(const groomlab::StrandsPtr& strands) {
+        if (strands && groomlab::arnold::setRachisMeshKey(m_rachis, m_rachisMesh, groomlab::buildRachisMesh(strands->featherLayers()),
+                                                          GetMotionStep())) {
+            return;
+        }
+        if (!m_rachisWarned) {
+            m_rachisWarned = true;
+            AiMsgWarning("[groomlab] %s: the feathers' rachis changes between motion steps; it renders without "
+                         "deformation blur on those steps",
+                         GetMayaNodeName().asChar());
+        }
     }
 
     // A groom this heavy in an interactive render: every edit exports all of it again (the
@@ -797,6 +842,9 @@ private:
     groomlab::ScaleMeshBuilder m_scaleBuilder;  // kept across the motion steps: bends only what moved
     std::map<std::string, groomlab::InstancePrototype> m_scenePrototypes;
     bool m_scalesWarned = false;
+    AtNode* m_rachis = nullptr;          // the feathers' rachis polymesh, when it takes motion keys
+    groomlab::RachisMesh m_rachisMesh;   // its first key
+    bool m_rachisWarned = false;
 };
 
 }  // namespace

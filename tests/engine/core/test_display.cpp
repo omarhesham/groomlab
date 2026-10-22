@@ -21,6 +21,7 @@
 
 #include "groomlab/display.h"
 #include "groomlab/export_view.h"
+#include "groomlab/feathers.h"
 #include "groomlab/groom_session.h"
 #include "groomlab/guide_hierarchy.h"
 #include "groomlab/hair_color.h"
@@ -1239,6 +1240,83 @@ TEST(Display, IsolateKeepsAGroupAndItsChildGroups) {
     EXPECT_LT(child.first, withChildren.first);
     EXPECT_EQ(child.first + child.second, all.first);
     EXPECT_EQ(shares("nothing"), all);  // no such group: none dimmed
+}
+
+// A feather's rachis (a Propagate node's shaftWidth) drew only as its shaft's strand line, a
+// hairline however wide: the strands' feather layers' rachis tubes now come in the StrandMesh
+// item, as exported and baked, in each feather's shaft color; the barbs stay lines.
+TEST(Display, FeatherRachisDrawsAsItsTubes) {
+    auto strands = std::make_shared<StrandSet>();
+    for (int i = 0; i < 4; ++i) {
+        strands->addStrand(static_cast<StrandId>(i + 1), test::straightCurve({0.5f * static_cast<float>(i), 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}));
+    }
+    strands->mutableWidths().assign(strands->pointCount(), 0.001f);
+    std::vector<float>& isShaft = strands->addStrandChannel("isShaft", 0.0f);
+    std::vector<float>& featherId = strands->addStrandChannel("featherId", 0.0f);
+    isShaft[0] = isShaft[2] = 1.0f;
+    featherId[2] = featherId[3] = 1.0f;
+    std::vector<float>& red = strands->addStrandChannel("colorR", 0.2f);
+    strands->addStrandChannel("colorG", 0.2f);
+    strands->addStrandChannel("colorB", 0.2f);
+    red[2] = 0.9f;  // feather 1's shaft
+    DisplayInputs in;
+    in.strands = strands;
+    in.strandsVersion = 1;
+    DisplaySettings s;
+    DisplayBuilder builder;
+    // No rachis recorded: no mesh.
+    {
+        const DisplayItem& none = builder.update(in, s).item(DisplayItemId::StrandMesh);
+        EXPECT_TRUE(!none.geometry || none.geometry->indices.empty());
+    }
+    // The two shafts' rachis, 0.05 across at the root: 6-sided tubes.
+    auto layer = std::make_shared<FeatherLayer>();
+    layer->sides = 6;
+    for (int shaft : {0, 2}) {
+        const float x = 0.5f * static_cast<float>(shaft);
+        for (int k = 0; k <= 4; ++k) {
+            RachisRing ring;
+            ring.center = {x, 0.25f * static_cast<float>(k), 0.0f};
+            ring.tangent = {0.0f, 1.0f, 0.0f};
+            ring.normal = {0.0f, 0.0f, 1.0f};
+            ring.side = ring.tangent.cross(ring.normal);
+            ring.radius = 0.025f;
+            ring.u = 0.25f * static_cast<float>(k);
+            layer->rings.push_back(ring);
+        }
+        layer->offsets.push_back(layer->rings.size());
+        layer->featherIds.push_back(shaft == 0 ? 0 : 1);
+    }
+    auto feathers = std::make_shared<StrandSet>(*strands);
+    feathers->addFeatherLayer(layer);
+    in.strands = feathers;
+    in.strandsVersion = 2;
+    const DisplayItem& mesh = builder.update(in, s).item(DisplayItemId::StrandMesh);
+    ASSERT_TRUE(mesh.geometry);
+    EXPECT_TRUE(mesh.geometry->triangles && mesh.geometry->scaleSurface);
+    const RachisMesh rachis = buildRachisMesh(feathers->featherLayers());
+    EXPECT_EQ(mesh.vertexCount, rachis.points.size());
+    EXPECT_EQ(mesh.geometry->indices.size(), 3 * rachis.triangleCount());
+    float across = 0.0f;  // the tubes' radius about the shafts' axes (x 0 and x 1)
+    const std::vector<float>& p = mesh.geometry->positions;
+    for (std::size_t i = 0; i + 2 < p.size(); i += 3) {
+        const float x = p[i] < 0.5f ? p[i] : p[i] - 1.0f;
+        across = std::max(across, std::sqrt(x * x + p[i + 2] * p[i + 2]));
+    }
+    EXPECT_NEAR(across, 0.025f, 0.002f);
+    // Each tube in its shaft's color: feather 1's red.
+    bool redSeen = false, graySeen = false;
+    for (std::size_t v = 0; v < mesh.vertexCount; ++v) {
+        const float r = mesh.geometry->colors[v * 4];
+        redSeen = redSeen || std::abs(r - 0.9f) < 1e-6f;
+        graySeen = graySeen || std::abs(r - 0.2f) < 1e-6f;
+    }
+    EXPECT_TRUE(redSeen && graySeen);
+    EXPECT_TRUE(builder.update(in, s).item(DisplayItemId::Strands).shown);  // the barbs still lines
+    // Cards shown instead of the strands: no tubes either.
+    s.cardsView = true;
+    const DisplayItem& carded = builder.update(in, s).item(DisplayItemId::StrandMesh);
+    EXPECT_TRUE(!carded.geometry || carded.geometry->indices.empty());
 }
 
 // Guide Color Mode: 1 a painted layer (black to white); anything else each group's color.

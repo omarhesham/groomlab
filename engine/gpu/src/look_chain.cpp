@@ -18,6 +18,7 @@
 
 #include "groomlab/curve.h"
 #include "groomlab/export_view.h"
+#include "groomlab/feathers.h"
 #include "groomlab/field.h"
 #include "groomlab/flow.h"
 #include "groomlab/map_ref.h"
@@ -910,6 +911,11 @@ bool readLookParams(const GraphDocument& doc, const LookChain& chain, const Over
                 break;
             }
             case StageKind::Width: {
+                // Feathers' shafts with a rachis keep their widths (WidthOp): the CPU's.
+                if (const StrandsPtr fed = cachedStrands(graph, upstream(graph, id)); fed && fed->strandChannel(kRachisChannel)) {
+                    *why = doc.nameOf(id) + " leaves the feathers' shafts as wide as their rachis (the CPU's)";
+                    return false;
+                }
                 if (!mappable("width", &s.value[0])) return false;
                 s.value[1] = static_cast<float>(number("randomness"));
                 s.ramp = ramp("profile");

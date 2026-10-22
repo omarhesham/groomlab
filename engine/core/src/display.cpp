@@ -10,11 +10,13 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "groomlab/color_patterns.h"
 #include "groomlab/curve.h"
 #include "groomlab/export_view.h"
+#include "groomlab/feathers.h"
 #include "groomlab/follow_scalp.h"
 #include "groomlab/frames.h"
 #include "groomlab/hair_color.h"
@@ -1391,9 +1393,92 @@ DisplayGeometry strandMeshGeometry(const std::vector<StrandMeshSource>& meshes, 
     return g;
 }
 
+DisplayGeometry rachisGeometry(const StrandSet& strands, const std::array<float, 3>& color) {
+    DisplayGeometry g;
+    g.triangles = true;
+    g.scaleSurface = true;
+    if (!hasRachis(strands.featherLayers())) return g;
+    const RachisMesh mesh = buildRachisMesh(strands.featherLayers());
+    const std::size_t count = mesh.points.size();
+    if (count == 0) return g;
+    const std::vector<std::array<float, 3>> colors = rachisColors(strands, mesh, color);  // each feather's shaft's
+    // Normals: the faces' about each point; tangents: the way v (root to tip) grows over them.
+    std::vector<Vec3f> normal(count), tangent(count);
+    std::vector<float> along(count, 0.0f);
+    std::size_t corner = 0;
+    for (std::size_t f = 0; f < mesh.faceCount(); ++f) {
+        const auto n = static_cast<std::size_t>(mesh.faceCounts[f]);
+        const int* v = mesh.faceVertices.data() + corner;
+        const int* uv = mesh.faceUVs.data() + corner;
+        auto at = [&](std::size_t i) { return mesh.points[static_cast<std::size_t>(v[i % n])]; };
+        auto vOf = [&](std::size_t i) { return mesh.v[static_cast<std::size_t>(uv[i % n])]; };
+        Vec3f faceNormal;
+        for (std::size_t i = 1; i + 1 < n; ++i) faceNormal += (at(i) - at(0)).cross(at(i + 1) - at(0));
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto p = static_cast<std::size_t>(v[i]), q = static_cast<std::size_t>(v[(i + 1) % n]);
+            const Vec3f edge = (at(i + 1) - at(i)) * (vOf(i + 1) - vOf(i));
+            normal[p] += faceNormal;
+            tangent[p] += edge;
+            tangent[q] += edge;
+            along[p] = vOf(i);
+        }
+        corner += n;
+    }
+    g.positions.resize(count * 3);
+    g.normals.resize(count * 3);
+    g.tangents.resize(count * 3);
+    g.bitangents.resize(count * 3);
+    g.uvs.resize(count * 2);
+    g.colors.resize(count * 4);
+    for (std::size_t p = 0; p < count; ++p) {
+        const Vec3f nrm = normal[p].length() > 1e-12f ? normal[p].normalized() : Vec3f{0.0f, 1.0f, 0.0f};
+        Vec3f tan = tangent[p] - nrm * tangent[p].dot(nrm);
+        tan = tan.length() > 1e-12f ? tan.normalized() : anyPerpendicular(nrm);
+        const std::array<float, 3>& rgb = colors[p];
+        for (int a = 0; a < 3; ++a) {
+            const auto i = p * 3 + static_cast<std::size_t>(a);
+            g.positions[i] = (&mesh.points[p].x)[a];
+            g.normals[i] = g.bitangents[i] = (&nrm.x)[a];  // the shading normal (the scales' stream)
+            g.tangents[i] = (&tan.x)[a];
+            g.colors[p * 4 + static_cast<std::size_t>(a)] = rgb[static_cast<std::size_t>(a)];
+        }
+        g.colors[p * 4 + 3] = 1.0f;
+        g.uvs[p * 2] = along[p];
+        g.uvs[p * 2 + 1] = 0.0f;
+    }
+    corner = 0;
+    for (std::size_t f = 0; f < mesh.faceCount(); ++f) {  // each face a fan
+        const auto n = static_cast<std::size_t>(mesh.faceCounts[f]);
+        const int* v = mesh.faceVertices.data() + corner;
+        for (std::size_t i = 1; i + 1 < n; ++i) {
+            g.indices.insert(g.indices.end(), {static_cast<std::uint32_t>(v[0]), static_cast<std::uint32_t>(v[i]),
+                                               static_cast<std::uint32_t>(v[i + 1])});
+        }
+        corner += n;
+    }
+    return g;
+}
+
 // ---- Builder ----------------------------------------------------------------------------------
 
 namespace {
+
+// `more` appended to `g`, a surface of the same streams (positions, normals, tangents,
+// bitangents, uvs, colors).
+void appendSurface(DisplayGeometry& g, DisplayGeometry more) {
+    if (more.indices.empty()) return;
+    if (g.indices.empty()) {
+        g = std::move(more);
+        return;
+    }
+    const auto base = static_cast<std::uint32_t>(g.positions.size() / 3);
+    for (const auto& [to, from] : {std::pair{&g.positions, &more.positions}, std::pair{&g.normals, &more.normals},
+                                   std::pair{&g.tangents, &more.tangents}, std::pair{&g.bitangents, &more.bitangents},
+                                   std::pair{&g.uvs, &more.uvs}, std::pair{&g.colors, &more.colors}}) {
+        to->insert(to->end(), from->begin(), from->end());
+    }
+    for (const std::uint32_t i : more.indices) g.indices.push_back(base + i);
+}
 
 struct ItemSpec {
     DisplayItemId id;
@@ -1997,13 +2082,20 @@ void DisplayBuilder::buildStrandMesh(const DisplayInputs& in, const DisplaySetti
     item(DisplayItemId::StrandMesh).color = rgba(s.hairColor);
     const int sculpt = hairDisplay(in, s);
     const bool draw = s.strandMeshView && s.drawStrandMesh && sculpt != 2;
-    std::uint64_t key = hashCombine(hash64(in.strandMeshVersion), draw ? 1u : 0u);
-    if (draw && !in.strandMeshes.empty()) {  // (the color of strands without their own: in the vertices)
+    // The feathers' rachis tubes (a Propagate node's shaftWidth: its FeatherLayer), as exported
+    // and baked: as strand lines a shaft stays a hairline however wide (the barbs leave it the room).
+    // (Only with the strands: not instead of them, cards or the StrandMesh nodes' meshes.)
+    const bool strandsShown = !(s.cardsView || (s.strandMeshView && !in.strandMeshes.empty()));
+    const bool shafts = sculpt != 2 && strandsShown && in.strands && hasRachis(in.strands->featherLayers());
+    std::uint64_t key = hashCombine(hash64(in.strandMeshVersion), (draw ? 1u : 0u) + (shafts ? 2u : 0u));
+    if (shafts) key = hashCombine(key, in.strandsVersion);
+    if ((draw && !in.strandMeshes.empty()) || shafts) {  // (the color of strands without their own: in the vertices)
         for (const float c : s.hairColor) key = hashFloat(key, c);
     }
     if (!rebuild(DisplayPart::StrandMesh, key)) return;
     DisplayGeometry mesh;
     if (draw && !in.strandMeshes.empty()) mesh = strandMeshGeometry(in.strandMeshes, in.scalp.get(), s.hairColor);
+    if (shafts) appendSurface(mesh, rachisGeometry(*in.strands, s.hairColor));
     put(DisplayItemId::StrandMesh, std::move(mesh));
 }
 

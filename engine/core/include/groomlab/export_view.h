@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "groomlab/feathers.h"
 #include "groomlab/math.h"
 #include "groomlab/scalp_mesh.h"
 #include "groomlab/strand_set.h"
@@ -149,6 +150,10 @@ bool hasBarbs(const StrandSet& strands);
 StrandSet withoutShafts(const StrandSet& strands);
 // Only the feathers' shafts.
 StrandSet onlyShafts(const StrandSet& strands);
+// Each point's color of `mesh` (buildRachisMesh of the strands' feather layers): its feather's
+// shaft strand's (kColorChannels, at its root or per strand), else `fallback`. The renderers
+// and the viewport color the rachis with it.
+std::vector<std::array<float, 3>> rachisColors(const StrandSet& strands, const RachisMesh& mesh, const std::array<float, 3>& fallback);
 // A lighter groom for heavy shots: barbs kept at `density` (0-1, by ID: stable, the same
 // barbs every frame), each kept one `widthScale` times as wide so the vanes keep their
 // coverage; hair and shafts stay as they are.

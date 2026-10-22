@@ -230,6 +230,34 @@ StrandSet withoutShafts(const StrandSet& strands) {
 
 StrandSet onlyShafts(const StrandSet& strands) { return strands.subset(shaftsOrNot(strands, true)); }
 
+std::vector<std::array<float, 3>> rachisColors(const StrandSet& strands, const RachisMesh& mesh, const std::array<float, 3>& fallback) {
+    std::map<long, std::array<float, 3>> shaftColor;
+    const std::vector<float>* isShaft = strands.strandChannel(kIsShaftName);
+    const std::vector<float>* featherId = strands.strandChannel("featherId");
+    if (isShaft && featherId) {
+        std::array<const std::vector<float>*, 3> perPoint{}, perStrand{};
+        bool pointColors = true, strandColors = true;
+        for (int c = 0; c < 3; ++c) {
+            perPoint[c] = strands.pointChannel(kColorChannels[c]);
+            perStrand[c] = strands.strandChannel(kColorChannels[c]);
+            pointColors = pointColors && perPoint[c] && perPoint[c]->size() == strands.pointCount();
+            strandColors = strandColors && perStrand[c] && perStrand[c]->size() == strands.strandCount();
+        }
+        for (std::size_t k = 0; k < strands.strandCount() && (pointColors || strandColors); ++k) {
+            if ((*isShaft)[k] < 0.5f) continue;
+            std::array<float, 3> rgb{};
+            for (int c = 0; c < 3; ++c) rgb[c] = pointColors ? (*perPoint[c])[strands.strandBegin(k)] : (*perStrand[c])[k];
+            shaftColor[std::lround((*featherId)[k])] = rgb;
+        }
+    }
+    std::vector<std::array<float, 3>> colors(mesh.points.size(), fallback);
+    for (std::size_t p = 0; p < colors.size() && p < mesh.featherIndex.size() && !shaftColor.empty(); ++p) {
+        const auto own = shaftColor.find(std::lround(mesh.featherIndex[p]));
+        if (own != shaftColor.end()) colors[p] = own->second;
+    }
+    return colors;
+}
+
 StrandSet thinBarbs(const StrandSet& strands, float density, float widthScale) {
     density = std::clamp(std::isfinite(density) ? density : 1.0f, 0.0f, 1.0f);
     if (density >= 1.0f && widthScale == 1.0f) return strands;

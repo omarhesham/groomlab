@@ -20,6 +20,11 @@
 
 namespace groomlab {
 
+// The strand channel a Propagate node with a shaftWidth sets to 1 on each shaft it keeps (isShaft
+// 1) and makes a rachis tube for: that shaft is as wide as its rachis, the renderers draw the tube
+// in its place, and a Width node after leaves it (other shafts, a second Propagate's, 0).
+constexpr const char* kRachisChannel = "rachis";
+
 // A cross-section of a rachis tube at one of its shaft's points: the ring's center, its axes
 // (side = tangent x normal: the right-hand vane; normal: the vane plane's normal), radius
 // and arc position (0 root .. 1 tip). Vertex j of an n-sided ring sits at angle 2 pi j / n

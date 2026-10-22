@@ -54,7 +54,7 @@ constexpr const char* kGroupChannel = "groupId";        // the groom group (with
 // Also vane space's (vaneU, vaneTipU, vaneTipV) and the down zone's isDown: color_patterns.h.
 
 bool writtenChannel(const std::string& name) {
-    for (const char* c : {kFeatherIdChannel, kShaftUChannel, kSideChannel, kBarbIndexChannel, kIsShaftChannel,
+    for (const char* c : {kFeatherIdChannel, kShaftUChannel, kSideChannel, kBarbIndexChannel, kIsShaftChannel, kRachisChannel,
                           kClumpChannel, kVaneUChannel, kVaneTipUChannel, kVaneTipVChannel, kIsDownChannel,
                           kVaneNormalChannels[0], kVaneNormalChannels[1], kVaneNormalChannels[2]}) {
         if (name == c) return true;
@@ -211,6 +211,7 @@ public:
             out.push_back({name, ""});
         }
         if (params().getDouble("down") > params().getDouble("start")) out.push_back({kIsDownChannel, ""});
+        if (params().getDouble("shaftWidth") > 0.0 && params().getBool("keepShaft")) out.push_back({kRachisChannel, ""});
         for (const char* name : kVaneNormalChannels) out.push_back({name, ""});
         if (params().getInt("groupId") > 0) out.push_back({kGroupChannel, ""});
         return out;
@@ -554,6 +555,7 @@ public:
         out->addStrandChannel(kVaneTipUChannel, 0.0f);
         out->addStrandChannel(kVaneTipVChannel, 0.0f);
         if (hasDown) out->addStrandChannel(kIsDownChannel, 0.0f);
+        if (rachis && keepShaft) out->addStrandChannel(kRachisChannel, 0.0f);
         for (const char* name : kVaneNormalChannels) out->addStrandChannel(name, 0.0f);
         out->resize(pointCounts);
         for (const std::string& name : strandNames) {
@@ -565,6 +567,7 @@ public:
         std::vector<float>& sidesOut = *out->mutableStrandChannel(kSideChannel);
         std::vector<float>& barbIndices = *out->mutableStrandChannel(kBarbIndexChannel);
         std::vector<float>& isShaft = *out->mutableStrandChannel(kIsShaftChannel);
+        std::vector<float>* rachisShafts = out->mutableStrandChannel(kRachisChannel);  // (with a rachis kept)
         std::vector<float>& clumps = *out->mutableStrandChannel(kClumpChannel);
         std::vector<float>& vaneUs = *out->mutableStrandChannel(kVaneUChannel);
         std::vector<float>& tipUs = *out->mutableStrandChannel(kVaneTipUChannel);
@@ -635,6 +638,13 @@ public:
                     r.side = fr.binormal;
                     r.u = walker.along(k);
                     r.radius = std::max(0.5f * shaftWidth * shaftWidthProfile(r.u), kMinRachisRadius * 0.5f * shaftWidth);
+                }
+                // The kept shaft as wide as its rachis, point by point: a renderer drawing it as a
+                // curve draws the rachis (a Width node after leaves it so).
+                if (keepShaft) {
+                    const std::size_t dst = out->strandBegin(firstStrand[s]);
+                    for (std::size_t k = 0; k < n; ++k) widths[dst + k] = 2.0f * rings[k].radius;
+                    (*rachisShafts)[firstStrand[s]] = 1.0f;
                 }
             }
             if (plan.barbs.empty()) return;

@@ -66,25 +66,32 @@ inline bool unrenderableStrand(const StrandSet& s, std::size_t strand) {
 
 // The strands the curves node takes, as a plan over `strands` (the set an LOD `lod` was made
 // on, when there is one): the LOD's kept strands (every strand without one) less the
-// unrenderable ones (unrenderableStrand), each kept strand's LOD width scale with it. Empty
-// when that leaves out nothing beyond the LOD (the curves take what the LOD keeps, or every
-// strand). `*dropped` gets how many were left out.
+// unrenderable ones (unrenderableStrand) and, where the feathers have a rachis (a Propagate
+// node's shaftWidth: the rachis mesh renders them, setRachisMesh), their shafts; each kept
+// strand's LOD width scale with it. Empty when that leaves out nothing beyond the LOD (the
+// curves take what the LOD keeps, or every strand). `*dropped` gets how many unrenderable ones
+// were left out.
 inline std::optional<LodPlan> curvesPlan(const StrandSet& strands, const LodPlan* lod, std::size_t* dropped = nullptr) {
-    std::size_t bad = 0;
+    const std::vector<float>* isShaft = hasRachis(strands.featherLayers()) ? strands.strandChannel(kRachisChannel) : nullptr;
+    auto shaft = [&](std::size_t strand) { return isShaft && strand < isShaft->size() && (*isShaft)[strand] >= 0.5f; };
+    std::size_t bad = 0, shafts = 0;
     LodPlan plan;
     const std::size_t count = lod ? lod->kept.size() : strands.strandCount();
     for (std::size_t i = 0; i < count; ++i) {
         const std::size_t strand = lod ? lod->kept[i] : i;
-        if (strand < strands.strandCount() && !unrenderableStrand(strands, strand)) continue;
+        if (strand < strands.strandCount() && !unrenderableStrand(strands, strand)) {
+            shafts += shaft(strand) ? 1 : 0;
+            continue;
+        }
         ++bad;
     }
     if (dropped) *dropped = bad;
-    if (bad == 0) return std::nullopt;
-    plan.kept.reserve(count - bad);
-    plan.widthScale.reserve(count - bad);
+    if (bad == 0 && shafts == 0) return std::nullopt;
+    plan.kept.reserve(count - bad - shafts);
+    plan.widthScale.reserve(count - bad - shafts);
     for (std::size_t i = 0; i < count; ++i) {
         const std::size_t strand = lod ? lod->kept[i] : i;
-        if (strand >= strands.strandCount() || unrenderableStrand(strands, strand)) continue;
+        if (strand >= strands.strandCount() || unrenderableStrand(strands, strand) || shaft(strand)) continue;
         plan.kept.push_back(strand);
         plan.widthScale.push_back(lod && i < lod->widthScale.size() ? lod->widthScale[i] : 1.0f);
     }
@@ -609,6 +616,55 @@ inline bool setScaleMeshKey(AtNode* polymesh, const ScaleMesh& first, const Scal
              AiArraySetKey(array, static_cast<uint8_t>(key), values->data());
     }
     return ok;
+}
+
+// The feathers' rachis tubes (buildRachisMesh of the strands' feather layers) as a polymesh: its
+// faces (quads and triangles, as the mesh has them), uvs (u around the tube, v root to tip), smooth
+// normals, and per-vertex `rachisColor` (`colors`: rachisColors, each feather's shaft color).
+// vlist gets `keys` motion keys, every one this mesh (setRachisMeshKey fills the others).
+inline void setRachisMesh(AtNode* polymesh, const RachisMesh& mesh, const std::vector<std::array<float, 3>>& colors,
+                          unsigned keys = 1) {
+    const auto points = static_cast<uint32_t>(mesh.points.size());
+    const auto corners = static_cast<uint32_t>(mesh.faceVertices.size());
+    const auto faces = static_cast<uint32_t>(mesh.faceCounts.size());
+    keys = std::max(keys, 1u);
+    AtArray* vlist = AiArrayAllocate(points, static_cast<uint8_t>(keys), AI_TYPE_VECTOR);
+    for (unsigned k = 0; k < keys; ++k) AiArraySetKey(vlist, static_cast<uint8_t>(k), mesh.points.data());
+    AiNodeSetArray(polymesh, AtString("vlist"), vlist);
+    std::vector<uint32_t> nsides(mesh.faceCounts.begin(), mesh.faceCounts.end());
+    std::vector<uint32_t> vidxs(mesh.faceVertices.begin(), mesh.faceVertices.end());
+    std::vector<uint32_t> uvidxs(mesh.faceUVs.begin(), mesh.faceUVs.end());
+    AiNodeSetArray(polymesh, AtString("nsides"), AiArrayConvert(faces, 1, AI_TYPE_UINT, nsides.data()));
+    AiNodeSetArray(polymesh, AtString("vidxs"), AiArrayConvert(corners, 1, AI_TYPE_UINT, vidxs.data()));
+    std::vector<std::array<float, 2>> uvs(mesh.u.size());
+    for (std::size_t i = 0; i < uvs.size(); ++i) uvs[i] = {mesh.u[i], i < mesh.v.size() ? mesh.v[i] : 0.0f};
+    AiNodeSetArray(polymesh, AtString("uvlist"), AiArrayConvert(static_cast<uint32_t>(uvs.size()), 1, AI_TYPE_VECTOR2, uvs.data()));
+    AiNodeSetArray(polymesh, AtString("uvidxs"), AiArrayConvert(corners, 1, AI_TYPE_UINT, uvidxs.data()));
+    AiNodeSetBool(polymesh, AtString("smoothing"), true);
+    if (colors.size() == mesh.points.size()) {
+        AiNodeDeclare(polymesh, AtString("rachisColor"), "varying RGB");
+        AiNodeSetArray(polymesh, AtString("rachisColor"), AiArrayConvert(points, 1, AI_TYPE_RGB, colors.data()));
+    }
+}
+
+// Fills motion key `key` of the rachis's vlist from `mesh`, the rachis at that motion step; false,
+// leaving the key as it was, when it is another mesh (other point count) than `first`'s.
+inline bool setRachisMeshKey(AtNode* polymesh, const RachisMesh& first, const RachisMesh& mesh, unsigned key) {
+    if (mesh.points.size() != first.points.size() || mesh.faceVertices != first.faceVertices) return false;
+    AtArray* array = AiNodeGetArray(polymesh, AtString("vlist"));
+    return array && key < AiArrayGetNumKeys(array) && AiArrayGetNumElements(array) == mesh.points.size() &&
+           AiArraySetKey(array, static_cast<uint8_t>(key), mesh.points.data());
+}
+
+// What a rachis renders with: a standard_surface whose base color reads its `rachisColor`
+// (`userData`, a user_data_rgb node), a little glossy, as a feather's shaft is.
+inline void setDefaultRachisShader(AtNode* surface, AtNode* userData) {
+    AiNodeSetStr(userData, AtString("attribute"), AtString("rachisColor"));
+    AiNodeSetRGB(userData, AtString("default"), 0.5f, 0.5f, 0.5f);
+    AiNodeSetFlt(surface, AtString("base"), 1.0f);
+    AiNodeSetFlt(surface, AtString("specular"), 0.5f);
+    AiNodeSetFlt(surface, AtString("specular_roughness"), 0.3f);
+    AiNodeLink(userData, "base_color", surface);
 }
 
 // What the built-in plates render with when no material is named: a standard_surface whose base

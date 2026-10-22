@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "groomlab/curve.h"
+#include "groomlab/feathers.h"
 #include "groomlab/field.h"
 #include "groomlab/graph.h"
 #include "groomlab/operators.h"
@@ -311,9 +312,18 @@ private:
         auto out = std::make_shared<StrandSet>(*in);
         // Every strand's widths are written (the strands left alone keep the last result's).
         std::vector<float>& widths = last ? widthsOfLast(*out, last, *incremental) : out->mutableWidths();
+        // Feathers' shafts with a rachis (Propagate's shaftWidth: kRachisChannel) are as wide as
+        // it: they keep their widths (a barb width set after the feathers is the barbs').
+        const std::vector<float>* isShaft = in->strandChannel(kRachisChannel);
+        const bool inWidths = in->widths().size() == in->pointCount();
         auto shape = [&](std::size_t s) {
             const std::size_t n = in->strandPointCount(s);
             if (n == 0) return;
+            if (isShaft && (*isShaft)[s] >= 0.5f) {
+                const std::size_t begin = in->strandBegin(s);
+                for (std::size_t k = 0; k < n; ++k) widths[begin + k] = inWidths ? in->widths()[begin + k] : 1.0f;
+                return;
+            }
             // The strand's variation (none without randomness: the width as it is).
             float vary = 1.0f;
             if (randomness > 0.0f) {

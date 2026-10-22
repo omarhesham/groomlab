@@ -187,6 +187,46 @@ TEST(Rachis, PropagateMakesTubesAlongTheShaftsWithTheWidthProfile) {
     EXPECT_FALSE(hasRachis(plain->featherLayers()));
 }
 
+// A shaft kept with a rachis is as wide as it, point by point, so a renderer drawing it as a curve
+// draws the rachis; a Width node after the feathers (the presets' barb width) leaves it so, and the
+// barbs take its width. Without a rachis the Width node sets the shafts too, as ever.
+TEST(Rachis, KeptShaftsAreAsWideAsTheirRachis) {
+    const Shafts f;
+    auto op = propagate(0.06);
+    op->params().set("shaftWidthProfile", Ramp{{0.0f, 1.0f}, {1.0f, 0.5f}});
+    const StrandsPtr out = f.run(*op);
+    const FeatherLayer& layer = *out->featherLayers().front();
+    auto width = OperatorRegistry::instance().create(op::kWidth);
+    width->params().set("width", 0.004);
+    width->params().set("profile", Ramp::constant(1.0f));
+    EvalContext ctx;
+    ctx.externals = &f.ext;
+    const StrandsPtr widened = valueAs<StrandsPtr>(width->evaluate(ctx, {Value(out)}));
+    std::size_t shafts = 0, barbs = 0;
+    for (std::size_t s = 0; s < out->strandCount(); ++s) {
+        const std::size_t begin = out->strandBegin(s), n = out->strandPointCount(s);
+        if (channel(*out, "isShaft", s) > 0.5f) {
+            EXPECT_EQ(channel(*out, kRachisChannel, s), 1.0f);
+            const std::size_t first = layer.offsets[shafts++];
+            for (std::size_t k = 0; k < n; ++k) {
+                EXPECT_FLOAT_EQ(out->widths()[begin + k], 2.0f * layer.rings[first + k].radius) << s << ", " << k;
+                EXPECT_FLOAT_EQ(widened->widths()[begin + k], out->widths()[begin + k]) << "the Width node left it";
+            }
+        } else {
+            ++barbs;
+            EXPECT_EQ(channel(*out, kRachisChannel, s), 0.0f);
+            for (std::size_t k = 0; k < n; ++k) EXPECT_FLOAT_EQ(widened->widths()[begin + k], 0.004f);
+        }
+    }
+    EXPECT_EQ(shafts, 4u);
+    EXPECT_GT(barbs, 0u);
+    // No rachis: no rachis channel, and the Width node sets every strand, the shafts too.
+    const StrandsPtr bare = f.run(*propagate(0.0));
+    EXPECT_FALSE(bare->strandChannel(kRachisChannel));
+    const StrandsPtr plain = valueAs<StrandsPtr>(width->evaluate(ctx, {Value(bare)}));
+    for (const float w : plain->widths()) EXPECT_FLOAT_EQ(w, 0.004f);
+}
+
 // Every barb root lies on its own feather's rachis (the closest triangle of the whole mesh is
 // its feather's), off the center line by about the rachis's radius, and the barbs keep their
 // designed lengths and shapes.
@@ -322,7 +362,8 @@ TEST(Rachis, ShaftsLeaveAndBarbsThinForEngines) {
     EXPECT_EQ(onlyShafts(*groom).strandCount(), shafts);
     EXPECT_EQ(noShafts.featherLayers().size(), 1u);  // the rachis rides along
 
-    // A lighter groom: a quarter of the barbs, twice as wide; hair and shafts as they were.
+    // A lighter groom: a quarter of the barbs, twice as wide; hair and shafts as they were (a shaft
+    // as wide as its rachis: 0.05 at the root).
     const StrandSet low = thinBarbs(*groom, 0.25f, 2.0f);
     std::size_t kept = 0;
     for (std::size_t s = 0; s < low.strandCount(); ++s) {
@@ -333,8 +374,10 @@ TEST(Rachis, ShaftsLeaveAndBarbsThinForEngines) {
     EXPECT_GT(kept, barbs / 4 - barbs / 16);
     EXPECT_LT(kept, barbs / 4 + barbs / 16);
     EXPECT_EQ(low.strandCount() - kept, shafts + hair);
+    const std::vector<float>* rachisShafts = low.strandChannel(kRachisChannel);
+    ASSERT_TRUE(rachisShafts);
     for (std::size_t s = 0; s < low.strandCount(); ++s) {
-        if (!isBarb(low, s)) EXPECT_FLOAT_EQ(low.widths()[low.strandBegin(s)], 0.01f);
+        if (!isBarb(low, s)) EXPECT_FLOAT_EQ(low.widths()[low.strandBegin(s)], (*rachisShafts)[s] > 0.5f ? 0.05f : 0.01f);
     }
     // Stable: the same barbs every time, and a lower density keeps a subset.
     const StrandSet lower = thinBarbs(*groom, 0.1f, 1.0f);

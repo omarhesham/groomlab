@@ -266,6 +266,41 @@ void buildScales(AtNode* proc, const groomlab::StrandSet& strands, const groomla
     AiMsgInfo("[groomlab] %s: %zu scales, %zu triangles", procName.c_str(), mesh->scales.size(), mesh->triangleCount());
 }
 
+// The feathers' rachis (a Propagate node's shaftWidth; feathers.h): their tubes as one polymesh
+// (setRachisMesh) with `keys` motion keys of points (each the first; later keys are set from their
+// own strands), rendered with a standard_surface reading each feather's shaft color. The shafts
+// themselves stay out of the curves (curvesPlan).
+struct Rachis {
+    AtNode* polymesh = nullptr;
+    groomlab::RachisMesh first;
+    void holdStill() {
+        const AtArray* points = polymesh ? AiNodeGetArray(polymesh, AtString("vlist")) : nullptr;
+        for (unsigned k = 1; points && k < AiArrayGetNumKeys(points); ++k) groomlab::arnold::setRachisMeshKey(polymesh, first, first, k);
+    }
+};
+
+void buildRachis(AtNode* proc, const groomlab::StrandSet& strands, unsigned keys, Rachis* out, std::vector<AtNode*>* made) {
+    if (!groomlab::hasRachis(strands.featherLayers())) return;
+    groomlab::RachisMesh mesh = groomlab::buildRachisMesh(strands.featherLayers());
+    if (mesh.faceCount() == 0) return;
+    AtUniverse* universe = AiNodeGetUniverse(proc);
+    const std::string procName = AiNodeGetName(proc);
+    AtNode* surface = AiNode(universe, AtString("standard_surface"), AtString((procName + "/rachisSurface").c_str()), proc);
+    AtNode* data = AiNode(universe, AtString("user_data_rgb"), AtString((procName + "/rachisColor").c_str()), proc);
+    groomlab::arnold::setDefaultRachisShader(surface, data);
+    AtNode* polymesh = AiNode(universe, AtString("polymesh"), AtString((procName + "/rachis").c_str()), proc);
+    groomlab::arnold::setRachisMesh(polymesh, mesh, groomlab::rachisColors(strands, mesh, {0.5f, 0.45f, 0.4f}), keys);
+    groomlab::arnold::setShader(polymesh, surface);
+    for (const char* name : {"visibility", "matte", "opaque", "receive_shadows", "self_shadows", "trace_sets", "id",
+                             "motion_start", "motion_end"}) {
+        groomlab::arnold::copyParameter(proc, polymesh, name);
+    }
+    made->insert(made->end(), {surface, data, polymesh});
+    out->polymesh = polymesh;
+    AiMsgInfo("[groomlab] %s: %zu feathers' rachis, %zu faces", procName.c_str(), mesh.featherCount, mesh.faceCount());
+    out->first = std::move(mesh);
+}
+
 // Render LOD against the options' camera, planned on the first key: the plan
 // applies to every key, so they keep the same strands. None when LOD is off
 // or there is no camera.
@@ -395,6 +430,9 @@ procedural_init {
         AtNode* instancer = buildInstancer(node, *first, keys, &layout, true, stored, &data->nodes);
         Scales scales;
         buildScales(node, *first, scalp, stored, still ? 1u : keys, &scales, &data->nodes);  // (still: one key is all keys)
+        Rachis rachis;
+        buildRachis(node, *first, still ? 1u : keys, &rachis, &data->nodes);
+        bool keyRachis = rachis.polymesh && keys > 1 && !still;
         bool keyInstances = instancer && keys > 1;
         bool keyScales = scales.polymesh && keys > 1 && !still;  // (nothing moves: every key is the first)
         auto staticInstancer = [&] {  // one key: the first
@@ -406,6 +444,10 @@ procedural_init {
         auto staticScales = [&] {
             keyScales = false;
             scales.holdStill();
+        };
+        auto staticRachis = [&] {
+            keyRachis = false;
+            rachis.holdStill();
         };
         for (unsigned k = 1; k < keys && curves; ++k) {
             groomlab::StrandsPtr strands = still ? still : evaluateAt(keyTime(k));
@@ -419,6 +461,7 @@ procedural_init {
                 curves = createCurves(node, view, keys);
                 staticInstancer();
                 staticScales();
+                staticRachis();
                 break;
             }
             groomlab::arnold::setPointsKey(curves, *strands, k, pointsPlan);
@@ -437,6 +480,13 @@ procedural_init {
                     staticScales();
                 }
             }
+            if (keyRachis && !groomlab::arnold::setRachisMeshKey(rachis.polymesh, rachis.first,
+                                                                 groomlab::buildRachisMesh(strands->featherLayers()), k)) {
+                AiMsgWarning("[groomlab] %s: the feathers' rachis changes between motion keys; rendering it without "
+                             "deformation blur",
+                             procName);
+                staticRachis();
+            }
         }
         fullIds.clear();
         fullOffsets.clear();
@@ -451,7 +501,7 @@ procedural_init {
         if (instancer) data->nodes.push_back(instancer);
         // A shader set on the procedural overrides its shapes' own (Arnold's inheritance): the
         // curves hold a copy of it, so with scales (each with a shader of its own) it goes.
-        if (first->instances() && first->instances()->hasMeshes()) AiNodeResetParameter(node, AtString("shader"));
+        if ((first->instances() && first->instances()->hasMeshes()) || rachis.polymesh) AiNodeResetParameter(node, AtString("shader"));
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         AiMsgInfo("[groomlab] %s: %zu strands, %zu points, %u motion key(s) from %s at frame %g (%.0f ms)", procName,
                   first->strandCount(), first->pointCount(), keys, filename.c_str(), frame, ms);
