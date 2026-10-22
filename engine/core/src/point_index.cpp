@@ -18,25 +18,35 @@ constexpr std::size_t kParallelBuild = 16384;
 
 }  // namespace
 
+// The points move with their indices (16 bytes together): the build reads each range's points in
+// a row, not each through its index into the input.
+struct PointIndex::Item {
+    Vec3f p;
+    std::uint32_t id;
+};
+
 PointIndex::PointIndex(std::vector<Vec3f> points) {
     const std::size_t n = points.size();
-    std::vector<std::uint32_t> order(n);
-    for (std::size_t i = 0; i < n; ++i) order[i] = static_cast<std::uint32_t>(i);
+    std::vector<Item> items(n);
+    parallelFor(0, n, [&](std::size_t i) { items[i] = {points[i], static_cast<std::uint32_t>(i)}; }, 4096);
     axes_.resize(n);
-    build(points, order.data(), 0, n);
+    build(items.data(), 0, n);
     // Points in tree order: a node's point sits at its own position.
     points_.resize(n);
-    parallelFor(0, n, [&](std::size_t i) { points_[i] = points[order[i]]; });
-    ids_ = std::move(order);
+    ids_.resize(n);
+    parallelFor(0, n, [&](std::size_t i) {
+        points_[i] = items[i].p;
+        ids_[i] = items[i].id;
+    }, 4096);
 }
 
-void PointIndex::build(const std::vector<Vec3f>& input, std::uint32_t* order, std::size_t begin, std::size_t end) {
+void PointIndex::build(Item* items, std::size_t begin, std::size_t end) {
     if (begin >= end) return;
 
     // Split on the axis with the largest extent (robust for flat point sets).
-    Vec3f lo = input[order[begin]], hi = lo;
+    Vec3f lo = items[begin].p, hi = lo;
     for (std::size_t i = begin + 1; i < end; ++i) {
-        const Vec3f& p = input[order[i]];
+        const Vec3f& p = items[i].p;
         lo = {std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z)};
         hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
     }
@@ -45,23 +55,32 @@ void PointIndex::build(const std::vector<Vec3f>& input, std::uint32_t* order, st
 
     // Equal coordinates in index order: a total order, so the median and each half's points are
     // the same whatever the standard library's nth_element leaves them in, and so is the tree
-    // (which of several equally near points a search meets first, and returns).
+    // (which of several equally near points a search meets first, and returns): every position
+    // ends up holding the same point however each range was shuffled on the way.
     const std::size_t mid = begin + (end - begin) / 2;
-    std::nth_element(order + begin, order + mid, order + end, [&](std::uint32_t a, std::uint32_t b) {
-        const float ca = coord(input[a], axis), cb = coord(input[b], axis);
-        return ca < cb || (ca == cb && a < b);
-    });
+    auto split = [&](auto key) {
+        std::nth_element(items + begin, items + mid, items + end, [&](const Item& a, const Item& b) {
+            const float ca = key(a.p), cb = key(b.p);
+            return ca < cb || (ca == cb && a.id < b.id);
+        });
+    };
+    if (axis == 0) {
+        split([](const Vec3f& p) { return p.x; });
+    } else if (axis == 1) {
+        split([](const Vec3f& p) { return p.y; });
+    } else {
+        split([](const Vec3f& p) { return p.z; });
+    }
     axes_[mid] = static_cast<std::uint8_t>(axis);
 
-    // The two halves never touch each other's part of `order`.
+    // The two halves never touch each other's part of `items`.
     if (end - begin >= kParallelBuild) {
-        parallelInvoke([&] { build(input, order, begin, mid); }, [&] { build(input, order, mid + 1, end); });
+        parallelInvoke([&] { build(items, begin, mid); }, [&] { build(items, mid + 1, end); });
     } else {
-        build(input, order, begin, mid);
-        build(input, order, mid + 1, end);
+        build(items, begin, mid);
+        build(items, mid + 1, end);
     }
 }
-
 std::size_t PointIndex::nearest(const Vec3f& p, float* distance2) const {
     std::size_t index = SIZE_MAX;
     float d2 = std::numeric_limits<float>::max();

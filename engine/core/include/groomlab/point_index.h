@@ -36,7 +36,8 @@ public:
     std::size_t kNearest(const Vec3f& p, std::size_t k, std::size_t* indices, float* distances2) const;
 
 private:
-    void build(const std::vector<Vec3f>& input, std::uint32_t* order, std::size_t begin, std::size_t end);
+    struct Item;  // a point and its index in the input, as the build moves them
+    void build(Item* items, std::size_t begin, std::size_t end);
 
     std::vector<Vec3f> points_;         // in tree order: node i's point at i
     std::vector<std::uint32_t> ids_;    // each one's index in the input

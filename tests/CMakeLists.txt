@@ -9,6 +9,7 @@ add_executable(groomlab_tests
     engine/core/test_brush_catalog.cpp
     engine/core/test_brush_pack.cpp
     engine/core/test_budgets.cpp
+    engine/core/test_budgets_ops.cpp
     engine/core/test_budgets_paint.cpp
     engine/core/test_budgets_stroke.cpp
     engine/core/test_camera_solve.cpp
