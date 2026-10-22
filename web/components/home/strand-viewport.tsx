@@ -18,9 +18,9 @@ function hasWebGL2() {
 }
 
 /**
- * The groom's viewport. It opens as a 2D canvas (cheap, no dependencies) and, once it comes near
- * the screen, fetches three.js and the 3D groom and fades them in over it: a head whose hair is
- * grown by the same params, turning slowly, that a drag orbits. Without WebGL2 the 2D canvas stays.
+ * The groom's viewport. Once it comes near the screen it fetches three.js and the 3D groom and
+ * grows it in: a head whose hair is grown by the params, turning slowly, that a drag orbits.
+ * Without WebGL2 (or when the 3D fails) a 2D canvas draws the same graph instead.
  * Both only animate while on screen and the tab is visible; with reduced motion each draws one
  * still frame per change. `live` lets the caller vary params per frame (the hero's breathing Curl);
  * it is read every frame, never re-rendered through React.
@@ -30,10 +30,13 @@ export function StrandViewport({
   live,
   className,
   label,
-  strandScale = 6,
+  strandScale = 10,
   spin,
   pitch,
   fill,
+  yaw,
+  skin,
+  framing,
   onStats,
 }: {
   params: StrandParams;
@@ -46,6 +49,12 @@ export function StrandViewport({
   spin?: number;
   pitch?: number;
   fill?: number;
+  /** Where the turntable starts, radians (0 faces the camera). */
+  yaw?: number;
+  /** The head's clay color, sRGB 0 to 1. */
+  skin?: number[];
+  /** The sphere the camera frames, in head units. */
+  framing?: [[number, number, number], number];
   onStats?: (stats: GroomStats) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -58,6 +67,8 @@ export function StrandViewport({
   const groomRef = useRef<Groom3D | null>(null);
   /** When the 2D canvas was first seen (ms), so the 3D one knows whether to grow in again. */
   const seenRef = useRef(-1);
+  /** Whether the 2D canvas draws: only without WebGL2 or when the 3D groom failed. */
+  const flatRef = useRef(false);
   const [three, setThree] = useState(false);
 
   useEffect(() => {
@@ -74,6 +85,7 @@ export function StrandViewport({
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const renderer = new StrandRenderer(paramsRef.current.seed);
+    flatRef.current = !hasWebGL2();
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let width = 0;
     let height = 0;
@@ -82,7 +94,7 @@ export function StrandViewport({
     let start = -1;
 
     const paint = (now: number) => {
-      if (!width || !height || groomRef.current) return;
+      if (!width || !height || groomRef.current || !flatRef.current) return;
       if (start < 0) start = now;
       if (seenRef.current < 0) seenRef.current = now;
       const t = (now - start) / 1000;
@@ -153,25 +165,42 @@ export function StrandViewport({
     const load = () => {
       if (loading) return;
       loading = true;
-      if (!hasWebGL2()) return;
+      if (flatRef.current) return;
+      const fail = () => {
+        flatRef.current = true;
+        redrawRef.current();
+      };
       import('./strand-3d')
         .then(({ mountGroom3D }) => {
-          if (disposed) return;
+          if (disposed) return null;
           const params = (t: number) => {
-            const extra = liveRef.current?.(t);
+            const extra = liveRef.current?.(still ? 0 : t);
             return extra ? { ...paramsRef.current, ...extra } : paramsRef.current;
           };
-          groom = mountGroom3D(gl, {
+          return mountGroom3D(gl, {
             still,
             spin,
             pitch,
             fill,
+            yaw,
+            skin,
+            framing,
             sway: 0.6,
             params,
-            strandScale: strandScale * (phone ? 0.7 : 1),
+            strandScale: strandScale * (phone ? 0.55 : 1),
             onStats: (s) => statsRef.current?.(s),
           });
-          if (!groom) return;
+        })
+        .then((g) => {
+          if (!g) {
+            if (!disposed) fail();
+            return;
+          }
+          if (disposed) {
+            g.dispose();
+            return;
+          }
+          groom = g;
           groomRef.current = groom;
           size();
           // Grow in, unless the 2D strands already have for a while.
@@ -180,7 +209,7 @@ export function StrandViewport({
           activate();
           setThree(true);
         })
-        .catch(() => {});
+        .catch(fail);
     };
 
     const near = new IntersectionObserver(([e]) => e.isIntersecting && load(), { rootMargin: '600px 0px' });

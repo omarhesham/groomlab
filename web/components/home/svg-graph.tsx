@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { CSSProperties, ReactNode } from 'react';
-import { category, port as portColor, wirePath, type Category, type PortType, type Side } from './graph-theme';
+import { category, port as portColor, surface, wirePath, type Category, type PortType, type Side } from './graph-theme';
 
 /*
  * Graph Editor pieces drawn in SVG: node cards with a tinted header, monospace param rows and
@@ -92,7 +92,7 @@ export function SvgNode({ n, children }: { n: NodeSpec; children?: ReactNode }) 
   }
   return (
     <g transform={`translate(${n.x} ${n.y})`} className="graph-node">
-      <rect x="0.5" y="0.5" width={n.w - 1} height={h - 1} rx={r} fill="#fff" stroke="#d9d9df" />
+      <rect x="0.5" y="0.5" width={n.w - 1} height={h - 1} rx={r} fill={surface.body} stroke={surface.line} />
       <path d={header} fill={c.hue} />
       <line x1="0" x2={n.w} y1={HEADER} y2={HEADER} stroke={c.hue} />
       <text
@@ -109,17 +109,17 @@ export function SvgNode({ n, children }: { n: NodeSpec; children?: ReactNode }) 
         const y = HEADER + 6 + i * ROW;
         return (
           <g key={row.label} transform={`translate(0 ${y})`}>
-            <text x="12" y="13" className="font-mono" fontSize="10.5" fill="#6e6e73">
+            <text x="12" y="13" className="font-mono" fontSize="10.5" fill={surface.label}>
               {row.label}
             </text>
             {row.value && (
-              <text data-live={row.live && `${row.live}-value`} x={n.w - 12} y="13" textAnchor="end" className="font-mono" fontSize="10.5" fill="#1d1d1f">
+              <text data-live={row.live && `${row.live}-value`} x={n.w - 12} y="13" textAnchor="end" className="font-mono" fontSize="10.5" fill={surface.value}>
                 {row.value}
               </text>
             )}
             {row.slider !== undefined && (
               <>
-                <rect x="12" y="18" width={n.w - 24} height="3" rx="1.5" fill="#ececf0" />
+                <rect x="12" y="18" width={n.w - 24} height="3" rx="1.5" fill={surface.track} />
                 <rect data-live={row.live && `${row.live}-slider`} x="12" y="18" width={(n.w - 24) * row.slider} height="3" rx="1.5" fill={c.hue} />
               </>
             )}
@@ -133,7 +133,7 @@ export function SvgNode({ n, children }: { n: NodeSpec; children?: ReactNode }) 
 }
 
 export function Port({ x, y, color }: { x: number; y: number; color: string }) {
-  return <circle cx={x} cy={y} r="4.5" fill={color} stroke="#fff" strokeWidth="2" className="graph-port" />;
+  return <circle cx={x} cy={y} r="4.5" fill={color} stroke={surface.paper} strokeWidth="2" className="graph-port" />;
 }
 
 /** A wire with a pulse travelling along it. `delay` staggers the pulses (seconds). */

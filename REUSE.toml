@@ -77,8 +77,9 @@ precedence = "override"
 SPDX-FileCopyrightText = ["Autodesk, Inc.", "Pixar", "Chaos Software"]
 SPDX-License-Identifier = "LicenseRef-Trademark"
 
-# The groom viewer's sample groom (engine/web/tools/make_sample.mjs): the Manny head inside it is
-# CC BY 4.0 ("Manny head by Nick Rutlinh (GroomLab), CC BY 4.0"), and so the file is.
+# The groom viewer's sample groom (engine/web/tools/make_sample.mjs) and the landing page's 3D head
+# (manny_head.bin, written by tools/web/make_head_mesh.py): the Manny head in them is CC BY 4.0
+# ("Manny head by Nick Rutlinh (GroomLab), CC BY 4.0", credited in the site footer), and so they are.
 [[annotations]]
 path = ["web/public/samples/**"]
 precedence = "override"

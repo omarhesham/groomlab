@@ -39,8 +39,8 @@ const columns = [
 export function SiteFooter() {
   const year = new Date().getFullYear();
   return (
-    <footer className="relative border-t border-black/[0.06] bg-gl-mist text-xs text-gl-ink-2">
-      <div className="wrap">
+    <footer className="relative border-t border-white/[0.07] bg-[#08090b] text-xs text-gl-ink-2">
+      <div className="wrap-wide">
         <p className="border-b border-gl-line py-4 leading-relaxed">
           GroomLab needs {siteConfig.requirements.maya} on {siteConfig.requirements.os}. Arnold renders need{' '}
           {siteConfig.requirements.arnold}.
@@ -71,7 +71,11 @@ export function SiteFooter() {
           <p>
             Copyright © {year} {siteConfig.name}. Version {siteConfig.version}.
           </p>
-          <p>Maya, Arnold, Unreal Engine and Unity are trademarks of their respective owners.</p>
+          <p className="sm:text-right">
+            Maya, Arnold, Unreal Engine and Unity are trademarks of their respective owners.
+            <br />
+            3D head: &ldquo;Manny head by Nick Rutlinh (GroomLab), CC BY 4.0&rdquo;.
+          </p>
         </div>
       </div>
     </footer>

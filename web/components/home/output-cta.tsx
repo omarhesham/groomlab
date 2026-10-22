@@ -2,7 +2,7 @@
 import { ArrowDownToLine, Heart, MessageCircle } from 'lucide-react';
 import Link from 'next/link';
 import { Reveal } from '@/components/reveal';
-import { pill } from '@/components/store-buttons';
+import { button } from '@/components/store-buttons';
 import { GitHubMark } from '@/components/github-mark';
 import { cn } from '@/lib/cn';
 import { siteConfig } from '@/site.config';
@@ -14,7 +14,7 @@ export function OutputCta() {
   return (
     <section id="get" aria-labelledby="get-title" className="bg-gl-blue-strong text-white">
       <Reveal className="wrap py-24 text-center sm:py-32">
-        <h2 id="get-title" className="display t-section">
+        <h2 id="get-title" className="display t-section text-white">
           Start grooming.
         </h2>
         <p className="mx-auto mt-5 max-w-xl text-lg text-white/85">
@@ -23,18 +23,18 @@ export function OutputCta() {
         <div className="mt-10 flex justify-center">
           <a
             href={siteConfig.downloadUrl}
-            className={cn(pill.base, pill.lg, 'bg-white text-gl-blue-strong shadow-[0_14px_30px_-12px_rgba(0,0,0,0.35)] hover:bg-white/92')}
+            className={cn(button.base, button.lg, 'bg-white text-gl-blue-strong shadow-[0_14px_30px_-12px_rgba(0,0,0,0.35)] hover:bg-white/92')}
           >
             Download free
             <ArrowDownToLine aria-hidden="true" className="size-4 opacity-80" strokeWidth={2.4} />
           </a>
         </div>
         <div className="mt-4 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-          <a href={siteConfig.donateUrl} target="_blank" rel="noopener noreferrer" className={cn(pill.base, pill.md, ghost)}>
+          <a href={siteConfig.donateUrl} target="_blank" rel="noopener noreferrer" className={cn(button.base, button.md, ghost)}>
             Support on Ko-fi
             <Heart aria-hidden="true" className="size-4 opacity-75" strokeWidth={2.4} />
           </a>
-          <a href={siteConfig.discordUrl} target="_blank" rel="noopener noreferrer" className={cn(pill.base, pill.md, ghost)}>
+          <a href={siteConfig.discordUrl} target="_blank" rel="noopener noreferrer" className={cn(button.base, button.md, ghost)}>
             Join the Discord
             <MessageCircle aria-hidden="true" className="size-4 opacity-75" strokeWidth={2.4} />
           </a>

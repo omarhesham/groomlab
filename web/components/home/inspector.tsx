@@ -34,12 +34,12 @@ export function Inspector() {
         />
 
         <Reveal className="mt-14 sm:mt-16">
-          <div className="overflow-hidden">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[#e6e6eb] bg-[#f7f7f9] px-4 py-2.5 font-mono text-[11.5px] text-gl-ink-2">
+          <div className="overflow-hidden rounded-[14px] border border-white/[0.08]">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-white/[0.08] bg-gl-panel px-4 py-2.5 font-mono text-[11.5px] text-gl-ink-2">
               <span className="flex items-center gap-2 font-sans text-[13px] font-semibold text-gl-ink">
                 Inspector
               </span>
-              <span className="rounded-md bg-white px-2 py-0.5 ring-1 ring-[#e3e3e8]">benchmark</span>
+              <span className="rounded-md bg-gl-paper px-2 py-0.5 ring-1 ring-white/10">benchmark</span>
               <span>500k strands</span>
               <span className="ml-auto hidden sm:inline">XGen vs GroomLab · {benchmarkInfo.host}</span>
             </div>
@@ -47,13 +47,13 @@ export function Inspector() {
               {headline.map((row, i) => (
                 <li
                   key={row.id}
-                  className="border-[#ececf0] p-5 not-last:border-b sm:p-6 md:[&:nth-child(odd)]:border-r md:[&:nth-last-child(-n+2)]:border-b-0"
+                  className="border-white/[0.07] p-5 not-last:border-b sm:p-6 md:[&:nth-child(odd)]:border-r md:[&:nth-last-child(-n+2)]:border-b-0"
                 >
                   <Measure row={row} index={i} />
                 </li>
               ))}
             </ul>
-            <div className="border-t border-[#e6e6eb] bg-[#fafafb] px-5 py-4 text-[13px] leading-relaxed text-gl-ink-3 sm:px-6">
+            <div className="border-t border-white/[0.08] bg-gl-panel px-5 py-4 text-[13px] leading-relaxed text-gl-ink-3 sm:px-6">
               <p>
                 {benchmarkInfo.host}; {benchmarkInfo.machine}. {benchmarkInfo.setup} {benchmarkInfo.runs}
               </p>
@@ -93,7 +93,7 @@ function Measure({ row, index }: { row: BenchmarkRow; index: number }) {
         </span>
       </figcaption>
       <dl className="mt-4 space-y-1.5">
-        <Bar label="XGen" value={formatValue(xgen, row.unit)} share={xgen / most} color="#c9c9d0" delay={index * 0.08} />
+        <Bar label="XGen" value={formatValue(xgen, row.unit)} share={xgen / most} color="#8a8f99" delay={index * 0.08} />
         <Bar label={variant} value={formatValue(ours, row.unit)} share={ours / most} color={green.hue} delay={index * 0.08 + 0.15} />
       </dl>
     </figure>
@@ -103,7 +103,7 @@ function Measure({ row, index }: { row: BenchmarkRow; index: number }) {
 /** A ValueSlider-style readout: the field fills to the share, the label and value inside it. */
 function Bar({ label, value, share, color, delay }: { label: string; value: string; share: number; color: string; delay: number }) {
   return (
-    <div className="relative flex h-7 items-center justify-between overflow-hidden rounded-[7px] bg-[#f1f1f4] px-2.5 font-mono text-[12px]">
+    <div className="relative flex h-7 items-center justify-between overflow-hidden rounded-[7px] bg-[#1a1c21] px-2.5 font-mono text-[12px]">
       <span
         aria-hidden="true"
         className="bar-grow absolute inset-y-0 left-0 opacity-45"

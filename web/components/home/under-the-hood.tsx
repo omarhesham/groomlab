@@ -93,9 +93,9 @@ export function UnderTheHood() {
               <li key={s.title}>
                 <a
                   href={s.href}
-                  className="group relative flex items-center gap-3 border-b border-[#e4e4e8] py-3.5 pr-1 text-[15px] font-semibold tracking-tight transition-colors hover:text-gl-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
+                  className="group relative flex items-center gap-3 border-b border-white/[0.08] py-3.5 pr-1 text-[15px] font-semibold tracking-tight text-gl-ink transition-colors hover:text-gl-blue-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
                 >
-                  <span aria-hidden="true" className="absolute top-1/2 -left-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-white" style={{ background: category[s.cat].hue }} />
+                  <span aria-hidden="true" className="absolute top-1/2 -left-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-gl-paper" style={{ background: category[s.cat].hue }} />
                   {s.title}
                   <svg aria-hidden="true" viewBox="0 0 16 16" className="ml-auto size-3.5 text-gl-ink-3 transition-transform duration-500 ease-spring group-hover:translate-x-1 group-hover:text-gl-ink" fill="none">
                     <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -124,12 +124,12 @@ export function UnderTheHood() {
               {session.map((m, i) => (
                 <li
                   key={i}
-                  className={cn('mcp-line rounded-[8px] px-2.5 py-2', m.who === 'you' ? 'bg-gl-ink font-sans text-[13px] text-white' : 'bg-[#f4f4f6] text-gl-ink-2')}
+                  className={cn('mcp-line rounded-[8px] px-2.5 py-2', m.who === 'you' ? 'bg-gl-blue-strong font-sans text-[13px] text-white' : 'bg-[#1a1c21] text-gl-ink-2')}
                   style={{ '--d': `${0.3 + i * 0.35}s` } as CSSProperties}
                 >
                   {m.who === 'tool' ? (
                     <>
-                      <span className="font-medium text-[#a2406f]">{m.text.split('  ')[0]}</span> {m.text.split('  ')[1]}
+                      <span className="font-medium text-[#ff9fcb]">{m.text.split('  ')[0]}</span> {m.text.split('  ')[1]}
                     </>
                   ) : (
                     m.text
@@ -152,7 +152,7 @@ export function UnderTheHood() {
 function Card({ name, cat, children }: { name: string; cat: Category; children: ReactNode }) {
   const c = category[cat];
   return (
-    <figure className="h-full overflow-hidden rounded-[16px] bg-[#f6f6f8]">
+    <figure className="h-full overflow-hidden rounded-[16px] bg-gl-panel text-gl-ink">
       <figcaption className="flex h-10 items-center gap-2.5 px-3.5 font-mono text-[12px]" style={{ background: c.hue, color: c.on }}>
         {name}
       </figcaption>
@@ -169,7 +169,7 @@ function NodeRow({ nodes: row, reverse, duration }: { nodes: { name: string; cat
   const chips = (copy: number) =>
     row.map((n) => (
       <li key={`${copy}-${n.name}`} className={cn(copy > 0 && 'marquee-copy')}>
-        <span className="relative flex h-9 items-center gap-2 rounded-[9px] border border-[#d9d9df] bg-white pr-3.5 pl-1.5 font-mono text-[12.5px] font-medium text-gl-ink">
+        <span className="relative flex h-9 items-center gap-2 rounded-[9px] border border-white/[0.1] bg-gl-panel pr-3.5 pl-1.5 font-mono text-[12.5px] font-medium text-gl-ink">
           <span aria-hidden="true" className="h-6 w-1.5 rounded-full" style={{ background: category[n.cat].hue }} />
           {n.name}
         </span>
@@ -177,7 +177,7 @@ function NodeRow({ nodes: row, reverse, duration }: { nodes: { name: string; cat
     ));
   return (
     <div aria-hidden="true" className="marquee-row relative">
-      <span className="marquee-wire absolute inset-x-0 top-1/2 h-px bg-[#dcdce1]" />
+      <span className="marquee-wire absolute inset-x-0 top-1/2 h-px bg-[#24272e]" />
       <ul className={cn('marquee relative flex', reverse && 'marquee-reverse')} style={{ '--marquee-dur': `${duration}s` } as CSSProperties}>
         {chips(0)}
         {chips(1)}
@@ -188,13 +188,13 @@ function NodeRow({ nodes: row, reverse, duration }: { nodes: { name: string; cat
 
 const TOKEN = /(#.*$)|("[^"]*")|\b(import|from)\b|\b(\d+(?:\.\d+)?)\b|(\w+)(?=\()/g;
 
-/** Light syntax colors, deep enough for AA on white. */
+/** Syntax colors for the dark card, light enough for AA on it. */
 function highlight(line: string): ReactNode[] {
   const out: ReactNode[] = [];
   let last = 0;
   for (const m of line.matchAll(TOKEN)) {
     if (m.index > last) out.push(line.slice(last, m.index));
-    const color = m[1] ? 'text-gl-ink-2' : m[2] ? 'text-[#1f7a4f]' : m[3] ? 'text-[#6449b3]' : m[4] ? 'text-[#9a5b00]' : 'text-[#2457c5]';
+    const color = m[1] ? 'text-gl-ink-3' : m[2] ? 'text-[#7ee2a8]' : m[3] ? 'text-[#c3a6ff]' : m[4] ? 'text-[#ffc96b]' : 'text-[#82b6ff]';
     out.push(
       <span key={m.index} className={color}>
         {m[0]}

@@ -151,7 +151,7 @@ function Diagram({ layout, className }: { layout: Layout; className?: string }) 
           className="font-mono"
           fontSize="10.5"
           letterSpacing="0.08em"
-          fill="#86868b"
+          fill="#80848d"
         >
           {l.text}
         </text>
@@ -203,10 +203,10 @@ export function EveryApp() {
           </div>
         </Reveal>
 
-        <Reveal className="mt-14 grid gap-8 border-t border-[#e4e4e9] pt-8 sm:mt-16 lg:grid-cols-12">
+        <Reveal className="mt-14 grid gap-8 border-t border-white/[0.08] pt-8 sm:mt-16 lg:grid-cols-12">
           <ul className="flex flex-wrap content-start items-start gap-2 lg:col-span-5">
             {tags.map((t) => (
-              <li key={t} className="rounded-full border border-[#dcdce1] bg-white px-3.5 py-1.5 text-[14px] font-medium">
+              <li key={t} className="rounded-full border border-white/[0.14] px-3.5 py-1.5 text-[14px] font-medium text-gl-ink">
                 {t}
               </li>
             ))}

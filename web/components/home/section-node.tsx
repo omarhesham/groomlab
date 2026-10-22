@@ -13,7 +13,7 @@ import { category, type Category } from './graph-theme';
 export function SectionTag({ cat, index, children }: { cat: Category; index: string; children: ReactNode }) {
   const c = category[cat];
   return (
-    <span className="relative inline-flex h-8 items-center gap-2 rounded-[9px] border border-[#d9d9df] bg-white pr-3 pl-1 text-[13px] font-semibold shadow-[0_1px_0_rgba(0,0,0,0.03)]">
+    <span className="relative inline-flex h-8 items-center gap-2 rounded-[9px] border border-white/[0.1] bg-gl-panel pr-3 pl-1 text-[13px] font-semibold text-gl-ink">
       {/* The branch from the page wire into the input port (wide screens only). */}
       <svg
         aria-hidden="true"
@@ -31,12 +31,12 @@ export function SectionTag({ cat, index, children }: { cat: Category; index: str
         />
         <defs>
           <linearGradient id={`rail-branch-${cat}`} x1="0" y1="0" x2="64" y2="68" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#d4d4da" />
+            <stop offset="0" stopColor="#2a2d35" />
             <stop offset="1" stopColor={c.hue} />
           </linearGradient>
         </defs>
       </svg>
-      <span aria-hidden="true" className="absolute top-1/2 -left-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-white" style={{ background: c.hue }} />
+      <span aria-hidden="true" className="absolute top-1/2 -left-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-gl-paper" style={{ background: c.hue }} />
       <span
         aria-hidden="true"
         className="grid h-6 min-w-6 place-items-center rounded-[6px] px-1 font-mono text-[11px] font-medium"
@@ -45,7 +45,7 @@ export function SectionTag({ cat, index, children }: { cat: Category; index: str
         {index}
       </span>
       <span>{children}</span>
-      <span aria-hidden="true" className="absolute top-1/2 -right-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-white bg-[#c9c9d0]" />
+      <span aria-hidden="true" className="absolute top-1/2 -right-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-gl-paper bg-[#4a4e57]" />
     </span>
   );
 }

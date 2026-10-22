@@ -258,7 +258,7 @@ export function GroomView({ sample }: { sample: string }) {
 
   return (
     <div
-      className="relative grid lg:h-[calc(100dvh-3rem)] lg:grid-cols-[minmax(0,1fr)_360px]"
+      className="relative grid lg:h-[calc(100dvh-4rem)] lg:grid-cols-[minmax(0,1fr)_360px]"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -268,7 +268,7 @@ export function GroomView({ sample }: { sample: string }) {
       }}
       onDrop={onDrop}
     >
-      <div ref={wrapRef} className="relative h-[62vh] min-h-[360px] bg-gl-mist lg:h-full">
+      <div ref={wrapRef} className="relative h-[62vh] min-h-[360px] bg-gl-paper lg:h-full">
         <canvas
           ref={canvasRef}
           aria-label="The groom, drawn in 3D: drag to turn it"
@@ -282,16 +282,16 @@ export function GroomView({ sample }: { sample: string }) {
         <div className="pointer-events-none absolute top-3 left-3 flex flex-wrap gap-2 font-mono text-[11.5px] text-gl-ink-2">
           {stats && (
             <>
-              <span className="rounded-md bg-white/85 px-2 py-0.5 ring-1 ring-[#e3e3e8]">{stats.strands.toLocaleString('en-US')} strands</span>
-              <span className="rounded-md bg-white/85 px-2 py-0.5 ring-1 ring-[#e3e3e8]">{stats.points.toLocaleString('en-US')} points</span>
-              <span className="rounded-md bg-white/85 px-2 py-0.5 ring-1 ring-[#e3e3e8]" data-testid="eval-ms">
+              <span className="rounded-md bg-[#16181d]/80 px-2 py-0.5 ring-1 ring-white/10">{stats.strands.toLocaleString('en-US')} strands</span>
+              <span className="rounded-md bg-[#16181d]/80 px-2 py-0.5 ring-1 ring-white/10">{stats.points.toLocaleString('en-US')} points</span>
+              <span className="rounded-md bg-[#16181d]/80 px-2 py-0.5 ring-1 ring-white/10" data-testid="eval-ms">
                 evaluated in {stats.evaluateMs.toFixed(0)} ms
               </span>
             </>
           )}
         </div>
         {dragging && (
-          <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-xl border-2 border-dashed border-gl-blue bg-white/70 text-[15px] font-semibold text-gl-blue">
+          <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-xl border-2 border-dashed border-gl-blue bg-[#0b0c0f]/75 text-[15px] font-semibold text-gl-blue-soft">
             Drop a .groom (and its .obj) to open it
           </div>
         )}
@@ -300,8 +300,8 @@ export function GroomView({ sample }: { sample: string }) {
         </p>
       </div>
 
-      <aside className="flex flex-col border-l border-[#e6e6eb] bg-white lg:min-h-0">
-        <div className="border-b border-[#e6e6eb] px-4 py-3">
+      <aside className="flex flex-col border-l border-white/[0.08] bg-gl-panel lg:min-h-0">
+        <div className="border-b border-white/[0.08] px-4 py-3">
           <h1 className="text-[15px] font-semibold text-gl-ink">Groom viewer</h1>
           <p className="mt-0.5 text-[12.5px] leading-snug text-gl-ink-2">
             The GroomLab engine{version && ` ${version}`}, running in your browser (WebAssembly). Open a .groom, move its
@@ -352,12 +352,12 @@ export function GroomView({ sample }: { sample: string }) {
             <p className="text-[12.5px] text-gl-ink-2">This groom has no sliders: no Control nodes or exposed params.</p>
           )}
           {error && (
-            <p role="alert" className="rounded-lg bg-[#fff1f0] px-3 py-2 text-[12.5px] leading-snug text-[#a8071a]">
+            <p role="alert" className="rounded-lg bg-[#3a1416] px-3 py-2 text-[12.5px] leading-snug text-[#ffb3b0]">
               {error}
             </p>
           )}
           {warnings.length > 0 && (
-            <ul className="space-y-1 rounded-lg bg-[#fffbe6] px-3 py-2 text-[12px] leading-snug text-[#874d00]">
+            <ul className="space-y-1 rounded-lg bg-[#33290f] px-3 py-2 text-[12px] leading-snug text-[#ffd98a]">
               {warnings.map((w) => (
                 <li key={w}>{w}</li>
               ))}
@@ -365,8 +365,8 @@ export function GroomView({ sample }: { sample: string }) {
           )}
         </div>
 
-        <div className="flex gap-2 border-t border-[#e6e6eb] px-4 py-3">
-          <label className="inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-[#f1f1f4] px-3 text-[13px] font-semibold text-gl-ink hover:bg-[#e8e8ec] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-gl-blue">
+        <div className="flex gap-2 border-t border-white/[0.08] px-4 py-3">
+          <label className="inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[10px] bg-white/[0.07] px-3 text-[13px] font-semibold text-gl-ink ring-1 ring-white/10 ring-inset hover:bg-white/[0.11] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-gl-blue">
             <FolderOpen aria-hidden="true" className="size-4" />
             Open
             <input
@@ -384,7 +384,7 @@ export function GroomView({ sample }: { sample: string }) {
             type="button"
             onClick={() => void download()}
             disabled={!stats}
-            className="inline-flex h-9 flex-[1.4] items-center justify-center gap-1.5 rounded-full bg-gl-blue px-3 text-[13px] font-semibold text-white hover:bg-gl-blue-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue disabled:opacity-50"
+            className="inline-flex h-9 flex-[1.4] items-center justify-center gap-1.5 rounded-[10px] bg-gl-blue-strong px-3 text-[13px] font-semibold text-white hover:bg-[#1d5bcc] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue disabled:opacity-50"
           >
             <ArrowDownToLine aria-hidden="true" className="size-4" />
             Download .groom
@@ -426,7 +426,7 @@ function ValueSlider({
       title={title}
       onDoubleClick={onReset}
       className={cn(
-        'relative h-7 overflow-hidden rounded-[7px] bg-[#f1f1f4] font-mono text-[12px]',
+        'relative h-7 overflow-hidden rounded-[7px] bg-[#1a1c21] font-mono text-[12px]',
         'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-gl-blue',
       )}
       style={{ '--fill': hue.hue } as CSSProperties}

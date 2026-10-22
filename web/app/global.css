@@ -4,10 +4,12 @@
 
 /*
  * GroomLab brand palette (hosts/maya/themes/playful.json): charcoal and primaries.
- * The landing page is a light graph canvas: paper-white with ink type, hairline
- * node cards, and the Graph Editor's category colors on headers, ports and
- * wires (components/home/graph-theme.ts). `gl-night` matches the viewport
- * renders' background. The `fd-*` overrides below theme the Fumadocs docs.
+ * The landing pages are a dark studio: near-black paper, warm off-white type,
+ * cream titles, hairlines, the Graph Editor's Playful category colors on node
+ * headers, ports and wires (components/home/graph-theme.ts) and one blue accent.
+ * The `gl-*` tokens below are the light values the docs' own pages may use; the
+ * landing pages redefine them under [data-landing]. The `fd-*` overrides theme
+ * the Fumadocs docs (dark by default, on the same near-black).
  */
 @theme {
   --color-gl-red: #ff4d4f;
@@ -28,6 +30,8 @@
   --color-gl-night-2: #26282d;
   --color-gl-white: #f5f5f7;
   --color-gl-dim: #a1a1a6;
+  --color-gl-cream: #f3e9df;
+  --color-gl-panel: #111318;
 
   --font-sans: var(--font-site), ui-sans-serif, system-ui, sans-serif;
 
@@ -57,30 +61,30 @@
   --color-fd-ring: #2f7bf6;
 }
 
-/* Docs, dark mode: the plugin's own charcoal */
+/* Docs, dark mode: the landing pages' near-black, hairlines and blue */
 .dark {
-  --color-fd-background: #1c1d21;
-  --color-fd-foreground: #f5f5f7;
-  --color-fd-muted: #26282d;
-  --color-fd-muted-foreground: #9ba1ab;
-  --color-fd-popover: #26282d;
-  --color-fd-popover-foreground: #f5f5f7;
-  --color-fd-card: #232529;
-  --color-fd-card-foreground: #f5f5f7;
-  --color-fd-border: #34373e;
+  --color-fd-background: #0b0c0f;
+  --color-fd-foreground: #ecebe8;
+  --color-fd-muted: #15171c;
+  --color-fd-muted-foreground: #a4a7ae;
+  --color-fd-popover: #121419;
+  --color-fd-popover-foreground: #ecebe8;
+  --color-fd-card: #111318;
+  --color-fd-card-foreground: #ecebe8;
+  --color-fd-border: #24272e;
   --color-fd-primary: #6aa3ff;
-  --color-fd-primary-foreground: #111214;
-  --color-fd-secondary: #26282d;
-  --color-fd-secondary-foreground: #f5f5f7;
-  --color-fd-accent: #2d3544;
-  --color-fd-accent-foreground: #f5f5f7;
+  --color-fd-primary-foreground: #0b0c0f;
+  --color-fd-secondary: #15171c;
+  --color-fd-secondary-foreground: #ecebe8;
+  --color-fd-accent: #1a2233;
+  --color-fd-accent-foreground: #ecebe8;
   --color-fd-ring: #6aa3ff;
 }
 
 .dark #nd-sidebar {
-  --color-fd-muted: #26282d;
-  --color-fd-secondary: #2a2c31;
-  --color-fd-muted-foreground: #a9aeb7;
+  --color-fd-muted: #15171c;
+  --color-fd-secondary: #181a20;
+  --color-fd-muted-foreground: #a9adb5;
 }
 
 html {
@@ -88,10 +92,10 @@ html {
   scroll-behavior: smooth;
 }
 
-/* The landing page stays paper-white past its edges, even in dark mode. */
+/* The landing pages stay near-black past their edges, whatever theme the docs use. */
 html:has([data-landing]) {
-  background: #ffffff;
-  color-scheme: light;
+  background: #0b0c0f;
+  color-scheme: dark;
 }
 
 html > body[data-scroll-locked] {
@@ -110,6 +114,13 @@ section[id] {
  * --------------------------------------------------------------------- */
 [data-landing] {
   --gutter: 20px;
+  /* The dark studio: AA on the paper (#0b0c0f): ink 16:1, ink-2 8:1, ink-3 5.2:1. */
+  --color-gl-ink: #ecebe8;
+  --color-gl-ink-2: #a4a7ae;
+  --color-gl-ink-3: #80848d;
+  --color-gl-paper: #0b0c0f;
+  --color-gl-mist: #121419;
+  --color-gl-line: #24272e;
 }
 @media (min-width: 640px) {
   [data-landing] {
@@ -131,12 +142,31 @@ section[id] {
 
 
 /* Display type: semibold and optically sized (Google Sans Flex's display cut is already tightly
-   spaced at these sizes, so the tracking only nudges it). One scale. */
-.display {
-  font-weight: 600;
-  letter-spacing: -0.022em;
-  line-height: 1.04;
-  text-wrap: balance;
+   spaced at these sizes, so the tracking only nudges it). One scale, cream on the dark pages
+   (a color utility on the element still wins: the blue band's title is white). */
+@layer components {
+  .display {
+    font-weight: 600;
+    letter-spacing: -0.022em;
+    line-height: 1.04;
+    text-wrap: balance;
+  }
+  [data-landing] .display {
+    color: var(--color-gl-cream);
+  }
+}
+/* The split hero's title: big, but two lines in its half of the page. */
+@utility t-hero-split {
+  font-size: clamp(2.6rem, 1.2rem + 5.4vw, 4.3rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+/* Letter-spaced caps after a short blue line (the hero's eyebrow, the viewer's hint). */
+@utility t-caps {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
 }
 @utility t-hero {
   font-size: clamp(2.75rem, 1.1rem + 6.2vw, 5.5rem);
@@ -183,18 +213,6 @@ section[id] {
   transition-duration: 0.12s;
 }
 
-/* The hero's second line is underlined with a wire in the mark's colors. */
-.hero-ink {
-  background: linear-gradient(90deg, #ff4d4f, #ffc53d 50%, #2f7bf6) no-repeat 0 94% / 100% 0.07em;
-  padding-bottom: 0.04em;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-}
-@media (min-width: 640px) {
-  .hero-ink {
-    display: inline-block;
-  }
-}
 
 /*
  * Node rows (Under the hood): still and wrapped by default, drifting sideways
@@ -248,15 +266,15 @@ section[id] {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  border: 2px solid #fff;
+  border: 2px solid #0b0c0f;
   transition: scale 0.4s var(--ease-spring);
 }
 .tool-card:hover .tool-port {
   scale: 1.45;
 }
-/* The toolkit's scenes: a plain soft ground. */
+/* The toolkit's scenes: a plain ground a step above the page. */
 .art-canvas {
-  background-color: #f6f6f8;
+  background-color: #111318;
 }
 
 /* ------------------------------------------------------------------------
@@ -349,11 +367,6 @@ section[id] {
 @keyframes live {
   50% {
     opacity: 0.25;
-  }
-}
-@keyframes underline-in {
-  from {
-    background-size: 0% 0.07em;
   }
 }
 /* Toolkit scenes. */
@@ -514,9 +527,6 @@ section[id] {
   .rise {
     animation: rise 0.9s var(--ease-rise) both;
     animation-delay: var(--d, 0s);
-  }
-  .hero-ink {
-    animation: underline-in 1.2s var(--ease-out-soft) 0.6s both;
   }
   .live-dot {
     animation: live 1.6s ease-in-out infinite;

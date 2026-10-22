@@ -102,13 +102,13 @@ function ToolCard({ cat, node, title, text, href, art }: (typeof tools)[number])
       {/* Ports: they swell toward the pointer when the card is hovered. */}
       <span aria-hidden="true" className="tool-port absolute top-5 -left-[5px]" style={{ background: c.hue }} />
       <span aria-hidden="true" className="tool-port absolute top-5 -right-[5px]" style={{ background: c.hue }} />
-      <div className="art-canvas aspect-[16/10] border-b border-[#efeff2]">{art}</div>
+      <div className="art-canvas mt-3 aspect-[16/10] rounded-[12px]">{art}</div>
       <div className="flex flex-1 flex-col p-5">
         <h3 className="text-[19px] font-semibold tracking-tight">{title}</h3>
         <p className="mt-2 flex-1 text-[15px] leading-relaxed text-gl-ink-2">{text}</p>
         <Link
           href={href}
-          className="mt-4 inline-flex items-center gap-1 self-start rounded-md text-[15px] font-medium text-gl-blue-strong after:absolute after:inset-0 after:rounded-[16px] hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gl-blue"
+          className="mt-4 inline-flex items-center gap-1 self-start rounded-md text-[15px] font-medium text-gl-blue-soft after:absolute after:inset-0 after:rounded-[16px] hover:underline hover:underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gl-blue"
         >
           Learn more<span className="sr-only"> about {node.toLowerCase()}</span>
           <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5 transition-transform duration-500 ease-spring group-hover:translate-x-1" fill="none">

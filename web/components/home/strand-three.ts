@@ -2,8 +2,10 @@
 /*
  * The landing page's 3D viewport: a scalp mesh and its strands, drawn with three.js. Data-driven:
  * it takes StrandData and a RootMesh from whatever makes them (the procedural groom today, the WASM
- * engine later) and only draws. Strands are GL lines shaded as hair (Kajiya-Kay highlights, the
- * hair volume's own shadow, darker roots); the scalp is soft studio lit. A slow turntable, drag to
+ * engine later) and only draws. It is lit for a dark page, as a studio would light hair: a warm
+ * key from the upper left, a cool rim from behind, little fill. Strands are GL lines shaded as hair
+ * (Kajiya-Kay's two shifted highlights with a glint per strand, light through the hair at the
+ * silhouette, the hair volume's own shadow and occlusion, darker roots); the head is clay. A slow turntable, drag to
  * orbit (touch drags turn it sideways only, so the page still scrolls), and it only renders while
  * on screen.
  */
@@ -25,6 +27,7 @@ import {
   Scene,
   ShaderMaterial,
   SRGBColorSpace,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three';
@@ -41,6 +44,8 @@ export interface ViewerOptions {
   pitch?: number;
   /** How much of the view the groom fills (1 = its bounding sphere touches the edges). */
   fill?: number;
+  /** Where the turntable starts, radians (0 faces the camera). */
+  yaw?: number;
   /** Called before each frame with seconds since start, for a source that changes over time. */
   onFrame?: (time: number) => void;
 }
@@ -73,6 +78,8 @@ varying vec3 vT;
 varying vec3 vN;
 varying vec3 vP;
 varying float vS;
+varying float vR;
+varying float vRand;
 void main() {
   vec3 p = position;
   float s = meta.x;
@@ -83,21 +90,34 @@ void main() {
   vP = mv.xyz;
   vColor = hairColor;
   vS = s;
+  vR = length(p - uCenter);
+  vRand = fract(sin(meta.y * 12.9898) * 43758.5453);
   gl_Position = projectionMatrix * mv;
 }
 `;
 
 const hairFragment = /* glsl */ `
 uniform vec3 uKey;
+uniform vec3 uRim;
 uniform vec3 uFill;
+uniform vec3 uKeyColor;
+uniform vec3 uRimColor;
+uniform vec3 uAmbient;
+uniform vec2 uDepth;
 uniform float uGrow;
 varying vec3 vColor;
 varying vec3 vT;
 varying vec3 vN;
 varying vec3 vP;
 varying float vS;
+varying float vR;
+varying float vRand;
 vec3 toLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+}
+float sinAngle(vec3 t, vec3 h) {
+  float c = dot(t, h);
+  return sqrt(max(0.0, 1.0 - c * c));
 }
 void main() {
   if (vS > uGrow) discard;
@@ -105,21 +125,31 @@ void main() {
   vec3 T = normalize(vT);
   vec3 N = normalize(vN);
   vec3 V = normalize(-vP);
-  // The hair volume shades itself: strands on the far side of the key light sit in shadow.
-  float lit = smoothstep(-0.3, 0.7, dot(N, uKey));
-  float TL = dot(T, uKey);
-  float diffuse = sqrt(max(0.0, 1.0 - TL * TL));
+  // How deep in the hair volume this point is (0 at the scalp, 1 on the outside), and the roots.
+  float outer = smoothstep(uDepth.x, uDepth.y, vR);
+  float ao = mix(0.28, 1.0, outer) * mix(0.4, 1.0, smoothstep(0.0, 0.3, vS));
+  // The volume shades itself: the far side from the key sits in the hair's own shadow.
+  float keyVis = smoothstep(-0.25, 0.65, dot(N, uKey)) * mix(0.55, 1.0, outer);
+  float diffuse = sinAngle(T, uKey);
+  // Two highlights along the tangent, shifted toward the root and the tip: a white glint and a
+  // wider one in the hair's own color. Each strand glints a little differently.
   vec3 H = normalize(uKey + V);
-  float TH = dot(T, H);
-  float sinTH = sqrt(max(0.0, 1.0 - TH * TH));
-  float spec = pow(sinTH, 140.0) * 0.28 + pow(sinTH, 22.0) * 0.18;
+  float shift = (vRand - 0.5) * 0.24;
+  float s1 = pow(sinAngle(normalize(T + N * (0.1 + shift)), H), 220.0);
+  float s2 = pow(sinAngle(normalize(T - N * (0.14 - shift)), H), 36.0);
+  float glint = 0.55 + 0.9 * vRand * vRand;
+  vec3 spec = vec3(1.0, 0.94, 0.86) * s1 * 0.5 * glint + base * s2 * 0.8;
+  // The cool rim: light from behind through the hair's edge.
+  float edge = pow(1.0 - abs(dot(N, V)), 2.2);
+  float rimVis = smoothstep(-0.35, 0.5, dot(N, uRim));
+  float rimSpec = pow(sinAngle(T, normalize(uRim + V)), 30.0);
+  vec3 rim = uRimColor * rimVis * (edge * (base * 2.2 + 0.05) + rimSpec * 0.18) * mix(0.3, 1.0, outer);
   float fill = 0.5 + 0.5 * dot(N, uFill);
-  float ao = mix(0.5, 1.0, smoothstep(0.0, 0.5, vS));
-  float sky = 0.62 + 0.38 * N.y;
-  vec3 col = base * ao * (0.42 * sky + 0.2 * fill + 0.95 * diffuse * lit);
-  col += mix(vec3(1.0), base * 2.2, 0.45) * spec * lit * ao;
-  float rim = pow(1.0 - abs(dot(N, V)), 3.0);
-  col += base * rim * 0.35;
+  vec3 col = base * (uAmbient * (0.6 + 0.4 * fill) * ao + uKeyColor * diffuse * keyVis * ao)
+    + uKeyColor * spec * keyVis * ao
+    + rim;
+  // A soft shoulder, so the glints roll off instead of clipping.
+  col = col / (1.0 + 0.18 * col);
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
 }
@@ -165,18 +195,26 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
   scene.add(group);
   overlay.add(overlayGroup);
 
-  // Soft studio light: a sky/ground fill and a key from the upper left, front.
-  scene.add(new HemisphereLight(0xffffff, 0xbab3ad, 1.9));
-  const keyDir = new Vector3(-2.2, 3.4, 3.2).normalize();
-  const key = new DirectionalLight(0xffffff, 1.7);
+  // A dark studio: a warm key from the upper left, a cool rim from behind on the right, a little
+  // cool fill and a dim sky. The hair's shader reads the same lights.
+  const keyColor = new Color(1, 0.82, 0.64).multiplyScalar(1.6);
+  const rimColor = new Color(0.6, 0.74, 1).multiplyScalar(0.9);
+  const ambient = new Color(0.12, 0.13, 0.16);
+  scene.add(new HemisphereLight(0x9aa8c0, 0x1c1714, 0.9));
+  const keyDir = new Vector3(-2.4, 2.8, 2.6).normalize();
+  const key = new DirectionalLight(0xffdcbc, 2.4);
   key.position.copy(keyDir);
   scene.add(key);
-  const fillDir = new Vector3(3, 0.5, 1.5).normalize();
-  const fillLight = new DirectionalLight(0xfff4ea, 0.45);
+  const rimDir = new Vector3(2.4, 1.8, -2.8).normalize();
+  const rimLight = new DirectionalLight(0x9cc0ff, 2.6);
+  rimLight.position.copy(rimDir);
+  scene.add(rimLight);
+  const fillDir = new Vector3(3, 0.3, 1.8).normalize();
+  const fillLight = new DirectionalLight(0xc8d4ff, 0.35);
   fillLight.position.copy(fillDir);
   scene.add(fillLight);
 
-  const scalpMaterial = new MeshLambertMaterial({ color: new Color('#dcd6d0') });
+  const scalpMaterial = new MeshLambertMaterial({ color: new Color('#9a9692') });
   let scalpColorKey = '';
   const depthMaterial = new MeshBasicMaterial({ colorWrite: false });
   let scalpGeometry: BufferGeometry | null = null;
@@ -194,7 +232,12 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
       uGrow: { value: 1 },
       uCenter: { value: new Vector3() },
       uKey: { value: new Vector3() },
+      uRim: { value: new Vector3() },
       uFill: { value: new Vector3() },
+      uKeyColor: { value: keyColor },
+      uRimColor: { value: rimColor },
+      uAmbient: { value: ambient },
+      uDepth: { value: new Vector2(0.9, 1.6) },
     },
   });
   let hairGeometry = new BufferGeometry();
@@ -206,11 +249,11 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
   let layout = new Uint32Array(0);
   let layoutCount = -1;
 
-  const guideLineMaterial = new LineBasicMaterial({ color: new Color('#3a5ea3') });
+  const guideLineMaterial = new LineBasicMaterial({ color: new Color('#6aa3ff') });
   const dotMaterial = new ShaderMaterial({
     vertexShader: dotVertex,
     fragmentShader: dotFragment,
-    uniforms: { uSize: { value: 6 }, uRing: { value: new Color('#3a5ea3') } },
+    uniforms: { uSize: { value: 6 }, uRing: { value: new Color('#2f7bf6') } },
   });
   let guideLines: LineSegments | null = null;
   let guideDots: Points | null = null;
@@ -220,7 +263,7 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
   let framed = false;
   let width = 1;
   let height = 1;
-  let yaw = -0.5;
+  let yaw = opts.yaw ?? -0.5;
   let pitch = opts.pitch ?? 0.32;
   let yawVelocity = 0;
   let spinFactor = 1;
@@ -278,7 +321,7 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
       if (key !== scalpColorKey) {
         scalpColorKey = key;
         scalpMaterial.vertexColors = !!mesh.colors;
-        scalpMaterial.color.set(mesh.colors ? '#ffffff' : '#dcd6d0');
+        scalpMaterial.color.set(mesh.colors ? '#ffffff' : '#9a9692');
         scalpMaterial.needsUpdate = true;
       }
       g.setIndex(new BufferAttribute(mesh.indices, 1));
@@ -324,6 +367,7 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
       touch('position', points);
       touch('tang', points);
       touch('meta', points);
+      depthRange(data);
 
       // The segment index, only when the strands' layout changed.
       let same = layoutCount === n;
@@ -448,6 +492,25 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
     },
   };
 
+  /**
+   * The hair volume's depth for its occlusion: from about where the roots sit to the outermost
+   * points, measured from the center the camera turns around.
+   */
+  function depthRange(data: StrandData) {
+    const n = data.count;
+    const p = data.positions;
+    let roots = 0;
+    let far = 0;
+    for (let i = 0; i < n; i++) {
+      const a = data.offsets[i] * 3;
+      roots += Math.hypot(p[a] - center.x, p[a + 1] - center.y, p[a + 2] - center.z);
+      const b = (data.offsets[i + 1] - 1) * 3;
+      far = Math.max(far, Math.hypot(p[b] - center.x, p[b + 1] - center.y, p[b + 2] - center.z));
+    }
+    const inner = n ? roots / n : 0.9;
+    hairMaterial.uniforms.uDepth.value.set(inner, Math.max(inner + 0.05, inner + (far - inner) * 0.8));
+  }
+
   /** Puts the camera where the groom's sphere fills the view, at the current elevation. */
   function frame() {
     camera.aspect = width / height;
@@ -486,6 +549,7 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
     u.uSway.value = still ? 0 : (opts.sway ?? 0.6);
     u.uKey.value.copy(view.copy(keyDir).transformDirection(camera.matrixWorldInverse));
     u.uFill.value.copy(view.copy(fillDir).transformDirection(camera.matrixWorldInverse));
+    u.uRim.value.copy(view.copy(rimDir).transformDirection(camera.matrixWorldInverse));
     let growing = false;
     if (growStart >= 0) {
       const k = Math.min(1, (now - growStart) / growLength);

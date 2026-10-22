@@ -3,19 +3,17 @@
  * The landing page's groom in 3D, the same little graph as strand-engine.ts with the same params:
  * Scatter puts roots on a head's scalp, Interpolate grows each strand from the three guides nearest
  * it, then Clump, Curl and Noise displace it, in that order, and HairColor colors it root to tip.
- * It writes StrandData, so the viewer never knows (or cares) that the source is procedural.
+ * The head is a HeadShape (head-mesh.ts): the Manny sample head once it has loaded. It writes
+ * StrandData, so the viewer never knows (or cares) that the source is procedural.
  */
+import { ellipsoidHead, headRootMesh, type HeadShape } from './head-mesh';
 import { hairShadeRGB, type StrandParams } from './strand-engine';
 import type { RootMesh, StrandData } from './strand-data';
 
-/** The head: an ellipsoid with these radii (x across, y up, z forward). */
-const HX = 0.84;
-const HY = 1;
-const HZ = 0.98;
-export const MAX_STRANDS = 5000;
-const MAX_POINTS = 48;
-const GUIDES = 40;
-const MAX_CLUMPS = 120;
+export const MAX_STRANDS = 24000;
+const MAX_POINTS = 64;
+const GUIDES = 48;
+const MAX_CLUMPS = 480;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 
 /** A stable random number in [0, 1) for (a, b). */
@@ -29,26 +27,38 @@ function hash(a: number, b: number) {
   return (h >>> 0) / 4294967296;
 }
 
-/** The hairline: the front sits higher than the sides, the nape lower. */
-const inCap = (x: number, y: number, z: number) => y > 0.06 + (z > 0 ? 0.46 : 0.5) * z;
+/**
+ * How far inside the hairline direction (x, y, z) from the cranium's center is: above 0 on the
+ * scalp. The front sits higher than the sides, the nape lower; `drop` lowers it all (a big head of
+ * curls grows from further down the forehead and the nape).
+ */
+const hairline = (x: number, y: number, z: number, drop = 0) =>
+  y + drop - (z > 0 ? -0.07 + 0.5 * z : -0.02 + 0.62 * z) + 0.05 * Math.abs(x) * (z > 0 ? 1 : 0);
 
-const CAP_SHARE = (() => {
-  const N = 20000;
-  let k = 0;
-  for (let i = 0; i < N; i++) {
-    const y = 1 - (2 * (i + 0.5)) / N;
-    const r = Math.sqrt(1 - y * y);
-    if (inCap(r * Math.cos(i * GOLDEN), y, r * Math.sin(i * GOLDEN))) k++;
+/** The share of all directions that are on the scalp, per drop. */
+const capShares = new Map<number, number>();
+function capShare(drop: number) {
+  let share = capShares.get(drop);
+  if (share === undefined) {
+    const N = 20000;
+    let k = 0;
+    for (let i = 0; i < N; i++) {
+      const y = 1 - (2 * (i + 0.5)) / N;
+      const r = Math.sqrt(1 - y * y);
+      if (hairline(r * Math.cos(i * GOLDEN), y, r * Math.sin(i * GOLDEN), drop) > 0) k++;
+    }
+    share = k / N;
+    capShares.set(drop, share);
   }
-  return k / N;
-})();
+  return share;
+}
 
 /**
  * About `target` evenly spread directions on the scalp (a Fibonacci lattice, turned by the seed and
  * jittered by up to `jitter` of its spacing) into `out` as xyz. Returns how many it wrote.
  */
-function capLattice(target: number, seed: number, salt: number, jitter: number, out: Float32Array, max: number) {
-  const N = Math.max(8, Math.round(target / CAP_SHARE));
+function capLattice(target: number, seed: number, salt: number, jitter: number, drop: number, out: Float32Array, max: number) {
+  const N = Math.max(8, Math.round(target / capShare(drop)));
   const turn = hash(seed, salt) * Math.PI * 2;
   const spacing = Math.sqrt((4 * Math.PI) / N);
   let k = 0;
@@ -69,87 +79,13 @@ function capLattice(target: number, seed: number, salt: number, jitter: number, 
       y /= l;
       z /= l;
     }
-    if (!inCap(x, y, z)) continue;
+    if (hairline(x, y, z, drop) <= 0) continue;
     out[k * 3] = x;
     out[k * 3 + 1] = y;
     out[k * 3 + 2] = z;
     k++;
   }
   return k;
-}
-
-/** Pushes the point at out[o..o+2] out of the head, to `shell` times its radius. */
-function pushOut(out: Float32Array, o: number, shell: number) {
-  const qx = out[o] / HX;
-  const qy = out[o + 1] / HY;
-  const qz = out[o + 2] / HZ;
-  const q = Math.sqrt(qx * qx + qy * qy + qz * qz);
-  if (q >= shell || q === 0) return;
-  const k = shell / q;
-  out[o] *= k;
-  out[o + 1] *= k;
-  out[o + 2] *= k;
-}
-
-/** The scalp's outward normal under point (x, y, z), into n. */
-function normalAt(x: number, y: number, z: number, n: number[]) {
-  const nx = x / (HX * HX);
-  const ny = y / (HY * HY);
-  const nz = z / (HZ * HZ);
-  const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  n[0] = nx / l;
-  n[1] = ny / l;
-  n[2] = nz / l;
-}
-
-/**
- * Grows a guide from scalp direction (dx, dy, dz): it leaves the scalp at an angle, then lies down,
- * combed back and down with gravity, never into the head.
- */
-function growGuide(dx: number, dy: number, dz: number, L: number, droop: number, P: number, out: Float32Array, o: number) {
-  let x = dx * HX;
-  let y = dy * HY;
-  let z = dz * HZ;
-  out[o] = x;
-  out[o + 1] = y;
-  out[o + 2] = z;
-  const seg = L / (P - 1);
-  const n = [0, 0, 0];
-  for (let j = 1; j < P; j++) {
-    const s = (j - 0.5) / (P - 1);
-    normalAt(x, y, z, n);
-    // Combed back from the hairline and out over the sides, along the scalp.
-    let fx = (x / HX) * 0.7;
-    let fy = -0.35;
-    let fz = -1;
-    let d = fx * n[0] + fy * n[1] + fz * n[2];
-    fx -= n[0] * d;
-    fy -= n[1] * d;
-    fz -= n[2] * d;
-    const fl = Math.hypot(fx, fy, fz) || 1;
-    // Down, along the scalp.
-    d = -n[1];
-    const gx = -n[0] * d;
-    const gy = -1 - n[1] * d;
-    const gz = -n[2] * d;
-    const lift = 1.15 * (1 - s) * (1 - s) + 0.06;
-    const g = (0.25 + 0.75 * s) * droop;
-    let vx = n[0] * lift + (fx / fl) * 0.9 + gx * g;
-    let vy = n[1] * lift + (fy / fl) * 0.9 + gy * g;
-    let vz = n[2] * lift + (fz / fl) * 0.9 + gz * g;
-    const vl = Math.hypot(vx, vy, vz) || 1;
-    vx /= vl;
-    vy /= vl;
-    vz /= vl;
-    const p = o + j * 3;
-    out[p] = x + vx * seg;
-    out[p + 1] = y + vy * seg;
-    out[p + 2] = z + vz * seg;
-    pushOut(out, p, 1.035);
-    x = out[p];
-    y = out[p + 1];
-    z = out[p + 2];
-  }
 }
 
 const graphite = [
@@ -169,9 +105,11 @@ export interface GroomStats {
 }
 
 export class ProceduralGroom {
-  private positions = new Float32Array(MAX_STRANDS * MAX_POINTS * 3);
-  private colors = new Float32Array(MAX_STRANDS * MAX_POINTS * 3);
+  private head: HeadShape = ellipsoidHead();
+  private positions = new Float32Array(0);
+  private colors = new Float32Array(0);
   private offsets = new Uint32Array(MAX_STRANDS + 1);
+  /** Root directions from the cranium's center (unit). */
   private roots = new Float32Array(MAX_STRANDS * 3);
   private n = 0;
   private P = 0;
@@ -185,57 +123,63 @@ export class ProceduralGroom {
   private cRoots = new Float32Array(MAX_CLUMPS * 3);
   private cCount = 0;
   private cPos = new Float32Array(MAX_CLUMPS * MAX_POINTS * 3);
-  private clumpOf = new Uint8Array(MAX_STRANDS);
+  private clumpOf = new Uint16Array(MAX_STRANDS);
   private rootsKey = '';
   private guidesKey = '';
   private clumpsKey = '';
   private colorKey = '';
+  /** How far the hairline is lowered (from the last build's volume). */
+  private drop = 0;
+
+  /** Grows on this head from the next build on. */
+  setHead(head: HeadShape) {
+    this.head = head;
+    this.rootsKey = '';
+    this.colorKey = '';
+  }
+
+  /** The point on the skin in direction (x, y, z), into out at o. */
+  private skin(x: number, y: number, z: number, out: Float32Array, o: number, lift = 1) {
+    const r = this.head.radius(x, y, z) * lift;
+    out[o] = x * r;
+    out[o + 1] = y * r;
+    out[o + 2] = z * r;
+  }
+
+  /** Pushes the point at out[o..o+2] out of the head, to `shell` times its radius. */
+  private pushOut(out: Float32Array, o: number, shell: number) {
+    const x = out[o];
+    const y = out[o + 1];
+    const z = out[o + 2];
+    const l = Math.sqrt(x * x + y * y + z * z);
+    if (l === 0) return;
+    const R = this.head.radius(x / l, y / l, z / l) * shell;
+    if (l >= R) return;
+    const k = R / l;
+    out[o] *= k;
+    out[o + 1] *= k;
+    out[o + 2] *= k;
+  }
 
   /**
-   * The scalp: the head's ellipsoid, painted under the hair with its root color (as a groom's scalp
-   * texture would be), so the hair reads full without tens of thousands of strands.
+   * The scalp: the head painted under the hair with its root color (as a groom's scalp texture
+   * would be), so the hair reads full without hundreds of thousands of strands. `skin` is the
+   * head's own color (sRGB 0 to 1).
    */
-  scalp(p: StrandParams): RootMesh {
-    const W = 64;
-    const H = 40;
-    const positions = new Float32Array((W + 1) * (H + 1) * 3);
-    const normals = new Float32Array(positions.length);
-    const colors = new Float32Array(positions.length);
-    const skin = [0.86, 0.84, 0.82];
+  scalp(p: StrandParams, skin: number[] = [0.7, 0.68, 0.66]): RootMesh {
     const root =
       p.color === 'mark'
         ? [0.55, 0.5, 0.52]
         : p.color
-          ? hairShadeRGB(p.color)[2][0].map((v) => (v / 255) * 0.8)
+          ? hairShadeRGB(p.color)[2][0].map((v) => (v / 255) * 0.7)
           : graphite[0];
-    const n = [0, 0, 0];
-    for (let r = 0, v = 0; r <= H; r++) {
-      const th = (r / H) * Math.PI;
-      for (let c = 0; c <= W; c++, v++) {
-        const ph = (c / W) * Math.PI * 2;
-        const x = Math.sin(th) * Math.sin(ph) * HX;
-        const y = Math.cos(th) * HY;
-        const z = Math.sin(th) * Math.cos(ph) * HZ;
-        positions.set([x, y, z], v * 3);
-        normalAt(x, y, z, n);
-        normals.set(n, v * 3);
-        // How far inside the hairline this vertex is, eased over a short band.
-        const dy = y / HY;
-        const dz = z / HZ;
-        const e = Math.max(0, Math.min(1, (dy - (0.06 + (dz > 0 ? 0.46 : 0.5) * dz) + 0.07) / 0.16));
-        const k = e * e * (3 - 2 * e);
-        for (let i = 0; i < 3; i++) colors[v * 3 + i] = skin[i] + (root[i] - skin[i]) * k;
-      }
-    }
-    const indices = new Uint32Array(W * H * 6);
-    for (let r = 0, i = 0; r < H; r++)
-      for (let c = 0; c < W; c++) {
-        const a = r * (W + 1) + c;
-        const b = a + W + 1;
-        indices.set([a, b, a + 1, b, b + 1, a + 1], i);
-        i += 6;
-      }
-    return { positions, normals, indices, colors };
+    return headRootMesh(this.head, (x, y, z, out) => {
+      const l = Math.hypot(x, y, z) || 1;
+      // How far inside the hairline this vertex is, eased over a short band.
+      const e = Math.max(0, Math.min(1, (hairline(x / l, y / l, z / l, this.drop) + 0.06) / 0.14));
+      const k = e * e * (3 - 2 * e);
+      for (let i = 0; i < 3; i++) out[i] = skin[i] + (root[i] - skin[i]) * k;
+    });
   }
 
   stats(): GroomStats {
@@ -244,7 +188,11 @@ export class ProceduralGroom {
 
   /** Points per strand for these params: enough to draw the curl's turns smoothly. */
   private points(p: StrandParams) {
-    return p.curl > 0 ? Math.max(20, Math.min(MAX_POINTS, Math.round(14 + p.curlFrequency * 4.5))) : 20;
+    const L = p.length ?? 1;
+    const base = Math.round(16 + 6 * L);
+    // About a dozen points a turn, so a curl reads as a spiral, not a zigzag.
+    const turns = p.curlFrequency * Math.max(1, L);
+    return p.curl > 0 ? Math.max(base, Math.min(MAX_POINTS, Math.round(10 + turns * 12))) : Math.min(MAX_POINTS, base);
   }
 
   /** The guides, as StrandData (for the viewer to draw when they are shown). */
@@ -257,25 +205,32 @@ export class ProceduralGroom {
     const seed = p.seed | 0;
     const P = this.points(p);
     const n = Math.max(1, Math.min(MAX_STRANDS, Math.round(count)));
+    if (this.positions.length < n * P * 3) {
+      this.positions = new Float32Array(n * P * 3);
+      this.colors = new Float32Array(n * P * 3);
+      this.colorKey = '';
+    }
 
-    const rk = `${seed}:${n}`;
+    const volume = p.volume ?? 0;
+    const rk = `${seed}:${n}:${volume}`;
     if (rk !== this.rootsKey) {
       this.rootsKey = rk;
-      this.n = capLattice(n, seed, 11, 0.85, this.roots, MAX_STRANDS);
+      this.drop = 0.16 * volume;
+      this.n = capLattice(n, seed, 11, 0.85, this.drop, this.roots, MAX_STRANDS);
       this.guidesKey = '';
       this.clumpsKey = '';
       this.colorKey = '';
     }
-    const gk = `${seed}:${P}`;
+    const gk = `${seed}:${P}:${volume}`;
     if (gk !== this.guidesKey) {
       this.guidesKey = gk;
       this.P = P;
-      this.makeGuides(seed, P);
+      this.makeGuides(seed, P, volume);
       this.clumpsKey = '';
       this.colorKey = '';
     }
     const K = Math.max(2, Math.min(MAX_CLUMPS, Math.round(p.clumpCount * 3)));
-    const ck = `${seed}:${K}:${P}`;
+    const ck = `${gk}:${K}`;
     if (ck !== this.clumpsKey) {
       this.clumpsKey = ck;
       this.makeClumps(seed, K, P);
@@ -308,25 +263,79 @@ export class ProceduralGroom {
         continue;
       }
       const [root, tip] = shades[Math.floor(hash(i, 5) * 4)];
+      // A little lightness per strand, so neighbors never read as one flat color.
+      const v = 0.9 + 0.2 * hash(i, 9);
       for (let j = 0; j < P; j++) {
         const s = j / (P - 1);
         const t = s * s * (3 - 2 * s);
         const q = o + j * 3;
-        colors[q] = root[0] + (tip[0] - root[0]) * t;
-        colors[q + 1] = root[1] + (tip[1] - root[1]) * t;
-        colors[q + 2] = root[2] + (tip[2] - root[2]) * t;
+        colors[q] = (root[0] + (tip[0] - root[0]) * t) * v;
+        colors[q + 1] = (root[1] + (tip[1] - root[1]) * t) * v;
+        colors[q + 2] = (root[2] + (tip[2] - root[2]) * t) * v;
       }
     }
     return colors;
   }
 
-  private makeGuides(seed: number, P: number) {
-    this.gCount = capLattice(GUIDES, seed, 23, 0.3, this.gRoots, GUIDES);
+  /**
+   * Grows a guide from scalp direction (dx, dy, dz): it leaves the scalp at an angle, then lies
+   * down, combed back and down with gravity, never into the head. With `volume` it stands off the
+   * head instead, out and up, for a big head of curls.
+   */
+  private growGuide(dx: number, dy: number, dz: number, L: number, droop: number, volume: number, P: number, out: Float32Array, o: number) {
+    this.skin(dx, dy, dz, out, o);
+    let x = out[o];
+    let y = out[o + 1];
+    let z = out[o + 2];
+    const seg = L / (P - 1);
+    for (let j = 1; j < P; j++) {
+      const s = (j - 0.5) / (P - 1);
+      const l = Math.hypot(x, y, z) || 1;
+      const nx = x / l;
+      const ny = y / l;
+      const nz = z / l;
+      // Combed back from the hairline and out over the sides, along the scalp.
+      let fx = nx * 0.7;
+      let fy = -0.35;
+      let fz = -1;
+      let d = fx * nx + fy * ny + fz * nz;
+      fx -= nx * d;
+      fy -= ny * d;
+      fz -= nz * d;
+      const fl = Math.hypot(fx, fy, fz) || 1;
+      // Down, along the scalp.
+      d = -ny;
+      const gx = -nx * d;
+      const gy = -1 - ny * d;
+      const gz = -nz * d;
+      const lift = (1.15 * (1 - s) * (1 - s) + 0.06) * (1 - volume) + (1.1 - 0.5 * s) * volume;
+      const comb = 0.9 * (1 - 0.75 * volume);
+      const g = (0.25 + 0.75 * s) * droop * (1 - 0.7 * volume);
+      let vx = nx * lift + (fx / fl) * comb + gx * g;
+      let vy = ny * lift + (fy / fl) * comb + gy * g + 0.25 * volume * (1 - s);
+      let vz = nz * lift + (fz / fl) * comb + gz * g;
+      const vl = Math.hypot(vx, vy, vz) || 1;
+      vx /= vl;
+      vy /= vl;
+      vz /= vl;
+      const p = o + j * 3;
+      out[p] = x + vx * seg;
+      out[p + 1] = y + vy * seg;
+      out[p + 2] = z + vz * seg;
+      this.pushOut(out, p, 1.035);
+      x = out[p];
+      y = out[p + 1];
+      z = out[p + 2];
+    }
+  }
+
+  private makeGuides(seed: number, P: number, volume: number) {
+    this.gCount = capLattice(GUIDES, seed, 23, 0.3, this.drop, this.gRoots, GUIDES);
     const R = this.gRoots;
     for (let g = 0; g < this.gCount; g++) {
-      const L = 0.56 * (0.88 + 0.24 * hash(g, seed + 31));
+      const L = 0.62 * (0.88 + 0.24 * hash(g, seed + 31));
       const droop = 0.8 + 0.4 * hash(g, seed + 37);
-      growGuide(R[g * 3], R[g * 3 + 1], R[g * 3 + 2], L, droop, P, this.gPos, g * P * 3);
+      this.growGuide(R[g * 3], R[g * 3 + 1], R[g * 3 + 2], L, droop, volume, P, this.gPos, g * P * 3);
       this.gOffsets[g] = g * P;
     }
     this.gOffsets[this.gCount] = this.gCount * P;
@@ -363,13 +372,14 @@ export class ProceduralGroom {
 
   /**
    * Interpolates a strand at scalp direction (x, y, z) from guides a, b, c with weights into out at
-   * o: the root on the scalp plus the guides' blended shapes, scaled by `len`.
+   * o: the root on the skin plus the guides' blended shapes, scaled by `len`.
    */
   private interpolate(x: number, y: number, z: number, a: number, b: number, c: number, wa: number, wb: number, wc: number, len: number, out: Float32Array, o: number) {
     const { P, gPos } = this;
-    const rx = x * HX;
-    const ry = y * HY;
-    const rz = z * HZ;
+    this.skin(x, y, z, out, o);
+    const rx = out[o];
+    const ry = out[o + 1];
+    const rz = out[o + 2];
     const ga = a * P * 3;
     const gb = b * P * 3;
     const gc = c * P * 3;
@@ -384,14 +394,14 @@ export class ProceduralGroom {
   }
 
   private makeClumps(seed: number, K: number, P: number) {
-    this.cCount = capLattice(K, seed, 41, 0.6, this.cRoots, MAX_CLUMPS);
+    this.cCount = capLattice(K, seed, 41, 0.6, this.drop, this.cRoots, MAX_CLUMPS);
     const C = this.cRoots;
     const R = this.gRoots;
     for (let k = 0; k < this.cCount; k++) {
       const x = C[k * 3];
       const y = C[k * 3 + 1];
       const z = C[k * 3 + 2];
-      // A clump center is a strand of its own, grown from the nearest guide's neighbors.
+      // A clump center is a strand of its own, grown from its nearest guide.
       let best = 0;
       let bd = 9;
       for (let g = 0; g < this.gCount; g++) {
@@ -420,17 +430,19 @@ export class ProceduralGroom {
 
   private grow(p: StrandParams, seed: number) {
     const { n, P, roots, near, weight, positions: out, cPos, clumpOf, offsets } = this;
-    const curlR = p.curl * 0.07;
+    const curlR = p.curl * 0.12;
     const noiseA = p.noise * 0.055;
+    const length = p.length ?? 1;
+    const volume = p.volume ?? 0;
     // Per point along the strand: the clump pull, the curl's ramp and turn, the noise's waves.
-    const T = this.tables(P, p.curlFrequency);
+    const T = this.tables(P, p.curlFrequency * Math.max(1, length));
     for (let i = 0; i < n; i++) {
       const o = i * P * 3;
       offsets[i] = i * P;
       const x = roots[i * 3];
       const y = roots[i * 3 + 1];
       const z = roots[i * 3 + 2];
-      const len = 0.86 + 0.28 * hash(i, seed + 3);
+      const len = (0.86 + 0.28 * hash(i, seed + 3)) * length;
       this.interpolate(x, y, z, near[i * 3], near[i * 3 + 1], near[i * 3 + 2], weight[i * 3], weight[i * 3 + 1], weight[i * 3 + 2], len, out, o);
       const k = clumpOf[i];
       const c = k * P * 3;
@@ -438,6 +450,8 @@ export class ProceduralGroom {
       const ph = p.clump > 0 ? hash(k, seed + 13) * Math.PI * 2 + phase * 0.12 : phase;
       const cph = Math.cos(ph);
       const sph = Math.sin(ph);
+      // Each strand's curl is a little wider or tighter than its neighbors'.
+      const curlK = 0.8 + 0.4 * hash(i, seed + 47);
       const n1 = hash(i, seed + 17) * 6.283;
       const n2 = hash(i, seed + 19) * 6.283;
       const n3 = hash(i, seed + 23) * 6.283;
@@ -447,7 +461,7 @@ export class ProceduralGroom {
       const c3 = Math.cos(n3), s3 = Math.sin(n3);
       const c4 = Math.cos(n4), s4 = Math.sin(n4);
       // Each strand keeps its own height over the scalp, so the hair has some volume.
-      const shell = 1.012 + 0.07 * hash(i, seed + 43);
+      const shell = 1.012 + (0.07 + 0.25 * volume) * hash(i, seed + 43);
       let px = out[o];
       let py = out[o + 1];
       let pz = out[o + 2];
@@ -459,9 +473,10 @@ export class ProceduralGroom {
         // Clump: pull toward the clump's center strand, more toward the tip.
         if (p.clump > 0) {
           const t = p.clump * T.pull[j];
-          bx += (cPos[c + j * 3] - bx) * t;
-          by += (cPos[c + j * 3 + 1] - by) * t;
-          bz += (cPos[c + j * 3 + 2] - bz) * t;
+          // The clump's center strand, at this groom's length.
+          bx += (cPos[c] + (cPos[c + j * 3] - cPos[c]) * length - bx) * t;
+          by += (cPos[c + 1] + (cPos[c + j * 3 + 1] - cPos[c + 1]) * length - by) * t;
+          bz += (cPos[c + 2] + (cPos[c + j * 3 + 2] - cPos[c + 2]) * length - bz) * t;
         }
         // The strand's frame here: along it, off the scalp, and across.
         let tx = bx - px;
@@ -474,9 +489,10 @@ export class ProceduralGroom {
         px = bx;
         py = by;
         pz = bz;
-        let nx = bx / (HX * HX);
-        let ny = by / (HY * HY);
-        let nz = bz / (HZ * HZ);
+        const bl = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+        let nx = bx / bl;
+        let ny = by / bl;
+        let nz = bz / bl;
         const d = nx * tx + ny * ty + nz * tz;
         nx -= tx * d;
         ny -= ty * d;
@@ -492,7 +508,7 @@ export class ProceduralGroom {
         let b = 0;
         // Curl: a helix around the strand.
         if (curlR > 0) {
-          const r = curlR * T.ramp[j];
+          const r = curlR * curlK * T.ramp[j];
           a += r * (T.cf[j] * cph - T.sf[j] * sph);
           b += r * (T.sf[j] * cph + T.cf[j] * sph);
         }
@@ -505,7 +521,7 @@ export class ProceduralGroom {
         out[q] = bx + nx * a + vx * b;
         out[q + 1] = by + ny * a + vy * b;
         out[q + 2] = bz + nz * a + vz * b;
-        pushOut(out, q, shell * (0.985 + 0.015 * T.s[j]));
+        this.pushOut(out, q, shell * (0.985 + 0.015 * T.s[j]));
       }
     }
     offsets[n] = n * P;

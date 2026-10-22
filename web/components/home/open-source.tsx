@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { CSSProperties } from 'react';
 import { Reveal } from '@/components/reveal';
-import { pill } from '@/components/store-buttons';
+import { button } from '@/components/store-buttons';
 import { TextLink } from '@/components/text-link';
 import { cn } from '@/lib/cn';
 import { GitHubMark } from '@/components/github-mark';
@@ -105,7 +105,7 @@ export function OpenSource() {
               <code className="font-mono text-[0.9em] text-gl-ink">main</code>.
             </p>
             <div className="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-7">
-              <a href={siteConfig.repoUrl} className={cn(pill.base, pill.md, 'bg-gl-ink text-white hover:bg-black')}>
+              <a href={siteConfig.repoUrl} className={cn(button.base, button.md, 'bg-gl-ink text-gl-paper hover:bg-white')}>
                 <GitHubMark className="size-4" />
                 Source on GitHub
               </a>

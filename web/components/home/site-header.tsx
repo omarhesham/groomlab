@@ -1,53 +1,52 @@
 // SPDX-License-Identifier: Apache-2.0
 import Link from 'next/link';
-import { Logo } from '@/components/logo';
-import { pill } from '@/components/store-buttons';
-import { cn } from '@/lib/cn';
 import { GitHubMark } from '@/components/github-mark';
+import { Logo } from '@/components/logo';
+import { button } from '@/components/store-buttons';
+import { cn } from '@/lib/cn';
 import { siteConfig } from '@/site.config';
 
 const links = [
   { href: '/#features', label: 'Features', mobile: false },
+  { href: '/#try', label: 'Try it', mobile: false },
   { href: '/docs', label: 'Docs', mobile: true },
-  { href: siteConfig.repoUrl, label: 'GitHub', mobile: false },
 ];
 
-/** Frosted paper over the graph canvas, a hairline under it and a wire that grows as the page scrolls. */
+/** Smoked glass over the dark page, a hairline under it and a wire that grows as the page scrolls. */
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-black/[0.06] bg-white/80 text-gl-ink backdrop-blur-xl backdrop-saturate-[1.8]">
-      <nav aria-label="Main" className="wrap flex h-12 items-center justify-between gap-4">
-        <Link
-          href="/"
-          aria-label="GroomLab home"
-          className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gl-blue"
-        >
-          <Logo />
-        </Link>
-        <div className="flex items-center gap-1 sm:gap-3">
-          <ul className="flex items-center">
+    <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-[#0b0c0f]/80 text-gl-ink backdrop-blur-xl backdrop-saturate-[1.6]">
+      <nav aria-label="Main" className="wrap-wide flex h-16 items-center justify-between gap-4">
+        <div className="flex items-center gap-3 sm:gap-8 lg:gap-12">
+          <Link
+            href="/"
+            aria-label="GroomLab home"
+            className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gl-blue"
+          >
+            <Logo className="sm:[&>span:last-child]:text-[1.2rem]" />
+          </Link>
+          <ul className="flex items-center gap-1">
             {links.map((link) => (
-              <li key={link.href} className={link.mobile ? undefined : 'hidden sm:block'}>
-                {link.href.startsWith('/') ? (
-                  <Link
-                    href={link.href}
-                    className="rounded-full px-3 py-2 text-[13px] text-gl-ink/75 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue"
-                  >
-                    {link.label}
-                  </Link>
-                ) : (
-                  <a
-                    href={link.href}
-                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] text-gl-ink/75 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue"
-                  >
-                    {link.href === siteConfig.repoUrl && <GitHubMark className="size-3.5" />}
-                    {link.label}
-                  </a>
-                )}
+              <li key={link.href} className={link.mobile ? undefined : 'hidden md:block'}>
+                <Link
+                  href={link.href}
+                  className="rounded-lg px-3 py-2 text-[14.5px] text-gl-ink/80 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue"
+                >
+                  {link.label}
+                </Link>
               </li>
             ))}
           </ul>
-          <Link href="/download" className={cn(pill.base, pill.primary, 'h-8 px-4 text-[13px] shadow-none hover:shadow-none')}>
+        </div>
+        <div className="flex items-center gap-2 sm:gap-4">
+          <a
+            href={siteConfig.repoUrl}
+            className="hidden items-center gap-2 rounded-lg px-3 py-2 text-[14.5px] text-gl-ink/80 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue sm:inline-flex"
+          >
+            <GitHubMark className="size-4" />
+            GitHub
+          </a>
+          <Link href="/download" className={cn(button.base, button.primary, 'h-10 px-4 text-[14px] whitespace-nowrap shadow-none hover:shadow-none sm:px-5')}>
             Get GroomLab
           </Link>
         </div>

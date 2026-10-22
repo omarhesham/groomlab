@@ -1,58 +1,57 @@
 // SPDX-License-Identifier: Apache-2.0
+import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
-import { pill } from '@/components/store-buttons';
-import { TextLink } from '@/components/text-link';
+import { button } from '@/components/store-buttons';
 import { cn } from '@/lib/cn';
 import { siteConfig } from '@/site.config';
-import { HeroGraph } from './hero-graph';
+import { HeroViewer } from './hero-viewer';
 
 const delay = (s: number) => ({ '--d': `${s}s` }) as CSSProperties;
 
-/** The opening: the promise in words, the groom in 3D beneath it, and the graph that grows it. */
+/** The opening, split in two: the promise on the left, a head of curls in 3D on the right. */
 export function Hero() {
   return (
-    <section id="hero" aria-labelledby="hero-title" className="relative pt-12 pb-20 sm:pt-16 sm:pb-24">
-      <div className="wrap text-center">
-        {/* Early access: honest about the stage, and where the changes are listed. */}
-        <Link
-          href="/docs/whats-new"
-          className="rise inline-flex items-center gap-2 rounded-full border border-[#d9d9df] bg-white py-1 pr-3 pl-2.5 text-[12px] font-semibold text-gl-ink transition-colors hover:border-[#bdbdc5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue sm:text-[13px]"
-          style={delay(0)}
-        >
-          <span aria-hidden="true" className="size-1.5 rounded-full bg-gl-emerald" />
-          Early access {siteConfig.version}
-          <span aria-hidden="true" className="text-gl-ink-3">·</span>
-          <span className="text-gl-ink-2">What&apos;s new</span>
-        </Link>
-        <p className="rise mt-5 font-mono text-[12px] font-medium tracking-[0.08em] text-gl-ink-2 uppercase sm:text-[13px]" style={delay(0.04)}>
-          The Universal Groom System
-        </p>
-        <h1 id="hero-title" className="rise display t-hero mx-auto mt-3 max-w-[14ch] sm:max-w-none" style={delay(0.08)}>
-          Groom once. <span className="hero-ink">Use it everywhere.</span>
-        </h1>
-        <p className="rise t-lede mx-auto mt-5 max-w-[38rem] text-gl-ink-2" style={delay(0.14)}>
-          Hair, fur, feathers and scales, groomed with brushes and a node graph in Maya, Blender or the
-          GroomLab app, and the same in Arnold, V-Ray, RenderMan, Unreal and Unity.
-        </p>
-        <div className="rise mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row sm:gap-8" style={delay(0.2)}>
-          <Link href="/download" className={cn(pill.base, pill.lg, pill.primary)}>
-            Get GroomLab
-          </Link>
-          <TextLink href="#try">Try the node graph</TextLink>
+    <section id="hero" aria-labelledby="hero-title" className="relative overflow-x-clip">
+      <div className="wrap-wide grid items-center gap-2 pt-12 pb-10 sm:pt-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)] lg:gap-6 lg:pt-6 lg:pb-8">
+        <div className="relative z-10 lg:py-20">
+          <p className="rise t-caps flex items-center gap-4 text-gl-ink-2" style={delay(0)}>
+            <span aria-hidden="true" className="h-px w-8 bg-gl-blue" />
+            The Universal Groom System
+          </p>
+          <h1 id="hero-title" className="rise display t-hero-split mt-6" style={delay(0.06)}>
+            Groom once.
+            <br />
+            Use it everywhere.
+          </h1>
+          <p className="rise t-lede mt-6 max-w-[33rem] text-gl-ink-2" style={delay(0.12)}>
+            Hair, fur, feathers and scales, groomed with brushes and a node graph in Maya, Blender or the GroomLab app,
+            and the same in Arnold, V-Ray, RenderMan, Unreal and Unity.
+          </p>
+          <div className="rise mt-9 flex flex-col gap-3 sm:flex-row sm:gap-4" style={delay(0.18)}>
+            <Link href="/download" className={cn(button.base, button.lg, button.primary)}>
+              Get GroomLab
+              <ArrowRight aria-hidden="true" className="size-[18px]" strokeWidth={2.2} />
+            </Link>
+            <a href="#try" className={cn(button.base, button.lg, button.outline)}>
+              <svg aria-hidden="true" viewBox="0 0 20 20" className="size-5" fill="none">
+                <circle cx="10" cy="10" r="8.6" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M8.3 6.9v6.2l5-3.1-5-3.1Z" fill="currentColor" />
+              </svg>
+              Try the node graph
+            </a>
+          </div>
+          <p className="rise mt-6 text-[13px] text-gl-ink-3" style={delay(0.22)}>
+            Free and open source · Apache-2.0 ·{' '}
+            <Link href="/docs/whats-new" className="text-gl-ink-2 underline-offset-4 hover:text-gl-ink hover:underline">
+              Early access {siteConfig.version}
+            </Link>
+          </p>
         </div>
-        <p className="rise mt-4 text-[13px] text-gl-ink-2" style={delay(0.24)}>
-          Free and open source · Apache-2.0
-        </p>
-      </div>
 
-      {/* The groom, big and in 3D, and under it the graph that grows it. */}
-      <div className="rise wrap-wide mt-9 sm:mt-11" style={delay(0.3)}>
-        <HeroGraph />
-        <p className="sr-only">
-          A head of hair in 3D, turning slowly. Below it a node graph: Scalp and Guides feed Scatter and Interpolate,
-          then Clump, Curl and HairColor shape and color the strands, and the last wire runs into the viewport.
-        </p>
+        <div className="rise relative -mx-[var(--gutter)] sm:mx-0" style={delay(0.15)}>
+          <HeroViewer />
+        </div>
       </div>
     </section>
   );

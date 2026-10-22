@@ -31,6 +31,10 @@ export interface StrandParams {
   showGuides: boolean;
   /** Seed for the root layout. */
   seed: number;
+  /** Interpolate's length scale (the 3D groom only); 1 when left out. */
+  length?: number;
+  /** 0 lays the hair down, combed back; 1 stands it off the head for a big head of curls (3D only). */
+  volume?: number;
 }
 
 export const defaultParams: StrandParams = {
@@ -270,8 +274,8 @@ export class StrandRenderer {
     if (p.showGuides) {
       const gx = new Float32Array(POINTS);
       const gy = new Float32Array(POINTS);
-      ctx.strokeStyle = '#3a5ea3';
-      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#6aa3ff';
+      ctx.fillStyle = '#0b0c0f';
       ctx.lineWidth = Math.max(1.6, unit / 220);
       for (let g = 0; g < GUIDES; g++) {
         const u = g / (GUIDES - 1);
@@ -295,11 +299,11 @@ export class StrandRenderer {
     ctx.lineTo(W + 10, H + 10);
     ctx.lineTo(-10, H + 10);
     ctx.closePath();
-    ctx.fillStyle = '#ececf0';
+    ctx.fillStyle = '#1b1d22';
     ctx.fill();
     ctx.beginPath();
     ctx.arc(cx, cy, R, Math.PI * 1.5 - span - 0.2, Math.PI * 1.5 + span + 0.2);
-    ctx.strokeStyle = '#cfcfd6';
+    ctx.strokeStyle = '#30333b';
     ctx.lineWidth = 1;
     ctx.stroke();
   }

@@ -52,18 +52,18 @@ export function PageRail() {
       aria-hidden="true"
       className="pointer-events-none absolute top-0 bottom-0 left-[calc(50%-540px-64px)] hidden w-[2px] xl:block"
     >
-      <div className="absolute inset-0 rounded-full bg-[#e4e4e9]" />
+      <div className="absolute inset-0 rounded-full bg-[#1c1f25]" />
       <div
         ref={fillRef}
         className="absolute inset-0 origin-top rounded-full"
         style={{
           transform: 'scaleY(0)',
-          background: 'linear-gradient(to bottom, #FF4D4F, #FFC53D 35%, #2F7BF6 70%, #1d1d1f)',
+          background: 'linear-gradient(to bottom, #FF4D4F, #FFC53D 35%, #2F7BF6 70%, #f3e9df)',
         }}
       />
       <div
         ref={tipRef}
-        className="absolute top-0 left-1/2 size-3 rounded-full border-2 border-white bg-gl-blue opacity-0 shadow-[0_0_0_4px_rgba(47,123,246,0.16)] transition-opacity duration-300"
+        className="absolute top-0 left-1/2 size-3 rounded-full border-2 border-gl-paper bg-gl-blue opacity-0 shadow-[0_0_0_4px_rgba(47,123,246,0.22)] transition-opacity duration-300"
       />
     </div>
   );

@@ -20,8 +20,8 @@ const SCALP = `M10 ${r1(scalpY(10))} Q160 ${r1(176 - 36)} 310 ${r1(scalpY(310))}
 function Scalp() {
   return (
     <>
-      <path d={`${SCALP} L310 200 L10 200 Z`} fill="#ececf0" />
-      <path d={SCALP} fill="none" stroke="#cfcfd6" strokeWidth="1.5" />
+      <path d={`${SCALP} L310 200 L10 200 Z`} fill="#1b1d23" />
+      <path d={SCALP} fill="none" stroke="#33363e" strokeWidth="1.5" />
     </>
   );
 }
@@ -48,7 +48,7 @@ export function BrushArt() {
             <path
               key={dx}
               d={`M${g.x + dx} ${r1(scalpY(g.x + dx))} C${g.x + dx} ${r1(g.y - g.h * 0.4)} ${g.x + dx + 4} ${r1(g.y - g.h * 0.72)} ${g.x + dx + 22} ${r1(g.y - g.h * 0.9)}`}
-              stroke="#b9b9c1"
+              stroke="#474b54"
               strokeWidth="1.2"
               strokeLinecap="round"
             />
@@ -57,13 +57,13 @@ export function BrushArt() {
           {[0.33, 0.66, 1].map((t) => {
             const x = g.x + (t === 1 ? 26 : t === 0.66 ? 6 : 1);
             const y = g.y - g.h * (t === 1 ? 1 : t === 0.66 ? 0.66 : 0.33);
-            return <circle key={t} cx={r1(x)} cy={r1(y)} r="2.6" fill="#fff" stroke={c.ink} strokeWidth="1.5" />;
+            return <circle key={t} cx={r1(x)} cy={r1(y)} r="2.6" fill="#0b0c0f" stroke={c.ink} strokeWidth="1.5" />;
           })}
         </g>
       ))}
       <Scalp />
       <g className="art-ring">
-        <circle cx="30" cy="88" r="27" stroke={c.ink} strokeWidth="1.5" strokeDasharray="4 4" fill={c.tint} fillOpacity="0.45" />
+        <circle cx="30" cy="88" r="27" stroke={c.ink} strokeWidth="1.5" strokeDasharray="4 4" fill={c.tint} />
         <circle cx="30" cy="88" r="2.5" fill={c.ink} />
       </g>
     </svg>
@@ -97,7 +97,7 @@ export function PaintArt() {
           className="art-grow"
           style={style({ transformOrigin: `${s.x}px ${r1(s.y)}px`, animationDelay: `${(i / 18) * 0.6 * 4.8}s` })}
           d={`M${s.x} ${r1(s.y)} C${s.x} ${r1(s.y - s.h * 0.5)} ${r1(s.x + s.lean * 0.4)} ${r1(s.y - s.h * 0.8)} ${r1(s.x + s.lean + 8)} ${r1(s.y - s.h)}`}
-          stroke="#55555b"
+          stroke="#9a9ea7"
           strokeWidth="1.6"
           strokeLinecap="round"
         />
@@ -105,7 +105,7 @@ export function PaintArt() {
       <Scalp />
       <path d={SCALP} className="art-paint" stroke="url(#paint-map)" strokeWidth="9" strokeLinecap="round" pathLength={1} />
       <g className="art-brush">
-        <circle cx="10" cy={r1(scalpY(10))} r="15" stroke={c.ink} strokeWidth="1.5" fill="#fff" fillOpacity="0.6" />
+        <circle cx="10" cy={r1(scalpY(10))} r="15" stroke={c.ink} strokeWidth="1.5" fill="#0b0c0f" fillOpacity="0.6" />
         <circle cx="10" cy={r1(scalpY(10))} r="4" fill={c.ink} />
       </g>
     </svg>
@@ -160,7 +160,6 @@ export function TubeArt() {
             stroke={c.ink}
             strokeWidth="1.4"
             fill={c.tint}
-            fillOpacity="0.5"
           />
         );
       })}
@@ -171,7 +170,7 @@ export function TubeArt() {
           pathLength={1}
           className="art-draw"
           style={style({ animationDelay: `${i * 0.12}s` })}
-          stroke={i % 3 === 1 ? c.ink : '#55555b'}
+          stroke={i % 3 === 1 ? c.ink : '#9a9ea7'}
           strokeWidth="1.5"
           strokeLinecap="round"
         />
@@ -222,7 +221,7 @@ export function CardsArt() {
       <g className="art-fade-a">
         {cardClumps.map((k) =>
           [-10, -5, 0, 5, 10].map((off) => (
-            <path key={`${k.dx}${off}`} d={cardStrand(k.dx, k.lean, off)} stroke="#55555b" strokeWidth="1.3" strokeLinecap="round" />
+            <path key={`${k.dx}${off}`} d={cardStrand(k.dx, k.lean, off)} stroke="#9a9ea7" strokeWidth="1.3" strokeLinecap="round" />
           )),
         )}
       </g>
@@ -269,7 +268,7 @@ export function SimulateArt() {
       {simStrands.map((s, i) => {
         const L = s.seg;
         const seg = (k: number) => `M0 0 C1 ${-L * 0.4} ${k * 2} ${-L * 0.8} ${k * 3} ${-L}`;
-        const stroke = i % 3 === 1 ? c.ink : '#55555b';
+        const stroke = i % 3 === 1 ? c.ink : '#9a9ea7';
         return (
           <g key={i} transform={`translate(${s.x} ${r1(s.y)})`}>
             <g className="art-swing" style={style({ animationDelay: `${s.delay}s`, '--swing': '5deg' })}>
@@ -292,7 +291,7 @@ export function SimulateArt() {
       <Scalp />
       {/* Root hold: the strands are pinned where they leave the scalp. */}
       {simStrands.map((s, i) => (
-        <circle key={i} cx={s.x} cy={r1(s.y)} r="2.6" fill="#fff" stroke={c.ink} strokeWidth="1.4" />
+        <circle key={i} cx={s.x} cy={r1(s.y)} r="2.6" fill="#0b0c0f" stroke={c.ink} strokeWidth="1.4" />
       ))}
     </svg>
   );
@@ -339,7 +338,7 @@ export function FeathersArt() {
     <svg aria-hidden="true" viewBox={VB} className="art size-full" fill="none" strokeLinecap="round">
       <g className="art-sway" style={style({ transformOrigin: '84px 190px' })}>
         {barbs.map((d, i) => (
-          <path key={i} d={d} stroke={i % 2 ? c.hue : '#8a8a90'} strokeWidth="1.1" />
+          <path key={i} d={d} stroke={i % 2 ? c.hue : '#6d717a'} strokeWidth="1.1" />
         ))}
         <path d={rachis} stroke={c.ink} strokeWidth="2.2" />
       </g>
@@ -352,7 +351,7 @@ export function FeathersArt() {
             className="art-pop"
             style={style({ transformOrigin: `${s.x}px ${s.y}px`, animationDelay: `${s.i * 0.12}s` })}
             d={`M${s.x - 12} ${s.y} Q${s.x - 12} ${s.y + 22} ${s.x} ${s.y + 24} Q${s.x + 12} ${s.y + 22} ${s.x + 12} ${s.y} Z`}
-            fill={s.i % 3 === 0 ? c.tint : '#ffffff'}
+            fill={s.i % 3 === 0 ? c.tint : '#16181d'}
             stroke={c.ink}
             strokeWidth="1.3"
           />
