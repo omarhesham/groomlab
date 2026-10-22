@@ -92,13 +92,13 @@ export function Toolkit() {
 function ToolCard({ cat, node, title, text, href, art }: (typeof tools)[number]) {
   const c = category[cat];
   return (
-    <article className="tool-card group relative flex h-full flex-col rounded-[16px] border border-[#d9d9df] bg-white transition-[border-color,box-shadow,translate] duration-300 hover:-translate-y-0.5 hover:border-[#c2c2ca] hover:shadow-[0_24px_48px_-32px_rgba(28,29,33,0.45)]">
-      <div className="flex h-10 items-center gap-2.5 rounded-t-[15px] border-b border-[#e6e6eb] px-3.5" style={{ background: c.tint }}>
-        <span aria-hidden="true" className="size-2 rounded-full" style={{ background: c.hue }} />
-        <span className="text-[13px] font-semibold" style={{ color: c.ink }}>
+    <article className="tool-card group relative flex h-full flex-col">
+      <div className="flex h-10 items-center gap-2.5 rounded-[12px] px-3.5" style={{ background: c.hue, color: c.on }}>
+        <span aria-hidden="true" className="size-2 rounded-full bg-current opacity-85" />
+        <span className="text-[13px] font-semibold">
           {node}
         </span>
-        <span className="ml-auto font-mono text-[11px] text-gl-ink-3">{cat === 'Fields' ? 'Fields & Curves' : cat}</span>
+        <span className="ml-auto font-mono text-[11px] opacity-75">{cat === 'Fields' ? 'Fields & Curves' : cat}</span>
       </div>
       {/* Ports: they swell toward the pointer when the card is hovered. */}
       <span aria-hidden="true" className="tool-port absolute top-5 -left-[5px]" style={{ background: c.hue }} />

@@ -12,8 +12,6 @@ export default function Layout({ children }: LayoutProps<'/'>) {
       >
         Skip to content
       </a>
-      {/* The graph canvas's dot grid, drifting a little slower than the page (.canvas-grid). */}
-      <div aria-hidden="true" className="canvas-grid" />
       <SiteHeader />
       <main id="main" className="relative flex-1">
         {children}

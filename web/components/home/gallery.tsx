@@ -37,7 +37,7 @@ export function Gallery() {
             const c = category[s.cat];
             return (
               <li key={s.name} className="w-[86%] shrink-0 snap-center md:w-auto">
-                <figure className="overflow-hidden rounded-[16px] border border-[#d9d9df] bg-white">
+                <figure className="overflow-hidden rounded-[16px]">
                   <figcaption className="flex h-10 items-center gap-2.5 border-b border-[#e6e6eb] px-3.5 text-[13px] font-semibold">
                     <span aria-hidden="true" className="size-2 rounded-full" style={{ background: c.hue }} />
                     {s.title}

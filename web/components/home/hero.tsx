@@ -48,7 +48,7 @@ export function Hero() {
 
       {/* The graph sits on its own patch of canvas, framed like a Graph Editor panel. */}
       <div className="rise wrap-wide mt-12 sm:mt-14" style={delay(0.3)}>
-        <div className="relative rounded-[24px] border border-[#e1e1e6] bg-white/70 p-2 shadow-[0_40px_80px_-48px_rgba(28,29,33,0.35)] backdrop-blur-[2px] sm:rounded-[30px] sm:p-4">
+        <div className="relative">
           <div className="flex items-center justify-between px-3 pt-1 pb-2 font-mono text-[11px] text-gl-ink-3 sm:px-4 sm:text-[12px]">
             <span>
               <span className="text-gl-ink-2">head.groom</span> / graph

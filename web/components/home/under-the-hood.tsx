@@ -93,7 +93,7 @@ export function UnderTheHood() {
               <li key={s.title}>
                 <a
                   href={s.href}
-                  className="group relative flex items-center gap-3 rounded-[12px] border border-[#d9d9df] bg-white py-3.5 pr-4 pl-4 text-[15px] font-semibold tracking-tight transition-colors hover:border-[#bcbcc4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
+                  className="group relative flex items-center gap-3 border-b border-[#e4e4e8] py-3.5 pr-1 text-[15px] font-semibold tracking-tight transition-colors hover:text-gl-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue"
                 >
                   <span aria-hidden="true" className="absolute top-1/2 -left-[5px] size-[9px] -translate-y-1/2 rounded-full border-2 border-white" style={{ background: category[s.cat].hue }} />
                   {s.title}
@@ -152,9 +152,9 @@ export function UnderTheHood() {
 function Card({ name, cat, children }: { name: string; cat: Category; children: ReactNode }) {
   const c = category[cat];
   return (
-    <figure className="h-full overflow-hidden rounded-[16px] border border-[#d9d9df] bg-white">
-      <figcaption className="flex h-10 items-center gap-2.5 border-b border-[#e6e6eb] px-3.5 font-mono text-[12px] text-gl-ink" style={{ background: c.tint }}>
-        <span aria-hidden="true" className="size-2 rounded-full" style={{ background: c.hue }} />
+    <figure className="h-full overflow-hidden rounded-[16px] bg-[#f6f6f8]">
+      <figcaption className="flex h-10 items-center gap-2.5 px-3.5 font-mono text-[12px]" style={{ background: c.hue, color: c.on }}>
+        <span aria-hidden="true" className="size-2 rounded-full bg-current opacity-85" />
         {name}
       </figcaption>
       {children}

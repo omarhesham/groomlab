@@ -183,25 +183,6 @@ section[id] {
   transition-duration: 0.12s;
 }
 
-/* ------------------------------------------------------------------------
- * The graph canvas: the Graph Editor's dot grid behind the landing pages.
- * It is fixed and drifts up a little as the page scrolls (a slow parallax
- * against the content), where the browser can tie it to scrolling.
- * --------------------------------------------------------------------- */
-.canvas-grid {
-  position: fixed;
-  inset: 0 0 -240px 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image: radial-gradient(circle at 1px 1px, rgb(29 29 31 / 0.13) 1px, transparent 1.5px);
-  background-size: 24px 24px;
-}
-@keyframes grid-pan {
-  to {
-    translate: 0 -240px;
-  }
-}
-
 /* The hero's second line is underlined with a wire in the mark's colors. */
 .hero-ink {
   background: linear-gradient(90deg, #ff4d4f, #ffc53d 50%, #2f7bf6) no-repeat 0 94% / 100% 0.07em;
@@ -273,11 +254,9 @@ section[id] {
 .tool-card:hover .tool-port {
   scale: 1.45;
 }
-/* The toolkit's scenes sit on their own patch of dot grid. */
+/* The toolkit's scenes: a plain soft ground. */
 .art-canvas {
-  background-color: #fbfbfc;
-  background-image: radial-gradient(circle at 1px 1px, rgb(29 29 31 / 0.1) 1px, transparent 1.5px);
-  background-size: 16px 16px;
+  background-color: #f6f6f8;
 }
 
 /* ------------------------------------------------------------------------
@@ -681,10 +660,6 @@ section[id] {
 /* ...and where the browser can tie animations to scrolling, they follow it. */
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
-    .canvas-grid {
-      animation: grid-pan linear both;
-      animation-timeline: scroll(root);
-    }
     .parallax {
       scale: 1.08;
       animation: parallax linear both;

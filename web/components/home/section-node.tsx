@@ -40,7 +40,7 @@ export function SectionTag({ cat, index, children }: { cat: Category; index: str
       <span
         aria-hidden="true"
         className="grid h-6 min-w-6 place-items-center rounded-[6px] px-1 font-mono text-[11px] font-medium"
-        style={{ background: c.tint, color: cat === 'Output' ? '#fff' : c.ink }}
+        style={{ background: c.hue, color: c.on }}
       >
         {index}
       </span>

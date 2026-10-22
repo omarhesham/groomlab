@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 /*
- * The Graph Editor's colors, for a light canvas. The category and port hues are the Charcoal theme's
- * (hosts/maya/themes/charcoal.json, graph.categories and graph.ports); `tint` is the header fill on
- * white and `ink` a deeper cut that reads as text on paper (AA).
+ * The Graph Editor's categories in the Playful theme's colors (hosts/maya/themes/playful.json, filled
+ * headers): `hue` fills a node's header, `on` is the text on it, `tint` a light fill, `ink` a deeper
+ * cut for lines and text on paper (AA).
  */
 
 export type Category =
@@ -19,28 +19,28 @@ export type Category =
   | 'Games'
   | 'Output';
 
-export const category: Record<Category, { hue: string; tint: string; ink: string }> = {
-  Sources: { hue: '#6DB897', tint: '#e6f3ec', ink: '#2c7656' },
-  Grow: { hue: '#5EB0AA', tint: '#e2f2f1', ink: '#28726d' },
-  Shape: { hue: '#7C9CD4', tint: '#e8eef9', ink: '#3a5ea3' },
-  Look: { hue: '#D4B26A', tint: '#f8f0dc', ink: '#83641c' },
-  Color: { hue: '#CF84A8', tint: '#f8e9f0', ink: '#a2406f' },
-  Fields: { hue: '#A493D6', tint: '#efebf9', ink: '#6449b3' },
-  Utility: { hue: '#8C8C8C', tint: '#efeff1', ink: '#55555a' },
-  Motion: { hue: '#86AEDB', tint: '#e9f0f9', ink: '#3b6aa1' },
-  Feathers: { hue: '#D6B877', tint: '#f8f1e1', ink: '#7f6424' },
-  Convert: { hue: '#D48F6A', tint: '#f9ece4', ink: '#9a4f27' },
-  Games: { hue: '#68B4D4', tint: '#e3f2f8', ink: '#25708f' },
-  Output: { hue: '#1d1d1f', tint: '#1d1d1f', ink: '#1d1d1f' },
+export const category: Record<Category, { hue: string; on: string; tint: string; ink: string }> = {
+  Sources: { hue: '#2ECC8F', on: '#0b3d2a', tint: '#c9f2e2', ink: '#16855b' },
+  Grow: { hue: '#4FD1C5', on: '#0b3a36', tint: '#cdf3ef', ink: '#1f8a80' },
+  Shape: { hue: '#2F7BF6', on: '#ffffff', tint: '#cfe0fd', ink: '#1d5fd0' },
+  Look: { hue: '#FFC53D', on: '#3d2c00', tint: '#ffefc4', ink: '#a8780a' },
+  Color: { hue: '#FF7AB6', on: '#4a0a28', tint: '#ffd9ea', ink: '#c9367a' },
+  Fields: { hue: '#A36BFF', on: '#ffffff', tint: '#e6d8ff', ink: '#7440d6' },
+  Utility: { hue: '#8A93A0', on: '#16191d', tint: '#e2e5e9', ink: '#59616c' },
+  Motion: { hue: '#78C8FF', on: '#0a3352', tint: '#d9efff', ink: '#2683c4' },
+  Feathers: { hue: '#FFC857', on: '#3d2c00', tint: '#fff0cc', ink: '#a8780a' },
+  Convert: { hue: '#FF8A5C', on: '#4a1a06', tint: '#ffe0d3', ink: '#c9531f' },
+  Games: { hue: '#5EC8FF', on: '#06324d', tint: '#d4efff', ink: '#1f86bf' },
+  Output: { hue: '#1d1d1f', on: '#ffffff', tint: '#1d1d1f', ink: '#1d1d1f' },
 };
 
-/** Wire and port colors by data type, a touch deeper than Charcoal's so they hold on white. */
+/** Wire and port colors by data type (Playful's ports). */
 export const port = {
-  strands: '#cfa241',
-  guides: '#6d8fd0',
-  mesh: '#56ad86',
-  field: '#9a86d3',
-  value: '#5cb8a3',
+  strands: '#FFC53D',
+  guides: '#2F7BF6',
+  mesh: '#2ECC8F',
+  field: '#A36BFF',
+  value: '#7CC8B4',
 } as const;
 
 export type PortType = keyof typeof port;

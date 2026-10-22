@@ -24,7 +24,7 @@ export function OutputCta() {
           </SectionTag>
         </Reveal>
         <Reveal className="relative mt-6">
-          <div className="relative overflow-hidden rounded-[24px] border border-[#1d1d1f] bg-white shadow-[0_50px_100px_-60px_rgba(28,29,33,0.55)] sm:rounded-[30px]">
+          <div className="relative overflow-hidden rounded-[24px] sm:rounded-[30px]">
             <div className="flex h-12 items-center gap-3 bg-gl-ink px-5 text-white sm:h-14 sm:px-7">
               <span aria-hidden="true" className="size-2.5 rounded-full bg-white" />
               <span className="text-[15px] font-semibold">Output</span>
@@ -38,10 +38,10 @@ export function OutputCta() {
                 {steps.map(({ title, text, cat }, i) => {
                   const c = category[cat];
                   return (
-                    <li key={title} className="relative rounded-[12px] border border-[#d9d9df] bg-white">
+                    <li key={title} className="relative border-t border-[#e4e4e8]">
                       <span aria-hidden="true" className="absolute top-[19px] -left-[5px] size-[9px] rounded-full border-2 border-white" style={{ background: c.hue }} />
-                      <div className="flex h-10 items-center gap-2.5 rounded-t-[11px] px-3.5" style={{ background: c.tint }}>
-                        <span aria-hidden="true" className="font-mono text-[11px] font-medium" style={{ color: c.ink }}>
+                      <div className="flex h-10 items-center gap-2.5 rounded-[10px] px-3.5" style={{ background: c.hue, color: c.on }}>
+                        <span aria-hidden="true" className="font-mono text-[11px] font-medium opacity-80">
                           0{i + 1}
                         </span>
                         <h3 className="text-[15px] font-semibold tracking-tight">{title}</h3>

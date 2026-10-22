@@ -61,16 +61,16 @@ export function SvgNode({ n, children }: { n: NodeSpec; children?: ReactNode }) 
   return (
     <g transform={`translate(${n.x} ${n.y})`} className="graph-node">
       <rect x="0.5" y="0.5" width={n.w - 1} height={h - 1} rx={r} fill="#fff" stroke="#d9d9df" />
-      <path d={header} fill={c.tint} />
-      <line x1="0" x2={n.w} y1={HEADER} y2={HEADER} stroke={dark ? c.tint : '#e3e3e8'} />
-      <circle cx="14" cy={HEADER / 2} r="4" fill={dark ? '#fff' : c.hue} />
+      <path d={header} fill={c.hue} />
+      <line x1="0" x2={n.w} y1={HEADER} y2={HEADER} stroke={c.hue} />
+      <circle cx="14" cy={HEADER / 2} r="4" fill={c.on} fillOpacity={dark ? 1 : 0.85} />
       <text
         x="25"
         y={HEADER / 2 + 4.5}
         className={n.mono ? 'font-mono' : 'font-sans'}
         fontSize="12.5"
         fontWeight="600"
-        fill={dark ? '#fff' : '#1d1d1f'}
+        fill={c.on}
       >
         {n.name}
       </text>
@@ -134,8 +134,7 @@ export function Wire({
         pathLength={1}
         fill="none"
         stroke={color}
-        strokeWidth="2"
-        strokeOpacity="0.6"
+        strokeWidth="2.25"
         strokeLinecap="round"
         className="wire-draw"
         style={{ '--d': `${draw}s` } as CSSProperties}

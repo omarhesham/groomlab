@@ -34,7 +34,7 @@ export function Inspector() {
         />
 
         <Reveal className="mt-14 sm:mt-16">
-          <div className="overflow-hidden rounded-[18px] border border-[#d9d9df] bg-white shadow-[0_30px_60px_-44px_rgba(28,29,33,0.4)]">
+          <div className="overflow-hidden">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[#e6e6eb] bg-[#f7f7f9] px-4 py-2.5 font-mono text-[11.5px] text-gl-ink-2">
               <span className="flex items-center gap-2 font-sans text-[13px] font-semibold text-gl-ink">
                 <span aria-hidden="true" className="size-2 rounded-full" style={{ background: category.Fields.hue }} />

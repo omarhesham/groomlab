@@ -70,7 +70,7 @@ export function TryGraph() {
     <div className="mt-14 grid gap-6 sm:mt-16 lg:grid-cols-12 lg:gap-10">
       {/* The viewport: first (and pinned under the header) on phones, beside the nodes on wide screens. */}
       <div className="sticky top-14 z-10 lg:order-2 lg:col-span-7 lg:self-start lg:top-20">
-        <div className="overflow-hidden rounded-[18px] border border-[#d9d9df] bg-white shadow-[0_30px_60px_-40px_rgba(28,29,33,0.4)]">
+        <div className="overflow-hidden rounded-[18px] bg-[#f6f6f8]">
           <div className="flex h-10 items-center justify-between gap-3 border-b border-[#ebebef] px-3 font-mono text-[11.5px] text-gl-ink-2">
             <span className="flex items-center gap-2">
               <span aria-hidden="true" className="size-2 rounded-full bg-gl-ink" />
@@ -171,14 +171,14 @@ function Node({
       >
         <div
           className="flex h-10 items-center gap-2.5 rounded-t-[11px] pr-1.5 pl-3 transition-colors duration-300"
-          style={{ background: on ? c.tint : '#f2f2f4', color: dark ? '#fff' : undefined }}
+          style={{ background: on ? c.hue : '#f2f2f4', color: on ? c.on : undefined }}
         >
-          <span aria-hidden="true" className="size-2 rounded-full" style={{ background: dark ? '#fff' : on ? c.hue : '#b8b8bf' }} />
+          <span aria-hidden="true" className="size-2 rounded-full" style={{ background: on ? 'currentColor' : '#b8b8bf' }} />
           <span className="text-[14px] font-semibold tracking-tight">{name}</span>
           {!on && <span className="font-mono text-[11px] text-gl-ink-3">bypassed</span>}
           <span className="ml-auto flex items-center">
             {action}
-            {onToggle && <Switch label={`${name} node on`} checked={on} hue={c.hue} onChange={onToggle} />}
+            {onToggle && <Switch label={`${name} node on`} checked={on} hue={dark ? c.hue : c.on} onChange={onToggle} />}
           </span>
         </div>
         <div className="space-y-2 px-3 py-3">{children}</div>
@@ -237,7 +237,7 @@ function ValueSlider({
       className="value-slider relative h-7 overflow-hidden rounded-[7px] bg-[#f1f1f4] font-mono text-[12px] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-gl-blue"
       style={{ '--fill': c.hue } as CSSProperties}
     >
-      <span aria-hidden="true" className="absolute inset-y-0 left-0 opacity-35" style={{ width: `${share}%`, background: c.hue }} />
+      <span aria-hidden="true" className="absolute inset-y-0 left-0 opacity-60" style={{ width: `${share}%`, background: c.hue }} />
       <span aria-hidden="true" className="absolute inset-y-0 w-[2px]" style={{ left: `calc(${share}% - 1px)`, background: c.ink }} />
       <label htmlFor={id} className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-gl-ink-2">
         {label}
