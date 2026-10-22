@@ -1,0 +1,455 @@
+// SPDX-License-Identifier: Apache-2.0
+'use client';
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type DragEvent } from 'react';
+import { ArrowDownToLine, FolderOpen } from 'lucide-react';
+import { category } from '@/components/home/graph-theme';
+import type { RootMesh, StrandData } from '@/components/home/strand-data';
+import type { StrandViewer } from '@/components/home/strand-three';
+import type { GroomControl, GroomEngine } from '@/lib/groomlab-wasm';
+import { cn } from '@/lib/cn';
+
+interface Stats {
+  strands: number;
+  points: number;
+  evaluateMs: number;
+  totalMs: number;
+}
+
+/** The view's space: the scalp's bounding sphere moved to the origin and scaled to radius 1. */
+interface Space {
+  center: [number, number, number];
+  scale: number;
+}
+
+function sphereOf(positions: Float32Array): Space {
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], positions[i + k]);
+      hi[k] = Math.max(hi[k], positions[i + k]);
+    }
+  }
+  const center: [number, number, number] = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  const r = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
+  return { center, scale: r > 0 ? 1 / r : 1 };
+}
+
+function toSpace(positions: Float32Array, s: Space) {
+  for (let i = 0; i < positions.length; i += 3) {
+    positions[i] = (positions[i] - s.center[0]) * s.scale;
+    positions[i + 1] = (positions[i + 1] - s.center[1]) * s.scale;
+    positions[i + 2] = (positions[i + 2] - s.center[2]) * s.scale;
+  }
+  return positions;
+}
+
+function decimals(step: number) {
+  return step >= 1 ? 0 : Math.min(4, Math.max(0, Math.ceil(-Math.log10(step))));
+}
+
+/** True when this browser can make a WebGL2 context (three.js needs one). */
+function hasWebGL2() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return !!gl;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The groom viewer (/view): the GroomLab engine built to WebAssembly (engine/web) evaluating a
+ * .groom in a worker, drawn by the home page's three.js viewer, with the groom's sliders (its
+ * Control nodes, then its exposed params) re-evaluated live. Everything heavy (three.js, the
+ * engine's 1 MB of WebAssembly) is fetched by this page alone, after it mounts.
+ */
+export function GroomView({ sample }: { sample: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const viewerRef = useRef<StrandViewer | null>(null);
+  const engineRef = useRef<GroomEngine | null>(null);
+  const spaceRef = useRef<Space | null>(null);
+  const framedRef = useRef(false);
+  const densityRef = useRef(0.25);
+  const evalRef = useRef<{ running: boolean; dirty: boolean }>({ running: false, dirty: false });
+
+  const [status, setStatus] = useState('Loading the engine…');
+  const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [controls, setControls] = useState<GroomControl[]>([]);
+  const [values, setValues] = useState<Record<string, number>>({});
+  const [density, setDensity] = useState(0.25);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [version, setVersion] = useState('');
+  const [fileName, setFileName] = useState('manny_hair.groom');
+  const [dragging, setDragging] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  /** Evaluates now, or once more after the evaluation running (the latest values win). */
+  const evaluate = useCallback(async () => {
+    const engine = engineRef.current;
+    const state = evalRef.current;
+    if (!engine) return;
+    if (state.running) {
+      state.dirty = true;
+      return;
+    }
+    state.running = true;
+    try {
+      do {
+        state.dirty = false;
+        const r = await engine.evaluate({ density: densityRef.current });
+        const space = spaceRef.current;
+        const viewer = viewerRef.current;
+        if (space && viewer) {
+          const strands: StrandData = { ...r.strands, positions: toSpace(r.strands.positions, space) };
+          viewer.setStrands(strands);
+          viewer.setGuides(null);
+          if (!framedRef.current) {
+            framedRef.current = true;
+            // The hair and the scalp (radius 1 about the origin) together.
+            const s = sphereOf(strands.positions);
+            const lo = s.center.map((c) => Math.min(c - 1 / s.scale, -1));
+            const hi = s.center.map((c) => Math.max(c + 1 / s.scale, 1));
+            const mid: [number, number, number] = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+            viewer.setFraming(mid, Math.max(...hi.map((h, k) => (h - lo[k]) / 2)));
+          }
+        }
+        setStats({ strands: r.strands.count, points: r.strands.offsets[r.strands.count], evaluateMs: r.evaluateMs, totalMs: r.totalMs });
+        setWarnings(r.errors);
+        setError(null);
+      } while (state.dirty);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      state.running = false;
+    }
+  }, []);
+
+  /** Loads a groom (a .groom's text, or a preset's with an .obj) into the engine and the viewer. */
+  const load = useCallback(
+    async (groom: string, mesh: string | undefined, name: string) => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      setStatus(`Loading ${name}…`);
+      try {
+        const loaded = await engine.loadGroom(groom, mesh);
+        const scalp: RootMesh = loaded.scalp;
+        const space = sphereOf(scalp.positions);
+        spaceRef.current = space;
+        framedRef.current = false;
+        viewerRef.current?.setScalp({
+          positions: toSpace(scalp.positions, space),
+          normals: scalp.normals && scalp.normals.length === scalp.positions.length ? scalp.normals : undefined,
+          indices: scalp.indices,
+        });
+        setVersion(loaded.version);
+        setControls(loaded.controls);
+        setValues(Object.fromEntries(loaded.controls.map((c) => [c.id, c.value])));
+        setFileName(name);
+        setError(null);
+        setStatus('');
+        await evaluate();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setStatus('');
+      }
+    },
+    [evaluate],
+  );
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+    let disposed = false;
+    let ro: ResizeObserver | null = null;
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    (async () => {
+      try {
+        if (!hasWebGL2()) throw new Error('This browser has no WebGL 2, which the viewer needs.');
+        const [{ createStrandViewer }, { createGroomEngine }] = await Promise.all([
+          import('@/components/home/strand-three'),
+          import('@/lib/groomlab-wasm'),
+        ]);
+        if (disposed) return;
+        const viewer = createStrandViewer(canvas, { still, spin: 0.12, sway: 0.25, pitch: 0.12, fill: 0.92 });
+        if (!viewer) throw new Error('The viewer could not start WebGL.');
+        viewerRef.current = viewer;
+        engineRef.current = createGroomEngine();
+        const size = () => {
+          const r = wrap.getBoundingClientRect();
+          viewer.resize(r.width, r.height);
+        };
+        ro = new ResizeObserver(size);
+        ro.observe(wrap);
+        size();
+        viewer.setActive(true);
+        setReady(true);
+        const response = await fetch(sample);
+        if (!response.ok) throw new Error(`Cannot fetch the sample groom (${response.status}).`);
+        await load(await response.text(), undefined, sample.split('/').pop() ?? 'sample.groom');
+      } catch (e) {
+        if (!disposed) {
+          setError(e instanceof Error ? e.message : String(e));
+          setStatus('');
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+      ro?.disconnect();
+      viewerRef.current?.dispose();
+      viewerRef.current = null;
+      engineRef.current?.dispose();
+      engineRef.current = null;
+    };
+  }, [sample, load]);
+
+  const setValue = (c: GroomControl, v: number) => {
+    setValues((old) => ({ ...old, [c.id]: v }));
+    engineRef.current?.setParam(c.id, v).catch((e: unknown) => setError(String(e)));
+    void evaluate();
+  };
+
+  const changeDensity = (v: number) => {
+    densityRef.current = v;
+    setDensity(v);
+    void evaluate();
+  };
+
+  const download = async () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const bytes = await engine.saveGroom();
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName.endsWith('.groom') ? fileName : fileName.replace(/\.json$/i, '') + '.groom';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const openFiles = async (files: FileList | File[]) => {
+    const list = [...files];
+    const groom = list.find((f) => /\.(groom|json)$/i.test(f.name));
+    const mesh = list.find((f) => /\.obj$/i.test(f.name));
+    if (!groom) {
+      setError('Drop a .groom file (or a preset .json with an .obj mesh).');
+      return;
+    }
+    await load(await groom.text(), mesh ? await mesh.text() : undefined, groom.name);
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer.files.length) void openFiles(e.dataTransfer.files);
+  };
+
+  const groups: [string, GroomControl[]][] = [];
+  for (const c of controls) {
+    const g = groups.find(([name]) => name === c.group);
+    if (g) g[1].push(c);
+    else groups.push([c.group, [c]]);
+  }
+
+  return (
+    <div
+      className="relative grid lg:h-[calc(100dvh-3rem)] lg:grid-cols-[minmax(0,1fr)_360px]"
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
+      <div ref={wrapRef} className="relative h-[62vh] min-h-[360px] bg-gl-mist lg:h-full">
+        <canvas
+          ref={canvasRef}
+          aria-label="The groom, drawn in 3D: drag to turn it"
+          role="img"
+          style={{ touchAction: 'pan-y' }}
+          className="absolute inset-0 block size-full cursor-grab"
+        />
+        {(status || !ready) && !error && (
+          <p className="absolute inset-0 flex items-center justify-center font-mono text-[13px] text-gl-ink-2">{status}</p>
+        )}
+        <div className="pointer-events-none absolute top-3 left-3 flex flex-wrap gap-2 font-mono text-[11.5px] text-gl-ink-2">
+          {stats && (
+            <>
+              <span className="rounded-md bg-white/85 px-2 py-0.5 ring-1 ring-[#e3e3e8]">{stats.strands.toLocaleString('en-US')} strands</span>
+              <span className="rounded-md bg-white/85 px-2 py-0.5 ring-1 ring-[#e3e3e8]">{stats.points.toLocaleString('en-US')} points</span>
+              <span className="rounded-md bg-white/85 px-2 py-0.5 ring-1 ring-[#e3e3e8]" data-testid="eval-ms">
+                evaluated in {stats.evaluateMs.toFixed(0)} ms
+              </span>
+            </>
+          )}
+        </div>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-xl border-2 border-dashed border-gl-blue bg-white/70 text-[15px] font-semibold text-gl-blue">
+            Drop a .groom (and its .obj) to open it
+          </div>
+        )}
+        <p className="absolute bottom-3 left-3 max-w-[70%] text-[11.5px] leading-snug text-gl-ink-3">
+          Manny head by Nick Rutlinh (GroomLab), CC BY 4.0
+        </p>
+      </div>
+
+      <aside className="flex flex-col border-l border-[#e6e6eb] bg-white lg:min-h-0">
+        <div className="border-b border-[#e6e6eb] px-4 py-3">
+          <h1 className="text-[15px] font-semibold text-gl-ink">Groom viewer</h1>
+          <p className="mt-0.5 text-[12.5px] leading-snug text-gl-ink-2">
+            The GroomLab engine{version && ` ${version}`}, running in your browser (WebAssembly). Open a .groom, move its
+            sliders, download the result.
+          </p>
+          <p className="mt-1 truncate font-mono text-[11.5px] text-gl-ink-3" title={fileName}>
+            {fileName}
+          </p>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+          <section aria-label="Preview">
+            <h2 className="mb-1.5 text-[11px] font-semibold tracking-wide text-gl-ink-3 uppercase">Preview</h2>
+            <ValueSlider
+              hue={category.Utility}
+              label="Density"
+              value={density}
+              min={0.02}
+              max={1}
+              step={0.01}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onChange={changeDensity}
+            />
+          </section>
+          {groups.map(([group, items]) => (
+            <section key={group} aria-label={group}>
+              <h2 className="mb-1.5 text-[11px] font-semibold tracking-wide text-gl-ink-3 uppercase">{group}</h2>
+              <div className="space-y-1.5">
+                {items.map((c) => (
+                  <ValueSlider
+                    key={c.id}
+                    hue={c.kind === 'control' ? category.Fields : category.Shape}
+                    label={c.label}
+                    title={c.description}
+                    value={values[c.id] ?? c.value}
+                    min={c.min}
+                    max={c.max}
+                    step={c.step}
+                    format={(v) => v.toFixed(decimals(c.step))}
+                    onChange={(v) => setValue(c, v)}
+                    onReset={() => setValue(c, c.default)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+          {ready && !controls.length && !status && !error && (
+            <p className="text-[12.5px] text-gl-ink-2">This groom has no sliders: no Control nodes or exposed params.</p>
+          )}
+          {error && (
+            <p role="alert" className="rounded-lg bg-[#fff1f0] px-3 py-2 text-[12.5px] leading-snug text-[#a8071a]">
+              {error}
+            </p>
+          )}
+          {warnings.length > 0 && (
+            <ul className="space-y-1 rounded-lg bg-[#fffbe6] px-3 py-2 text-[12px] leading-snug text-[#874d00]">
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="flex gap-2 border-t border-[#e6e6eb] px-4 py-3">
+          <label className="inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-[#f1f1f4] px-3 text-[13px] font-semibold text-gl-ink hover:bg-[#e8e8ec] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-gl-blue">
+            <FolderOpen aria-hidden="true" className="size-4" />
+            Open
+            <input
+              type="file"
+              multiple
+              accept=".groom,.json,.obj"
+              className="sr-only"
+              onChange={(e) => {
+                if (e.target.files?.length) void openFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void download()}
+            disabled={!stats}
+            className="inline-flex h-9 flex-[1.4] items-center justify-center gap-1.5 rounded-full bg-gl-blue px-3 text-[13px] font-semibold text-white hover:bg-gl-blue-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue disabled:opacity-50"
+          >
+            <ArrowDownToLine aria-hidden="true" className="size-4" />
+            Download .groom
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+/** The app's ValueSlider: a field that fills as it is dragged, its label and value inside. */
+function ValueSlider({
+  hue,
+  label,
+  title,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  onReset,
+  format,
+}: {
+  hue: { hue: string; tint: string; ink: string };
+  label: string;
+  title?: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  onReset?: () => void;
+  format: (v: number) => string;
+}) {
+  const id = useId();
+  const share = max > min ? Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100)) : 0;
+  return (
+    <div
+      title={title}
+      onDoubleClick={onReset}
+      className={cn(
+        'relative h-7 overflow-hidden rounded-[7px] bg-[#f1f1f4] font-mono text-[12px]',
+        'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-gl-blue',
+      )}
+      style={{ '--fill': hue.hue } as CSSProperties}
+    >
+      <span aria-hidden="true" className="absolute inset-y-0 left-0" style={{ width: `${share}%`, background: hue.tint }} />
+      <span aria-hidden="true" className="absolute inset-y-0 w-[2px]" style={{ left: `calc(${share}% - 1px)`, background: hue.ink }} />
+      <label htmlFor={id} className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center truncate text-gl-ink-2">
+        {label}
+      </label>
+      <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-gl-ink tabular-nums">
+        {format(value)}
+      </span>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-valuetext={format(value)}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="absolute inset-0 size-full cursor-ew-resize appearance-none opacity-0"
+      />
+    </div>
+  );
+}

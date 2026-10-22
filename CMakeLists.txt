@@ -39,6 +39,10 @@ set(GROOMLAB_QT_DIR "" CACHE PATH "Qt 6.8 kit root for the app, e.g. .../Qt/6.8.
 option(GROOMLAB_COVERAGE      "Instrument the core and tests for gcov (GCC/Clang)" OFF)
 # Research prototypes (tools/research, docs/research): benchmarks of ideas, never run by ctest.
 option(GROOMLAB_BUILD_RESEARCH "Build the research prototypes (tools/research)"   OFF)
+# The core in the browser (engine/web, docs/WEB.md): with Emscripten (the wasm preset) the
+# WebAssembly module the website's /view page runs; natively its probe (groomlab_web_probe), the
+# same binding for comparing the two builds' strands.
+option(GROOMLAB_BUILD_WEB     "Build the WebAssembly module (Emscripten) or its native probe" OFF)
 
 set(MAYA_LOCATION "$ENV{MAYA_LOCATION}" CACHE PATH "Maya install root, e.g. C:/Program Files/Autodesk/Maya2022")
 set(MTOA_LOCATION "$ENV{MTOA_LOCATION}" CACHE PATH "MtoA install root, e.g. C:/Program Files/Autodesk/Arnold/maya2022")
@@ -83,6 +87,12 @@ include(GroomLabBuildSpeed)
 
 if(MSVC)
     add_compile_options(/utf-8)
+endif()
+if(EMSCRIPTEN)
+    # The browser build (engine/web): C++ exceptions as WebAssembly exceptions (the core throws
+    # GraphError and the like; every browser since 2022 runs them), in every object and the link.
+    add_compile_options(-fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
 endif()
 
 # Determinism: a groom evaluates to the same bits in every host built here, so the float math is
@@ -201,6 +211,10 @@ endif()
 
 if(GROOMLAB_BUILD_RESEARCH)
     add_subdirectory(tools/research)
+endif()
+
+if(GROOMLAB_BUILD_WEB)
+    add_subdirectory(engine/web)
 endif()
 
 # After the tests: the app's own tests (tests/hosts/app) use their GoogleTest.

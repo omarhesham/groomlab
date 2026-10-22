@@ -10,6 +10,8 @@ const eslintConfig = defineConfig([
     'build/**',
     'next-env.d.ts',
     '.source/**',
+    // Emscripten's output (engine/web, docs/WEB.md): generated, not ours to lint.
+    'public/wasm/groomlab.js',
   ]),
 ]);
 
