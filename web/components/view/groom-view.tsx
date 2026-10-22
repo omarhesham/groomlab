@@ -102,6 +102,12 @@ async function engineFiles(picked: PickedFile[], groomPath: string | null): Prom
   );
 }
 
+/** A bundled sample named by the page's address (?groom=manny_short_curls: the home page's link), else null. */
+function sampleFromAddress() {
+  const name = new URLSearchParams(window.location.search).get('groom');
+  return name && /^[a-z0-9_]{1,64}$/.test(name) ? `/samples/${name}.groom` : null;
+}
+
 /** True when this browser can make a WebGL2 context (three.js needs one). */
 function hasWebGL2() {
   try {
@@ -255,9 +261,10 @@ export function GroomView({ sample }: { sample: string }) {
         size();
         viewer.setActive(true);
         setReady(true);
-        const response = await fetch(sample);
+        const url = sampleFromAddress() ?? sample;
+        const response = await fetch(url);
         if (!response.ok) throw new Error(`Cannot fetch the sample groom (${response.status}).`);
-        await load(await response.text(), undefined, sample.split('/').pop() ?? 'sample.groom', [], response.url || sample);
+        await load(await response.text(), undefined, url.split('/').pop() ?? 'sample.groom', [], response.url || url);
       } catch (e) {
         if (!disposed) {
           setError(e instanceof Error ? e.message : String(e));

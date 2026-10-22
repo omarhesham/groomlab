@@ -4,7 +4,9 @@
  * Scatter puts roots on a head's scalp, Interpolate grows each strand from the three guides nearest
  * it, then Clump, Curl and Noise displace it, in that order, and HairColor colors it root to tip.
  * The head is a HeadShape (head-mesh.ts): the Manny sample head once it has loaded. It writes
- * StrandData, so the viewer never knows (or cares) that the source is procedural.
+ * StrandData, so the viewer never knows (or cares) that the source is procedural. The home page's
+ * stand-in only: it draws at once, while the real GroomLab engine (home-engine.ts) loads, and where
+ * the engine cannot run (no WebAssembly, no workers).
  */
 import { ellipsoidHead, headRootMesh, type HeadShape } from './head-mesh';
 import { hairShadeRGB, type StrandParams } from './strand-engine';

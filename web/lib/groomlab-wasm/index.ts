@@ -57,6 +57,8 @@ export interface GroomLoaded extends GroomFileState {
   /** The engine's version (GroomLab's). */
   version: string;
   loadMs: number;
+  /** How long the load waited for the WebAssembly module (the worker's first load: fetching and compiling it). */
+  moduleMs: number;
   controls: GroomControl[];
   scalp: RootMesh;
 }
@@ -102,6 +104,14 @@ export interface GroomEngine {
   scalpMesh(): Promise<RootMesh>;
   /** The groom as a .groom file, with the edits made. */
   saveGroom(): Promise<Uint8Array>;
+  /** Bypasses nodes, or puts them back ([node name, bypassed]): the graph's own bypass flag. */
+  setBypass(nodes: [string, boolean][]): Promise<void>;
+  /**
+   * Another groom in the same worker (one engine, several grooms: the home page's viewers), its
+   * calls the same; `name` is its slot. Disposing it unloads that groom only.
+   */
+  slot(name: string): GroomEngine;
+  /** The main engine: ends the worker (every slot). A slot: unloads its groom. */
   dispose(): void;
 }
 
@@ -148,10 +158,63 @@ export async function fetchGroomFiles(missing: string[], groomUrl: string | URL)
   return got.filter((f): f is [string, Uint8Array] => f !== null);
 }
 
+type Call = <T>(op: string, args?: Record<string, unknown>) => Promise<T>;
+
+/** The calls of one slot of the worker, with its own queue of slider values. */
+function slotApi(call: Call, slot: string, slotOf: (name: string) => GroomEngine, end: () => void): GroomEngine {
+  const at = <T>(op: string, args: Record<string, unknown> = {}) => call<T>(op, { ...args, slot });
+  // Slider values wait here while a set is in flight; the latest of each goes next.
+  const queued = new Map<string, number>();
+  let flushing: Promise<void> | null = null;
+  const flush = async () => {
+    while (queued.size) {
+      const values = [...queued.entries()];
+      queued.clear();
+      await at<{ failed: string[] }>('set', { values });
+    }
+  };
+  const setParams = (values: [string, number][]) => {
+    for (const [id, v] of values) queued.set(id, v);
+    if (!flushing) flushing = flush().finally(() => (flushing = null));
+    return flushing;
+  };
+  return {
+    loadGroom: (groom, mesh, files) => at<GroomLoaded>('load', { groom: text(groom), mesh: text(mesh), files: fileList(files) }),
+    addFile: (path, bytes) => at<GroomFileState>('addFiles', { files: [[path, bytes]] }),
+    addFiles: (files) => at<GroomFileState>('addFiles', { files: fileList(files) }),
+    missingFiles: async () => (await at<GroomFileState>('files')).missing,
+    referencedFiles: async () => (await at<GroomFileState>('files')).files,
+    listControls: () => at<GroomControl[]>('controls'),
+    setParam: (id, value) => setParams([[id, value]]),
+    setParams,
+    async setBypass(nodes) {
+      if (flushing) await flushing;
+      await at('bypass', { nodes });
+    },
+    async evaluate(options) {
+      if (flushing) await flushing;
+      const r = await at<RawEvaluation>('evaluate', { density: options?.density ?? DEFAULT_PREVIEW_DENSITY });
+      return {
+        strands: { count: r.count, offsets: r.offsets, positions: r.positions, colors: r.colors },
+        guides: r.guides ? { count: r.guides.offsets.length - 1, offsets: r.guides.offsets, positions: r.guides.positions } : null,
+        evaluateMs: r.evaluateMs,
+        totalMs: r.totalMs,
+        errors: r.errors,
+        nodes: r.nodes,
+      };
+    },
+    scalpMesh: () => at<RootMesh>('scalp'),
+    saveGroom: async () => new TextEncoder().encode(await at<string>('save')),
+    slot: slotOf,
+    dispose: end,
+  };
+}
+
 /** Starts the engine's worker (`base`: where groomlab-worker.js, groomlab.js and .wasm are served). */
 export function createGroomEngine(base = '/wasm/'): GroomEngine {
   const worker = new Worker(`${base}groomlab-worker.js`);
   let next = 1;
+  let ended = false;
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   worker.onmessage = (e: MessageEvent<{ id: number; ok: boolean; result?: unknown; error?: string }>) => {
     const p = pending.get(e.data.id);
@@ -164,56 +227,32 @@ export function createGroomEngine(base = '/wasm/'): GroomEngine {
     for (const p of pending.values()) p.reject(new Error(e.message || 'the GroomLab worker failed to start'));
     pending.clear();
   };
-  const call = <T>(op: string, args?: unknown) =>
+  const call: Call = <T>(op: string, args?: Record<string, unknown>) =>
     new Promise<T>((resolve, reject) => {
+      if (ended) return reject(new Error('the GroomLab engine was disposed'));
       const id = next++;
       pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
       worker.postMessage({ id, op, args });
     });
 
-  // Slider values wait here while a set is in flight; the latest of each goes next.
-  const queued = new Map<string, number>();
-  let flushing: Promise<void> | null = null;
-  const flush = async () => {
-    while (queued.size) {
-      const values = [...queued.entries()];
-      queued.clear();
-      await call<{ failed: string[] }>('set', { values });
+  const slots = new Map<string, GroomEngine>();
+  const slotOf = (name: string): GroomEngine => {
+    if (name === 'main') return main;
+    let s = slots.get(name);
+    if (!s) {
+      s = slotApi(call, name, slotOf, () => {
+        slots.delete(name);
+        call('unload', { slot: name }).catch(() => {});
+      });
+      slots.set(name, s);
     }
+    return s;
   };
-  const setParams = (values: [string, number][]) => {
-    for (const [id, v] of values) queued.set(id, v);
-    if (!flushing) flushing = flush().finally(() => (flushing = null));
-    return flushing;
-  };
-
-  return {
-    loadGroom: (groom, mesh, files) => call<GroomLoaded>('load', { groom: text(groom), mesh: text(mesh), files: fileList(files) }),
-    addFile: (path, bytes) => call<GroomFileState>('addFiles', { files: [[path, bytes]] }),
-    addFiles: (files) => call<GroomFileState>('addFiles', { files: fileList(files) }),
-    missingFiles: async () => (await call<GroomFileState>('files')).missing,
-    referencedFiles: async () => (await call<GroomFileState>('files')).files,
-    listControls: () => call<GroomControl[]>('controls'),
-    setParam: (id, value) => setParams([[id, value]]),
-    setParams,
-    async evaluate(options) {
-      if (flushing) await flushing;
-      const r = await call<RawEvaluation>('evaluate', { density: options?.density ?? DEFAULT_PREVIEW_DENSITY });
-      return {
-        strands: { count: r.count, offsets: r.offsets, positions: r.positions, colors: r.colors },
-        guides: r.guides ? { count: r.guides.offsets.length - 1, offsets: r.guides.offsets, positions: r.guides.positions } : null,
-        evaluateMs: r.evaluateMs,
-        totalMs: r.totalMs,
-        errors: r.errors,
-        nodes: r.nodes,
-      };
-    },
-    scalpMesh: () => call<RootMesh>('scalp'),
-    saveGroom: async () => new TextEncoder().encode(await call<string>('save')),
-    dispose() {
-      worker.terminate();
-      for (const p of pending.values()) p.reject(new Error('the GroomLab engine was disposed'));
-      pending.clear();
-    },
-  };
+  const main = slotApi(call, 'main', slotOf, () => {
+    ended = true;
+    worker.terminate();
+    for (const p of pending.values()) p.reject(new Error('the GroomLab engine was disposed'));
+    pending.clear();
+  });
+  return main;
 }

@@ -18,12 +18,14 @@ module's strands are **bit for bit** the desktop's (see "Checking it").
 | `engine/web/src/web_probe.cpp` | `groomlab_web_probe`: the same `WebGroom` built natively, for comparisons. |
 | `engine/web/tools/compare.mjs` | The module in Node, printing what the probe prints. `diff_positions.mjs` compares raw dumps. |
 | `engine/web/tools/make_sample.mjs` | Writes `web/public/samples/manny_hair.groom` and its texture map `masks/manny_hair/highlights.png` with the module. |
+| `engine/web/tools/make_home_samples.mjs` | Writes the home page's grooms (`manny_curls.groom`, `manny_short_curls.groom`) with the module. |
 | `engine/web/tools/test_maps.mjs` | Checks the module's maps (vertex maps, texture maps by path, by name, UDIM, `..`, missing, re-read). |
 | `engine/web/tools/png.mjs` | A small gray PNG writer for those two. |
 | `web/public/wasm/groomlab.{js,wasm}` | The build's output (copied there by the build). Committed, so the site builds without Emscripten. |
 | `web/public/wasm/groomlab-worker.js` | A classic worker that loads the module and answers the page. |
 | `web/lib/groomlab-wasm/index.ts` | The page's typed client of that worker. |
-| `web/components/view/groom-view.tsx` | The `/view` page: viewer, sliders, open, download, drop. |
+| `web/components/view/groom-view.tsx` | The `/view` page: viewer, sliders, open, download, drop. `?groom=<name>` opens `/samples/<name>.groom`. |
+| `web/components/home/home-engine.ts` | The home page's grooms grown by the engine (see "The home page"). |
 
 ## Building it
 
@@ -95,6 +97,11 @@ const bytes = await engine.saveGroom();        // the edited .groom
   Values sent while an evaluation runs are coalesced (the latest per slider).
 - `evaluate({density})`: the preview density (default 0.25). Strands come back as typed arrays,
   transferred from the worker.
+- `setBypass([[node, bypassed], ...])`: the graph's own `bypass` flag on nodes, set with `setGraphJson`
+  (the nodes before them stay cached).
+- `slot(name)`: another groom in the same worker, with the same calls (one engine, several grooms: the
+  home page's viewers). Disposing a slot unloads its groom; disposing the engine ends the worker. The
+  slots share the module's memory file system (`/groom`), so their files do too.
 - `scalpMesh()`, `saveGroom()`, `dispose()`.
 
 The embind class (`WebGroom`, in the worker or in Node: `createGroomLab()` from `groomlab.js`) has
@@ -162,8 +169,53 @@ gzip: Emscripten's FS, MEMFS and TTY code): 23 KB more to download gzipped, 18 K
 Headless Chrome (SwiftShader) showed the same: 252 ms for the page's first evaluation, 19 ms after
 four sliders moved. The native probe (MSVC, also single-threaded) takes 237 ms and 563 ms for the
 fresh evaluations: WebAssembly runs here at about native single-thread speed. Edits after the first evaluation re-run only
-the nodes after the one changed, so sliders stay live at full density. The home page's Try section
-could run on it (its grooms are smaller); it stays procedural for now.
+the nodes after the one changed, so sliders stay live at full density.
+
+## The home page
+
+Every strand on the home page is the engine's: three viewers, one worker. `strand-3d.ts` draws the
+procedural stand-in (`groom-3d.ts`) at once, then, once the page is idle, imports `home-engine.ts`,
+which starts the page's one engine (`createGroomEngine`, so `groomlab.wasm` is only fetched then) and
+loads each viewer's groom into its own slot. The engine's strands, scalp and guides replace the
+stand-in's in the same canvas. Without WebAssembly or workers (or WebGL2, where the 2D canvas draws)
+the stand-in stays.
+
+| Viewer | Groom | Strands drawn | What the page sets |
+| --- | --- | --- | --- |
+| Hero | `manny_curls.groom`: Curly, tuned, on guides standing off the head; a Transform node, `length` (scale 1.8), between Interpolate and Clump | ~11,000 (phones ~6,000) | nothing; its chip reads `param:curl.radius` and `param:length.scale` from `listControls()` |
+| "Made to be played with" | `manny_short_curls.groom` | ~7,000 (~3,900) | `param:curl.radius` (the slider), `param:scatter.seed` (new random roots); guides shown from the evaluation |
+| "Try the node graph" | the same file, its own slot | ~7,000, more with Scatter's density, up to 16,000 | each card's switch: `setBypass` on `clump`, `curl`, `noise`, `color`; each slider: the groom's `"exposed"` params, ranges and labels from `listControls()`; the seed |
+
+`manny_short_curls.groom`'s chain is the Try section's, node for node: Scalp, Scatter, Interpolate
+(with the Guides node), Clump, Curl, Noise, HairColor, Output. Its Scatter density is a plain number
+(a slider) and keeps to the hair's part of the head by `guideRadius` around the guides' roots.
+
+`node engine/web/tools/make_home_samples.mjs` writes both grooms (the Curly preset on the Manny head,
+guides baked from small combing graphs) and prints their controls and full strand counts:
+`web/components/home/engine-grooms.ts` mirrors them (the page draws its sliders before the engine
+answers), so change both together. The preview density is a share of the full count.
+
+Edits go to the engine as they come (only what changed); evaluations run one at a time, at most one a
+frame, with the latest edits. Each result is moved into the viewer (the scalp painted with the hair's
+root color under the hair when the roots or their colors changed). `window.__groomlabHome` holds the
+page's timings per viewer: milestones (ms since the page started) and, per evaluation, the engine's
+time, the round trip and the page thread's share.
+
+Measured 2026-10-21 (headless Chrome, SwiftShader, the static build served locally, 1440 x 900):
+
+- First load: the viewers' 3D chunks load at ~0.75 s, the engine is asked for at ~1.2 s (idle),
+  the module is ready ~0.15 to 0.26 s later (cold cache: fetch and compile), the hero's first
+  evaluation takes ~300 ms in the engine (~370 ms round trip) and its strands are on screen at ~2.0 s;
+  the play bust's (~160 to 200 ms) follow at ~2.2 s, the Try section's (~90 to 100 ms) when it nears
+  the screen.
+- Edits: Try's sliders re-evaluate in 5 ms (melanin) to 20 to 95 ms (Curl's frequency, by how many
+  points Curl adds), 50 to 180 ms round trip with the copies; the page thread spends 2 to 17 ms a
+  result (and 5 to 40 ms when the scalp is painted again).
+- Dragging a slider (60 values, one a frame): no long task on the page's thread (the stand-in, before:
+  9 long tasks, 604 ms, for Curl's radius); median frame 16.5 ms. The slow frames left (p90 ~100 to
+  160 ms) are SwiftShader drawing the new strands in software.
+- The home page's initial JS: +3.8 KB raw, +1.3 KB gzip (the grooms' values for the sliders);
+  three.js, the engine client and `home-engine.ts` load lazily, `groomlab.wasm` from the worker.
 
 ## Checking it
 

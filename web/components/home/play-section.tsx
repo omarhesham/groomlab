@@ -5,6 +5,8 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { LogoMark } from '@/components/logo';
 import { Reveal } from '@/components/reveal';
 import { cn } from '@/lib/cn';
+import type { GroomControl } from '@/lib/groomlab-wasm';
+import { SHORT_CURLS_FULL, SHORT_CURLS_SEED, SHORT_CURLS_SLIDERS, SHORT_CURLS_URL, type EngineEdits, type EngineSlider } from './engine-grooms';
 import type { GroomStats } from './groom-3d';
 import { category, port, surface } from './graph-theme';
 import type { StrandParams } from './strand-engine';
@@ -13,8 +15,9 @@ import { connect, SvgNode, Wire, type NodeSpec } from './svg-graph';
 
 /*
  * "Made to be played with": three pillars (shape, style, detail) and a small GroomLab window: the
- * graph that grows a short curly cut on the Manny head, the bust in 3D beside it, and a toolbar
- * whose slider is the Curl node's radius. Guides, a new seed and a reset are a click away.
+ * graph that grows a short curly cut on the Manny head, the bust in 3D beside it (the GroomLab
+ * engine growing manny_short_curls.groom in the browser), and a toolbar whose slider is the Curl
+ * node's radius. Guides, a new seed (Scatter's) and a reset are a click away.
  */
 
 const pillars: { title: string; text: string; icon: ReactNode }[] = [
@@ -55,15 +58,28 @@ const pillars: { title: string; text: string; icon: ReactNode }[] = [
   },
 ];
 
+const spec = (id: string) => SHORT_CURLS_SLIDERS.find((s) => s.id === id)!;
+const RADIUS = 'param:curl.radius';
+const SEED = 'param:scatter.seed';
+
 interface Look {
   curl: number;
   showGuides: boolean;
   seed: number;
 }
-const initial: Look = { curl: 0.55, showGuides: false, seed: 3 };
+const initial: Look = { curl: spec(RADIUS).value, showGuides: false, seed: SHORT_CURLS_SEED };
+
+/** The bust's groom, grown by the engine in its own slot. */
+const engineSource = { url: SHORT_CURLS_URL, slot: 'play', fullStrands: SHORT_CURLS_FULL, strands: 7000 };
+
+/** The values the graph shows: the groom's (the engine's once it has loaded). */
+type Values = Record<string, number>;
+const fmt = (v: number | undefined, digits = 2) => (v === undefined ? '' : v.toFixed(digits));
 
 const W = 112;
-function nodes(curl: number, strands: string): NodeSpec[] {
+function nodes(curl: number, strands: string, v: Values, radius: EngineSlider): NodeSpec[] {
+  const density = spec('param:scatter.density');
+  const share = (x: number | undefined, s: EngineSlider) => Math.min(1, Math.max(0, ((x ?? s.value) - s.min) / (s.max - s.min)));
   return [
     { id: 'scalp', name: 'Scalp', cat: 'Sources', x: 4, y: 8, w: W, rows: [{ label: 'mesh', value: 'manny' }], outs: [{ type: 'mesh' }] },
     {
@@ -73,7 +89,7 @@ function nodes(curl: number, strands: string): NodeSpec[] {
       x: 148,
       y: 28,
       w: W,
-      rows: [{ label: 'density', value: '600', slider: 0.6 }],
+      rows: [{ label: 'density', value: fmt(v['param:scatter.density'], 0), slider: share(v['param:scatter.density'], density) }],
       ins: [{ type: 'mesh' }],
       outs: [{ type: 'strands' }],
     },
@@ -85,8 +101,8 @@ function nodes(curl: number, strands: string): NodeSpec[] {
       y: 4,
       w: W,
       rows: [
-        { label: 'strength', value: '0.62', slider: 0.62 },
-        { label: 'count', value: '60' },
+        { label: 'strength', value: fmt(v['param:clump.strength']), slider: share(v['param:clump.strength'], spec('param:clump.strength')) },
+        { label: 'count', value: fmt(v['param:clump.count'], 0) },
       ],
       ins: [{ type: 'strands' }],
       outs: [{ type: 'strands', side: 'b' }],
@@ -99,8 +115,8 @@ function nodes(curl: number, strands: string): NodeSpec[] {
       y: 150,
       w: W,
       rows: [
-        { label: 'radius', value: curl.toFixed(2), slider: curl },
-        { label: 'frequency', value: '2.0' },
+        { label: 'radius', value: curl.toFixed(2), slider: share(curl, radius) },
+        { label: 'frequency', value: fmt(v['param:curl.frequency']) },
       ],
       ins: [{ type: 'strands', side: 't' }],
       outs: [{ type: 'strands', side: 'l' }],
@@ -118,8 +134,8 @@ function nodes(curl: number, strands: string): NodeSpec[] {
   ];
 }
 
-function Graph({ curl, strands }: { curl: number; strands: string }) {
-  const n = nodes(curl, strands);
+function Graph({ curl, strands, values, radius }: { curl: number; strands: string; values: Values; radius: EngineSlider }) {
+  const n = nodes(curl, strands, values, radius);
   const by = Object.fromEntries(n.map((x) => [x.id, x]));
   const links: [string, string][] = [
     ['scalp', 'scatter'],
@@ -189,13 +205,29 @@ function ToolButton({ label, pressed, onClick, children }: { label: string; pres
 function AppPanel() {
   const [look, setLook] = useState<Look>(initial);
   const [stats, setStats] = useState<GroomStats | null>(null);
+  const [radius, setRadius] = useState<EngineSlider>(spec(RADIUS));
+  const [values, setValues] = useState<Values>(() => Object.fromEntries(SHORT_CURLS_SLIDERS.map((s) => [s.id, s.value])));
   const strands = stats ? stats.strands.toLocaleString('en-US') : '7,200';
+  const engine = useMemo(
+    () => ({
+      source: engineSource,
+      onControls: (controls: GroomControl[]) => {
+        setValues(Object.fromEntries(controls.map((c) => [c.id, c.value])));
+        const c = controls.find((x) => x.id === RADIUS);
+        if (c) setRadius({ id: c.id, label: c.label, min: c.min, max: c.max, step: c.step, value: c.value });
+      },
+    }),
+    [],
+  );
+  const edits = useMemo<EngineEdits>(() => ({ params: { [RADIUS]: look.curl, [SEED]: look.seed } }), [look.curl, look.seed]);
+  const curlShare = (look.curl - radius.min) / (radius.max - radius.min);
+  // The procedural stand-in, until the engine's groom is in (its curl is 0 to 1, about 0.75 cm).
   const params = useMemo<StrandParams>(
     () => ({
       density: 600,
       clump: 0.62,
       clumpCount: 60,
-      curl: look.curl,
+      curl: Math.min(1, look.curl / 0.75),
       curlFrequency: 2,
       noise: 0.15,
       color: { melanin: 0.56, redness: 0.42 },
@@ -221,7 +253,7 @@ function AppPanel() {
       <div className="grid md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <div className="flex flex-col md:border-r md:border-white/[0.07]">
           <div className="hidden flex-1 items-center justify-center px-5 py-7 md:flex lg:px-7">
-            <Graph curl={look.curl} strands={strands} />
+            <Graph curl={look.curl} strands={strands} values={values} radius={radius} />
           </div>
           <div className="px-4 pt-5 pb-1 md:hidden">
             <PillChain />
@@ -238,7 +270,7 @@ function AppPanel() {
             <ToolButton label="New random roots" onClick={() => setLook((l) => ({ ...l, seed: l.seed + 1 }))}>
               <Shuffle className="size-4" strokeWidth={2} />
             </ToolButton>
-            <ToolButton label="Reset" onClick={() => setLook(initial)}>
+            <ToolButton label="Reset" onClick={() => setLook({ ...initial, curl: radius.value })}>
               <RotateCcw className="size-4" strokeWidth={2} />
             </ToolButton>
             <label className="ml-auto flex items-center gap-3 text-[12px] whitespace-nowrap text-gl-ink-2">
@@ -246,16 +278,16 @@ function AppPanel() {
               <span className="font-mono sm:hidden">curl</span>
               <span className="relative flex h-9 w-24 items-center sm:w-32 lg:w-24 xl:w-32">
                 <span aria-hidden="true" className="absolute inset-x-0 h-[3px] rounded-full" style={{ background: surface.track }} />
-                <span aria-hidden="true" className="absolute left-0 h-[3px] rounded-full bg-gl-blue" style={{ width: `${look.curl * 100}%` }} />
+                <span aria-hidden="true" className="absolute left-0 h-[3px] rounded-full bg-gl-blue" style={{ width: `${curlShare * 100}%` }} />
                 <span
                   aria-hidden="true"
                   className="absolute size-3.5 -translate-x-1/2 rounded-full border-2 border-gl-panel bg-gl-blue shadow-[0_0_0_3px_rgba(47,123,246,0.25)]"
-                  style={{ left: `${look.curl * 100}%` }}
+                  style={{ left: `${curlShare * 100}%` }}
                 />
                 <input
                   type="range"
-                  min={0}
-                  max={1}
+                  min={radius.min}
+                  max={radius.max}
                   step={0.01}
                   value={look.curl}
                   aria-valuetext={look.curl.toFixed(2)}
@@ -277,6 +309,8 @@ function AppPanel() {
             fill={1}
             skin={[0.7, 0.69, 0.68]}
             framing={[[0, -0.35, 0.12], 1.7]}
+            engine={engine}
+            edits={edits}
             label="The Manny head in 3D with a short curly cut, side on; drag to turn it"
           />
           <span className="pointer-events-none absolute right-3 bottom-2.5 font-mono text-[11px] text-gl-ink-3 tabular-nums">

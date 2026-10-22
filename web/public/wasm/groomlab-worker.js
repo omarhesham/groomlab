@@ -3,13 +3,15 @@
  * The GroomLab engine in a worker: groomlab.js and groomlab.wasm (engine/web, built with the wasm
  * preset: docs/WEB.md) evaluating a groom off the page's thread. web/lib/groomlab-wasm is its client.
  * Messages: {id, op, args} in, {id, ok, result} or {id, ok: false, error} out; buffers are copied
- * out of the module's memory and transferred.
+ * out of the module's memory and transferred. One worker holds several grooms at once, each in a
+ * slot (args.slot, "main" when left out): the home page evaluates its three viewers' grooms here.
  */
 /* global importScripts, createGroomLab */
 'use strict';
 
 let modulePromise = null;
-let groom = null;
+/** slot name -> WebGroom */
+const grooms = new Map();
 
 function engine() {
   if (!modulePromise) {
@@ -19,9 +21,10 @@ function engine() {
   return modulePromise;
 }
 
-function need() {
-  if (!groom) throw new Error('no groom loaded');
-  return groom;
+function need(slot) {
+  const g = grooms.get(slot || 'main');
+  if (!g) throw new Error('no groom loaded');
+  return g;
 }
 
 function scalpOf(g) {
@@ -48,8 +51,10 @@ function filesOf(g) {
 }
 
 const ops = {
-  async load({ groom: text, mesh, files }) {
+  async load({ slot, groom: text, mesh, files }) {
+    const m0 = performance.now();
     const M = await engine();
+    const moduleMs = performance.now() - m0;
     const next = new M.WebGroom();
     const t0 = performance.now();
     if (!next.load(text, mesh || '')) {
@@ -57,40 +62,69 @@ const ops = {
       next.delete();
       throw new Error(error);
     }
-    if (groom) {
-      groom.clearFiles();
-      groom.delete();
+    const key = slot || 'main';
+    const old = grooms.get(key);
+    if (old) {
+      old.clearFiles();
+      old.delete();
     }
-    groom = next;
+    const groom = next;
+    grooms.set(key, groom);
     const failed = addFiles(groom, files);
     return {
       version: M.version(),
       loadMs: performance.now() - t0,
+      // How long this load waited for the module (the first: fetching and compiling it).
+      moduleMs,
       controls: JSON.parse(groom.controlsJson()),
       scalp: scalpOf(groom),
       failed,
       ...filesOf(groom),
     };
   },
-  addFiles({ files }) {
-    const g = need();
+  unload({ slot }) {
+    const g = grooms.get(slot || 'main');
+    if (g) {
+      g.clearFiles();
+      g.delete();
+      grooms.delete(slot || 'main');
+    }
+    return null;
+  },
+  addFiles({ slot, files }) {
+    const g = need(slot);
     const failed = addFiles(g, files);
     return { failed, ...filesOf(g) };
   },
-  files() {
-    return filesOf(need());
+  files({ slot }) {
+    return filesOf(need(slot));
   },
-  controls() {
-    return JSON.parse(need().controlsJson());
+  controls({ slot }) {
+    return JSON.parse(need(slot).controlsJson());
   },
-  set({ values }) {
-    const g = need();
+  set({ slot, values }) {
+    const g = need(slot);
     const failed = [];
     for (const [id, value] of values) if (!g.setParam(id, value)) failed.push(id + (g.error() ? ': ' + g.error() : ''));
     return { failed };
   },
-  evaluate({ density }) {
-    const g = need();
+  // Nodes bypassed or not ([[node, bypassed]...]): the graph's own "bypass" flag, set with
+  // setGraphJson, which keeps every node before them.
+  bypass({ slot, nodes }) {
+    const g = need(slot);
+    const graph = JSON.parse(g.graphJson());
+    const failed = [];
+    for (const [name, bypassed] of nodes) {
+      const node = (graph.nodes || []).find((n) => n && n.name === name);
+      if (!node) failed.push(name + ': no such node');
+      else if (bypassed) node.bypass = true;
+      else delete node.bypass;
+    }
+    if (!g.setGraphJson(JSON.stringify(graph))) throw new Error(g.error());
+    return { failed };
+  },
+  evaluate({ slot, density }) {
+    const g = need(slot);
     const t0 = performance.now();
     const ok = g.evaluate(density);
     const stats = JSON.parse(g.statsJson());
@@ -108,11 +142,11 @@ const ops = {
       nodes: stats.nodes,
     };
   },
-  scalp() {
-    return scalpOf(need());
+  scalp({ slot }) {
+    return scalpOf(need(slot));
   },
-  save() {
-    return need().saveGroom();
+  save({ slot }) {
+    return need(slot).saveGroom();
   },
 };
 

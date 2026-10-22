@@ -2,8 +2,9 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
+import type { EngineEdits } from './engine-grooms';
 import type { GroomStats } from './groom-3d';
-import type { Groom3D } from './strand-3d';
+import type { EngineOptions, Groom3D } from './strand-3d';
 import { StrandRenderer, type StrandParams } from './strand-engine';
 
 /** True when this browser can make a WebGL2 context (three.js needs one). */
@@ -18,10 +19,12 @@ function hasWebGL2() {
 }
 
 /**
- * The groom's viewport. Once it comes near the screen it fetches three.js and the 3D groom (grown in
- * a worker): a head whose hair is grown by the params, standing still, that a drag orbits. Without
- * WebGL2 (or when the 3D fails) a 2D canvas draws the same graph instead. Neither animates: each
- * draws a frame when its params change, when it is resized or shown, and while it is dragged.
+ * The groom's viewport. Once it comes near the screen it fetches three.js and the 3D groom: a head
+ * whose hair is grown by the params (procedurally), standing still, that a drag orbits; with an
+ * `engine` groom, the real GroomLab engine (WebAssembly, in a worker) then grows that groom with
+ * `edits` and takes its place. Without WebGL2 (or when the 3D fails) a 2D canvas draws the
+ * procedural graph instead. Nothing animates: each draws a frame when its params or edits change,
+ * when it is resized or shown, and while it is dragged.
  */
 export function StrandViewport({
   params,
@@ -34,6 +37,8 @@ export function StrandViewport({
   skin,
   framing,
   onStats,
+  engine,
+  edits,
 }: {
   params: StrandParams;
   className?: string;
@@ -49,12 +54,18 @@ export function StrandViewport({
   /** The sphere the camera frames, in head units. */
   framing?: [[number, number, number], number];
   onStats?: (stats: GroomStats) => void;
+  /** The real groom (fixed for the viewport's life) and its callbacks. */
+  engine?: Omit<EngineOptions, 'edits' | 'scale'>;
+  /** Edits of the engine's groom: param values and bypassed nodes. */
+  edits?: EngineEdits;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const paramsRef = useRef(params);
   const statsRef = useRef(onStats);
+  const engineRef = useRef(engine);
+  const editsRef = useRef(edits);
   const redrawRef = useRef<() => void>(() => {});
   const groomRef = useRef<Groom3D | null>(null);
   /** Whether the 2D canvas draws: only without WebGL2 or when the 3D groom failed. */
@@ -67,6 +78,12 @@ export function StrandViewport({
     redrawRef.current();
     groomRef.current?.update(params);
   }, [params, onStats]);
+
+  useEffect(() => {
+    engineRef.current = engine;
+    editsRef.current = edits;
+    if (edits) groomRef.current?.edit(edits);
+  }, [engine, edits]);
 
   // The 2D canvas: the fallback, one still frame per change.
   useEffect(() => {
@@ -159,6 +176,13 @@ export function StrandViewport({
             params: paramsRef.current,
             strandScale: strandScale * (phone ? 0.55 : 1),
             onStats: (s) => statsRef.current?.(s),
+            engine: engineRef.current && {
+              source: engineRef.current.source,
+              edits: editsRef.current ?? {},
+              scale: phone ? 0.55 : 1,
+              onControls: (c) => engineRef.current?.onControls?.(c),
+              onReady: () => engineRef.current?.onReady?.(),
+            },
           });
         })
         .then((g) => {
@@ -172,8 +196,9 @@ export function StrandViewport({
           }
           groom = g;
           groomRef.current = groom;
-          // Params that changed while it first grew.
+          // Params and edits that changed while it first grew.
           groom.update(paramsRef.current);
+          if (editsRef.current) groom.edit(editsRef.current);
           size();
           activate();
           setThree(true);

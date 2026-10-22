@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 /*
  * The landing page's 3D viewport: a scalp mesh and its strands, drawn with three.js. Data-driven:
- * it takes StrandData and a RootMesh from whatever makes them (the procedural groom today, the WASM
- * engine later) and only draws. It is lit for a dark page, as a studio would light hair: a warm
+ * it takes StrandData and a RootMesh from whatever makes them (the GroomLab engine as WebAssembly,
+ * or the procedural stand-in) and only draws. It is lit for a dark page, as a studio would light hair: a warm
  * key from the upper left, a cool rim from behind, little fill. Strands are GL lines shaded as hair
  * (Kajiya-Kay's two shifted highlights with a glint per strand, light through the hair at the
  * silhouette, the hair volume's own shadow and occlusion, darker roots); the head is clay. A slow turntable, drag to

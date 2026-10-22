@@ -1,76 +1,126 @@
 // SPDX-License-Identifier: Apache-2.0
 'use client';
-import { Eye, EyeOff, RotateCcw, Shuffle } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, RotateCcw, Shuffle } from 'lucide-react';
+import Link from 'next/link';
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import type { GroomStats } from './groom-3d';
+import type { GroomControl } from '@/lib/groomlab-wasm';
 import { cn } from '@/lib/cn';
+import {
+  SHORT_CURLS_FULL,
+  SHORT_CURLS_SEED,
+  SHORT_CURLS_SLIDERS,
+  SHORT_CURLS_URL,
+  sliderValues,
+  type EngineEdits,
+  type EngineSlider,
+  type EngineSource,
+} from './engine-grooms';
+import type { GroomStats } from './groom-3d';
 import { category, port, type Category, type PortType } from './graph-theme';
-import { defaultParams, type StrandParams } from './strand-engine';
+import type { StrandParams } from './strand-engine';
 import { StrandViewport } from './strand-viewport';
 
 /*
- * "Try the node graph": a short chain of real GroomLab nodes with their real param names. Bypass a
- * node or drag a slider (the app's ValueSlider: the field fills as it is dragged) and the strands
- * in the viewport are grown again on the spot.
+ * "Try the node graph": the chain of a real groom (manny_short_curls.groom), node for node, grown by
+ * the GroomLab engine in the browser. Each card is one of its nodes: its switch is the node's bypass,
+ * its sliders the node's params with the engine's ranges and labels (the app's ValueSlider: the
+ * field fills as it is dragged). The strands in the viewport are grown again on the spot, in the
+ * engine's worker; a procedural stand-in draws them until the engine has loaded.
  */
 
+/** The nodes a card can bypass, by their names in the groom. */
+type Bypassable = 'clump' | 'curl' | 'noise' | 'color';
+
 interface State {
-  density: number;
+  /** Param values by slider id. */
+  values: Record<string, number>;
+  bypass: Record<Bypassable, boolean>;
   showGuides: boolean;
-  clumpOn: boolean;
-  strength: number;
-  count: number;
-  curlOn: boolean;
-  radius: number;
-  frequency: number;
-  noiseOn: boolean;
-  amplitude: number;
-  colorOn: boolean;
-  melanin: number;
-  redness: number;
+  /** Scatter's seed. */
   seed: number;
 }
 
-const initial: State = {
-  density: defaultParams.density,
+const initialState = (values: Record<string, number>): State => ({
+  values,
+  bypass: { clump: false, curl: false, noise: false, color: false },
   showGuides: false,
-  clumpOn: true,
-  strength: defaultParams.clump,
-  count: defaultParams.clumpCount,
-  curlOn: true,
-  radius: defaultParams.curl,
-  frequency: defaultParams.curlFrequency,
-  noiseOn: true,
-  amplitude: defaultParams.noise,
-  colorOn: true,
-  melanin: 0.55,
-  redness: 0.45,
-  seed: defaultParams.seed,
+  seed: SHORT_CURLS_SEED,
+});
+
+const SEED = 'param:scatter.seed';
+const DENSITY = 'param:scatter.density';
+
+const engineSource: EngineSource = {
+  url: SHORT_CURLS_URL,
+  slot: 'try',
+  fullStrands: SHORT_CURLS_FULL,
+  strands: 7000,
+  densityParam: [DENSITY, SHORT_CURLS_SLIDERS[0].value],
+  maxStrands: 16000,
 };
 
-export function TryGraph() {
-  const [s, setS] = useState<State>(initial);
-  // What the viewport really draws: the 3D groom grows more strands than the density reads.
-  const [stats, setStats] = useState<GroomStats | null>(null);
-  const strands = (stats?.strands ?? s.density).toLocaleString('en-US');
-  const set = <K extends keyof State>(k: K) => (v: State[K]) => setS((prev) => ({ ...prev, [k]: v }));
+/** The procedural stand-in's params for these values (its own units, roughly matched). */
+function standIn(s: State): StrandParams {
+  const v = (id: string) => s.values[id] ?? 0;
+  return {
+    density: Math.min(2000, v(DENSITY) * (320 / 140)),
+    clump: s.bypass.clump ? 0 : Math.max(0, Math.min(1, v('param:clump.strength'))),
+    clumpCount: Math.max(2, Math.round((v('param:clump.count') / 220) * 16)),
+    curl: s.bypass.curl ? 0 : Math.min(1, v('param:curl.radius') / 0.8),
+    curlFrequency: Math.max(0.5, v('param:curl.frequency') * 6),
+    noise: s.bypass.noise ? 0 : Math.min(1, v('param:noise.amplitude') * 2.5),
+    color: s.bypass.color ? null : { melanin: v('param:color.melanin'), redness: v('param:color.redness') },
+    showGuides: s.showGuides,
+    seed: s.seed,
+    length: 1.4,
+    volume: 0.15,
+  };
+}
 
-  const params = useMemo<StrandParams>(
+export function TryGraph() {
+  // The sliders: the groom's exposed params, as the engine lists them once it has loaded.
+  const [sliders, setSliders] = useState<EngineSlider[]>(SHORT_CURLS_SLIDERS);
+  const [s, setS] = useState<State>(() => initialState(sliderValues(SHORT_CURLS_SLIDERS)));
+  const [stats, setStats] = useState<GroomStats | null>(null);
+  /** Whether the engine's strands are on screen (the stand-in's guides are not the groom's). */
+  const [real, setReal] = useState(false);
+  const strands = stats ? stats.strands.toLocaleString('en-US') : '7,000';
+  const setValue = (id: string) => (v: number) => setS((prev) => ({ ...prev, values: { ...prev.values, [id]: v } }));
+  const setOn = (node: Bypassable) => (on: boolean) => setS((prev) => ({ ...prev, bypass: { ...prev.bypass, [node]: !on } }));
+
+  const engine = useMemo(
     () => ({
-      density: s.density,
-      clump: s.clumpOn ? s.strength : 0,
-      clumpCount: s.count,
-      curl: s.curlOn ? s.radius : 0,
-      curlFrequency: s.frequency,
-      noise: s.noiseOn ? s.amplitude : 0,
-      color: s.colorOn ? { melanin: s.melanin, redness: s.redness } : null,
-      showGuides: s.showGuides,
-      seed: s.seed,
-      length: 1.4,
-      volume: 0.15,
+      source: engineSource,
+      onControls: (controls: GroomControl[]) => {
+        const next = SHORT_CURLS_SLIDERS.map((fallback) => {
+          const c = controls.find((x) => x.id === fallback.id);
+          return c ? { id: c.id, label: c.label, min: c.min, max: c.max, step: c.step, value: c.value } : fallback;
+        });
+        setSliders(next);
+      },
+      onReady: () => setReal(true),
     }),
-    [s],
+    [],
   );
+  const edits = useMemo<EngineEdits>(() => ({ params: { ...s.values, [SEED]: s.seed }, bypass: { ...s.bypass } }), [s.values, s.seed, s.bypass]);
+  const params = useMemo(() => standIn(s), [s]);
+
+  const slider = (id: string, cat: Category) => {
+    const spec = sliders.find((x) => x.id === id)!;
+    return (
+      <ValueSlider
+        key={id}
+        cat={cat}
+        label={spec.label}
+        value={s.values[id] ?? spec.value}
+        min={spec.min}
+        max={spec.max}
+        step={spec.step}
+        onChange={setValue(id)}
+        format={(v) => v.toFixed(spec.step >= 0.1 ? 0 : 2)}
+      />
+    );
+  };
 
   return (
     <div className="mt-14 grid gap-6 sm:mt-16 lg:grid-cols-12 lg:gap-10">
@@ -82,10 +132,10 @@ export function TryGraph() {
               <span className="mr-2 tabular-nums" aria-live="polite">
                 {strands} strands
               </span>
-              <IconButton label="New random roots" onClick={() => set('seed')(s.seed + 1)}>
+              <IconButton label="New random roots" onClick={() => setS((prev) => ({ ...prev, seed: prev.seed + 1 }))}>
                 <Shuffle className="size-3.5" strokeWidth={2.2} />
               </IconButton>
-              <IconButton label="Reset the graph" onClick={() => setS(initial)}>
+              <IconButton label="Reset the graph" onClick={() => setS(initialState(sliderValues(sliders)))}>
                 <RotateCcw className="size-3.5" strokeWidth={2.2} />
               </IconButton>
             </span>
@@ -97,50 +147,70 @@ export function TryGraph() {
               yaw={-0.6}
               framing={[[0, -0.3, 0], 1.85]}
               onStats={setStats}
+              engine={engine}
+              edits={edits}
               label="The groom the graph makes in 3D, grown again as the nodes change; drag to turn it"
             />
           </div>
+          <p className="hidden justify-end pt-2 lg:flex">
+            <Link
+              href="/view?groom=manny_short_curls"
+              className="inline-flex items-center gap-1.5 text-[13px] text-gl-ink-2 underline-offset-4 hover:text-gl-ink hover:underline"
+            >
+              Open it in the viewer
+              <ArrowRight aria-hidden="true" className="size-3.5" strokeWidth={2.2} />
+            </Link>
+          </p>
         </div>
       </div>
 
       <ol className="lg:order-1 lg:col-span-5" aria-label="Nodes">
         <Node cat="Sources" name="Scalp" out="mesh">
-          <Static label="mesh" value="head" />
+          <Static label="mesh" value="manny_head" />
         </Node>
         <Node cat="Grow" name="Scatter" out="strands">
-          <ValueSlider cat="Grow" label="density" value={s.density} min={40} max={800} step={10} onChange={set('density')} format={(v) => String(v)} />
+          {slider(DENSITY, 'Grow')}
         </Node>
         <Node
           cat="Grow"
           name="Interpolate"
           out="strands"
           action={
-            <IconButton label="Show the guides" pressed={s.showGuides} onClick={() => set('showGuides')(!s.showGuides)}>
+            <IconButton label="Show the guides" pressed={s.showGuides} onClick={() => setS((prev) => ({ ...prev, showGuides: !prev.showGuides }))}>
               {s.showGuides ? <Eye className="size-4" strokeWidth={2.2} /> : <EyeOff className="size-4" strokeWidth={2.2} />}
             </IconButton>
           }
         >
-          <Static label="guides" value={String(stats?.guides ?? 9)} />
+          <Static label="guides" value={String(real && stats ? stats.guides : 127)} />
         </Node>
-        <Node cat="Look" name="Clump" out="strands" on={s.clumpOn} onToggle={set('clumpOn')}>
-          <ValueSlider cat="Look" label="strength" value={s.strength} min={0} max={1} step={0.01} onChange={set('strength')} />
-          <ValueSlider cat="Look" label="count" value={s.count} min={4} max={40} step={1} onChange={set('count')} format={(v) => String(v)} />
+        <Node cat="Look" name="Clump" out="strands" on={!s.bypass.clump} onToggle={setOn('clump')}>
+          {slider('param:clump.strength', 'Look')}
+          {slider('param:clump.count', 'Look')}
         </Node>
-        <Node cat="Look" name="Curl" out="strands" on={s.curlOn} onToggle={set('curlOn')}>
-          <ValueSlider cat="Look" label="radius" value={s.radius} min={0} max={1} step={0.01} onChange={set('radius')} />
-          <ValueSlider cat="Look" label="frequency" value={s.frequency} min={1} max={8} step={0.5} onChange={set('frequency')} format={(v) => v.toFixed(1)} />
+        <Node cat="Look" name="Curl" out="strands" on={!s.bypass.curl} onToggle={setOn('curl')}>
+          {slider('param:curl.radius', 'Look')}
+          {slider('param:curl.frequency', 'Look')}
         </Node>
-        <Node cat="Look" name="Noise" out="strands" on={s.noiseOn} onToggle={set('noiseOn')}>
-          <ValueSlider cat="Look" label="amplitude" value={s.amplitude} min={0} max={1} step={0.01} onChange={set('amplitude')} />
+        <Node cat="Look" name="Noise" out="strands" on={!s.bypass.noise} onToggle={setOn('noise')}>
+          {slider('param:noise.amplitude', 'Look')}
         </Node>
-        <Node cat="Color" name="HairColor" out="strands" on={s.colorOn} onToggle={set('colorOn')}>
-          <ValueSlider cat="Color" label="melanin" value={s.melanin} min={0} max={1} step={0.01} onChange={set('melanin')} />
-          <ValueSlider cat="Color" label="redness" value={s.redness} min={0} max={1} step={0.01} onChange={set('redness')} />
+        <Node cat="Color" name="HairColor" out="strands" on={!s.bypass.color} onToggle={setOn('color')}>
+          {slider('param:color.melanin', 'Color')}
+          {slider('param:color.redness', 'Color')}
         </Node>
         <Node cat="Output" name="Output" last>
           <Static label="to the viewport" value={`${strands} strands`} />
         </Node>
       </ol>
+      <p className="flex justify-center lg:hidden">
+        <Link
+          href="/view?groom=manny_short_curls"
+          className="inline-flex items-center gap-1.5 text-[13px] text-gl-ink-2 underline-offset-4 hover:text-gl-ink hover:underline"
+        >
+          Open it in the viewer
+          <ArrowRight aria-hidden="true" className="size-3.5" strokeWidth={2.2} />
+        </Link>
+      </p>
     </div>
   );
 }

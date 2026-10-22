@@ -16,8 +16,9 @@ export function TrySection() {
           muted="Try it."
           lede={
             <p>
-              Clumps, curls, frizz and color are nodes, and in GroomLab sliders update 100k strands live. This one is
-              small: bypass a node or drag a slider and watch the strands follow.
+              Clumps, curls, frizz and color are nodes, and in GroomLab sliders update 100k strands live. These strands
+              are made by the GroomLab engine itself, running in your browser: bypass a node or drag a slider and watch
+              them follow.
             </p>
           }
         />

@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 'use client';
 import { Move } from 'lucide-react';
-import { useCallback, useRef } from 'react';
+import type { GroomControl } from '@/lib/groomlab-wasm';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { HERO_CHIP, HERO_GROOM } from './engine-grooms';
 import type { GroomStats } from './groom-3d';
 import type { StrandParams } from './strand-engine';
 import { StrandViewport } from './strand-viewport';
 
 /*
- * The hero's head of curls: big, in 3D, standing on the page with no frame, grown once. A glass chip
- * at the top right reads two of its params (Curl's radius and Interpolate's length) and the strands
- * it draws; under it on the right, a hint that a drag turns it.
+ * The hero's head of curls: big, in 3D, standing on the page with no frame, grown once by the
+ * GroomLab engine in the browser (manny_curls.groom; the procedural look stands in while it loads).
+ * A glass chip at the top right reads two of the groom's params (Curl's radius and its length
+ * scale, a Transform node's) and the strands it draws; under it on the right, a hint that a drag
+ * turns it.
  */
 
+/** The procedural stand-in, until the engine's groom is in. */
 const params: StrandParams = {
   density: 1000,
   clump: 0.86,
@@ -31,6 +36,18 @@ export function HeroViewer() {
   const onStats = useCallback((s: GroomStats) => {
     if (countRef.current) countRef.current.textContent = `${s.strands.toLocaleString('en-US')} strands`;
   }, []);
+  // The chip's values: the groom's own, as the engine reads them once it has loaded.
+  const [chip, setChip] = useState({ curl: HERO_CHIP.curl.value, length: HERO_CHIP.length.value });
+  const engine = useMemo(
+    () => ({
+      source: HERO_GROOM,
+      onControls: (controls: GroomControl[]) => {
+        const value = (id: string, v: number) => controls.find((c) => c.id === id)?.value ?? v;
+        setChip({ curl: value(HERO_CHIP.curl.id, HERO_CHIP.curl.value), length: value(HERO_CHIP.length.id, HERO_CHIP.length.value) });
+      },
+    }),
+    [],
+  );
 
   return (
     <div className="relative h-[min(104vw,460px)] sm:h-[clamp(460px,52vw,560px)] lg:h-[clamp(520px,44vw,640px)]">
@@ -43,6 +60,7 @@ export function HeroViewer() {
         skin={[0.17, 0.16, 0.16]}
         framing={[[0, 0.2, 0], 2.3]}
         onStats={onStats}
+        engine={engine}
         label="A head of brown curls in 3D; drag to turn it"
       />
       {/* The params it was grown with. */}
@@ -57,13 +75,13 @@ export function HeroViewer() {
               Curl <span className="text-gl-ink-3">·</span>
             </span>
             <span className="text-gl-ink tabular-nums">
-              {params.curl.toFixed(2)}
+              {chip.curl.toFixed(2)}
             </span>
             <span>
               Length <span className="text-gl-ink-3">·</span>
             </span>
             <span className="text-gl-ink tabular-nums">
-              {(params.length ?? 1).toFixed(1)}
+              {chip.length.toFixed(1)}
             </span>
           </span>
         </div>
