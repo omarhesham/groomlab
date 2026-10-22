@@ -211,6 +211,9 @@ private:
     std::unique_ptr<Groups> groups_;
     Selection selection_;
     StrandLodSettings selectedWith_;
+    // selection_ is select's for the strands set now (cleared when they change): the same view and
+    // settings again give it as it is (an orbit holds the view's level).
+    bool selectionCurrent_ = false;
     std::vector<std::uint8_t> blendSegment_;  // per point: the segment from it is class 0's and blendable
     mutable StrandsPtr impostors_;
     mutable std::uint64_t impostorsKey_ = 0;

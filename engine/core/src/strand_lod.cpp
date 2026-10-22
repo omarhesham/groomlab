@@ -173,6 +173,7 @@ std::size_t StrandLod::groupCount() const { return groups_->count(); }
 void StrandLod::setStrands(StrandsPtr strands, const std::string& clumpChannel) {
     if (strands == strands_ && strands) return;
     strands_ = std::move(strands);
+    selectionCurrent_ = false;
     impostors_.reset();
     impostorsKey_ = 0;
     Groups& g = *groups_;
@@ -335,6 +336,15 @@ void StrandLod::measure() {
 }
 
 const StrandLod::Selection& StrandLod::select(const StrandLodView& view, const StrandLodSettings& settings) {
+    // The same strands, view and settings: the same selection (every rule below, its hysteresis
+    // too, gives what it gave).
+    if (selectionCurrent_ && selection_.view == view && selectedWith_.clumpChannel == settings.clumpChannel &&
+        selectedWith_.error == settings.error && selectedWith_.widthScale == settings.widthScale &&
+        selectedWith_.density == settings.density && selectedWith_.impostors == settings.impostors &&
+        selectedWith_.splitBlended == settings.splitBlended) {
+        return selection_;
+    }
+    selectionCurrent_ = true;
     Groups& g = *groups_;
     const std::size_t groups = g.count();
     const std::size_t total = strands_ ? strands_->strandCount() : 0;
