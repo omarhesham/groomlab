@@ -48,6 +48,7 @@
 #include "groomlab/parts.h"
 #include "groomlab/point_index.h"
 #include "groomlab/preview_core.h"
+#include "groomlab/process_caches.h"
 #include "groomlab/random.h"
 #include "test_helpers.h"
 
@@ -1435,6 +1436,102 @@ TEST(Budget, InterpolateKeepingClearanceOnFur) {
     const double off = timed(false), on = timed(true);
     std::printf("[ budget ] Interpolate on fur, %zu strands x 51 points, %d guides: %.1f ms, keeping clearance %.1f ms (+%.1f)\n",
                 strands->strandCount(), kGuides, off, on, on - off);
+}
+
+TEST(Budget, InterpolateKeepingClearanceOnAHead) {
+    // What keeping clearance costs on the XGen comparison's head (reported only; tools/bench/
+    // xgen_compare: a sphere of radius 10 cut below 15% of it under the equator, scaled 1, 1.1, 1.2,
+    // about 17k triangles; guides of 4 points 15 long along the normals, about 1.6 apart; strands of
+    // 16 points): 500k and 100k strands, a new Interpolate each time, median of 3. Cold: the
+    // process's caches let go first, as Maya's first evaluation of a new groom finds them (the
+    // scalp's field made by the walk); warm: the field kept. And what the field holds then.
+    const auto sphere = test::makeSphere(100, 160, 10.0f);
+    std::vector<Vec3f> points;
+    std::vector<ScalpMesh::Triangle> triangles;
+    {
+        std::vector<std::int32_t> renumbered(sphere->pointCount(), -1);
+        for (const ScalpMesh::Triangle& t : sphere->triangles()) {
+            const Vec3f& a = sphere->points()[static_cast<std::size_t>(t[0])];
+            const Vec3f& b = sphere->points()[static_cast<std::size_t>(t[1])];
+            const Vec3f& c = sphere->points()[static_cast<std::size_t>(t[2])];
+            if ((a.y + b.y + c.y) / 3.0f < -1.5f) continue;
+            ScalpMesh::Triangle kept;
+            for (int k = 0; k < 3; ++k) {
+                std::int32_t& to = renumbered[static_cast<std::size_t>(t[k])];
+                if (to < 0) {
+                    const Vec3f& p = sphere->points()[static_cast<std::size_t>(t[k])];
+                    to = static_cast<std::int32_t>(points.size());
+                    points.emplace_back(p.x, p.y * 1.1f, p.z * 1.2f);
+                }
+                kept[k] = to;
+            }
+            triangles.push_back(kept);
+        }
+    }
+    const auto head = std::make_shared<const ScalpMesh>(std::move(points), std::move(triangles));
+    auto guides = std::make_shared<GuideSet>();
+    for (int i = 0, id = 1; i < 700; ++i) {  // a Fibonacci lattice over the whole sphere, those on the head
+        const float y = 1.0f - 2.0f * (static_cast<float>(i) + 0.5f) / 700.0f;
+        const float r = std::sqrt(1.0f - y * y), a = 2.39996323f * static_cast<float>(i);
+        if (y < -0.1f) continue;
+        const SurfacePoint at = head->closestPoint(Vec3f(r * std::cos(a), y * 1.1f, r * std::sin(a) * 1.2f) * 10.0f);
+        if (at.root.face < 0) continue;
+        Guide& g = guides->add(static_cast<std::uint64_t>(id++), test::straightCurve(at.position, at.normal * 15.0f, 3));
+        g.root = at.root;
+    }
+    // Scattered as the comparison's graph scatters them (in Scatter's order).
+    double area = 0.0;
+    for (const ScalpMesh::Triangle& t : head->triangles()) {
+        const Vec3f &a = head->points()[static_cast<std::size_t>(t[0])], &b = head->points()[static_cast<std::size_t>(t[1])],
+                    &c = head->points()[static_cast<std::size_t>(t[2])];
+        area += 0.5 * (b - a).cross(c - a).length();
+    }
+    auto strandsOf = [&](std::size_t count) {
+        char graph[1024];
+        std::snprintf(graph, sizeof(graph), R"({"version": 1, "output": "out",
+          "nodes": [
+            {"name": "scalp", "type": "Scalp"},
+            {"name": "scatter", "type": "Scatter", "params": {"density": %f, "length": 15.0}},
+            {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 15}}],
+          "connections": [
+            {"from": "scalp", "to": "scatter", "input": "scalp"},
+            {"from": "scatter", "to": "out", "input": "strands"}]})",
+                      static_cast<double>(count) / area);
+        GraphDocument doc = loadGraphJson(graph);
+        ExternalInputs ext;
+        setGroomExternals(ext, head, nullptr, nullptr);
+        EvalContext c;
+        c.externals = &ext;
+        return valueAs<StrandsPtr>(doc.graph.evaluate(doc.node("scatter"), c));
+    };
+    ExternalInputs none;
+    EvalContext ctx;
+    ctx.externals = &none;
+    for (const std::size_t count : {std::size_t{500000}, std::size_t{100000}}) {
+        const auto strands = strandsOf(count);
+        auto timed = [&](bool keepClearance, bool cold, double* bytes) {
+            std::vector<double> ms;
+            for (int r = 0; r < 4; ++r) {  // (the first warms up)
+                if (cold) releaseProcessCaches();
+                auto op = OperatorRegistry::instance().create(op::kInterpolate);
+                op->params().set("keepClearance", keepClearance);
+                const auto t0 = std::chrono::steady_clock::now();
+                op->evaluate(ctx, {Value(StrandsPtr(strands)), Value(GuidesPtr(guides)), Value(MeshPtr(head))});
+                if (r > 0) ms.push_back(msSince(t0));
+            }
+            if (bytes) *bytes = static_cast<double>(processCacheBytes()) / (1024.0 * 1024.0);
+            std::sort(ms.begin(), ms.end());
+            return ms[ms.size() / 2];
+        };
+        // Cold against not keeping clearance with the caches let go too (the arrays they pooled
+        // made again); warm against it with them kept. The field's bytes: the caches' difference.
+        double offBytes = 0.0, coldBytes = 0.0;
+        const double offCold = timed(false, true, &offBytes), cold = timed(true, true, &coldBytes);
+        const double offWarm = timed(false, false, nullptr), warm = timed(true, false, nullptr);
+        std::printf("[ budget ] Interpolate on a head, %zu strands x 16 points, %zu guides: keeping clearance cold %.1f ms (+%.1f), "
+                    "warm %.1f ms (+%.1f); the scalp's field %.1f MB\n",
+                    strands->strandCount(), guides->size(), cold, cold - offCold, warm, warm - offWarm, coldBytes - offBytes);
+    }
 }
 
 TEST(Budget, PointIndexMillion) {

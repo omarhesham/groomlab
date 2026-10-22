@@ -115,6 +115,18 @@ Vec3f fromOctahedral(const std::int16_t in[2]) {
 
 }  // namespace
 
+// A fine brick's nodes (x fastest), each sampled the first time a query needs it: a Node's 8
+// bytes in one atomic word (a query reads each corner with one load), kUnsampled until then; each
+// node's closest face, written before its word.
+struct MeshDistanceField::Nodes {
+    std::atomic<std::uint64_t> words[kNodesPerBrick];
+    std::uint32_t faces[kNodesPerBrick];
+    Nodes() {
+        for (std::atomic<std::uint64_t>& w : words) w.store(kUnsampled, std::memory_order_relaxed);
+        std::fill(faces, faces + kNodesPerBrick, kTableNone);
+    }
+};
+
 struct MeshDistanceField::Brick {
     bool fine = false;
     // No point in it is nearer the surface than distanceLow, and every point within the search
@@ -122,12 +134,12 @@ struct MeshDistanceField::Brick {
     // fine one holds too.
     float heightLow = -kInf, distanceLow = 0.0f;
     std::uint32_t face = kTableNone;  // its middle's closest face (kTableNone: none within the reach)
-    // A fine brick: its first node's position and its nodes (x fastest), each sampled the first
-    // time a query needs it: a Node's 8 bytes in one atomic word (a query reads each corner with
-    // one load), kUnsampled until then; each node's closest face, written before its word.
+    // A fine brick: its first node's position and its nodes, made the first time a query needs
+    // one (nodesOf): most fine bricks a strand's walk meets are settled by their bounds alone
+    // (keepClearance's band reaches well above the skin), and never sample a node.
     Vec3f corner;
-    std::unique_ptr<std::atomic<std::uint64_t>[]> nodes;
-    std::unique_ptr<std::uint32_t[]> faces;
+    mutable std::atomic<Nodes*> nodes{nullptr};
+    ~Brick() { delete nodes.load(std::memory_order_acquire); }
 };
 
 // Each vertex's triangles (in order), for the answers from closest faces, and each triangle's
@@ -322,12 +334,20 @@ MeshDistanceField::Brick* MeshDistanceField::makeBrick(int bx, int by, int bz) c
     // Its bounds too, as a far brick's (a caller probing may skip its nodes where they settle a point).
     brick->distanceLow = distance - halfDiagonal;
     brick->heightLow = (middle - at.position).dot(at.normal) - 2.0f * halfDiagonal;
-    brick->nodes.reset(new std::atomic<std::uint64_t>[kNodesPerBrick]);
-    for (int k = 0; k < kNodesPerBrick; ++k) brick->nodes[k].store(kUnsampled, std::memory_order_relaxed);
-    brick->faces.reset(new std::uint32_t[kNodesPerBrick]);
-    std::fill(brick->faces.get(), brick->faces.get() + kNodesPerBrick, kTableNone);
     fine_.fetch_add(1, std::memory_order_relaxed);
     return brick.release();
+}
+
+MeshDistanceField::Nodes& MeshDistanceField::nodesOf(const Brick& brick) const {
+    if (Nodes* n = brick.nodes.load(std::memory_order_acquire)) return *n;
+    // Made here; when another thread made them first, theirs (nothing sampled in ours yet).
+    auto made = std::make_unique<Nodes>();
+    Nodes* expected = nullptr;
+    if (brick.nodes.compare_exchange_strong(expected, made.get(), std::memory_order_acq_rel)) {
+        nodeBlocks_.fetch_add(1, std::memory_order_relaxed);
+        return *made.release();
+    }
+    return *expected;
 }
 
 const MeshDistanceField::Brick& MeshDistanceField::brickAt(const Region& region, int bx, int by, int bz) const {
@@ -354,7 +374,8 @@ const MeshDistanceField::Brick& MeshDistanceField::brickAt(const Region& region,
 }
 
 MeshDistanceField::Node MeshDistanceField::nodeAt(const Brick& brick, int index, float within, std::uint32_t seedFace) const {
-    std::atomic<std::uint64_t>& slot = brick.nodes[index];
+    Nodes& nodes = nodesOf(brick);
+    std::atomic<std::uint64_t>& slot = nodes.words[index];
     std::uint64_t word = slot.load(std::memory_order_acquire);
     Node node;
     if (word < kSampling) {
@@ -389,7 +410,7 @@ MeshDistanceField::Node MeshDistanceField::nodeAt(const Brick& brick, int index,
         node.height = static_cast<std::int16_t>(std::lround(std::clamp(height, -32767.0f, 32767.0f)));
         node.distance = halfUp((p - sp.position).length());
         toOctahedral(sp.normal, node.normal);
-        brick.faces[index] = static_cast<std::uint32_t>(sp.root.face);  // (released with the node)
+        nodes.faces[index] = static_cast<std::uint32_t>(sp.root.face);  // (released with the node)
     }
     queries_.fetch_add(1, std::memory_order_relaxed);
     nodes_.fetch_add(1, std::memory_order_relaxed);
@@ -453,10 +474,11 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
     std::uint16_t nearestBits = 0xFFFF, farthestBits = 0;
     // The corners, each one load; sampled first where one is not yet (nodeAt), each bounded by
     // the first corner's distance (rounded up) plus their way apart.
+    const Nodes& nodes = nodesOf(brick);
     std::uint64_t words[8];
     bool sampled = true;
     for (int k = 0; k < 8; ++k) {
-        words[k] = brick.nodes[cell + cornerOffset(k)].load(std::memory_order_acquire);
+        words[k] = nodes.words[cell + cornerOffset(k)].load(std::memory_order_acquire);
         sampled = sampled && words[k] < kSampling;
     }
     if (sampled) {
@@ -466,7 +488,7 @@ bool MeshDistanceField::blend(const Brick& brick, int cell, const Vec3f& f, floa
         const float slack = 1e-5f * (std::fabs(brick.corner.x) + std::fabs(brick.corner.y) + std::fabs(brick.corner.z) + 1.0f);
         for (int k = 0; k < 8; ++k) {
             n[k] = nodeAt(brick, cell + cornerOffset(k), seed == kInf ? kInf : (seed + kCornerApart[k] * cell_) * 1.001f + slack,
-                          k == 0 ? kTableNone : brick.faces[cell]);  // (the first corner's face, written with its node)
+                          k == 0 ? kTableNone : nodes.faces[cell]);  // (the first corner's face, written with its node)
             if (k == 0) seed = fromHalf(n[0].distance);
         }
     }
@@ -612,7 +634,8 @@ MeshDistanceField::Push MeshDistanceField::push(const Vec3f& p, float offset, fl
     if (!blend(brick, at.cell, at.f, maxDepth, searchRadius, offset, &height, &normal, &clear, probe)) {
         if (!fieldOnly) return Push::Ask;
         std::uint32_t seeds[8];  // the corners' closest faces (blend sampled every corner)
-        for (int k = 0; k < 8; ++k) seeds[k] = brick.faces[at.cell + cornerOffset(k)];
+        const Nodes& nodes = nodesOf(brick);
+        for (int k = 0; k < 8; ++k) seeds[k] = nodes.faces[at.cell + cornerOffset(k)];
         return answerNear(p, seeds, 8, offset, maxDepth, searchRadius, delta, *probe);
     }
     if (clear) return Push::Kept;
@@ -815,7 +838,7 @@ MeshDistanceField::Tables MeshDistanceField::tables(float maxOffset, float searc
             const float x = static_cast<float>(k % kBrickNodes), y = static_cast<float>((k / kBrickNodes) % kBrickNodes),
                         z = static_cast<float>(k / (kBrickNodes * kBrickNodes));
             const float apart = std::sqrt(x * x + y * y + z * z) * cell_;
-            nodeAt(brick, k, seed == kInf ? kInf : (seed + apart) * 1.001f + slack, brick.faces[0]);
+            nodeAt(brick, k, seed == kInf ? kInf : (seed + apart) * 1.001f + slack, nodesOf(brick).faces[0]);
         }
     }, 4);
 
@@ -865,10 +888,11 @@ MeshDistanceField::Tables MeshDistanceField::tables(float maxOffset, float searc
         putFloat(to + 2, brick.distanceLow);
         to[3] = nodeBase[b];
         if (nodeBase[b] == kTableNone) return;
+        const Nodes& nodes = nodesOf(brick);
         for (int k = 0; k < kNodesPerBrick; ++k) {
-            const std::uint64_t word = brick.nodes[k].load(std::memory_order_acquire);
+            const std::uint64_t word = nodes.words[k].load(std::memory_order_acquire);
             std::memcpy(w + nodesAt + (static_cast<std::size_t>(nodeBase[b]) * kNodesPerBrick + k) * 2, &word, 8);
-            w[facesAt + static_cast<std::size_t>(nodeBase[b]) * kNodesPerBrick + k] = brick.faces[k];
+            w[facesAt + static_cast<std::size_t>(nodeBase[b]) * kNodesPerBrick + k] = nodes.faces[k];
         }
     }, 256);
     std::memcpy(w + pointsAt, points.data(), points.size() * 12);
@@ -893,8 +917,8 @@ MeshDistanceField::Stats MeshDistanceField::stats() const {
     s.nodes = nodes_.load(std::memory_order_relaxed);
     s.queries = queries_.load(std::memory_order_relaxed);
     const std::size_t regions = static_cast<std::size_t>(regionDims_[0]) * regionDims_[1] * regionDims_[2];
-    s.bytes = regions * sizeof(Region) + s.fineBricks * (sizeof(Brick) + (sizeof(Node) + sizeof(std::uint32_t)) * kNodesPerBrick) +
-              s.farBricks * sizeof(Brick);
+    s.bytes = regions * sizeof(Region) + (s.fineBricks + s.farBricks) * sizeof(Brick) +
+              nodeBlocks_.load(std::memory_order_relaxed) * sizeof(Nodes);
     return s;
 }
 
