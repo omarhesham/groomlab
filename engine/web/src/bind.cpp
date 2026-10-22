@@ -30,6 +30,13 @@ EMSCRIPTEN_BINDINGS(groomlab_web) {
         .constructor<>()
         .function("load", &WebGroom::load)
         .function("error", &WebGroom::error)
+        .function("setDirectory", &WebGroom::setDirectory)
+        .function("directory", &WebGroom::directory)
+        .function("filesJson", &WebGroom::filesJson)
+        .function("missingFilesJson", &WebGroom::missingFilesJson)
+        // bytes: a Uint8Array (or ArrayBuffer), copied as they are (embind's std::string).
+        .function("addFile", &WebGroom::addFile)
+        .function("clearFiles", &WebGroom::clearFiles)
         .function("controlsJson", &WebGroom::controlsJson)
         .function("setParam", &WebGroom::setParam)
         .function("evaluate", &WebGroom::evaluate)

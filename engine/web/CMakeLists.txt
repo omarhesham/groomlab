@@ -21,8 +21,9 @@ if(EMSCRIPTEN)
         -sINITIAL_MEMORY=64MB
         -sMAXIMUM_MEMORY=2GB
         -sSTACK_SIZE=4MB
-        # No files in the browser: grooms come in as text (texture maps and caches are not read).
-        -sFILESYSTEM=0
+        # Files: Emscripten's in-memory file system (MEMFS, its default; no NODEFS, nothing of the
+        # host's), so the engine's own loaders read texture maps the page hands it (WebGroom::addFile)
+        # as the desktop reads them from disk. JavaScript never touches it (no FORCE_FILESYSTEM).
         # The loader's license line on top (it is committed: web/public/wasm).
         "--extern-pre-js=${CMAKE_CURRENT_SOURCE_DIR}/src/header.js")
     set_property(TARGET groomlab_web APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/header.js")

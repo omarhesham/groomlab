@@ -7,6 +7,10 @@
 // not change), and flat buffers of what to draw. Plain C++ with no Emscripten in it, so the same
 // code builds natively (web_probe, the accuracy check against the desktop engine) and in the
 // browser (bind.cpp). Errors never throw out of it: calls return false and error() says why.
+//
+// Files a groom reads (texture maps, painted texture maps, referenced grooms) are read by the
+// engine's own loaders from a folder standing for the .groom's: in the browser a folder of the
+// module's memory file system, filled with addFile; natively the file's own folder.
 
 #include <cstdint>
 #include <memory>
@@ -32,6 +36,24 @@ public:
     // same topology, else the guides root again by position). False on failure (error()).
     bool load(const std::string& groomText, const std::string& objText);
     const std::string& error() const { return error_; }
+
+    // The folder the groom's relative paths resolve from, as the desktop resolves them from the
+    // .groom's own folder, then its search paths. In the browser "/groom" (the module's memory file
+    // system), natively none until set (the probe sets the file's folder).
+    void setDirectory(const std::string& directory);
+    const std::string& directory() const { return directory_; }
+    // The files the groom reads: [{path (as stored), resolved (where the engine reads it), found,
+    // kind ("texture" or "groom"), udim, users (["<node>.<param>", "map <name>"])}], each path once.
+    std::string filesJson() const;
+    // The stored paths of those not found, as a JSON array.
+    std::string missingFilesJson() const;
+    // Writes a file: `path` relative to the groom's folder (an absolute one as it is; backslashes
+    // count as slashes), `bytes` its content. Then every referenced file still missing whose name
+    // is this file's (any case; a UDIM set's tiles by their pattern, a 1001-style tile's set by its
+    // number) gets a copy where the engine reads it: maps dropped without their folders are found.
+    bool addFile(const std::string& path, const std::string& bytes);
+    // Removes the files addFile wrote (and the copies it made), nothing else.
+    void clearFiles();
 
     // The sliders: [{id, kind, label, node, param, min, max, step, default, value, unit,
     // description}]: the Control nodes ("control:<name>"), then each Compound's exposed params,
@@ -73,6 +95,10 @@ public:
 private:
     bool setGraphText(const std::string& text);
     void readScalp();
+    void linkFile(const std::string& written);
+
+    std::string directory_;
+    std::vector<std::string> written_;  // what addFile wrote, then the copies it made
 
     std::unique_ptr<GroomFile> file_;
     std::unique_ptr<GroomSession> session_;

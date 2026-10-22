@@ -4,7 +4,7 @@ A proof of concept of the web runtime: the real core (`engine/core`), built to W
 Emscripten, evaluating a `.groom` in the page and feeding the website's three.js viewer. The page
 is `/view` (`web/app/(home)/view/page.tsx`): a sample groom, its sliders, a density slider,
 **Download .groom**, and drag and drop of your own `.groom` (with its `.obj`, or a preset `.json`
-with an `.obj`).
+with an `.obj`) together with the texture maps it reads, or its whole folder (see "Maps").
 
 What runs is the desktop engine, not a port: the same sources, the same portable math. The
 module's strands are **bit for bit** the desktop's (see "Checking it").
@@ -17,7 +17,9 @@ module's strands are **bit for bit** the desktop's (see "Checking it").
 | `engine/web/src/bind.cpp` | Its embind binding (the browser build). |
 | `engine/web/src/web_probe.cpp` | `groomlab_web_probe`: the same `WebGroom` built natively, for comparisons. |
 | `engine/web/tools/compare.mjs` | The module in Node, printing what the probe prints. `diff_positions.mjs` compares raw dumps. |
-| `engine/web/tools/make_sample.mjs` | Writes `web/public/samples/manny_hair.groom` with the module. |
+| `engine/web/tools/make_sample.mjs` | Writes `web/public/samples/manny_hair.groom` and its texture map `masks/manny_hair/highlights.png` with the module. |
+| `engine/web/tools/test_maps.mjs` | Checks the module's maps (vertex maps, texture maps by path, by name, UDIM, `..`, missing, re-read). |
+| `engine/web/tools/png.mjs` | A small gray PNG writer for those two. |
 | `web/public/wasm/groomlab.{js,wasm}` | The build's output (copied there by the build). Committed, so the site builds without Emscripten. |
 | `web/public/wasm/groomlab-worker.js` | A classic worker that loads the module and answers the page. |
 | `web/lib/groomlab-wasm/index.ts` | The page's typed client of that worker. |
@@ -62,16 +64,26 @@ The worker client (`web/lib/groomlab-wasm`), all calls async:
 import { createGroomEngine } from '@/lib/groomlab-wasm';
 
 const engine = createGroomEngine();            // starts public/wasm/groomlab-worker.js
-const { controls, scalp, version } = await engine.loadGroom(groomText, objText?);
+const { controls, scalp, version, missing } = await engine.loadGroom(groomText, objText?, files?);
+if (missing.length) await engine.addFiles({ 'masks/hair/density.png': bytes });  // or addFile(path, bytes)
 await engine.setParam('control:frizz', 2.5);   // or setParams([[id, value], ...])
 const { strands, guides, evaluateMs, errors } = await engine.evaluate({ density: 0.25 });
 viewer.setStrands(strands);                    // StrandData: count, offsets, positions, colors (sRGB)
 const bytes = await engine.saveGroom();        // the edited .groom
 ```
 
-- `loadGroom(groom, mesh?)`: a `.groom`'s text (its scalp is inside it), or a preset's graph JSON
+- `loadGroom(groom, mesh?, files?)`: a `.groom`'s text (its scalp is inside it), or a preset's graph JSON
   with an OBJ to grow on (fitted to the mesh as hosts fit presets). An OBJ given with a `.groom`
-  replaces its scalp.
+  replaces its scalp. `files`: the files it reads (`{path: bytes}` or `[path, bytes][]`, as
+  `addFiles`); the previous groom's files are dropped. The result also carries `files`
+  (`referencedFiles()`), `missing` and `failed`.
+- `addFile(path, bytes)`, `addFiles(files)`: texture maps (any file the groom reads) into the
+  module's memory file system, where the engine's own loaders read them (see "Maps"). Returns
+  `{files, missing, failed}`; evaluate again to see them.
+- `missingFiles()`: the stored paths of the files the groom reads and nobody gave, for the page to ask
+  for. `referencedFiles()`: all of them, `{path, resolved, found, kind, udim, users}`.
+- `fetchGroomFiles(missing, groomUrl)` (a plain function): the missing files fetched relative to a
+  groom loaded by URL, ready for `addFiles` (what `/view` does for the bundled sample).
 - `listControls()`: the sliders, `{id, kind, label, group, node, param, min, max, step, default,
   value, unit, description}`: first the **Control nodes** (`control:<name>`, their own min, max and
   default), then the **exposed params** (`param:<node>.<param>`, ranges and defaults from the
@@ -88,16 +100,56 @@ const bytes = await engine.saveGroom();        // the edited .groom
 The embind class (`WebGroom`, in the worker or in Node: `createGroomLab()` from `groomlab.js`) has
 the same calls synchronously (`load`, `controlsJson`, `setParam`, `evaluate`, `offsets`,
 `positions`, `colors`, `guideOffsets`, `guidePositions`, `scalpPositions`, `scalpNormals`,
-`scalpIndices`, `statsJson`, `saveGroom`, `graphJson`, `setGraphJson`, `bakeGuides`); its buffers are
-views into the module's memory, valid until the next call.
+`scalpIndices`, `statsJson`, `saveGroom`, `graphJson`, `setGraphJson`, `bakeGuides`, `filesJson`,
+`missingFilesJson`, `addFile(path, Uint8Array)`, `clearFiles`, `setDirectory`, `directory`); its
+buffers are views into the module's memory, valid until the next call.
+
+## Maps
+
+Every map a `.groom` can use works as on the desktop, read by the same code:
+
+- **Painted vertex maps** (and color sets): inside the `.groom` (the scalp's `colorSets`, the
+  `maps` catalog's `"kind": "vertices"`), so they need nothing more.
+- **Texture maps**: image files the groom names by path: a map param's `{"texture": path}`, a
+  painted texture map (`maps`, `"kind": "texture"`; the standalone app keeps them in
+  `masks/<groom name>/` beside the groom), a Map node or HairColor's `map` naming an image, FeatherColor's
+  textures. Formats: the core's loader (`texture.h`): PNG (8 and 16 bit), JPEG, TGA, BMP, PSD, GIF,
+  HDR, PIC, PNM. UDIM tile sets (`<UDIM>`, `<udim>`, `%(UDIM)d`, or 1001-style tile names) too.
+- **Referenced grooms** (a Reference node's `.groom`) are listed and read the same way.
+
+The module is linked with Emscripten's in-memory file system (MEMFS, its default; no NODEFS, nothing
+of the host's): the folder `/groom` stands for the `.groom`'s folder, and the session resolves
+relative paths from it, then the groom's `searchPaths`, exactly as `GroomScene` resolves a `.groom`
+on disk. `addFile(path, bytes)` writes a file there: `path` relative to the groom's folder (`..` allowed;
+an absolute path as it is), or just a name. After each file, every referenced file still missing
+whose name is the file's (any case; for a tile set, the pattern with a tile number in it) gets a copy
+where the engine reads it, so maps given without their folders are found. The images are then
+decoded by stb_image in the module, as on the desktop: strands and colors come out bit for bit the
+same (see "Checking it"). A file rewritten later is read again (the texture cache keys on the file's
+stamp).
+
+`/view` takes several files at once (Open, a drop, or the folder button / a dropped folder, walked
+with `webkitGetAsEntry`): the shallowest `.groom` (else a preset `.json`), the first `.obj`, and every
+image (and `.groom`) under it, as paths relative to the groom's folder. Images dropped without a
+groom go to the groom open. A groom loaded by URL (the sample) fetches what it misses relative to its
+URL. What is still missing shows as "Missing: <files>" with a picker; the groom evaluates again once
+they are added (a missing texture map is an error of its node, as on the desktop).
+
+The bundled sample uses both kinds: `cut`, a vertex map (shorter on the head's right, through a
+Length node's keep), and `highlights`, a texture map
+(`web/public/samples/masks/manny_hair/highlights.png`, drawn by `make_sample.mjs`, no third-party
+image) giving HairColor's greys light streaks and face-framing pieces.
 
 ## Size and speed (2026-10-21, Emscripten 6.0.13, -O3)
 
 | | raw | gzip -9 | brotli 11 |
 | --- | --- | --- | --- |
-| `groomlab.wasm` | 3.95 MB | 1.48 MB | 1.03 MB |
-| `groomlab.js` | 46 KB | 13 KB | 11 KB |
+| `groomlab.wasm` | 3.98 MB | 1.49 MB | 1.04 MB |
+| `groomlab.js` | 98 KB | 26 KB | 23 KB |
 | `-Oz` instead (not used) | 2.35 MB | 0.95 MB | 0.72 MB |
+
+The file system (maps) added 27 KB to the `.wasm` (10 KB gzip) and 51 KB to the `.js` (13 KB
+gzip: Emscripten's FS, MEMFS and TTY code): 23 KB more to download gzipped, 18 KB with brotli.
 
 `-Oz` is 1.4 to 1.7 times slower to evaluate. The sample groom (Hair basics on the Manny head,
 25,843 strands at full density), single-threaded, in Node 24 on the development machine:
@@ -131,6 +183,17 @@ shipped `groomlab-cli` 0.24.0 (TBB on, multi-threaded) exporting the sample to U
 (`eval ... -o sample.usda -f 0 --density 0.25`, and 1) gives the same points to the bit: 328,542 and
 1,317,993 floats.
 
+Both tools also print a hash of the colors (sRGB per point, converted with `pm::pow` so every C
+runtime gives the same bits) and take `--dump-colors f`. The probe reads the groom's texture maps
+from disk relative to its folder; `compare.mjs` reads the same files and hands them to the module
+with `addFile` at the paths the groom stores (`--no-files` leaves them out). With maps (2026-10-21,
+after the sample gained its two maps): the sample at 0.25, 0.5 with three sliders moved, and 1
+(25,843 strands), and `tests/data/compat/v1/groom.groom` (its scatter density read from
+`../../textures/density.pgm`) matched bit for bit in strands, points, positions and colors.
+`node engine/web/tools/test_maps.mjs` checks the rest in the module: missing files listed, files
+found by plain name, UDIM tiles by name in any case, `..` paths, a rewritten texture read again, and
+that both sample maps change the strands.
+
 ## Limits
 
 - **Single-threaded.** Threads need `-pthread` (Emscripten's pthreads on Web Workers, with the
@@ -139,9 +202,13 @@ shipped `groomlab-cli` 0.24.0 (TBB on, multi-threaded) exporting the sample to U
   `Cross-Origin-Embedder-Policy: require-corp` (or `credentialless`), for `SharedArrayBuffer`. The
   static export would need those headers from its host (Vercel: `vercel.json` headers), and every
   cross-origin asset on the page then needs CORP or CORS.
-- **No files.** Built with `-sFILESYSTEM=0`: texture maps, Alembic caches (scalp, guides,
-  simulation bakes) and `ImportCurves` are not read; a node that needs one says so in the errors.
-  Painted vertex maps, guides, parts, flow, sculpts and controls are inside the `.groom` and work.
+- **Files: maps only.** Texture maps and referenced grooms are read (see "Maps"); Alembic caches
+  (scalp, guides, simulation bakes) are not (no Alembic in the module), nor `ImportCurves`, Ptex
+  (`.ptx`: only XGen import reads it) or EXR and TIFF (the desktop's loader does not read them
+  either). A referenced groom's own texture maps are not listed in `missingFiles()` (they are read if
+  given at the paths it resolves). A UDIM set cannot be fetched by URL (no listing over HTTP): a
+  groom loaded by URL asks for its tiles. Files live in the module's memory, as many copies as were
+  given (plus a copy per name match), until the next groom loads.
 - **No GPU look preview** (`engine/gpu` is Windows only); evaluation is the CPU engine.
 - **Instances with prototypes of their own** (`"prototypes"` in a `.groom`) are not handed to the
   session yet; cards, feathers and scales draw as their strands only.

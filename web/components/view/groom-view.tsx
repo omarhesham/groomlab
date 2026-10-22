@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 'use client';
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type DragEvent } from 'react';
-import { ArrowDownToLine, FolderOpen } from 'lucide-react';
+import { ArrowDownToLine, FolderOpen, FolderTree } from 'lucide-react';
 import { category } from '@/components/home/graph-theme';
 import type { RootMesh, StrandData } from '@/components/home/strand-data';
 import type { StrandViewer } from '@/components/home/strand-three';
@@ -48,6 +48,60 @@ function decimals(step: number) {
   return step >= 1 ? 0 : Math.min(4, Math.max(0, Math.ceil(-Math.log10(step))));
 }
 
+/** A file picked or dropped, with its path in what was picked (a folder's files: "hair/masks/x.png"). */
+interface PickedFile {
+  path: string;
+  file: File;
+}
+
+/** Image files the engine reads (texture.h isImagePath), and grooms (a Reference node's). */
+const READABLE = /\.(png|jpe?g|tga|bmp|psd|gif|hdr|pic|pnm|ppm|pgm|groom)$/i;
+const IMAGE_ACCEPT = '.png,.jpg,.jpeg,.tga,.bmp,.psd,.gif,.hdr,.pic,.pnm,.ppm,.pgm';
+
+const pickedOf = (files: FileList | File[]): PickedFile[] =>
+  [...files].map((file) => ({ path: file.webkitRelativePath || file.name, file }));
+
+/** `path` relative to the folder `from` (both "/"-separated, relative to what was picked). */
+function relativeTo(from: string, path: string) {
+  const a = from ? from.split('/') : [];
+  const b = path.split('/');
+  let i = 0;
+  while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  return [...a.slice(i).map(() => '..'), ...b.slice(i)].join('/');
+}
+
+/** Every file under the dropped items, folders walked (their paths kept). Call during the drop. */
+function droppedFiles(data: DataTransfer): Promise<PickedFile[]> {
+  const entries = [...data.items].map((item) => item.webkitGetAsEntry?.()).filter((e): e is FileSystemEntry => !!e);
+  if (!entries.length) return Promise.resolve(pickedOf(data.files));
+  const walk = async (entry: FileSystemEntry): Promise<PickedFile[]> => {
+    const path = entry.fullPath.replace(/^\//, '');
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+      return [{ path, file }];
+    }
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    const children: FileSystemEntry[] = [];
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!batch.length) break;
+      children.push(...batch);
+    }
+    return (await Promise.all(children.map(walk))).flat();
+  };
+  return Promise.all(entries.map(walk)).then((lists) => lists.flat());
+}
+
+/** The files the engine may read, as paths relative to the groom's folder (`groomPath`'s) and bytes. */
+async function engineFiles(picked: PickedFile[], groomPath: string | null): Promise<[string, Uint8Array][]> {
+  const folder = groomPath && groomPath.includes('/') ? groomPath.slice(0, groomPath.lastIndexOf('/')) : '';
+  return Promise.all(
+    picked
+      .filter((p) => p.path !== groomPath && READABLE.test(p.path))
+      .map(async (p): Promise<[string, Uint8Array]> => [relativeTo(folder, p.path), new Uint8Array(await p.file.arrayBuffer())]),
+  );
+}
+
 /** True when this browser can make a WebGL2 context (three.js needs one). */
 function hasWebGL2() {
   try {
@@ -86,6 +140,8 @@ export function GroomView({ sample }: { sample: string }) {
   const [fileName, setFileName] = useState('manny_hair.groom');
   const [dragging, setDragging] = useState(false);
   const [ready, setReady] = useState(false);
+  /** The files the groom reads that nobody provided (texture maps): the notice asks for them. */
+  const [missing, setMissing] = useState<string[]>([]);
 
   /** Evaluates now, or once more after the evaluation running (the latest values win). */
   const evaluate = useCallback(async () => {
@@ -128,14 +184,25 @@ export function GroomView({ sample }: { sample: string }) {
     }
   }, []);
 
-  /** Loads a groom (a .groom's text, or a preset's with an .obj) into the engine and the viewer. */
+  /**
+   * Loads a groom (a .groom's text, or a preset's with an .obj) into the engine and the viewer, with
+   * the files it reads (texture maps, relative to its folder); one loaded by URL fetches the maps it
+   * still misses relative to that URL, as the desktop reads them beside the .groom.
+   */
   const load = useCallback(
-    async (groom: string, mesh: string | undefined, name: string) => {
+    async (groom: string, mesh: string | undefined, name: string, files: [string, Uint8Array][] = [], url?: string) => {
       const engine = engineRef.current;
       if (!engine) return;
       setStatus(`Loading ${name}…`);
       try {
-        const loaded = await engine.loadGroom(groom, mesh);
+        const loaded = await engine.loadGroom(groom, mesh, files);
+        let { missing: stillMissing } = loaded;
+        if (url && stillMissing.length) {
+          const { fetchGroomFiles } = await import('@/lib/groomlab-wasm');
+          const fetched = await fetchGroomFiles(stillMissing, url);
+          if (fetched.length) stillMissing = (await engine.addFiles(fetched)).missing;
+        }
+        setMissing(stillMissing);
         const scalp: RootMesh = loaded.scalp;
         const space = sphereOf(scalp.positions);
         spaceRef.current = space;
@@ -190,7 +257,7 @@ export function GroomView({ sample }: { sample: string }) {
         setReady(true);
         const response = await fetch(sample);
         if (!response.ok) throw new Error(`Cannot fetch the sample groom (${response.status}).`);
-        await load(await response.text(), undefined, sample.split('/').pop() ?? 'sample.groom');
+        await load(await response.text(), undefined, sample.split('/').pop() ?? 'sample.groom', [], response.url || sample);
       } catch (e) {
         if (!disposed) {
           setError(e instanceof Error ? e.message : String(e));
@@ -232,21 +299,44 @@ export function GroomView({ sample }: { sample: string }) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const openFiles = async (files: FileList | File[]) => {
-    const list = [...files];
-    const groom = list.find((f) => /\.(groom|json)$/i.test(f.name));
-    const mesh = list.find((f) => /\.obj$/i.test(f.name));
+  /** Files given to the groom open now (its maps); re-evaluates when that changed what is missing. */
+  const addFiles = async (picked: PickedFile[]) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    try {
+      const state = await engine.addFiles(await engineFiles(picked, null));
+      setMissing(state.missing);
+      await evaluate();
+      if (state.failed.length) setError(state.failed.join('\n'));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /**
+   * Opens what was picked or dropped: a .groom (the shallowest; else a preset .json) with its .obj
+   * and the files it reads (maps, beside it or in its folder tree). Without a groom, images go to
+   * the groom open.
+   */
+  const openFiles = async (picked: PickedFile[]) => {
+    const depth = (p: PickedFile) => p.path.split('/').length;
+    const byDepth = [...picked].sort((a, b) => depth(a) - depth(b));
+    const groom = byDepth.find((p) => /\.groom$/i.test(p.path)) ?? byDepth.find((p) => /\.json$/i.test(p.path));
+    const mesh = byDepth.find((p) => /\.obj$/i.test(p.path));
     if (!groom) {
-      setError('Drop a .groom file (or a preset .json with an .obj mesh).');
+      if (version && picked.some((p) => READABLE.test(p.path))) return addFiles(picked);
+      setError('Drop a .groom file (or a preset .json with an .obj mesh), with its maps or its folder.');
       return;
     }
-    await load(await groom.text(), mesh ? await mesh.text() : undefined, groom.name);
+    await load(await groom.file.text(), mesh ? await mesh.file.text() : undefined, groom.file.name, await engineFiles(picked, groom.path));
   };
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    if (e.dataTransfer.files.length) void openFiles(e.dataTransfer.files);
+    droppedFiles(e.dataTransfer)
+      .then((picked) => (picked.length ? openFiles(picked) : undefined))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   };
 
   const groups: [string, GroomControl[]][] = [];
@@ -292,7 +382,7 @@ export function GroomView({ sample }: { sample: string }) {
         </div>
         {dragging && (
           <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-xl border-2 border-dashed border-gl-blue bg-[#0b0c0f]/75 text-[15px] font-semibold text-gl-blue-soft">
-            Drop a .groom (and its .obj) to open it
+            Drop a .groom (with its .obj and maps, or its folder) to open it
           </div>
         )}
         <p className="absolute bottom-3 left-3 max-w-[70%] text-[11.5px] leading-snug text-gl-ink-3">
@@ -351,6 +441,24 @@ export function GroomView({ sample }: { sample: string }) {
           {ready && !controls.length && !status && !error && (
             <p className="text-[12.5px] text-gl-ink-2">This groom has no sliders: no Control nodes or exposed params.</p>
           )}
+          {missing.length > 0 && (
+            <div role="status" data-testid="missing-files" className="rounded-lg bg-[#33290f] px-3 py-2 text-[12px] leading-snug text-[#ffd98a]">
+              <p className="break-words">Missing: {missing.join(', ')}</p>
+              <label className="mt-1 inline-flex cursor-pointer font-semibold underline underline-offset-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-gl-blue">
+                Add {missing.length === 1 ? 'it' : 'them'}…
+                <input
+                  type="file"
+                  multiple
+                  accept={IMAGE_ACCEPT}
+                  className="sr-only"
+                  onChange={(e) => {
+                    if (e.target.files?.length) void addFiles(pickedOf(e.target.files));
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+          )}
           {error && (
             <p role="alert" className="rounded-lg bg-[#3a1416] px-3 py-2 text-[12.5px] leading-snug text-[#ffb3b0]">
               {error}
@@ -372,10 +480,26 @@ export function GroomView({ sample }: { sample: string }) {
             <input
               type="file"
               multiple
-              accept=".groom,.json,.obj"
+              accept={`.groom,.json,.obj,${IMAGE_ACCEPT}`}
               className="sr-only"
               onChange={(e) => {
-                if (e.target.files?.length) void openFiles(e.target.files);
+                if (e.target.files?.length) void openFiles(pickedOf(e.target.files));
+                e.target.value = '';
+              }}
+            />
+          </label>
+          <label
+            title="Open a folder: a .groom with its mesh and maps"
+            className="inline-flex h-9 cursor-pointer items-center justify-center rounded-[10px] bg-white/[0.07] px-3 text-gl-ink ring-1 ring-white/10 ring-inset hover:bg-white/[0.11] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-gl-blue"
+          >
+            <FolderTree aria-hidden="true" className="size-4" />
+            <span className="sr-only">Open a folder</span>
+            <input
+              type="file"
+              ref={(el) => el?.setAttribute('webkitdirectory', '')}
+              className="sr-only"
+              onChange={(e) => {
+                if (e.target.files?.length) void openFiles(pickedOf(e.target.files));
                 e.target.value = '';
               }}
             />
@@ -384,7 +508,7 @@ export function GroomView({ sample }: { sample: string }) {
             type="button"
             onClick={() => void download()}
             disabled={!stats}
-            className="inline-flex h-9 flex-[1.4] items-center justify-center gap-1.5 rounded-[10px] bg-gl-blue-strong px-3 text-[13px] font-semibold text-white hover:bg-[#1d5bcc] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue disabled:opacity-50"
+            className="inline-flex h-9 flex-[1.6] items-center justify-center gap-1.5 rounded-[10px] whitespace-nowrap bg-gl-blue-strong px-3 text-[13px] font-semibold text-white hover:bg-[#1d5bcc] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gl-blue disabled:opacity-50"
           >
             <ArrowDownToLine aria-hidden="true" className="size-4" />
             Download .groom

@@ -2,12 +2,14 @@
 // web_probe: WebGroom (web_groom.h) built natively, for checking the WebAssembly build against
 // the desktop engine: evaluates a .groom (or a preset with an .obj) at a density and prints what
 // engine/web/tools/compare.mjs prints from the browser module: the strand and point counts, a
-// hash of the positions' float bits, and a few points.
+// hash of the positions' float bits, and a few points. Texture maps are read from disk relative to
+// the groom file's folder (compare.mjs hands the module the same files).
 //
 //   groomlab_web_probe <file.groom | preset.json mesh.obj> [--density 0.25] [--set id=value]... [--controls] [--dump positions.f32]
 
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -45,13 +47,15 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string, double>> sets;
     double density = 0.25;
     bool controls = false;
-    std::string dump;
+    std::string dump, dumpColors;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--density" && i + 1 < argc) {
             density = std::stod(argv[++i]);
         } else if (a == "--dump" && i + 1 < argc) {
             dump = argv[++i];
+        } else if (a == "--dump-colors" && i + 1 < argc) {
+            dumpColors = argv[++i];
         } else if (a == "--controls") {
             controls = true;
         } else if (a == "--set" && i + 1 < argc) {
@@ -68,10 +72,14 @@ int main(int argc, char** argv) {
     }
     try {
         groomlab::web::WebGroom groom;
+        // The groom's relative paths (texture maps) from its own folder, as the desktop reads them.
+        const std::string folder = std::filesystem::absolute(std::filesystem::u8path(files[0])).parent_path().u8string();
+        groom.setDirectory(folder);
         if (!groom.load(readFile(files[0]), files.size() > 1 ? readFile(files[1]) : std::string())) {
             std::cerr << "error: " << groom.error() << "\n";
             return 1;
         }
+        if (const std::string missing = groom.missingFilesJson(); missing != "[]") std::cerr << "missing files: " << missing << "\n";
         if (controls) {
             std::cout << groom.controlsJson() << "\n";
             if (!groom.error().empty()) std::cerr << "controls: " << groom.error() << "\n";
@@ -87,11 +95,16 @@ int main(int argc, char** argv) {
         const auto& pos = groom.positions();
         std::cout << std::setprecision(9);
         std::cout << "strands " << groom.strandCount() << "\npoints " << pos.size() / 3 << "\nhash " << std::hex
-                  << hashFloats(pos) << std::dec << "\n";
+                  << hashFloats(pos) << "\ncolors " << hashFloats(groom.colors()) << std::dec << "\n";
         const std::uint32_t n = groom.strandCount();
         if (!dump.empty()) {
             std::ofstream out(dump, std::ios::binary);
             out.write(reinterpret_cast<const char*>(pos.data()), static_cast<std::streamsize>(pos.size() * sizeof(float)));
+        }
+        if (!dumpColors.empty()) {
+            const auto& colors = groom.colors();
+            std::ofstream out(dumpColors, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(colors.data()), static_cast<std::streamsize>(colors.size() * sizeof(float)));
         }
         for (const std::uint32_t s : {0u, n / 2, n ? n - 1 : 0u}) {
             if (s >= n) continue;

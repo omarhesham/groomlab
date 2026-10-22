@@ -7,6 +7,10 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <map>
 #include <set>
 #include <sstream>
 
@@ -21,13 +25,25 @@
 #include "groomlab/guide_set.h"
 #include "groomlab/hair_color.h"
 #include "groomlab/node_catalog.h"
+#include "groomlab/paths.h"
+#include "groomlab/portable_math.h"
 #include "groomlab/presets.h"
 #include "groomlab/scalp_mesh.h"
 #include "groomlab/strand_set.h"
+#include "groomlab/texture.h"
 
 namespace groomlab::web {
 
 namespace {
+
+namespace fs = std::filesystem;
+
+#ifdef __EMSCRIPTEN__
+// The .groom's folder in the module's memory file system (MEMFS).
+constexpr const char* kDefaultDirectory = "/groom";
+#else
+constexpr const char* kDefaultDirectory = "";
+#endif
 
 using json = nlohmann::json;
 
@@ -88,7 +104,8 @@ std::shared_ptr<const ScalpMesh> parseObj(const std::string& text) {
 
 float toSrgb(float c) {
     c = std::clamp(c, 0.0f, 1.0f);
-    return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+    // pm::pow (portable_math.h): the same bits from every C runtime, so the colors match too.
+    return c <= 0.0031308f ? c * 12.92f : 1.055f * pm::pow(c, 1.0f / 2.4f) - 0.055f;
 }
 
 // "clumpSize" -> "Clump size".
@@ -212,9 +229,110 @@ void eachControl(const json& graph, std::vector<json>& out) {
     }
 }
 
+// ---- Files the groom reads ----------------------------------------------------------------------
+
+// A file the groom reads, by its stored path.
+struct FileRef {
+    std::string kind;  // "texture" or "groom"
+    std::vector<std::string> users;
+};
+
+void addRef(std::map<std::string, FileRef>& refs, const std::string& path, const char* kind, const std::string& user) {
+    if (path.empty()) return;
+    FileRef& r = refs[path];
+    if (r.kind.empty()) r.kind = kind;
+    if (std::find(r.users.begin(), r.users.end(), user) == r.users.end()) r.users.push_back(user);
+}
+
+// Every file a graph's nodes read, compounds' definitions too: a map param's texture
+// ({"texture": path}), a string param naming an image file (a Map node's name, FeatherColor's
+// texture...), a Reference node's groom.
+void graphFiles(const json& graph, std::map<std::string, FileRef>& refs) {
+    for (const json& n : arrayAt(graph, "nodes")) {
+        if (!n.is_object()) continue;
+        const std::string name = stringAt(n, "name"), type = stringAt(n, "type");
+        const json params = objectAt(n, "params");
+        for (const auto& [param, value] : params.items()) {
+            const std::string user = name + "." + param;
+            if (value.is_string()) {
+                const std::string text = value.get<std::string>();
+                if (type == "Reference" && param == "path") {
+                    addRef(refs, text, "groom", user);
+                } else if (isImagePath(text)) {
+                    addRef(refs, text, "texture", user);
+                }
+            } else if (value.is_object() && value.contains("texture") && value["texture"].is_string()) {
+                addRef(refs, value["texture"].get<std::string>(), "texture", user);
+            }
+        }
+        if (type == "Compound" && params.contains("definition") && params["definition"].is_object()) {
+            graphFiles(objectAt(params["definition"], "graph"), refs);
+        }
+    }
+}
+
+std::string lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+// A path's last part, backslashes counted as slashes (a groom written on Windows).
+std::string baseName(const std::string& path) {
+    const std::size_t slash = path.find_last_of("/\\");
+    return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+bool isDigits(const std::string& s) {
+    return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; });
+}
+
+// Where a referenced file's tile number goes in its name: a UDIM token's place (<UDIM>, <udim>,
+// %(UDIM)d), else a 1001-1100 number between separators (a tile of a set, texture.h). npos when
+// neither; `length` gets the length of what stands there.
+std::size_t tileSlot(const std::string& name, std::size_t* length) {
+    for (const char* token : {"<UDIM>", "<udim>", "%(UDIM)d"}) {
+        const std::size_t at = name.find(token);
+        if (at != std::string::npos) {
+            *length = std::strlen(token);
+            return at;
+        }
+    }
+    auto separator = [](char c) { return c == '.' || c == '_' || c == '-'; };
+    for (std::size_t i = 0; i + 4 <= name.size(); ++i) {
+        if ((i > 0 && !separator(name[i - 1])) || (i + 4 < name.size() && !separator(name[i + 4]))) continue;
+        const std::string digits = name.substr(i, 4);
+        if (!isDigits(digits)) continue;
+        const int tile = std::atoi(digits.c_str());
+        if (tile < 1001 || tile > 1100) continue;
+        *length = 4;
+        return i;
+    }
+    return std::string::npos;
+}
+
+// The name a file named `candidate` takes to stand for the referenced file named `ref` ("" when
+// it does not): `ref` itself for the same name in any case; for a tile set, `ref` with the
+// candidate's tile number in its slot.
+std::string matchedName(const std::string& ref, const std::string& candidate) {
+    if (lower(ref) == lower(candidate)) return ref;
+    std::size_t length = 0;
+    const std::size_t at = tileSlot(ref, &length);
+    if (at == std::string::npos) return {};
+    const std::string prefix = ref.substr(0, at), suffix = ref.substr(at + length);
+    if (candidate.size() != prefix.size() + 4 + suffix.size()) return {};
+    if (lower(candidate.substr(0, prefix.size())) != lower(prefix) || lower(candidate.substr(prefix.size() + 4)) != lower(suffix)) {
+        return {};
+    }
+    const std::string digits = candidate.substr(prefix.size(), 4);
+    if (!isDigits(digits)) return {};
+    const int tile = std::atoi(digits.c_str());
+    if (tile < 1001 || tile > 1100) return {};
+    return prefix + digits + suffix;
+}
+
 }  // namespace
 
-WebGroom::WebGroom() = default;
+WebGroom::WebGroom() : directory_(kDefaultDirectory) {}
 WebGroom::~WebGroom() = default;
 
 bool WebGroom::load(const std::string& groomText, const std::string& objText) {
@@ -239,6 +357,7 @@ bool WebGroom::load(const std::string& groomText, const std::string& objText) {
         session->setFramesPerSecond(file->framesPerSecond);
         file_ = std::move(file);
         session_ = std::move(session);
+        setDirectory(directory_);
         offsets_.clear();
         positions_.clear();
         colors_.clear();
@@ -263,6 +382,102 @@ void WebGroom::readScalp() {
         scalpIndices_.insert(scalpIndices_.end(), {static_cast<std::uint32_t>(t[0]), static_cast<std::uint32_t>(t[1]),
                                                    static_cast<std::uint32_t>(t[2])});
     }
+}
+
+void WebGroom::setDirectory(const std::string& directory) {
+    directory_ = directory;
+    if (!file_ || !session_) return;
+    file_->directory = directory;
+    // As the desktop resolves a .groom's paths (GroomScene): its folder, then its search paths.
+    std::vector<std::string> dirs;
+    if (!directory.empty()) dirs.push_back(directory);
+    dirs.insert(dirs.end(), file_->searchPaths.begin(), file_->searchPaths.end());
+    session_->setPathResolver(dirs.empty() ? PathResolver{} : searchPathResolver(std::move(dirs)));
+}
+
+std::string WebGroom::filesJson() const {
+    json out = json::array();
+    if (!file_) return out.dump();
+    std::map<std::string, FileRef> refs;
+    try {
+        graphFiles(json::parse(file_->data.graphJson.empty() ? "{}" : file_->data.graphJson), refs);
+    } catch (const std::exception&) {
+        // a graph that does not read reads no files
+    }
+    for (const auto& [name, info] : file_->data.maps) {
+        if (info.kind == "texture") addRef(refs, info.texture, "texture", "map " + name);
+    }
+    for (const auto& [path, ref] : refs) {
+        const std::string resolved = resolveGroomPath(*file_, path, directory_);
+        std::size_t length = 0;
+        out.push_back({{"path", path},
+                       {"resolved", resolved},
+                       {"found", fileStamp(resolved) != 0},
+                       {"kind", ref.kind},
+                       {"udim", ref.kind == "texture" && tileSlot(baseName(path), &length) != std::string::npos},
+                       {"users", ref.users}});
+    }
+    return out.dump();
+}
+
+std::string WebGroom::missingFilesJson() const {
+    json out = json::array();
+    for (const json& f : json::parse(filesJson())) {
+        if (!f["found"].get<bool>()) out.push_back(f["path"]);
+    }
+    return out.dump();
+}
+
+bool WebGroom::addFile(const std::string& path, const std::string& bytes) {
+    error_.clear();
+    try {
+        std::string relative = path;
+        std::replace(relative.begin(), relative.end(), '\\', '/');
+        while (relative.rfind("./", 0) == 0) relative = relative.substr(2);
+        if (relative.empty() || relative.back() == '/') throw std::runtime_error("addFile: no file name in '" + path + "'");
+        const fs::path target = isAbsolutePath(relative) || directory_.empty()
+                                    ? fs::u8path(relative).lexically_normal()
+                                    : (fs::u8path(directory_) / fs::u8path(relative)).lexically_normal();
+        std::error_code ec;
+        if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
+        {
+            std::ofstream out(target, std::ios::binary | std::ios::trunc);
+            out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            if (!out) throw std::runtime_error("addFile: cannot write " + target.u8string());
+        }
+        const std::string written = target.u8string();
+        if (std::find(written_.begin(), written_.end(), written) == written_.end()) written_.push_back(written);
+        linkFile(written);
+        return true;
+    } catch (const std::exception& e) {
+        error_ = e.what();
+        return false;
+    }
+}
+
+// The file just written copied to each missing reference of its name, where the engine reads it.
+void WebGroom::linkFile(const std::string& written) {
+    const std::string name = baseName(written);
+    for (const json& f : json::parse(filesJson())) {
+        const std::string resolved = f["resolved"].get<std::string>();
+        if (resolved == written) continue;
+        // A plain file only while missing; a tile set takes each tile it lacks.
+        if (!f["udim"].get<bool>() && f["found"].get<bool>()) continue;
+        const std::string as = matchedName(baseName(resolved), name);
+        if (as.empty()) continue;
+        const std::size_t slash = resolved.find_last_of("/\\");
+        const fs::path target = fs::u8path(slash == std::string::npos ? as : resolved.substr(0, slash + 1) + as);
+        std::error_code ec;
+        if (fs::exists(target, ec)) continue;
+        if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
+        if (fs::copy_file(fs::u8path(written), target, ec) && !ec) written_.push_back(target.u8string());
+    }
+}
+
+void WebGroom::clearFiles() {
+    std::error_code ec;
+    for (const std::string& path : written_) fs::remove(fs::u8path(path), ec);
+    written_.clear();
 }
 
 std::string WebGroom::controlsJson() const {

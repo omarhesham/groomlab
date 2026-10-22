@@ -32,8 +32,23 @@ function scalpOf(g) {
   };
 }
 
+// Files into the module's memory file system (WebGroom.addFile: at the groom's folder, matched to
+// the missing references by name). [[path, bytes]...] in; the paths that failed, with why, out.
+function addFiles(g, files) {
+  const failed = [];
+  for (const [path, bytes] of files || []) {
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (!g.addFile(path, data)) failed.push(path + ': ' + g.error());
+  }
+  return failed;
+}
+
+function filesOf(g) {
+  return { files: JSON.parse(g.filesJson()), missing: JSON.parse(g.missingFilesJson()) };
+}
+
 const ops = {
-  async load({ groom: text, mesh }) {
+  async load({ groom: text, mesh, files }) {
     const M = await engine();
     const next = new M.WebGroom();
     const t0 = performance.now();
@@ -42,9 +57,28 @@ const ops = {
       next.delete();
       throw new Error(error);
     }
-    if (groom) groom.delete();
+    if (groom) {
+      groom.clearFiles();
+      groom.delete();
+    }
     groom = next;
-    return { version: M.version(), loadMs: performance.now() - t0, controls: JSON.parse(groom.controlsJson()), scalp: scalpOf(groom) };
+    const failed = addFiles(groom, files);
+    return {
+      version: M.version(),
+      loadMs: performance.now() - t0,
+      controls: JSON.parse(groom.controlsJson()),
+      scalp: scalpOf(groom),
+      failed,
+      ...filesOf(groom),
+    };
+  },
+  addFiles({ files }) {
+    const g = need();
+    const failed = addFiles(g, files);
+    return { failed, ...filesOf(g) };
+  },
+  files() {
+    return filesOf(need());
   },
   controls() {
     return JSON.parse(need().controlsJson());
