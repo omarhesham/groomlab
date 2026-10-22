@@ -2,9 +2,9 @@
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { Reveal } from '@/components/reveal';
-import { port, wirePath, type Category, type Side } from './graph-theme';
+import { category, port, wirePath, type Category, type Side } from './graph-theme';
 import { SectionHead } from './section-node';
-import { HEADER, portPos, SvgNode, Wire, type NodeSpec } from './svg-graph';
+import { portPos, SvgNode, Wire, type NodeSpec } from './svg-graph';
 
 /*
  * One groom, every app: the .groom node in the middle, the apps that groom it wired in on one side,
@@ -20,7 +20,6 @@ const hosts = [
 const renderers = ['Arnold', 'V-Ray', 'RenderMan'];
 const exportsTo = ['Unreal', 'Unity', 'glTF', 'Alembic', 'USD'];
 
-const groomRows = ['scalp', 'guides', 'maps', 'graph'].map((label) => ({ label }));
 const hostCat: Category = 'Sources';
 const renderCat: Category = 'Fields';
 const exportCat: Category = 'Games';
@@ -43,25 +42,25 @@ function wide(): Layout {
     cat: 'Output',
     mono: true,
     x: 440,
-    y: 145,
+    y: 180,
     w: 200,
-    rows: groomRows,
-    ins: [0, 1, 2].map((i) => ({ type: 'mesh' as const, at: HEADER + 18 + i * 24 })),
-    outs: [{ type: 'strands', at: 67 }],
+    pill: true,
+    ins: [{ type: 'mesh' }],
+    outs: [{ type: 'strands' }],
   };
   const hostNodes: NodeSpec[] = hosts.map((h, i) => ({
     id: h.name,
     name: h.name,
     cat: hostCat,
     x: 0,
-    y: 61 + i * 120,
-    w: 210,
-    rows: [{ label: h.label, value: h.value }],
+    y: 108 + i * 64,
+    w: 180,
+    pill: true,
     outs: [{ type: 'mesh' }],
   }));
   const outs: NodeSpec[] = [
-    ...renderers.map((name, i) => ({ id: name, name, cat: renderCat, x: 900, y: 32 + i * 44, w: 180, ins: [{ type: 'field' as const }] })),
-    ...exportsTo.map((name, i) => ({ id: name, name, cat: exportCat, x: 900, y: 196 + i * 44, w: 180, ins: [{ type: 'value' as const }] })),
+    ...renderers.map((name, i) => ({ id: name, name, cat: renderCat, x: 900, y: 32 + i * 44, w: 180, pill: true, ins: [{ type: 'field' as const }] })),
+    ...exportsTo.map((name, i) => ({ id: name, name, cat: exportCat, x: 900, y: 196 + i * 44, w: 180, pill: true, ins: [{ type: 'value' as const }] })),
   ];
   return {
     vbw: 1080,
@@ -72,8 +71,8 @@ function wide(): Layout {
     labels: [
       { x: 900, y: 20, text: 'RENDER' },
       { x: 900, y: 184, text: 'EXPORT' },
-      { x: 0, y: 46, text: 'GROOM IN' },
-      { x: 540, y: 128, text: 'ONE FILE', anchor: 'middle' },
+      { x: 0, y: 94, text: 'GROOM IN' },
+      { x: 540, y: 166, text: 'ONE FILE', anchor: 'middle' },
     ],
   };
 }
@@ -85,9 +84,9 @@ function compact(): Layout {
     cat: 'Output',
     mono: true,
     x: 80,
-    y: 136,
+    y: 150,
     w: 200,
-    rows: groomRows,
+    pill: true,
     ins: [{ type: 'mesh', side: 't' }],
     outs: [{ type: 'strands', side: 'b' }],
   };
@@ -98,22 +97,22 @@ function compact(): Layout {
     x: i * 124,
     y: 14,
     w: 112,
-    rows: [{ label: h.label === 'standalone' ? 'app' : h.label, value: h.value === '2022–2027' ? '22–27' : h.value }],
+    pill: true,
     outs: [{ type: 'mesh', side: 'b' }],
   }));
   const outs: NodeSpec[] = [
-    ...renderers.map((name, i) => ({ id: name, name, cat: renderCat, x: 0, y: 340 + i * 44, w: 160, ins: [{ type: 'field' as const, side: 'r' as Side }] })),
-    ...exportsTo.map((name, i) => ({ id: name, name, cat: exportCat, x: 200, y: 340 + i * 44, w: 160, ins: [{ type: 'value' as const, side: 'l' as Side }] })),
+    ...renderers.map((name, i) => ({ id: name, name, cat: renderCat, x: 0, y: 270 + i * 44, w: 160, pill: true, ins: [{ type: 'field' as const, side: 'r' as Side }] })),
+    ...exportsTo.map((name, i) => ({ id: name, name, cat: exportCat, x: 200, y: 270 + i * 44, w: 160, pill: true, ins: [{ type: 'value' as const, side: 'l' as Side }] })),
   ];
   return {
     vbw: 360,
-    vbh: 560,
+    vbh: 490,
     hosts: hostNodes,
     groom,
     outs,
     labels: [
-      { x: 0, y: 328, text: 'RENDER' },
-      { x: 360, y: 328, text: 'EXPORT', anchor: 'end' },
+      { x: 0, y: 258, text: 'RENDER' },
+      { x: 360, y: 258, text: 'EXPORT', anchor: 'end' },
     ],
     bus: true,
   };
@@ -123,7 +122,7 @@ function Diagram({ layout, className }: { layout: Layout; className?: string }) 
   const { groom } = layout;
   const hostWires = layout.hosts.map((h, i) => {
     const [x1, y1, s1] = portPos(h, 'out');
-    const [x2, y2, s2] = portPos(groom, 'in', groom.ins!.length > 1 ? i : 0);
+    const [x2, y2, s2] = portPos(groom, 'in');
     return wirePath(x1, y1, x2, y2, s1, s2);
   });
   const [ox, oy, os] = portPos(groom, 'out');
@@ -132,7 +131,7 @@ function Diagram({ layout, className }: { layout: Layout; className?: string }) 
     const d = layout.bus
       ? `M${ox} ${oy} V${y2 - 10} Q${ox} ${y2} ${ox + (x2 < ox ? -10 : 10)} ${y2} H${x2}`
       : wirePath(ox, oy, x2, y2, os, s2);
-    return { d, color: port[n.ins![0].type] };
+    return { d, color: category[n.cat].hue };
   });
   const nodes = [...layout.hosts, groom, ...layout.outs];
   return (
@@ -163,7 +162,7 @@ function Diagram({ layout, className }: { layout: Layout; className?: string }) 
         </g>
       ))}
       {/* The file's own mark on its node. */}
-      <g transform={`translate(${groom.x + groom.w - 30} ${groom.y + 7})`}>
+      <g transform={`translate(${groom.x + groom.w - 32} ${groom.y + 6})`}>
         <path d="M3 15 C3 9 5 5 9 3.5" stroke="#FF4D4F" strokeWidth="2" strokeLinecap="round" fill="none" />
         <path d="M7 15 C7 10 9 7 13 6" stroke="#FFC53D" strokeWidth="2" strokeLinecap="round" fill="none" />
         <path d="M11 15 C11 11 13 9 16 8.5" stroke="#2F7BF6" strokeWidth="2" strokeLinecap="round" fill="none" />

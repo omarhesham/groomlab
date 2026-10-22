@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 import { EveryApp } from '@/components/home/every-app';
-import { Gallery } from '@/components/home/gallery';
 import { Hero } from '@/components/home/hero';
 import { Inspector } from '@/components/home/inspector';
 import { OpenSource } from '@/components/home/open-source';
@@ -12,7 +11,7 @@ import { UnderTheHood } from '@/components/home/under-the-hood';
 
 // The page is one graph. The hero grows a groom live; below it every section is a node on the page
 // wire: try the graph, one groom in every app, the toolkit, the proof (performance), the depth
-// (under the hood), the real thing (screenshots), open source, then the Output: getting it.
+// (under the hood), open source, then getting it.
 export default function HomePage() {
   return (
     <>
@@ -24,7 +23,6 @@ export default function HomePage() {
         <Toolkit />
         <Inspector />
         <UnderTheHood />
-        <Gallery />
         <OpenSource />
       </div>
       <OutputCta />

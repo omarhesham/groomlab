@@ -173,7 +173,6 @@ function Node({
           className="flex h-10 items-center gap-2.5 rounded-t-[11px] pr-1.5 pl-3 transition-colors duration-300"
           style={{ background: on ? c.hue : '#f2f2f4', color: on ? c.on : undefined }}
         >
-          <span aria-hidden="true" className="size-2 rounded-full" style={{ background: on ? 'currentColor' : '#b8b8bf' }} />
           <span className="text-[14px] font-semibold tracking-tight">{name}</span>
           {!on && <span className="font-mono text-[11px] text-gl-ink-3">bypassed</span>}
           <span className="ml-auto flex items-center">
@@ -193,7 +192,7 @@ function VWire({ color }: { color: string }) {
   return (
     <div aria-hidden="true" className="relative ml-[17px] h-7 w-[10px]">
       <span className="absolute -top-[5px] left-0 size-[10px] rounded-full border-2 border-white" style={{ background: color }} />
-      <span className="absolute inset-y-0 left-[4px] w-[2px] rounded-full opacity-60" style={{ background: color }} />
+      <span className="absolute inset-y-0 left-[4px] w-[2px] rounded-full" style={{ background: color }} />
       <span className="vwire-pulse absolute top-0 left-[3px] h-2 w-[4px] rounded-full" style={{ background: color }} />
       <span className="absolute -bottom-[5px] left-0 size-[10px] rounded-full border-2 border-white" style={{ background: color }} />
     </div>
@@ -237,7 +236,7 @@ function ValueSlider({
       className="value-slider relative h-7 overflow-hidden rounded-[7px] bg-[#f1f1f4] font-mono text-[12px] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-gl-blue"
       style={{ '--fill': c.hue } as CSSProperties}
     >
-      <span aria-hidden="true" className="absolute inset-y-0 left-0 opacity-60" style={{ width: `${share}%`, background: c.hue }} />
+      <span aria-hidden="true" className="absolute inset-y-0 left-0" style={{ width: `${share}%`, background: c.tint }} />
       <span aria-hidden="true" className="absolute inset-y-0 w-[2px]" style={{ left: `calc(${share}% - 1px)`, background: c.ink }} />
       <label htmlFor={id} className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-gl-ink-2">
         {label}

@@ -154,7 +154,6 @@ function Card({ name, cat, children }: { name: string; cat: Category; children: 
   return (
     <figure className="h-full overflow-hidden rounded-[16px] bg-[#f6f6f8]">
       <figcaption className="flex h-10 items-center gap-2.5 px-3.5 font-mono text-[12px]" style={{ background: c.hue, color: c.on }}>
-        <span aria-hidden="true" className="size-2 rounded-full bg-current opacity-85" />
         {name}
       </figcaption>
       {children}

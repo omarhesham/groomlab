@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Logo } from '@/components/logo';
 import { pill } from '@/components/store-buttons';
 import { cn } from '@/lib/cn';
+import { GitHubMark } from '@/components/github-mark';
 import { siteConfig } from '@/site.config';
 
 const links = [
@@ -37,8 +38,9 @@ export function SiteHeader() {
                 ) : (
                   <a
                     href={link.href}
-                    className="rounded-full px-3 py-2 text-[13px] text-gl-ink/75 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue"
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] text-gl-ink/75 transition-colors hover:text-gl-ink focus-visible:outline-2 focus-visible:outline-gl-blue"
                   >
+                    {link.href === siteConfig.repoUrl && <GitHubMark className="size-3.5" />}
                     {link.label}
                   </a>
                 )}

@@ -94,7 +94,6 @@ function ToolCard({ cat, node, title, text, href, art }: (typeof tools)[number])
   return (
     <article className="tool-card group relative flex h-full flex-col">
       <div className="flex h-10 items-center gap-2.5 rounded-[12px] px-3.5" style={{ background: c.hue, color: c.on }}>
-        <span aria-hidden="true" className="size-2 rounded-full bg-current opacity-85" />
         <span className="text-[13px] font-semibold">
           {node}
         </span>

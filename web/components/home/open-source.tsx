@@ -4,6 +4,7 @@ import { Reveal } from '@/components/reveal';
 import { pill } from '@/components/store-buttons';
 import { TextLink } from '@/components/text-link';
 import { cn } from '@/lib/cn';
+import { GitHubMark } from '@/components/github-mark';
 import { siteConfig } from '@/site.config';
 import { SectionHead } from './section-node';
 import { connect, SvgNode, Wire, type NodeSpec } from './svg-graph';
@@ -95,7 +96,7 @@ export function OpenSource() {
   return (
     <section aria-labelledby="oss-title" className="section-y">
       <div className="wrap">
-        <SectionHead id="oss-title" cat="Utility" index="07" tag="Open source" title="Free and open source." muted="Built in the open." />
+        <SectionHead id="oss-title" cat="Utility" index="06" tag="Open source" title="Free and open source." muted="Built in the open." />
         <div className="mt-12 grid items-center gap-12 sm:mt-14 lg:grid-cols-12 lg:gap-16">
           <Reveal className="lg:col-span-5">
             <p className="t-lede text-gl-ink-2">
@@ -105,6 +106,7 @@ export function OpenSource() {
             </p>
             <div className="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-7">
               <a href={siteConfig.repoUrl} className={cn(pill.base, pill.md, 'bg-gl-ink text-white hover:bg-black')}>
+                <GitHubMark className="size-4" />
                 Source on GitHub
               </a>
               <TextLink href={`${siteConfig.repoUrl}/blob/main/CONTRIBUTING.md`}>How to contribute</TextLink>

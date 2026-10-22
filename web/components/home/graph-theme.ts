@@ -20,17 +20,17 @@ export type Category =
   | 'Output';
 
 export const category: Record<Category, { hue: string; on: string; tint: string; ink: string }> = {
-  Sources: { hue: '#2ECC8F', on: '#0b3d2a', tint: '#c9f2e2', ink: '#16855b' },
-  Grow: { hue: '#4FD1C5', on: '#0b3a36', tint: '#cdf3ef', ink: '#1f8a80' },
-  Shape: { hue: '#2F7BF6', on: '#ffffff', tint: '#cfe0fd', ink: '#1d5fd0' },
-  Look: { hue: '#FFC53D', on: '#3d2c00', tint: '#ffefc4', ink: '#a8780a' },
-  Color: { hue: '#FF7AB6', on: '#4a0a28', tint: '#ffd9ea', ink: '#c9367a' },
-  Fields: { hue: '#A36BFF', on: '#ffffff', tint: '#e6d8ff', ink: '#7440d6' },
-  Utility: { hue: '#8A93A0', on: '#16191d', tint: '#e2e5e9', ink: '#59616c' },
-  Motion: { hue: '#78C8FF', on: '#0a3352', tint: '#d9efff', ink: '#2683c4' },
-  Feathers: { hue: '#FFC857', on: '#3d2c00', tint: '#fff0cc', ink: '#a8780a' },
-  Convert: { hue: '#FF8A5C', on: '#4a1a06', tint: '#ffe0d3', ink: '#c9531f' },
-  Games: { hue: '#5EC8FF', on: '#06324d', tint: '#d4efff', ink: '#1f86bf' },
+  Sources: { hue: '#2ECC8F', on: '#0b3d2a', tint: '#92e4c5', ink: '#16855b' },
+  Grow: { hue: '#4FD1C5', on: '#0b3a36', tint: '#a3e7e1', ink: '#1f8a80' },
+  Shape: { hue: '#2F7BF6', on: '#ffffff', tint: '#93bafa', ink: '#1d5fd0' },
+  Look: { hue: '#FFC53D', on: '#3d2c00', tint: '#ffe19a', ink: '#a8780a' },
+  Color: { hue: '#FF7AB6', on: '#4a0a28', tint: '#ffbad9', ink: '#c9367a' },
+  Fields: { hue: '#A36BFF', on: '#ffffff', tint: '#cfb2ff', ink: '#7440d6' },
+  Utility: { hue: '#8A93A0', on: '#16191d', tint: '#c2c7ce', ink: '#59616c' },
+  Motion: { hue: '#78C8FF', on: '#0a3352', tint: '#b9e2ff', ink: '#2683c4' },
+  Feathers: { hue: '#FFC857', on: '#3d2c00', tint: '#ffe2a8', ink: '#a8780a' },
+  Convert: { hue: '#FF8A5C', on: '#4a1a06', tint: '#ffc2aa', ink: '#c9531f' },
+  Games: { hue: '#5EC8FF', on: '#06324d', tint: '#abe2ff', ink: '#1f86bf' },
   Output: { hue: '#1d1d1f', on: '#ffffff', tint: '#1d1d1f', ink: '#1d1d1f' },
 };
 

@@ -34,6 +34,8 @@ export interface NodeSpec {
   ins?: { type: PortType; side?: Side; at?: number }[];
   outs?: { type: PortType; side?: Side; at?: number }[];
   mono?: boolean;
+  /** A rounded pill with the name alone (no body). */
+  pill?: boolean;
 }
 
 export function nodeHeight(n: NodeSpec) {
@@ -55,17 +57,46 @@ export function portPos(n: NodeSpec, kind: 'in' | 'out', i = 0): [number, number
 export function SvgNode({ n, children }: { n: NodeSpec; children?: ReactNode }) {
   const c = category[n.cat];
   const h = nodeHeight(n);
-  const dark = n.cat === 'Output';
   const r = 10;
   const header = `M0 ${HEADER} V${r} Q0 0 ${r} 0 H${n.w - r} Q${n.w} 0 ${n.w} ${r} V${HEADER} Z`;
+  const ports = (
+    <>
+      {n.ins?.map((_, i) => {
+        const [x, y] = portPos(n, 'in', i);
+        return <Port key={`i${i}`} x={x - n.x} y={y - n.y} color={portColor[n.ins![i].type]} />;
+      })}
+      {n.outs?.map((_, i) => {
+        const [x, y] = portPos(n, 'out', i);
+        return <Port key={`o${i}`} x={x - n.x} y={y - n.y} color={portColor[n.outs![i].type]} />;
+      })}
+    </>
+  );
+  if (n.pill) {
+    return (
+      <g transform={`translate(${n.x} ${n.y})`} className="graph-node">
+        <rect x="0" y="0" width={n.w} height={HEADER} rx={HEADER / 2} fill={c.hue} />
+        <text
+          x="16"
+          y={HEADER / 2 + 4.5}
+          className={n.mono ? 'font-mono' : 'font-sans'}
+          fontSize="13"
+          fontWeight="600"
+          fill={c.on}
+        >
+          {n.name}
+        </text>
+        {children}
+        {ports}
+      </g>
+    );
+  }
   return (
     <g transform={`translate(${n.x} ${n.y})`} className="graph-node">
       <rect x="0.5" y="0.5" width={n.w - 1} height={h - 1} rx={r} fill="#fff" stroke="#d9d9df" />
       <path d={header} fill={c.hue} />
       <line x1="0" x2={n.w} y1={HEADER} y2={HEADER} stroke={c.hue} />
-      <circle cx="14" cy={HEADER / 2} r="4" fill={c.on} fillOpacity={dark ? 1 : 0.85} />
       <text
-        x="25"
+        x="12"
         y={HEADER / 2 + 4.5}
         className={n.mono ? 'font-mono' : 'font-sans'}
         fontSize="12.5"
@@ -96,14 +127,7 @@ export function SvgNode({ n, children }: { n: NodeSpec; children?: ReactNode }) 
         );
       })}
       {children}
-      {n.ins?.map((_, i) => {
-        const [x, y] = portPos(n, 'in', i);
-        return <Port key={`i${i}`} x={x - n.x} y={y - n.y} color={portColor[n.ins![i].type]} />;
-      })}
-      {n.outs?.map((_, i) => {
-        const [x, y] = portPos(n, 'out', i);
-        return <Port key={`o${i}`} x={x - n.x} y={y - n.y} color={portColor[n.outs![i].type]} />;
-      })}
+      {ports}
     </g>
   );
 }

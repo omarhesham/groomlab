@@ -37,7 +37,6 @@ export function Inspector() {
           <div className="overflow-hidden">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[#e6e6eb] bg-[#f7f7f9] px-4 py-2.5 font-mono text-[11.5px] text-gl-ink-2">
               <span className="flex items-center gap-2 font-sans text-[13px] font-semibold text-gl-ink">
-                <span aria-hidden="true" className="size-2 rounded-full" style={{ background: category.Fields.hue }} />
                 Inspector
               </span>
               <span className="rounded-md bg-white px-2 py-0.5 ring-1 ring-[#e3e3e8]">benchmark</span>
