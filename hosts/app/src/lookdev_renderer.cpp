@@ -532,6 +532,12 @@ struct LookdevRenderer::Gpu {
         std::unique_ptr<QRhiRenderBuffer> surfaceDepthBuffer;
         std::unique_ptr<QRhiTextureRenderTarget> surfaceDepthTarget, compositeTarget;
         std::unique_ptr<QRhiRenderPassDescriptor> surfaceDepthPass, compositePass;
+        // Direct3D 11: a 1 x 1 target an empty pass binds after the surfaces' depth pass, so the
+        // depth texture is no longer bound as an output when the raster samples it (the device
+        // would bind nothing in its place, and every strand behind the surfaces would show).
+        std::unique_ptr<QRhiTexture> releaseTexture;
+        std::unique_ptr<QRhiTextureRenderTarget> releaseTarget;
+        std::unique_ptr<QRhiRenderPassDescriptor> releasePass;
         std::unique_ptr<QRhiSampler> clamp3d;
         std::unique_ptr<QRhiShaderResourceBindings> fillPixelsSrb, fillDensitySrb, rasterSrb[2], shadeSrb, voxelizeSrb, densitySrb,
             volumeSrb[kVolumeCount], compositeSrb;
@@ -2250,6 +2256,11 @@ bool LookdevRenderer::render(QRhi* rhi, QRhiCommandBuffer* cb, QRhiRenderTarget*
             drawSurfaces(g.surfaceDepth.get(), kDomCamera, false);
         }
         cb->endPass();
+        if (v.releaseTarget) {
+            // (Direct3D 11: the depth texture unbound as an output before the raster reads it.)
+            cb->beginPass(v.releaseTarget.get(), Qt::transparent, {1.0f, 0});
+            cb->endPass();
+        }
         std::uint32_t gx = 1, gy = 1;
         rows(static_cast<std::uint32_t>(g.size.width() * g.size.height()), 256, gx, gy);
         computePass(v.fill.get(), {v.fillPixelsSrb.get()}, gx, gy, 1);
@@ -2392,6 +2403,18 @@ bool LookdevRenderer::ensureVis(QRhi* rhi) {
         v.surfaceDepthTarget->setRenderPassDescriptor(v.surfaceDepthPass.get());
         if (!v.surfaceDepthTarget->create()) return fail(__LINE__);
         v.size = g.size;
+    }
+    // Direct3D 11 keeps a pass's targets bound as outputs after it ends, until the next pass
+    // binds its own, and a texture bound as an output reads as nothing in a compute shader (the
+    // device forces its view to null): the raster would find no surface in front of any strand.
+    // The other backends make the texture readable themselves (their barriers).
+    if (rhi->backend() == QRhi::D3D11 && !v.releaseTarget) {
+        v.releaseTexture.reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(1, 1), 1, QRhiTexture::RenderTarget));
+        if (!v.releaseTexture->create()) return fail(__LINE__);
+        v.releaseTarget.reset(rhi->newTextureRenderTarget({QRhiColorAttachment(v.releaseTexture.get())}));
+        v.releasePass.reset(v.releaseTarget->newCompatibleRenderPassDescriptor());
+        v.releaseTarget->setRenderPassDescriptor(v.releasePass.get());
+        if (!v.releaseTarget->create()) return fail(__LINE__);
     }
     // The composite pass draws over the resolved HDR scene, keeping it.
     if (!v.compositeTarget || v.compositeOn != resourceId(g.resolved.get())) {
