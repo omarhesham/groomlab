@@ -18,20 +18,16 @@ function hasWebGL2() {
 }
 
 /**
- * The groom's viewport. Once it comes near the screen it fetches three.js and the 3D groom and
- * grows it in: a head whose hair is grown by the params, turning slowly, that a drag orbits.
- * Without WebGL2 (or when the 3D fails) a 2D canvas draws the same graph instead.
- * Both only animate while on screen and the tab is visible; with reduced motion each draws one
- * still frame per change. `live` lets the caller vary params per frame (the hero's breathing Curl);
- * it is read every frame, never re-rendered through React.
+ * The groom's viewport. Once it comes near the screen it fetches three.js and the 3D groom (grown in
+ * a worker): a head whose hair is grown by the params, standing still, that a drag orbits. Without
+ * WebGL2 (or when the 3D fails) a 2D canvas draws the same graph instead. Neither animates: each
+ * draws a frame when its params change, when it is resized or shown, and while it is dragged.
  */
 export function StrandViewport({
   params,
-  live,
   className,
   label,
   strandScale = 10,
-  spin,
   pitch,
   fill,
   yaw,
@@ -40,16 +36,13 @@ export function StrandViewport({
   onStats,
 }: {
   params: StrandParams;
-  live?: (time: number) => Partial<StrandParams> | undefined;
   className?: string;
   label?: string;
   /** 3D strands per unit of density (fewer on phones). */
   strandScale?: number;
-  /** Turntable speed, radians a second. */
-  spin?: number;
   pitch?: number;
   fill?: number;
-  /** Where the turntable starts, radians (0 faces the camera). */
+  /** Which way the head faces, radians (0 faces the camera). */
   yaw?: number;
   /** The head's clay color, sRGB 0 to 1. */
   skin?: number[];
@@ -61,53 +54,36 @@ export function StrandViewport({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const paramsRef = useRef(params);
-  const liveRef = useRef(live);
   const statsRef = useRef(onStats);
   const redrawRef = useRef<() => void>(() => {});
   const groomRef = useRef<Groom3D | null>(null);
-  /** When the 2D canvas was first seen (ms), so the 3D one knows whether to grow in again. */
-  const seenRef = useRef(-1);
   /** Whether the 2D canvas draws: only without WebGL2 or when the 3D groom failed. */
   const flatRef = useRef(false);
   const [three, setThree] = useState(false);
 
   useEffect(() => {
     paramsRef.current = params;
-    liveRef.current = live;
     statsRef.current = onStats;
     redrawRef.current();
-    groomRef.current?.invalidate();
-  }, [params, live, onStats]);
+    groomRef.current?.update(params);
+  }, [params, onStats]);
 
-  // The 2D canvas: the first paint, and the fallback.
+  // The 2D canvas: the fallback, one still frame per change.
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const renderer = new StrandRenderer(paramsRef.current.seed);
     flatRef.current = !hasWebGL2();
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let width = 0;
     let height = 0;
     let visible = false;
     let raf = 0;
-    let start = -1;
 
-    const paint = (now: number) => {
-      if (!width || !height || groomRef.current || !flatRef.current) return;
-      if (start < 0) start = now;
-      if (seenRef.current < 0) seenRef.current = now;
-      const t = (now - start) / 1000;
-      const grow = still ? 1 : 1 - Math.pow(1 - Math.min(1, t / 1.6), 3);
-      const extra = liveRef.current?.(t);
-      const p = extra ? { ...paramsRef.current, ...extra } : paramsRef.current;
-      renderer.draw(ctx, p, { width, height, time: t, grow, sway: !still });
-    };
-
-    const loop = (now: number) => {
+    const loop = () => {
       raf = 0;
-      paint(now);
-      if (visible && !still && !document.hidden && !groomRef.current) raf = requestAnimationFrame(loop);
+      if (!width || !height || groomRef.current || !flatRef.current || document.hidden) return;
+      renderer.draw(ctx, paramsRef.current, { width, height, time: 0, grow: 1, sway: false });
     };
     const kick = () => {
       if (!raf && visible) raf = requestAnimationFrame(loop);
@@ -173,20 +149,14 @@ export function StrandViewport({
       import('./strand-3d')
         .then(({ mountGroom3D }) => {
           if (disposed) return null;
-          const params = (t: number) => {
-            const extra = liveRef.current?.(still ? 0 : t);
-            return extra ? { ...paramsRef.current, ...extra } : paramsRef.current;
-          };
           return mountGroom3D(gl, {
             still,
-            spin,
             pitch,
             fill,
             yaw,
             skin,
             framing,
-            sway: 0.6,
-            params,
+            params: paramsRef.current,
             strandScale: strandScale * (phone ? 0.55 : 1),
             onStats: (s) => statsRef.current?.(s),
           });
@@ -202,10 +172,9 @@ export function StrandViewport({
           }
           groom = g;
           groomRef.current = groom;
+          // Params that changed while it first grew.
+          groom.update(paramsRef.current);
           size();
-          // Grow in, unless the 2D strands already have for a while.
-          const seen = seenRef.current;
-          if (seen < 0 || performance.now() - seen < 600) groom.grow(1.6);
           activate();
           setThree(true);
         })

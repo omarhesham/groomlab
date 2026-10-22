@@ -2,16 +2,17 @@
 /*
  * The lazily loaded half of StrandViewport: the procedural groom wired to the three.js viewer, on
  * the Manny head. This module (and three.js with it) is only fetched when a viewport scrolls near
- * the screen; the head mesh (a few kB) is fetched with it, once per page.
+ * the screen; the head mesh (a few kB) is fetched with it, once per page. The groom stands still:
+ * it is grown once, and again only when its params change (at most once a frame, the latest
+ * params), and nothing renders unless it is dragged, resized or changed.
  */
 import { MAX_STRANDS, ProceduralGroom, type GroomStats } from './groom-3d';
 import { loadHead } from './head-mesh';
 import type { StrandParams } from './strand-engine';
-import { createStrandViewer, type StrandViewer, type ViewerOptions } from './strand-three';
+import { createStrandViewer, type ViewerOptions } from './strand-three';
 
-export interface Groom3DOptions extends Omit<ViewerOptions, 'onFrame'> {
-  /** The params to draw at this time (seconds); read every frame. */
-  params: (time: number) => StrandParams;
+export interface Groom3DOptions extends Omit<ViewerOptions, 'onFrame' | 'spin' | 'sway'> {
+  params: StrandParams;
   /** Strands per unit of Scatter's density. */
   strandScale: number;
   /** The head's clay color, sRGB 0 to 1. */
@@ -22,10 +23,11 @@ export interface Groom3DOptions extends Omit<ViewerOptions, 'onFrame'> {
 }
 
 export interface Groom3D {
+  /** Grows the groom again with these params, on the next frame, if they change it. */
+  update(params: StrandParams): void;
   setActive(active: boolean): void;
   resize(width: number, height: number): void;
   invalidate(): void;
-  grow(seconds: number): void;
   dispose(): void;
 }
 
@@ -34,29 +36,25 @@ export async function mountGroom3D(canvas: HTMLCanvasElement, opts: Groom3DOptio
   const groom = new ProceduralGroom();
   const head = await loadHead();
   if (head) groom.setHead(head);
+  const viewer = createStrandViewer(canvas, { ...opts, spin: 0, sway: 0 });
+  if (!viewer) return null;
+  // The head and the hair over it, a little above center.
+  const [center, radius] = opts.framing ?? [[0, 0.1, 0], 1.45];
+  viewer.setFraming(center, radius);
+
   let shapeKey = '';
   let guidesKey = '';
   let strands = -1;
-  let lastBuild = -1e9;
-  let retry = 0;
-  let viewer: StrandViewer | null = null;
-  const sync = (time: number) => {
-    if (!viewer) return;
-    const p = opts.params(time);
+  let params = opts.params;
+  let raf = 0;
+  const sync = () => {
+    raf = 0;
+    const p = params;
     const count = Math.min(MAX_STRANDS, Math.round(p.density * opts.strandScale));
-    // Quantized, so a param that drifts every frame (the hero's Curl) regrows a few times a second.
-    const q = (v: number) => Math.round(v * 100) / 100;
-    const key = [count, q(p.clump), p.clumpCount, q(p.curl), p.curlFrequency, q(p.noise), p.seed, q(p.length ?? 1), p.volume ?? 0].join();
+    const key = [count, p.clump, p.clumpCount, p.curl, p.curlFrequency, p.noise, p.seed, p.length ?? 1, p.volume ?? 0].join();
     if (key !== shapeKey) {
-      // At most a dozen regrows a second: a frame that comes sooner leaves it to a later one.
-      const now = performance.now();
-      if (now - lastBuild < 80) {
-        if (!retry) retry = window.setTimeout(() => ((retry = 0), viewer?.invalidate()), 90);
-      } else {
-        lastBuild = now;
-        shapeKey = key;
-        viewer.setStrands(groom.build(p, count));
-      }
+      shapeKey = key;
+      viewer.setStrands(groom.build(p, count));
     }
     const colors = groom.colorize(p);
     if (colors) {
@@ -64,7 +62,7 @@ export async function mountGroom3D(canvas: HTMLCanvasElement, opts: Groom3DOptio
       viewer.setScalp(groom.scalp(p, opts.skin));
     }
     // The guides change with the seed and with the points per strand (Curl's on and frequency).
-    const gk = p.showGuides ? `${p.seed}:${p.curl > 0}:${p.curlFrequency}:${p.volume ?? 0}` : '';
+    const gk = p.showGuides ? `${p.seed}:${p.curl > 0}:${p.curlFrequency}:${p.volume ?? 0}:${p.length ?? 1}` : '';
     if (gk !== guidesKey) {
       guidesKey = gk;
       viewer.setGuides(p.showGuides ? groom.guides() : null);
@@ -75,16 +73,21 @@ export async function mountGroom3D(canvas: HTMLCanvasElement, opts: Groom3DOptio
       opts.onStats?.(stats);
     }
   };
-  viewer = createStrandViewer(canvas, { ...opts, onFrame: sync });
-  if (!viewer) return null;
-  // The head and the hair over it, a little above center.
-  const [center, radius] = opts.framing ?? [[0, 0.1, 0], 1.45];
-  viewer.setFraming(center, radius);
-  sync(0);
-  const dispose = viewer.dispose;
-  viewer.dispose = () => {
-    clearTimeout(retry);
-    dispose();
+  sync();
+
+  return {
+    update(p) {
+      if (p === params) return;
+      params = p;
+      // A slider fires faster than frames: grow once a frame, with the latest params.
+      if (!raf) raf = requestAnimationFrame(sync);
+    },
+    setActive: viewer.setActive,
+    resize: viewer.resize,
+    invalidate: viewer.invalidate,
+    dispose() {
+      cancelAnimationFrame(raf);
+      viewer.dispose();
+    },
   };
-  return viewer;
 }

@@ -177,7 +177,9 @@ void main() {
 export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOptions): StrandViewer | null {
   let renderer: WebGLRenderer;
   try {
-    renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'low-power' });
+    // MSAA only where pixels are big enough to need it: at 2x and up the lines are fine as they are.
+    const antialias = (window.devicePixelRatio || 1) < 2;
+    renderer = new WebGLRenderer({ canvas, antialias, alpha: true, powerPreference: 'low-power' });
   } catch {
     return null;
   }
@@ -186,6 +188,7 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
 
   const still = opts.still;
   const spin = still ? 0 : (opts.spin ?? 0.22);
+  const sway = still ? 0 : (opts.sway ?? 0.6);
   const fov = 28;
   const camera = new PerspectiveCamera(fov, 1, 0.05, 100);
   const scene = new Scene();
@@ -271,6 +274,8 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
   let active = false;
   let raf = 0;
   let inFrame = false;
+  /** Whether frames are coming one after another (else the next one starts from rest). */
+  let running = false;
   let growStart = -1;
   let growLength = 0;
   const start = performance.now();
@@ -455,9 +460,10 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
       if (on) {
         last = performance.now();
         viewer.invalidate();
-      } else if (raf) {
+      } else {
         cancelAnimationFrame(raf);
         raf = 0;
+        running = false;
       }
     },
 
@@ -473,7 +479,10 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
     },
 
     invalidate() {
-      if (!raf && active && !inFrame) raf = requestAnimationFrame(tick);
+      if (raf || !active || inFrame) return;
+      // The first frame after standing still steps nothing (no jump from the time it stood).
+      if (!running) last = -1;
+      raf = requestAnimationFrame(tick);
     },
 
     dispose() {
@@ -527,9 +536,12 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
   const view = new Vector3();
   function tick(now: number) {
     raf = 0;
-    if (!active) return;
+    if (!active) {
+      running = false;
+      return;
+    }
     inFrame = true;
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const dt = last < 0 ? 0 : Math.min(0.05, (now - last) / 1000);
     last = now;
     const t = (now - start) / 1000;
     opts.onFrame?.(t);
@@ -546,7 +558,7 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
     camera.updateMatrixWorld();
     const u = hairMaterial.uniforms;
     u.uTime.value = t;
-    u.uSway.value = still ? 0 : (opts.sway ?? 0.6);
+    u.uSway.value = sway;
     u.uKey.value.copy(view.copy(keyDir).transformDirection(camera.matrixWorldInverse));
     u.uFill.value.copy(view.copy(fillDir).transformDirection(camera.matrixWorldInverse));
     u.uRim.value.copy(view.copy(rimDir).transformDirection(camera.matrixWorldInverse));
@@ -564,8 +576,10 @@ export function createStrandViewer(canvas: HTMLCanvasElement, opts: ViewerOption
       renderer.clearDepth();
       renderer.render(overlay, camera);
     }
-    const moving = !still || dragging || yawVelocity !== 0 || growing;
-    if (moving && active && !document.hidden) raf = requestAnimationFrame(tick);
+    // Only what moves keeps the frames coming: a turntable, sway, a drag and its glide, the grow.
+    const moving = spin > 0 || sway > 0 || dragging || yawVelocity !== 0 || growing;
+    running = moving && active && !document.hidden;
+    if (running) raf = requestAnimationFrame(tick);
   }
 
   // Drag to orbit. Touch turns it sideways only (touch-action: pan-y leaves vertical swipes to

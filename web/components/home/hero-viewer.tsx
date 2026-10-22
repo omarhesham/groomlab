@@ -7,9 +7,9 @@ import type { StrandParams } from './strand-engine';
 import { StrandViewport } from './strand-viewport';
 
 /*
- * The hero's head of curls: big, in 3D, standing on the page with no frame. A glass chip at the top
- * right reads two of its params as they breathe (Curl's radius and Interpolate's length) and the
- * strands it draws; under it on the right, a hint that a drag turns it.
+ * The hero's head of curls: big, in 3D, standing on the page with no frame, grown once. A glass chip
+ * at the top right reads two of its params (Curl's radius and Interpolate's length) and the strands
+ * it draws; under it on the right, a hint that a drag turns it.
  */
 
 const params: StrandParams = {
@@ -26,24 +26,8 @@ const params: StrandParams = {
   volume: 0.85,
 };
 
-/** The two params the chip reads, at time t (seconds): a slow breath, out of step with each other. */
-function breathe(t: number) {
-  return {
-    curl: 0.42 + 0.1 * Math.sin(t * 0.32),
-    length: 1.8 + 0.1 * Math.sin(t * 0.21 + 1.3),
-  };
-}
-
 export function HeroViewer() {
-  const curlRef = useRef<HTMLSpanElement>(null);
-  const lengthRef = useRef<HTMLSpanElement>(null);
   const countRef = useRef<HTMLSpanElement>(null);
-  const live = useCallback((t: number) => {
-    const b = breathe(t);
-    if (curlRef.current) curlRef.current.textContent = b.curl.toFixed(2);
-    if (lengthRef.current) lengthRef.current.textContent = b.length.toFixed(1);
-    return b;
-  }, []);
   const onStats = useCallback((s: GroomStats) => {
     if (countRef.current) countRef.current.textContent = `${s.strands.toLocaleString('en-US')} strands`;
   }, []);
@@ -52,18 +36,16 @@ export function HeroViewer() {
     <div className="relative h-[min(104vw,460px)] sm:h-[clamp(460px,52vw,560px)] lg:h-[clamp(520px,44vw,640px)]">
       <StrandViewport
         params={params}
-        live={live}
         strandScale={12}
-        spin={0.16}
         pitch={0.14}
         fill={1}
         yaw={2.45}
         skin={[0.17, 0.16, 0.16]}
         framing={[[0, 0.2, 0], 2.3]}
         onStats={onStats}
-        label="A head of brown curls in 3D, turning slowly; drag to turn it"
+        label="A head of brown curls in 3D; drag to turn it"
       />
-      {/* The params, live. */}
+      {/* The params it was grown with. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute top-3 right-[var(--gutter)] rounded-xl border border-white/[0.12] bg-[#16181d]/60 px-4 py-3 text-[13px] leading-[1.7] text-gl-ink-2 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] backdrop-blur-md sm:top-6 sm:right-0"
@@ -74,13 +56,13 @@ export function HeroViewer() {
             <span>
               Curl <span className="text-gl-ink-3">·</span>
             </span>
-            <span ref={curlRef} className="text-gl-ink tabular-nums">
+            <span className="text-gl-ink tabular-nums">
               {params.curl.toFixed(2)}
             </span>
             <span>
               Length <span className="text-gl-ink-3">·</span>
             </span>
-            <span ref={lengthRef} className="text-gl-ink tabular-nums">
+            <span className="text-gl-ink tabular-nums">
               {(params.length ?? 1).toFixed(1)}
             </span>
           </span>

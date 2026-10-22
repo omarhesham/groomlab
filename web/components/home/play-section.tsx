@@ -272,7 +272,6 @@ function AppPanel() {
             params={params}
             onStats={setStats}
             strandScale={12}
-            spin={0.1}
             pitch={0.1}
             yaw={1.05}
             fill={1}
