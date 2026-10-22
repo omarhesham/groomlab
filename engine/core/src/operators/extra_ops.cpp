@@ -10,6 +10,13 @@
 #include <memory>
 #include <mutex>
 
+#if defined(_M_X64) || defined(__SSE2__)
+#define GROOMLAB_SMOOTH_SSE2 1
+#include <emmintrin.h>
+#else
+#define GROOMLAB_SMOOTH_SSE2 0  // (WebAssembly: the scalar loop, the same bits)
+#endif
+
 #include "groomlab/curve.h"
 #include "groomlab/field.h"
 #include "groomlab/graph.h"
@@ -220,23 +227,67 @@ std::size_t smoothCells(float scale) {
 // the whole period, so every segment points along the strand's mean direction, the line from the
 // root to the tip. Directions are summed in `cells` cells of the length (their increments, the
 // polyline sampled at even arc lengths), so the filters run the same on any resampling.
-void smoothShape(const Vec3f* pts, std::size_t n, float scale, std::size_t cells, std::vector<Vec3f>& smoothed) {
+//
+// The filters' window ends fall at the same places in every strand's cells (they depend on the
+// scale and the cell count alone): SmoothFilter finds them once for a whole evaluation.
+struct SmoothFilter {
+    // Where a window end falls in the period: whole periods before it, its cell and how far into it.
+    struct End {
+        double turns = 0.0;
+        std::size_t cell = 0;
+        double into = 0.0;
+    };
+    std::size_t cells = 0;
+    double width = 0.0;  // the boxes' width, in cells
+    std::vector<End> lower, upper;  // each cell's window, its ends
+
+    SmoothFilter(float scale, std::size_t cellCount) : cells(cellCount) {
+        const std::size_t wrap = 2 * cells;
+        width = std::min(2.0 * static_cast<double>(scale) * static_cast<double>(cells), static_cast<double>(wrap));
+        auto end = [&](double x) {
+            End e;
+            e.turns = std::floor(x / static_cast<double>(wrap));
+            const double r = x - e.turns * static_cast<double>(wrap);
+            e.cell = std::min(static_cast<std::size_t>(r), wrap - 1);
+            e.into = r - static_cast<double>(e.cell);
+            return e;
+        };
+        lower.resize(wrap);
+        upper.resize(wrap);
+        for (std::size_t k = 0; k < wrap; ++k) {
+            const double center = static_cast<double>(k) + 0.5;
+            upper[k] = end(center + 0.5 * width);
+            lower[k] = end(center - 0.5 * width);
+        }
+    }
+};
+
+void smoothShape(const Vec3f* pts, std::size_t n, const SmoothFilter& filter, std::vector<Vec3f>& smoothed) {
     struct D3 {
         double x = 0.0, y = 0.0, z = 0.0;
         D3 operator+(const D3& o) const { return {x + o.x, y + o.y, z + o.z}; }
         D3 operator-(const D3& o) const { return {x - o.x, y - o.y, z - o.z}; }
         D3 operator*(double k) const { return {x * k, y * k, z * k}; }
     };
-    thread_local std::vector<double> arc;
-    thread_local std::vector<D3> period, boxed, sums;
+    // Scratch, reused across strands, read and written through plain pointers (the compiler
+    // reloads a vector's storage after every store it cannot tell apart from it).
+    thread_local std::vector<double> arcs;
+    thread_local std::vector<D3> periods, boxes, sumsOf;
     smoothed.assign(pts, pts + n);
-    arc.resize(n);
+    arcs.resize(n);
+    double* const arc = arcs.data();
     arc[0] = 0.0;
     for (std::size_t i = 1; i < n; ++i) arc[i] = arc[i - 1] + static_cast<double>((pts[i] - pts[i - 1]).length());
     const double length = arc[n - 1];
     if (!(length > 0.0)) return;
-    const std::size_t m = cells, wrap = 2 * cells;
+    const std::size_t m = filter.cells, wrap = 2 * m;
     const double cell = length / static_cast<double>(m);
+    periods.resize(wrap);
+    boxes.resize(wrap);
+    sumsOf.resize(wrap + 1);
+    D3* period = periods.data();
+    D3* boxed = boxes.data();
+    D3* const sums = sumsOf.data();
     // The polyline at arc length a (a in [0, length]); `seg` walks forward with a.
     std::size_t seg = 1;
     auto pointAt = [&](double a) {
@@ -248,44 +299,59 @@ void smoothShape(const Vec3f* pts, std::size_t n, float scale, std::size_t cells
         return D3{p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, p.z + (q.z - p.z) * t};
     };
     // Each cell's increment, then the same reflected: a period of 2m cells.
-    period.resize(wrap);
     D3 previous = pointAt(0.0);
     for (std::size_t k = 0; k < m; ++k) {
         const D3 next = k + 1 == m ? D3{pts[n - 1].x, pts[n - 1].y, pts[n - 1].z} : pointAt(cell * static_cast<double>(k + 1));
-        period[k] = next - previous;
-        period[wrap - 1 - k] = period[k];
+        const D3 step = next - previous;
+        period[k] = step;
+        period[wrap - 1 - k] = step;
         previous = next;
     }
     // Three box filters `width` cells wide over the period, each from its running sums: the
-    // integral up to x (in cells, any real number) of the cells as steps.
-    const double width = std::min(2.0 * static_cast<double>(scale) * static_cast<double>(m), static_cast<double>(wrap));
-    sums.resize(wrap + 1);
-    auto integral = [&](double x) {
-        const double turns = std::floor(x / static_cast<double>(wrap));
-        const double r = x - turns * static_cast<double>(wrap);
-        const std::size_t j = std::min(static_cast<std::size_t>(r), wrap - 1);
-        return sums[wrap] * turns + sums[j] + period[j] * (r - static_cast<double>(j));
-    };
+    // integral up to a window's end (in cells, any real number) of the cells as steps.
+    const double width = filter.width;
+    const SmoothFilter::End* const upperEnds = filter.upper.data();
+    const SmoothFilter::End* const lowerEnds = filter.lower.data();
     if (width > 0.0) {
         for (int pass = 0; pass < 3; ++pass) {
             sums[0] = D3{};
-            for (std::size_t k = 0; k < wrap; ++k) sums[k + 1] = sums[k] + period[k];
-            boxed.resize(wrap);
+            D3 running;  // (in a register: each sum waits on the one before)
+            for (std::size_t k = 0; k < wrap; ++k) sums[k + 1] = running = running + period[k];
+            const D3 total = running;  // sums[wrap]
+#if GROOMLAB_SMOOTH_SSE2
+            // x and y side by side in SSE2 lanes, z alone: each value by the same operations in the
+            // same order as the scalar loop's, so the same bits.
+            const __m128d totalXY = _mm_loadu_pd(&total.x), inverseXY = _mm_set1_pd(1.0 / width);
             for (std::size_t k = 0; k < wrap; ++k) {
-                const double center = static_cast<double>(k) + 0.5;
-                boxed[k] = (integral(center + 0.5 * width) - integral(center - 0.5 * width)) * (1.0 / width);
+                const SmoothFilter::End& hi = upperEnds[k];
+                const SmoothFilter::End& lo = lowerEnds[k];
+                const D3 &sumHi = sums[hi.cell], &stepHi = period[hi.cell], &sumLo = sums[lo.cell], &stepLo = period[lo.cell];
+                const __m128d upper = _mm_add_pd(_mm_add_pd(_mm_mul_pd(totalXY, _mm_set1_pd(hi.turns)), _mm_loadu_pd(&sumHi.x)),
+                                                 _mm_mul_pd(_mm_loadu_pd(&stepHi.x), _mm_set1_pd(hi.into)));
+                const __m128d lower = _mm_add_pd(_mm_add_pd(_mm_mul_pd(totalXY, _mm_set1_pd(lo.turns)), _mm_loadu_pd(&sumLo.x)),
+                                                 _mm_mul_pd(_mm_loadu_pd(&stepLo.x), _mm_set1_pd(lo.into)));
+                const double z = ((total.z * hi.turns + sumHi.z + stepHi.z * hi.into) - (total.z * lo.turns + sumLo.z + stepLo.z * lo.into)) *
+                                 (1.0 / width);
+                _mm_storeu_pd(&boxed[k].x, _mm_mul_pd(_mm_sub_pd(upper, lower), inverseXY));
+                boxed[k].z = z;
             }
-            period.swap(boxed);
+#else
+            auto integral = [&](const SmoothFilter::End& e) { return total * e.turns + sums[e.cell] + period[e.cell] * e.into; };
+            for (std::size_t k = 0; k < wrap; ++k) boxed[k] = (integral(upperEnds[k]) - integral(lowerEnds[k])) * (1.0 / width);
+#endif
+            std::swap(period, boxed);
         }
     }
     // Each segment along the smoothed increments over its arc, its own length kept.
     sums[0] = D3{};
-    for (std::size_t k = 0; k < m; ++k) sums[k + 1] = sums[k] + period[k];
+    D3 running;
+    for (std::size_t k = 0; k < m; ++k) sums[k + 1] = running = running + period[k];
     auto upTo = [&](double a) {  // the smoothed increments summed up to arc length a
         const double x = std::clamp(a / cell, 0.0, static_cast<double>(m));
         const std::size_t j = std::min(static_cast<std::size_t>(x), m - 1);
         return sums[j] + period[j] * (x - static_cast<double>(j));
     };
+    Vec3f* const out = smoothed.data();
     D3 behind = upTo(0.0);
     for (std::size_t i = 1; i < n; ++i) {
         const D3 ahead = upTo(arc[i]);
@@ -296,7 +362,7 @@ void smoothShape(const Vec3f* pts, std::size_t n, float scale, std::size_t cells
         const Vec3f old = pts[i] - pts[i - 1];
         // A segment whose smoothed directions cancel (a loop straightened) keeps its own.
         const Vec3f unit = way.length() > 1e-6f * segment ? way.normalized() : segment > 0.0f ? old / segment : Vec3f{};
-        smoothed[i] = smoothed[i - 1] + unit * segment;
+        out[i] = out[i - 1] + unit * segment;
     }
 }
 
@@ -348,7 +414,7 @@ private:
             *result = in;
             return true;
         }
-        const std::size_t cells = smoothCells(scale);
+        const SmoothFilter filter(scale, smoothCells(scale));
 
         const StrandChanges* changes = nullptr;
         StrandsPtr last;  // the last result, to make again only the strands the input changed in
@@ -379,7 +445,7 @@ private:
             thread_local std::vector<Vec3f> target;
             lengths.resize(n);
             for (std::size_t i = 1; i < n; ++i) lengths[i] = (pts[i] - pts[i - 1]).length();
-            smoothShape(pts, n, scale, cells, target);
+            smoothShape(pts, n, filter, target);
             for (std::size_t i = 1; i < n; ++i) {
                 const float w = k * std::clamp(along(i, n), 0.0f, 1.0f);
                 pts[i] = pts[i] + (target[i] - pts[i]) * w;
