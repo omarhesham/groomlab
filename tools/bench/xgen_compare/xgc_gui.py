@@ -433,17 +433,26 @@ def compare_images(a, b):
             "mean_step": steps / float(total), "images": [a, b]}
 
 
-def orbit():
+def orbit(sys_):
     frames = 60
     redraw()
+    lod = lambda: (((getattr(sys_, "draw_times", lambda: None)() or {}).get("draw") or {}).get("lod") or {})
+    before = lod()
     t = C.wall()
     for _ in range(frames):
-        cmds.orbit("persp", rotationAngles=(0, 6))
+        cmds.orbit("persp", rotationAngles=(0, 6), pivotPoint=C.ORBIT_PIVOT)
         redraw()
     s = C.wall() - t
+    after = lod()
     C.set_camera()
     redraw()
-    return {"frames": frames, "seconds": s, "fps": frames / s}
+    out = {"frames": frames, "seconds": s, "fps": frames / s}
+    if after:
+        # GroomLab's screen-space level of detail over the orbit: its index rebuilds, its last update.
+        out["lod"] = {"rebuilds": after.get("rebuilds", 0) - before.get("rebuilds", 0), "level": after.get("level"),
+                      "ms": after.get("ms"), "selectMs": after.get("selectMs"), "indicesMs": after.get("indicesMs"),
+                      "drawnStrands": after.get("drawnStrands"), "totalStrands": after.get("totalStrands")}
+    return out
 
 
 def idle_pause():
@@ -609,7 +618,7 @@ def run():
             RESULT["brush"]["gpu_stats"] = json.loads(cmds.groomLabGpuPreview(sys_.shape, stats=True) or "{}")
         elif ARGS["phase"] == "static":
             RESULT["tweak"] = tweaks(sys_)
-            RESULT["orbit"] = orbit()
+            RESULT["orbit"] = orbit(sys_)
             RESULT["brush"] = brush_dab(sys_)
         else:
             RESULT["playback"] = playback(sys_)

@@ -112,6 +112,13 @@ def set_camera():
     cmds.setAttr("perspShape.focalLength", 35.0)
     cmds.setAttr("perspShape.nearClipPlane", 0.1)
     cmds.setAttr("perspShape.farClipPlane", 10000.0)
+    # Its center of interest on the head (the view axis passes 2 cm from the head's center), as
+    # framing the head sets it: the point the tumble tool, and the orbit here, turn about.
+    cmds.setAttr("perspShape.centerOfInterest", ORBIT_DISTANCE)
+
+
+ORBIT_DISTANCE = 65.76  # cm: from the camera to the head's center along the view axis
+ORBIT_PIVOT = (0.0, 22.0 - ORBIT_DISTANCE * math.sin(math.radians(18.0)), 62.0 - ORBIT_DISTANCE * math.cos(math.radians(18.0)))
 
 
 def surface_normal_samples(head, spacing):
@@ -249,6 +256,14 @@ def groomlab_graph(density, length, curl=True):
         ],
         "output": "output",
     }
+    # XGC_GROOMLAB_PARAMS="interpolate.keepClearance=false,curl.tolerance=0.1": node params for an
+    # experiment (which feature costs what); unset in a real run.
+    for item in filter(None, os.environ.get("XGC_GROOMLAB_PARAMS", "").split(",")):
+        key, value = item.split("=")
+        node, param = key.split(".")
+        for n in graph["nodes"]:
+            if n["name"] == node:
+                n.setdefault("params", {})[param] = json.loads(value)
     if not curl:
         graph["nodes"] = [n for n in graph["nodes"] if n["name"] != "curl"]
         graph["connections"] = [c for c in graph["connections"] if "curl" not in (c["from"], c["to"])]
@@ -292,6 +307,11 @@ class GroomLabGroom(object):
             self.guide_count = len(ids or [])
         cmds.setAttr(self.shape + ".previewDensity", 1.0)
         cmds.setAttr(self.shape + ".displayGuides", False)  # XGen draws no guides either
+        # XGC_GROOMLAB_ATTRS="displayClumpLod=0,displaySelfShadowing=0": the shape's attributes for an
+        # experiment (which display setting costs what); unset in a real run.
+        for item in filter(None, os.environ.get("XGC_GROOMLAB_ATTRS", "").split(",")):
+            attr, value = item.split("=")
+            cmds.setAttr(self.shape + "." + attr, float(value))
         gl.set_graph(self.shape, groomlab_graph(count / area, HAIR_LENGTH, self.curl))
         if self.follow:
             gl.set_follow_scalp(self.shape, True)
