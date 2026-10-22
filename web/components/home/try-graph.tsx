@@ -2,6 +2,7 @@
 'use client';
 import { Eye, EyeOff, RotateCcw, Shuffle } from 'lucide-react';
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import type { GroomStats } from './groom-3d';
 import { cn } from '@/lib/cn';
 import { category, port, type Category, type PortType } from './graph-theme';
 import { defaultParams, type StrandParams } from './strand-engine';
@@ -49,6 +50,9 @@ const initial: State = {
 
 export function TryGraph() {
   const [s, setS] = useState<State>(initial);
+  // What the viewport really draws: the 3D groom grows more strands than the density reads.
+  const [stats, setStats] = useState<GroomStats | null>(null);
+  const strands = (stats?.strands ?? s.density).toLocaleString('en-US');
   const set = <K extends keyof State>(k: K) => (v: State[K]) => setS((prev) => ({ ...prev, [k]: v }));
 
   const params = useMemo<StrandParams>(
@@ -78,7 +82,7 @@ export function TryGraph() {
             </span>
             <span className="flex items-center gap-1">
               <span className="mr-2 tabular-nums" aria-live="polite">
-                {s.density} strands
+                {strands} strands
               </span>
               <IconButton label="New random roots" onClick={() => set('seed')(s.seed + 1)}>
                 <Shuffle className="size-3.5" strokeWidth={2.2} />
@@ -88,10 +92,11 @@ export function TryGraph() {
               </IconButton>
             </span>
           </div>
-          <div className="h-[min(42svh,320px)] bg-[#fafafb] lg:h-auto lg:aspect-[7/6]">
+          <div className="h-[min(46svh,360px)] bg-[#fafafb] lg:h-auto lg:aspect-[7/6]">
             <StrandViewport
               params={params}
-              label="The groom the graph makes, redrawn as the nodes change"
+              onStats={setStats}
+              label="The groom the graph makes in 3D, grown again as the nodes change; drag to turn it"
             />
           </div>
         </div>
@@ -114,7 +119,7 @@ export function TryGraph() {
             </IconButton>
           }
         >
-          <Static label="guides" value="9" />
+          <Static label="guides" value={String(stats?.guides ?? 9)} />
         </Node>
         <Node cat="Look" name="Clump" out="strands" on={s.clumpOn} onToggle={set('clumpOn')}>
           <ValueSlider cat="Look" label="strength" value={s.strength} min={0} max={1} step={0.01} onChange={set('strength')} />
@@ -132,7 +137,7 @@ export function TryGraph() {
           <ValueSlider cat="Color" label="redness" value={s.redness} min={0} max={1} step={0.01} onChange={set('redness')} />
         </Node>
         <Node cat="Output" name="Output" last>
-          <Static label="to the viewport" value={`${s.density} strands`} />
+          <Static label="to the viewport" value={`${strands} strands`} />
         </Node>
       </ol>
     </div>

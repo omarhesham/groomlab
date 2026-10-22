@@ -9,7 +9,7 @@ import { HeroGraph } from './hero-graph';
 
 const delay = (s: number) => ({ '--d': `${s}s` }) as CSSProperties;
 
-/** The opening: the promise in words, and a live node graph growing a groom beneath it. */
+/** The opening: the promise in words, the groom in 3D beneath it, and the graph that grows it. */
 export function Hero() {
   return (
     <section id="hero" aria-labelledby="hero-title" className="relative pt-12 pb-20 sm:pt-16 sm:pb-24">
@@ -46,23 +46,12 @@ export function Hero() {
         </p>
       </div>
 
-      {/* The graph sits on its own patch of canvas, framed like a Graph Editor panel. */}
-      <div className="rise wrap-wide mt-12 sm:mt-14" style={delay(0.3)}>
-        <div className="relative">
-          <div className="flex items-center justify-between px-3 pt-1 pb-2 font-mono text-[11px] text-gl-ink-3 sm:px-4 sm:text-[12px]">
-            <span>
-              <span className="text-gl-ink-2">head.groom</span> / graph
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span aria-hidden="true" className="live-dot size-1.5 rounded-full bg-gl-emerald" />
-              live
-            </span>
-          </div>
-          <HeroGraph />
-        </div>
+      {/* The groom, big and in 3D, and under it the graph that grows it. */}
+      <div className="rise wrap-wide mt-9 sm:mt-11" style={delay(0.3)}>
+        <HeroGraph />
         <p className="sr-only">
-          A node graph: Scalp and Guides feed Scatter and Interpolate, then Clump, Curl and HairColor shape and color
-          the strands, and the Output node shows the groom growing.
+          A head of hair in 3D, turning slowly. Below it a node graph: Scalp and Guides feed Scatter and Interpolate,
+          then Clump, Curl and HairColor shape and color the strands, and the last wire runs into the viewport.
         </p>
       </div>
     </section>

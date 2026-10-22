@@ -103,8 +103,8 @@ function mix(a: number[], b: number[], t: number) {
 }
 const hex = (c: number[]) => `rgb(${c.map((v) => Math.round(Math.max(0, Math.min(255, v)))).join(',')})`;
 
-/** Four shades of a melanin/redness hair color (melaninRandom-ish), root to tip. */
-function hairShades({ melanin, redness }: HairColor): [string, string][] {
+/** Four shades of a melanin/redness hair color (melaninRandom-ish), each [root, tip] as 0-255 sRGB. */
+export function hairShadeRGB({ melanin, redness }: HairColor): [number[], number[]][] {
   const blonde = [226, 196, 140];
   const brown = [86, 52, 30];
   const black = [24, 20, 20];
@@ -113,8 +113,12 @@ function hairShades({ melanin, redness }: HairColor): [string, string][] {
     const m = Math.min(1, melanin * k);
     let c = m < 0.6 ? mix(blonde, brown, m / 0.6) : mix(brown, black, (m - 0.6) / 0.4);
     c = mix(c, ginger, redness * (1 - m * 0.7) * 0.85);
-    return [hex(mix(c, [0, 0, 0], 0.25)), hex(mix(c, [255, 255, 255], 0.12))];
+    return [mix(c, [0, 0, 0], 0.25), mix(c, [255, 255, 255], 0.12)];
   });
+}
+
+function hairShades(color: HairColor): [string, string][] {
+  return hairShadeRGB(color).map(([root, tip]) => [hex(root), hex(tip)]);
 }
 
 export interface Frame {
