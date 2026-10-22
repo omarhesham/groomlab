@@ -443,6 +443,7 @@ CenterPlan planClumpCenters(const StrandSet& in, const ScalpMesh* scalp, std::si
         std::uint32_t candidate;
     };
     std::vector<Dart> darts;
+    std::shared_ptr<const PointIndex> rooted;  // the candidates' roots (on the scalp)
     if (onScalp) {
         // On the scalp: points on its rest surface, kDartsPerClump per spacing squared, each face's
         // from its own area and hash (at most kMostDarts on the scalp: clumps finer than that are
@@ -463,7 +464,8 @@ CenterPlan planClumpCenters(const StrandSet& in, const ScalpMesh* scalp, std::si
             }
             first[f + 1] = first[f] + k;
         }
-        const PointIndex nearest(positions);
+        rooted = std::make_shared<const PointIndex>(positions);
+        const PointIndex& nearest = *rooted;
         darts.resize(first[faces]);
         parallelFor(0, faces, [&](std::size_t f) {
             const std::uint64_t faceHash = hashCombine(seedHash, f);
@@ -560,14 +562,20 @@ CenterPlan planClumpCenters(const StrandSet& in, const ScalpMesh* scalp, std::si
             plan.way[c] = Vec3f{across * pm::cos(angle), across * pm::sin(angle), z} * (radius * reach);
         }
     });
-    // The strands a moved center may land on: the candidates centerWeight lets through.
-    std::vector<Vec3f> allowedAt;
-    for (std::size_t i = 0; i < n; ++i) {
-        if (!letThrough(i)) continue;
-        plan.allowed.push_back(candidateStrands[i]);
-        allowedAt.push_back(positions[i]);
+    // The strands a moved center may land on: the candidates centerWeight lets through (all of
+    // them without a weight: the darts' index over their roots again).
+    if (!weighted && rooted) {
+        plan.allowed = candidateStrands;
+        plan.index = rooted;
+    } else {
+        std::vector<Vec3f> allowedAt;
+        for (std::size_t i = 0; i < n; ++i) {
+            if (!letThrough(i)) continue;
+            plan.allowed.push_back(candidateStrands[i]);
+            allowedAt.push_back(positions[i]);
+        }
+        plan.index = std::make_shared<const PointIndex>(std::move(allowedAt));
     }
-    plan.index = std::make_shared<const PointIndex>(std::move(allowedAt));
     plan.byRoots = onScalp && weight.isConstant() && weight.maximum() >= 1.0f;
     return plan;
 }
