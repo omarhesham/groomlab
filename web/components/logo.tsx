@@ -29,6 +29,10 @@ export function LogoMark({ className, mono = false }: { className?: string; mono
   );
 }
 
+/**
+ * The mark beside the wordmark: "GroomLab" in the site's Google Sans Flex, bold and tracking-tight.
+ * tools/web/make_press_kit.py outlines this exact setting for the press kit; rerun it after a change.
+ */
 export function Logo({ className, mono = false }: { className?: string; mono?: boolean }) {
   return (
     <span className={cn('group inline-flex items-center gap-2 font-bold tracking-tight', className)}>

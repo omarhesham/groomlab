@@ -60,7 +60,7 @@ const pieces: Piece[] = [
   {
     id: 'wordmark',
     title: 'Wordmark',
-    what: 'The name alone, set in Inter Bold as on this site. The white version is the one for dark backgrounds.',
+    what: 'The name alone, set in Google Sans Flex Bold as on this site. The white version is the one for dark backgrounds.',
     size: 'h-9 sm:h-10',
     assets: [
       { version: 'color', label: 'Ink', on: ['light'] },

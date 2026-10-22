@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
+import { Google_Sans_Flex } from 'next/font/google';
 import { Provider } from '@/components/provider';
 import { siteConfig } from '@/site.config';
 import './global.css';
 
-// The optical-size axis gives big headlines Inter's tighter Display cut.
-const inter = Inter({
+// Google Sans Flex (SIL Open Font License), self-hosted by next/font. Only the optical-size axis
+// beside weight: big headlines get the tighter display cut, body text the text cut.
+const sans = Google_Sans_Flex({
   subsets: ['latin'],
-  variable: '--font-inter',
+  variable: '--font-site',
   axes: ['opsz'],
+  // Next has no fallback metrics for this family; the system stack in global.css covers the swap.
+  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {
@@ -34,7 +37,7 @@ export const viewport: Viewport = {
 
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en" className={sans.variable} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col font-sans antialiased">
         <Provider>{children}</Provider>
       </body>
