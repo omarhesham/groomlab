@@ -26,6 +26,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
 
+# Where the results JSON names local folders it says these instead (results are committed).
+_PLACES = [(p, name) for p, name in ((REPO, "<repo>"), (os.environ.get("TEMP", ""), "%TEMP%"),
+                                     (os.environ.get("USERPROFILE", ""), "%USERPROFILE%")) if p]
+
+
+def scrub(value):
+    """`value` (a results JSON's) with the repository, TEMP and home folders as placeholders."""
+    if isinstance(value, dict):
+        return {k: scrub(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [scrub(v) for v in value]
+    if isinstance(value, str):
+        for path, name in _PLACES:
+            value = re.sub(re.escape(path), lambda _m: name, value, flags=re.I)
+    return value
+
+
 def log(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
@@ -153,6 +170,8 @@ def main():
                     "OpenGLCoreProfileStrict, ... (default: what fresh prefs give, OpenGL Core Profile)")
     ap.add_argument("--phases", default="static,anim", help="static, anim or both")
     a = ap.parse_args()
+    # Absolute: Maya's Python finds a module's DLLs (tbb.dll beside groomlab_core) only from an absolute path.
+    a.build = os.path.abspath(a.build)
 
     plugin = os.path.join(a.build, "hosts", "maya", "RelWithDebInfo", "GroomLab.mll")
     extensions = os.path.join(a.build, "hosts", "maya", "extensions", "RelWithDebInfo")
@@ -191,7 +210,7 @@ def main():
 
     def save():
         with open(result_path, "w") as f:
-            json.dump(results, f, indent=1)
+            json.dump(scrub(results), f, indent=1)
 
     def job(kind, system, count, phase, run):
         name = "%s_%s_%s_%d_r%d" % (kind, system, phase, count, run)
@@ -426,7 +445,7 @@ if __name__ == "__main__":
             r = json.load(f)
         r["summary"] = summarize(r)
         with open(sys.argv[2], "w") as f:
-            json.dump(r, f, indent=1)
+            json.dump(scrub(r), f, indent=1)
         with open(os.path.splitext(sys.argv[2])[0] + ".md", "w") as f:
             f.write(markdown(r))
     else:
