@@ -138,6 +138,29 @@
             "cacheVariables": { "GROOMLAB_BUILD_MAYA": "OFF", "GROOMLAB_BUILD_PYTHON": "OFF" }
         },
         {
+            "name": "wasm",
+            "displayName": "WebAssembly: the core in the browser (Emscripten, single-threaded; docs/WEB.md)",
+            "description": "Run from a shell where emsdk_env has set EMSDK, with ninja on PATH. Writes groomlab.js and groomlab.wasm to web/public/wasm",
+            "inherits": "base",
+            "generator": "Ninja",
+            "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "GROOMLAB_BUILD_WEB": "ON",
+                "GROOMLAB_USE_TBB": "OFF",
+                "GROOMLAB_BUILD_TESTS": "OFF",
+                "GROOMLAB_BUILD_PYTHON": "OFF",
+                "GROOMLAB_BUILD_CLI": "OFF",
+                "GROOMLAB_BUILD_CAPI": "OFF",
+                "GROOMLAB_BUILD_BLENDER_HELPER": "OFF",
+                "GROOMLAB_BUILD_ALEMBIC": "OFF",
+                "GROOMLAB_BUILD_MAYA": "OFF",
+                "GROOMLAB_BUILD_ARNOLD": "OFF",
+                "GROOMLAB_BUILD_PROCEDURAL": "OFF",
+                "GROOMLAB_BUILD_RENDERMAN": "OFF"
+            }
+        },
+        {
             "name": "linux",
             "hidden": true,
             "inherits": "base",
@@ -277,6 +300,7 @@
         { "name": "ninja-maya2026", "configurePreset": "ninja-maya2026", "configuration": "RelWithDebInfo" },
         { "name": "ninja-maya2027", "configurePreset": "ninja-maya2027", "configuration": "RelWithDebInfo" },
         { "name": "ninja-core", "configurePreset": "ninja-core", "configuration": "RelWithDebInfo" },
+        { "name": "wasm", "configurePreset": "wasm", "targets": [ "groomlab_web" ] },
         { "name": "linux-maya2022", "configurePreset": "linux-maya2022" },
         { "name": "linux-core", "configurePreset": "linux-core" },
         { "name": "linux-coverage", "configurePreset": "linux-coverage" },

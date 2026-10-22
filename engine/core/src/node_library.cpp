@@ -176,7 +176,8 @@ std::string folderSignature(const std::vector<std::string>& dirs) {
             if (it->path().extension() != ".glnode") continue;
             std::error_code e2;
             out += it->path().generic_u8string() + ":" + std::to_string(it->file_size(e2)) + ":" +
-                   std::to_string(it->last_write_time(e2).time_since_epoch().count()) + ";";
+                   // (A long long: Emscripten's libc++ counts file times in __int128.)
+                   std::to_string(static_cast<long long>(it->last_write_time(e2).time_since_epoch().count())) + ";";
         }
     }
     return out;

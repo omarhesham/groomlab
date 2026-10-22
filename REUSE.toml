@@ -77,6 +77,23 @@ precedence = "override"
 SPDX-FileCopyrightText = ["Autodesk, Inc.", "Pixar", "Chaos Software"]
 SPDX-License-Identifier = "LicenseRef-Trademark"
 
+# The groom viewer's sample groom (engine/web/tools/make_sample.mjs): the Manny head inside it is
+# CC BY 4.0 ("Manny head by Nick Rutlinh (GroomLab), CC BY 4.0"), and so the file is.
+[[annotations]]
+path = ["web/public/samples/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Nick Rutlinh"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# The groom viewer's engine, built by Emscripten (engine/web, docs/WEB.md): GroomLab's core with
+# nlohmann/json (MIT), stb_image (MIT) and Emscripten's runtime (MIT; its libc++ is Apache-2.0
+# WITH LLVM-exception) compiled in.
+[[annotations]]
+path = ["web/public/wasm/groomlab.js", "web/public/wasm/groomlab.wasm"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 Nick Rutlinh", "Emscripten authors", "Niels Lohmann", "Sean Barrett"]
+SPDX-License-Identifier = "Apache-2.0 AND MIT"
+
 # The GroomLab name and logo in the press kit: trademarks, not under the software's licenses.
 [[annotations]]
 path = ["web/public/press/**"]
