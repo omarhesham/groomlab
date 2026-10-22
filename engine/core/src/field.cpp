@@ -73,7 +73,9 @@ ScalarField::ScalarField(const ParamSet& params, const std::string& name, const 
     if (!map) return;  // the number (constant_)
     hasMap_ = true;
     map_ = *map;
-    if (map_.source != MapRef::Source::Expression) cage_ = CageBinding(scalp_);
+    // Every source, expressions too: atCageRoot carries a root on the cage onto a refined scalp
+    // before the expression reads it there.
+    cage_ = CageBinding(scalp_);
 
     const std::string where = "param '" + name + "': ";
     switch (map_.source) {

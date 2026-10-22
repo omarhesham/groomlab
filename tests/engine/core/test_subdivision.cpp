@@ -358,6 +358,39 @@ TEST(Subdivision, SessionRootsOnTheRefinedSurface) {
     }
 }
 
+// A density expression masking the upper half (y > 0), at randomness 1 (random spots) and 0 (even
+// spots, relaxed apart): on the cage and on the refined scalp, every root where the density is
+// above 0 (none pushed out past the mask's edge), and as many strands at each level.
+TEST(Subdivision, ADensityExpressionMasksTheRootsAtEveryLevelAndRandomness) {
+    const auto head = quadSphere(12, 16);
+    for (const char* randomness : {"1", "0"}) {
+        std::size_t counts[2] = {0, 0};
+        for (const int levels : {0, 2}) {
+            SCOPED_TRACE(std::string("randomness ") + randomness + ", subdivision " + std::to_string(levels));
+            std::string graph = graphWith(levels == 0 ? "off" : "2");
+            const std::string scatter = R"({"density": 2.0})";
+            graph.replace(graph.find(scatter), scatter.size(),
+                          std::string(R"({"density": {"expression": "y > 0 ? 1 : 0", "min": 0, "max": 2}, "randomness": )") +
+                              randomness + "}");
+            GroomData data;
+            data.graphJson = graph;
+            data.scalp = head;
+            data.hierarchyJson = guidesOn(*head);
+            GroomSession session(data);
+            const ViewResult& view = session.evaluate(ViewRequest{});
+            ASSERT_TRUE(view.strands) << (view.errors.empty() ? "" : view.errors.front());
+            ASSERT_GT(view.strands->strandCount(), 50u);
+            counts[levels == 0 ? 0 : 1] = view.strands->strandCount();
+            for (std::size_t s = 0; s < view.strands->strandCount(); ++s) {
+                EXPECT_GT(view.scalp->position(view.strands->roots()[s]).y, -1e-4f) << "strand " << s;
+            }
+        }
+        // The same roots, carried onto the refined surface (the mask read there, so only those along
+        // its edge can differ): about as many.
+        EXPECT_NEAR(static_cast<double>(counts[1]), static_cast<double>(counts[0]), 0.08 * static_cast<double>(counts[0]));
+    }
+}
+
 TEST(Subdivision, BindingStableWhileTheScalpDeforms) {
     const auto head = quadSphere(12, 16);
     auto rested = std::make_shared<ScalpMesh>(*head);

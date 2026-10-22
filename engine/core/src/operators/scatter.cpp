@@ -171,8 +171,11 @@ struct OpenEdges {
 // neighbors still feeling it) once neither it nor any neighbor moved more than kRelaxSettled of a
 // spacing in a step. So an edit of the scalp moves roots only within the reach the iterations
 // carry it (kRelaxIterations x kRelaxReach spacings at most), never how long the rest relax.
-template <typename Spacing>
-void relaxRoots(std::vector<StrandRoot>& roots, const ScalpMesh& rest, float edgeStep, Spacing spacing) {
+// `allowed(root)`: where a root may sit (density above 0, near the guides with guideRadius). A
+// root pushed outside stays where it last was: the edge of a density map holds roots like a wall,
+// instead of the roots along it, pushed only from inside, drifting out into the zero area.
+template <typename Spacing, typename Allowed>
+void relaxRoots(std::vector<StrandRoot>& roots, const ScalpMesh& rest, float edgeStep, Spacing spacing, Allowed allowed) {
     const std::size_t n = roots.size();
     if (n < 2) return;
     std::vector<Vec3f> pos(n), nrm(n);
@@ -274,6 +277,10 @@ void relaxRoots(std::vector<StrandRoot>& roots, const ScalpMesh& rest, float edg
             if (!(space[i] > 0.0f) || (settledAt[i] >= 0 && settledAt[i] < blockStart)) return;
             const SurfacePoint hit = rest.closestPoint(moved[i], 4.0f * space[i]);
             if (hit.root.face < 0) return;  // off the surface: stays where it last was
+            if (!allowed(hit.root)) {  // outside the density (or the guides' reach): back where it last was
+                pos[i] = rest.position(roots[i]);
+                return;
+            }
             roots[i] = hit.root;
             pos[i] = hit.position;
             nrm[i] = hit.normal;
@@ -700,8 +707,18 @@ public:
                     const float local = densityField.atCageRoot(root);
                     return local > 0.0f ? kHexSpacing / std::sqrt(local) : 0.0f;
                 };
+                // Where an even spot may be: where its random one could be kept.
+                const auto allowed = [&](const StrandRoot& root) {
+                    if (!densityField.isConstant() && !(densityField.atCageRoot(root) > 0.0f)) return false;
+                    return !aroundGuides || nearGuides(surface.restPositionOr(root, surface.position(root)));
+                };
                 placed->even = roots;
-                relaxRoots(placed->even, restOf(), fullSpacing, [&](std::size_t i) { return spacingAt(roots[i]); });
+                relaxRoots(placed->even, restOf(), fullSpacing, [&](std::size_t i) { return spacingAt(roots[i]); }, allowed);
+                // A root that still ended outside (its first step over the edge, between two
+                // checks) takes its random spot, which the density kept.
+                parallelFor(0, roots.size(), [&](std::size_t i) {
+                    if (!allowed(placed->even[i])) placed->even[i] = roots[i];
+                });
                 ++relaxCount;
             }
             placed->ids.reserve(samples.size());

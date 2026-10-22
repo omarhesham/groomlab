@@ -39,9 +39,8 @@ const hairline = (drop = 0) =>
     'smoothstep($y, $line, $line + 1.5)',
   ].join(' ');
 
-// The guides' roots are scattered at random (Scatter's randomness 1): the evenly spread layout
-// (randomness 0) puts roots centimetres past where a density expression falls to 0 (roots on the
-// neck), at the low densities guides are scattered at (2026-10-21).
+// The guides' roots are scattered at random (Scatter's randomness 1): evenly spread guides
+// (randomness 0) stand the crown's curls up into a ball, where random ones let them fall and part.
 
 /** The nodes and connections of a chain: `chain` names in order, strands wired one to the next. */
 function chainGraph(nodes, chain, extra = []) {
