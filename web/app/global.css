@@ -4,10 +4,10 @@
 
 /*
  * GroomLab brand palette (hosts/maya/themes/playful.json): charcoal and primaries.
- * The landing page is paper-white with ink type; the primaries appear as flat
- * color on strands, dots and the playful bits, never as gradients. `gl-night`
- * matches the viewport renders' background so they sit seamlessly on dark
- * sections. The `fd-*` overrides below theme the Fumadocs docs.
+ * The landing page is a light graph canvas: paper-white with ink type, hairline
+ * node cards, and the Graph Editor's category colors on headers, ports and
+ * wires (components/home/graph-theme.ts). `gl-night` matches the viewport
+ * renders' background. The `fd-*` overrides below theme the Fumadocs docs.
  */
 @theme {
   --color-gl-red: #ff4d4f;
@@ -35,39 +35,6 @@
   --ease-rise: cubic-bezier(0.2, 1.2, 0.35, 1);
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 
-  --animate-bob: bob 6s ease-in-out infinite;
-  --animate-bounce-ball: bounce-ball 0.9s var(--ease-out-soft);
-
-  @keyframes bob {
-    0%,
-    100% {
-      transform: translateY(0) rotate(0deg);
-    }
-    50% {
-      transform: translateY(-10px) rotate(-1deg);
-    }
-  }
-
-  @keyframes bounce-ball {
-    0% {
-      transform: translateY(0) scale(1, 1);
-    }
-    15% {
-      transform: translateY(0) scale(1.15, 0.85);
-    }
-    40% {
-      transform: translateY(-40%) scale(0.92, 1.08);
-    }
-    65% {
-      transform: translateY(0) scale(1.1, 0.9);
-    }
-    80% {
-      transform: translateY(-8%) scale(1, 1);
-    }
-    100% {
-      transform: translateY(0) scale(1, 1);
-    }
-  }
 }
 
 /* Docs, light mode: the landing page's paper and ink */
@@ -159,31 +126,32 @@ section[id] {
   margin-inline: auto;
 }
 @utility section-y {
-  padding-block: clamp(6rem, 3.5rem + 7vw, 10rem);
+  padding-block: clamp(4.5rem, 2.75rem + 5vw, 8rem);
 }
 
-/* Display type: heavy and optically sized (Google Sans Flex's display cut is already tightly
+
+/* Display type: semibold and optically sized (Google Sans Flex's display cut is already tightly
    spaced at these sizes, so the tracking only nudges it). One scale. */
 .display {
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: -0.022em;
   line-height: 1.04;
   text-wrap: balance;
 }
 @utility t-hero {
-  font-size: clamp(2.75rem, 1.1rem + 6.6vw, 6rem);
+  font-size: clamp(2.75rem, 1.1rem + 6.2vw, 5.5rem);
   line-height: 1.02;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.028em;
 }
 @utility t-section {
-  font-size: clamp(2.5rem, 1.35rem + 4.3vw, 4.5rem);
+  font-size: clamp(2.25rem, 1.3rem + 3vw, 3.5rem);
 }
 @utility t-feature {
   font-size: clamp(2rem, 1.35rem + 2.4vw, 3.25rem);
   line-height: 1.06;
 }
 @utility t-lede {
-  font-size: clamp(1.125rem, 1.02rem + 0.35vw, 1.3125rem);
+  font-size: clamp(1.0625rem, 1rem + 0.3vw, 1.25rem);
   line-height: 1.5;
   letter-spacing: -0.005em;
   text-wrap: pretty;
@@ -215,13 +183,45 @@ section[id] {
   transition-duration: 0.12s;
 }
 
+/* ------------------------------------------------------------------------
+ * The graph canvas: the Graph Editor's dot grid behind the landing pages.
+ * It is fixed and drifts up a little as the page scrolls (a slow parallax
+ * against the content), where the browser can tie it to scrolling.
+ * --------------------------------------------------------------------- */
+.canvas-grid {
+  position: fixed;
+  inset: 0 0 -240px 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, rgb(29 29 31 / 0.13) 1px, transparent 1.5px);
+  background-size: 24px 24px;
+}
+@keyframes grid-pan {
+  to {
+    translate: 0 -240px;
+  }
+}
+
+/* The hero's second line is underlined with a wire in the mark's colors. */
+.hero-ink {
+  background: linear-gradient(90deg, #ff4d4f, #ffc53d 50%, #2f7bf6) no-repeat 0 94% / 100% 0.07em;
+  padding-bottom: 0.04em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+@media (min-width: 640px) {
+  .hero-ink {
+    display: inline-block;
+  }
+}
+
 /*
  * Node rows (Under the hood): still and wrapped by default, drifting sideways
  * in a seamless loop when motion is welcome. The chips are drawn twice, and
  * one loop moves the row by one copy plus one gap.
  */
 .marquee {
-  --gap: 12px;
+  --gap: 10px;
   gap: var(--gap);
   flex-wrap: wrap;
   justify-content: center;
@@ -233,7 +233,7 @@ section[id] {
 }
 @media (min-width: 640px) {
   .marquee {
-    --gap: 16px;
+    --gap: 14px;
   }
 }
 @keyframes marquee {
@@ -241,62 +241,43 @@ section[id] {
     translate: calc(-50% - var(--gap) / 2) 0;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .marquee-row {
-    overflow-x: clip;
-  }
-  .marquee {
-    flex-wrap: nowrap;
-    width: max-content;
-    padding-inline: 0;
-    animation: marquee var(--marquee-dur, 60s) linear infinite;
-  }
-  .marquee-reverse {
-    animation-direction: reverse;
-  }
-  .marquee-row:hover .marquee {
-    animation-play-state: paused;
-  }
-  .marquee-copy,
-  .marquee-wire {
-    display: block;
-  }
-}
 
-/*
- * StrandFlow scales with the page width (viewBox 1440 wide), so its stroke
- * width, in viewBox units, steps up as the screen narrows: about 3px on screen.
- */
-.flow-strand {
-  stroke-width: 9;
-}
-@media (min-width: 480px) {
-  .flow-strand {
-    stroke-width: 6;
-  }
-}
-@media (min-width: 768px) {
-  .flow-strand {
-    stroke-width: 4.4;
-  }
-}
-@media (min-width: 1100px) {
-  .flow-strand {
-    stroke-width: 3.2;
-  }
-}
-@media (min-width: 1680px) {
-  .flow-strand {
-    stroke-width: 2.6;
-  }
-}
-
-/* Strands are SVG paths with pathLength="1", so drawing one is a dash offset. */
-.strand {
+/* Strands and wires are SVG paths with pathLength="1", so drawing one is a dash offset. */
+.strand,
+.wire-draw {
   stroke-dasharray: 1 2;
   stroke-dashoffset: 0;
   fill: none;
   stroke-linecap: round;
+}
+
+/* Graph pieces: ports swell under the pointer, pulses ride the wires. */
+.graph-port {
+  transition: r 0.35s var(--ease-spring);
+}
+.graph-node:hover .graph-port {
+  r: 6px;
+}
+.wire-pulse {
+  stroke-dasharray: 0.07 0.93;
+  stroke-dashoffset: 1;
+  opacity: 0;
+}
+.tool-port {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  transition: scale 0.4s var(--ease-spring);
+}
+.tool-card:hover .tool-port {
+  scale: 1.45;
+}
+/* The toolkit's scenes sit on their own patch of dot grid. */
+.art-canvas {
+  background-color: #fbfbfc;
+  background-image: radial-gradient(circle at 1px 1px, rgb(29 29 31 / 0.1) 1px, transparent 1.5px);
+  background-size: 16px 16px;
 }
 
 /* ------------------------------------------------------------------------
@@ -309,22 +290,6 @@ section[id] {
   }
   to {
     stroke-dashoffset: 0;
-  }
-}
-@keyframes sway {
-  from {
-    rotate: calc(var(--sway, 2deg) * -1);
-  }
-  to {
-    rotate: var(--sway, 2deg);
-  }
-}
-@keyframes drift {
-  from {
-    translate: 0 -3px;
-  }
-  to {
-    translate: 0 3px;
   }
 }
 @keyframes rise {
@@ -351,30 +316,6 @@ section[id] {
     scale: 1;
   }
 }
-@keyframes pop {
-  0% {
-    scale: 0.4;
-    opacity: 0;
-  }
-  60% {
-    scale: 1.12;
-    opacity: 1;
-  }
-  80% {
-    scale: 0.96;
-  }
-  100% {
-    scale: 1;
-  }
-}
-@keyframes hero-zoom {
-  from {
-    scale: var(--hero-from, 0.92);
-  }
-  to {
-    scale: 1;
-  }
-}
 @keyframes parallax {
   from {
     translate: 0 -4%;
@@ -383,17 +324,205 @@ section[id] {
     translate: 0 4%;
   }
 }
-@keyframes float-up {
-  from {
-    translate: 0 48px;
-  }
-  to {
-    translate: 0 -48px;
-  }
-}
 @keyframes flipbook {
   to {
     translate: -100% 0;
+  }
+}
+/* Nodes snap onto the grid: a short drop with a little overshoot. */
+@keyframes node-in {
+  from {
+    opacity: 0;
+    translate: 0 14px;
+  }
+}
+@keyframes pulse-run {
+  0% {
+    stroke-dashoffset: 1.07;
+    opacity: 1;
+  }
+  70% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  71%,
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+@keyframes vwire-run {
+  from {
+    translate: 0 -8px;
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  to {
+    translate: 0 28px;
+    opacity: 0;
+  }
+}
+@keyframes live {
+  50% {
+    opacity: 0.25;
+  }
+}
+@keyframes underline-in {
+  from {
+    background-size: 0% 0.07em;
+  }
+}
+/* Toolkit scenes. */
+@keyframes art-comb {
+  0%,
+  100% {
+    rotate: 0deg;
+  }
+  9% {
+    rotate: 15deg;
+  }
+  45% {
+    rotate: 5deg;
+  }
+}
+@keyframes art-ring {
+  0% {
+    translate: 0 0;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 1;
+  }
+  70% {
+    translate: 270px 0;
+    opacity: 0;
+  }
+  100% {
+    translate: 270px 0;
+    opacity: 0;
+  }
+}
+@keyframes art-grow {
+  0% {
+    scale: 1 0.3;
+  }
+  14%,
+  80% {
+    scale: 1 1;
+  }
+  100% {
+    scale: 1 0.3;
+  }
+}
+@keyframes art-paint {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 1;
+  }
+  62%,
+  84% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+@keyframes art-brush {
+  0% {
+    translate: 0 0;
+  }
+  31% {
+    translate: 150px -18px;
+  }
+  62%,
+  100% {
+    translate: 300px 0;
+  }
+}
+@keyframes art-draw {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 1;
+  }
+  45%,
+  82% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+@keyframes art-fade {
+  0%,
+  38% {
+    opacity: 1;
+  }
+  50%,
+  88% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes art-swing {
+  from {
+    rotate: calc(var(--swing, 6deg) * -1);
+  }
+  to {
+    rotate: var(--swing, 6deg);
+  }
+}
+@keyframes art-wind {
+  from {
+    stroke-dashoffset: 36;
+    opacity: 0;
+  }
+  30%,
+  70% {
+    opacity: 0.8;
+  }
+  to {
+    stroke-dashoffset: -36;
+    opacity: 0;
+  }
+}
+@keyframes art-sway {
+  from {
+    rotate: -2.5deg;
+  }
+  to {
+    rotate: 2.5deg;
+  }
+}
+@keyframes art-pop {
+  0%,
+  100% {
+    scale: 1;
+  }
+  8% {
+    scale: 1.14;
+  }
+  16% {
+    scale: 1;
+  }
+}
+@keyframes mcp-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
   }
 }
 
@@ -402,23 +531,99 @@ section[id] {
     animation: boing 0.6s var(--ease-out-soft);
   }
 
-  /* On load: the hero rises in, its strands draw themselves, then sway. */
+  /* On load: the hero rises in, its graph's nodes snap in and the wires draw. */
   .rise {
     animation: rise 0.9s var(--ease-rise) both;
     animation-delay: var(--d, 0s);
   }
-  .draw-in {
-    animation: draw 1.5s var(--ease-out-soft) both;
+  .hero-ink {
+    animation: underline-in 1.2s var(--ease-out-soft) 0.6s both;
+  }
+  .live-dot {
+    animation: live 1.6s ease-in-out infinite;
+  }
+  .graph-intro .node-in {
+    animation: node-in 0.7s var(--ease-rise) both;
+    animation-delay: calc(0.35s + var(--d, 0s));
+  }
+  .graph-intro .wire-draw {
+    animation: draw 0.9s var(--ease-out-soft) both;
+    animation-delay: calc(0.5s + var(--d, 0s));
+  }
+  .wire-pulse {
+    animation: pulse-run var(--pulse-dur, 2.8s) linear infinite;
+    animation-delay: calc(1.4s + var(--pulse-delay, 0s));
+  }
+  .vwire-pulse {
+    animation: vwire-run 1.8s linear infinite;
+  }
+  .marquee-row {
+    overflow-x: clip;
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  }
+  .marquee {
+    flex-wrap: nowrap;
+    width: max-content;
+    padding-inline: 0;
+    animation: marquee var(--marquee-dur, 60s) linear infinite;
+  }
+  .marquee-reverse {
+    animation-direction: reverse;
+  }
+  .marquee-row:hover .marquee {
+    animation-play-state: paused;
+  }
+  .marquee-copy,
+  .marquee-wire {
+    display: block;
+  }
+
+  /* Toolkit scenes loop once their card is on screen. */
+  .art-comb {
+    animation: art-comb 3.6s var(--ease-out-soft) infinite;
+  }
+  .art-ring {
+    animation: art-ring 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  .art-grow {
+    animation: art-grow 4.8s var(--ease-out-soft) infinite;
+  }
+  .art-paint {
+    stroke-dasharray: 1 2;
+    animation: art-paint 4.8s linear infinite;
+  }
+  .art-brush {
+    animation: art-brush 4.8s linear infinite;
+  }
+  .art-draw {
+    stroke-dasharray: 1 2;
+    animation: art-draw 4.2s var(--ease-out-soft) infinite;
+  }
+  .art-fade-a {
+    animation: art-fade 5s ease-in-out infinite;
+  }
+  .art-fade-b {
+    animation: art-fade 5s ease-in-out -2.5s infinite;
+  }
+  .art-swing {
+    animation: art-swing 1.9s ease-in-out infinite alternate;
+  }
+  .art-wind {
+    animation: art-wind 2.2s linear infinite;
+  }
+  .art-sway {
+    animation: art-sway 3.4s ease-in-out infinite alternate;
+  }
+  .art-pop {
+    animation: art-pop 3.2s var(--ease-out-soft) infinite;
+  }
+  [data-reveal]:not([data-shown]) .art * {
+    animation-play-state: paused;
+  }
+  /* The agent session types itself out once shown. */
+  [data-reveal][data-shown] .mcp-line {
+    animation: mcp-in 0.5s var(--ease-out-soft) both;
     animation-delay: var(--d, 0s);
-  }
-  .sway {
-    transform-box: view-box;
-    animation: sway var(--sway-dur, 6s) ease-in-out infinite alternate;
-    animation-delay: var(--sway-delay, 0s);
-  }
-  .drift {
-    animation: drift var(--drift-dur, 7s) ease-in-out infinite alternate;
-    animation-delay: var(--drift-delay, 0s);
   }
 
   /*
@@ -446,21 +651,24 @@ section[id] {
     translate: 0 36px;
     scale: 0.985;
   }
-  /* Strands and pops inside a reveal play when it is shown... */
-  [data-reveal] .draw-reveal {
-    transition: stroke-dashoffset var(--dur, 1.6s) var(--ease-out-soft) var(--d, 0.2s);
+  /* Strands and wires inside a reveal draw when it is shown, nodes snap in... */
+  [data-reveal] .draw-reveal,
+  [data-reveal] .wire-draw {
+    transition: stroke-dashoffset var(--dur, 1.2s) var(--ease-out-soft) var(--d, 0.2s);
   }
-  [data-reveal]:not([data-shown]) .draw-reveal {
+  [data-reveal]:not([data-shown]) .draw-reveal,
+  [data-reveal]:not([data-shown]) .wire-draw {
     stroke-dashoffset: 1.02;
   }
-  [data-reveal][data-shown] .pop-reveal {
-    animation: pop 0.7s var(--ease-out-soft) both;
-    animation-delay: var(--d, 0s);
+  [data-reveal][data-shown] .node-in {
+    animation: node-in 0.7s var(--ease-rise) both;
+    animation-delay: calc(0.1s + var(--d, 0s));
   }
-  [data-reveal]:not([data-shown]) .pop-reveal {
+  [data-reveal]:not([data-shown]) .node-in,
+  [data-reveal]:not([data-shown]) .mcp-line {
     opacity: 0;
   }
-  /* Benchmark bars grow from the left when shown. */
+  /* ...and benchmark bars grow from the left. */
   [data-reveal] .bar-grow {
     transform-origin: left center;
     transition: scale 1.1s var(--ease-rise) var(--d, 0s);
@@ -473,28 +681,13 @@ section[id] {
 /* ...and where the browser can tie animations to scrolling, they follow it. */
 @supports (animation-timeline: view()) {
   @media (prefers-reduced-motion: no-preference) {
-    /* Strands draw as their scope (an element with .draw-scope) crosses the view. */
-    .draw-scope {
-      view-timeline: --draw block;
-    }
-    .draw-scroll {
-      transition: none;
-      animation: draw linear both;
-      animation-timeline: --draw;
-      animation-range: var(--draw-range, entry 20% cover 55%);
-    }
-    .hero-zoom {
-      animation: hero-zoom linear both;
+    .canvas-grid {
+      animation: grid-pan linear both;
       animation-timeline: scroll(root);
-      animation-range: 0 75vh;
     }
     .parallax {
       scale: 1.08;
       animation: parallax linear both;
-      animation-timeline: view();
-    }
-    .float-scroll {
-      animation: float-up linear both;
       animation-timeline: view();
     }
     .scroll-hair {
@@ -503,7 +696,7 @@ section[id] {
     }
   }
 }
-/* The page progress strand only exists where it can follow the scroll. */
+/* The header's progress wire only exists where it can follow the scroll. */
 .scroll-hair-wrap {
   display: none;
 }
@@ -525,5 +718,9 @@ section[id] {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  .wire-pulse,
+  .vwire-pulse {
+    display: none;
   }
 }

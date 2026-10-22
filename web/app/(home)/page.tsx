@@ -1,24 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
-import { CtaBand } from '@/components/home/cta-band';
-import { Features } from '@/components/home/features';
+import { EveryApp } from '@/components/home/every-app';
+import { Gallery } from '@/components/home/gallery';
 import { Hero } from '@/components/home/hero';
-import { Hosts } from '@/components/home/hosts';
-import { Performance } from '@/components/home/performance';
-import { Renderers } from '@/components/home/renderers';
+import { Inspector } from '@/components/home/inspector';
+import { OpenSource } from '@/components/home/open-source';
+import { OutputCta } from '@/components/home/output-cta';
+import { PageRail } from '@/components/home/page-rail';
+import { Toolkit } from '@/components/home/toolkit';
+import { TrySection } from '@/components/home/try-section';
 import { UnderTheHood } from '@/components/home/under-the-hood';
 
-// The story: what it is (hero), the promise (one groom, every app), where it renders, what grooming in it is like
-// (features, game cards), the proof (performance), the depth (under the hood), then getting it.
+// The page is one graph. The hero grows a groom live; below it every section is a node on the page
+// wire: try the graph, one groom in every app, the toolkit, the proof (performance), the depth
+// (under the hood), the real thing (screenshots), open source, then the Output: getting it.
 export default function HomePage() {
   return (
     <>
       <Hero />
-      <Hosts />
-      <Renderers />
-      <Features />
-      <Performance />
-      <UnderTheHood />
-      <CtaBand />
+      <div className="relative">
+        <PageRail />
+        <TrySection />
+        <EveryApp />
+        <Toolkit />
+        <Inspector />
+        <UnderTheHood />
+        <Gallery />
+        <OpenSource />
+      </div>
+      <OutputCta />
     </>
   );
 }
