@@ -24,10 +24,19 @@ Game cards as glTF, below).
   Before a bake they are solid in the theme's card color; once baked, with the maps: the baked
   color x AO, cut out by
   the coverage map (an alpha test at 0.5, as masked cards are in engines: hard, depth-correct
-  edges, nothing to sort), so the hair's silhouette shows instead of solid quads. **Show
-  textures** (`displayCardTextures`, on by default; `groomlab.card_display(groom, textures=False)`)
-  turns the maps off to look at the flat card geometry. A rebake shows at once (`cardMaps` on the
-  groom records the maps, and maps rewritten on disk reload by themselves).
+  edges, nothing to sort), so the hair's silhouette shows instead of solid quads. With the
+  viewport's **multisample anti-aliasing** on (Hardware 2.0 settings), the coverage becomes the
+  share of each pixel's samples the card covers instead (alpha to coverage), so the cut-out edges
+  and the thin strands are smoothed as the strands are. Their **shadows** are cut out the same
+  way (whatever Transparent Shadows says). The viewport's **ambient occlusion** leaves the
+  textured cards out: Viewport 2.0 draws the occlusion's depth with a shader of its own, which
+  would darken boxes the shape of the cards' quads; the maps carry the bake's AO (Maya 2022 gives
+  a plug-in's item no way to cut that pass out; for Maya's own transparency handling, make a
+  live card mesh with `groomlab.create_card_mesh(groom)`, which gets a lambert with the maps once
+  baked). **Show textures** (`displayCardTextures`, on by default;
+  `groomlab.card_display(groom, textures=False)`) turns the maps off to look at the flat card
+  geometry. A rebake shows at once (`cardMaps` on the groom records the maps, and maps rewritten
+  on disk reload by themselves).
 - **Out of date:** once a Cards node's cards change after a bake (the strands coming into it,
   or its params), the maps no longer fit them: that node gets an orange badge in the Graph
   Editor and its panel says "Maps out of date: rebake" (`groomlab.card_stats(groom)["stale"]`

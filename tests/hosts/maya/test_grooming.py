@@ -1795,6 +1795,18 @@ class GroomingTest(unittest.TestCase):
         self.assertEqual(cmds.nodeType(material), "lambert")
         self.assertTrue(cmds.listConnections(material + ".transparency"))
         self.assertTrue(cmds.listConnections(material + ".color"))
+        # A live mesh made after the bake gets the maps too (Maya's own transparency, its ambient
+        # occlusion with it: the groom's own textured cards stay out of it).
+        cmds.delete(cards)
+        cards = groomlab.create_card_mesh(self.groom)
+        shape = cmds.listRelatives(cards, shapes=True)[0]
+        material = cmds.listConnections(cmds.listConnections(shape, type="shadingEngine")[0] + ".surfaceShader")[0]
+        coverage = cmds.listConnections(material + ".transparency") or []
+        self.assertTrue(coverage)
+        self.assertTrue(cmds.listConnections(material + ".color"))
+        files = cmds.listHistory(coverage[0]) or []
+        self.assertIn(folder.replace("\\", "/") + "/fur_Coverage.tga",
+                      [cmds.getAttr(f + ".fileTextureName").replace("\\", "/") for f in files if cmds.nodeType(f) == "file"])
 
     def test_baked_cards_keep_their_atlas_cells_when_guides_move(self):
         # Once baked, the cards rebuilt after a brush stroke keep the cells they were baked

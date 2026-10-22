@@ -1998,6 +1998,35 @@ def cards_check(snapshots=None):
     check("baked cards cover about what their strands do on %s (%d pixels against %d)" % (api, cards, strands),
           strands > 2000 and 0.75 * strands < cards < 1.25 * strands)
     check("baked cards show their strands' color on %s (off by %.0f of 255)" % (api, off), off < 25)
+    # With the viewport's multisample anti-aliasing the cards' coverage becomes the samples they cover
+    # (cardDraws: sampled), with Maya's hair graph and GroomLab's hair alike; about as many hair
+    # pixels as cut out.
+    draws = lambda: json.loads(cmds.groomLabGraphStats(groom, drawTimes=True))["draw"]["cardDraws"]
+    groomlab.compare_cards(groom, True)
+    cmds.setAttr("hardwareRenderingGlobals.multiSampleEnable", True)
+    try:
+        smooth_paths = []
+        for shading in (0, 1):
+            cmds.setAttr(groom + ".displayHairShading", shading)
+            cmds.refresh(currentView=True, force=True)  # (the cards rebuilt with the other shader)
+            before = draws()
+            smooth_path, smooth, _ = shot("cards_msaa_%d" % shading)
+            smooth_paths.append(smooth_path)
+            sampled = draws()["sampled"] - before["sampled"]
+            say("cards with multisampling on %s (hair shading %d): %d hair pixels (%s), %d sampled draws"
+                % (api, shading, smooth, smooth_path, sampled))
+            check("cards with multisampling on %s (hair shading %d) draw their coverage as samples (%d draws)"
+                  % (api, shading, sampled), sampled > 0)
+            if shading == 0:
+                check("cards with multisampling on %s cover about what cut out ones do (%d pixels against %d)"
+                      % (api, smooth, cards), 0.75 * cards < smooth < 1.25 * cards)
+        # Hair shading switched in the cards view swaps the cards' shader (GroomLab's hair: another picture).
+        changed = differ(*smooth_paths)
+        check("the cards follow the hair shading on %s (%.3f of the pixels differ)" % (api, changed), changed > 0.01)
+    finally:
+        cmds.setAttr("hardwareRenderingGlobals.multiSampleEnable", False)
+        cmds.setAttr(groom + ".displayHairShading", 0)
+    groomlab.compare_cards(groom, False)
     check("the cards made no errors", not groomlab.errors(groom))
     cmds.file(new=True, force=True)
 

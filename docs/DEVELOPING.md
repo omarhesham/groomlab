@@ -1811,7 +1811,25 @@ and its geometry terms for `groomLabCardShaderGeom`, which reads the card's norm
 bitangent stream: two-sided lighting turns Nw round on a back face, a strand's lines have no
 back) carries Cg, HLSL and GLSL implementations, so it draws on DirectX 11
 and the OpenGL Core Profile alike (the GUI sessions' warning gate fails on a fragment that did not
-register); anything else that must draw everywhere uses stock shaders: the map shown on the scalp draws through `k3dSolidTextureShader` (kind 8)
+register). The textured cards and Viewport 2.0's passes (Maya 2022, found with draw callbacks
+logging each pass and captures of the live view, issue #11): the color pass draws the item's own
+shader; the shadow pass calls the item's callbacks and draws with the item's shader too (an
+effect's single pass, whatever its output: GroomLab's hair's `HairCard` technique takes `cardPass`
+from `cardPassPreDraw` and writes the shadow map's depth there, or a point light's distance over
+`LightRange`; Maya's hair graph keeps its alpha test, and a parameter updated from a shadow pass's
+callback on the graph left the scene without shadows, so `cardCoveragePreDraw` sets the graph's
+`alphaToCoverage`/`alphaTest` in color draws only and puts the alpha test back after each); the
+SSAO normal-depth pass calls nothing of the item's and draws its own `SSAO_NormalDepth` effect
+(on DirectX 11 it skips GroomLab's hair's card effect, on OpenGL and for Maya's graph it draws the
+whole quads), so the textured cards are excluded from the post effects (`setExcludedFromPostEffects`).
+Effect pass annotations (`drawContext = "shadowPass"`, the dx11Shader/glslShader plug-ins'
+convention) are not honored for an `MShaderInstance`: every pass draws, in order. With the
+viewport's multisampling the card effect writes a coverage mask (`cardMask`: a ramp a pixel wide
+across the cutoff, the coverage below a texel, `lineSampleMask`'s run turned by a hash of the
+pixel's place on the card); Maya's graph, whose fragments cannot write the mask, gets an alpha to
+coverage blend state and `groomLabCardCoverage` after its last fragment sets the alpha.
+`groomLabGraphStats -drawTimes` counts the cards' color draws (`cardDraws`: `sampled`,
+`tested`). Anything else that must draw everywhere uses stock shaders: the map shown on the scalp draws through `k3dSolidTextureShader` (kind 8)
 and the flat strand lines with width as coverage off through `k3dSolidShader` and `k3dCPVSolidShader`
 (kinds 0 and 1). Render item kinds in `ItemBuffers::shaderKind`: 0 solid,
 1 per-vertex colors, 2 lit hair (`groomLabHairTubeSurface`: Maya's hair tube graph as it is),
