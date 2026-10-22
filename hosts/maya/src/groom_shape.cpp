@@ -188,7 +188,7 @@ MObject GroomShape::aDisplayClumpLod;
 MObject GroomShape::aClumpLodError;
 MObject GroomShape::aSculptDisplay;
 MObject GroomShape::aSculptDensity;
-MObject GroomShape::aDisplayLevel;
+MObject GroomShape::aIsolateGroup;
 MObject GroomShape::aGuideColorMode;
 MObject GroomShape::aGuideColorLayer;
 MObject GroomShape::aRibbonWidthScale;
@@ -891,10 +891,10 @@ MStatus GroomShape::initialize() {
     nAttr.setMin(0.01);
     nAttr.setMax(1.0);
     nAttr.setStorable(true);
-    aDisplayLevel = nAttr.create("displayLevel", "gldl", MFnNumericData::kInt, -1, &status);
+    // A guide group at full color with its child groups, the others dimmed ("": none; Isolate).
+    aIsolateGroup = tAttr.create("isolateGroup", "glisg", MFnData::kString, stringData.create(""), &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
-    nAttr.setMin(-1);
-    nAttr.setStorable(true);
+    tAttr.setStorable(true);
     // Each guide group's own color (theirs, else an automatic one per group), or the painted layer
     // guideColorLayer from black to white.
     aGuideColorMode = eAttr.create("guideColorMode", "glgcm", 0, &status);
@@ -1082,7 +1082,7 @@ MStatus GroomShape::initialize() {
     tAttr.setHidden(true);
 
     for (MObject* attr : {&aInMesh, &aRestMesh, &aFollowScalp, &aScalpTopology, &aScaleSource, &aScaleReference, &aScaleTransformReference, &aGroomScale, &aScaleArea, &aScaleTransform, &aColliderMeshes, &aExtraScalps, &aRenderDensity, &aRenderWidthScale, &aRenderLengthScale, &aRenderView, &aSimGuides, &aGuideCache, &aGuideCacheObject, &aSimCaches, &aTransferMarkers, &aGuideCurves, &aTime, &aGraph, &aGuideData, &aPartData, &aGraphUi, &aViewNode, &aLocked, &aDisplayInstances, &aGuideSelection, &aSoftSelectRadius, &aStrandColorMode, &aStrandColorSource, &aStrandColorMin, &aStrandColorMax, &aDisplayRibbons, &aRibbonWidthScale, &aDisplayWidthCoverage, &aDisplayCoverageDensity, &aDisplayClumpLod, &aClumpLodError, &aDisplayLighting, &aDisplayShadows, &aDisplayHairShading, &aDisplaySelfShadowing, &aDisplayStrandVariation, &aGuideWidth, &aCorrectiveData, &aCorrectiveWeight, &aSculptData, &aSculptNode, &aFlowData, &aDisplayFlow, &aShotSculpt, &aShotLayer, &aLodDistance, &aLodNear, &aLodFar, &aLodMinDensity,
-                          &aLodWidthCompensation, &aCameraCull, &aCullMargin, &aBackfaceCull, &aBackfaceAngle, &aDisplayColor, &aUseMaterialColor, &aSculptDisplay, &aSculptDensity, &aDisplayLevel, &aGuideColorMode, &aGuideColorLayer, &aGuidePoints, &aGuideSmoothing, &aGuideDisplaySegments, &aHiddenGuideGroups, &aGuideGroupColors, &aRenderMode, &aGroomFile, &aPreviewDensity, &aPreviewPointBudget, &aDisplayGuides, &aDisplayHair,
+                          &aLodWidthCompensation, &aCameraCull, &aCullMargin, &aBackfaceCull, &aBackfaceAngle, &aDisplayColor, &aUseMaterialColor, &aSculptDisplay, &aSculptDensity, &aIsolateGroup, &aGuideColorMode, &aGuideColorLayer, &aGuidePoints, &aGuideSmoothing, &aGuideDisplaySegments, &aHiddenGuideGroups, &aGuideGroupColors, &aRenderMode, &aGroomFile, &aPreviewDensity, &aPreviewPointBudget, &aDisplayGuides, &aDisplayHair,
                           &aDisplayTubes, &aBrushTick, &aCardDensity, &aOutCards, &aOutRachis, &aOutStrandMesh, &aDisplayCards, &aDisplayStrandMesh, &aDisplayCardTextures, &aDisplayOverlaysOnTop, &aCardMaps, &aScalpMaps, &aScalpMapDisplay, &aScalpMapChannel, &aOutStrandCount, &aLastError, &aOutFrame}) {
         CHECK_MSTATUS_AND_RETURN_IT(addAttribute(*attr));
     }
@@ -2012,7 +2012,7 @@ MStatus GroomShape::setDependentsDirty(const MPlug& plug, MPlugArray& affected) 
     const bool display =
         plug == aGuideSelection || plug == aSoftSelectRadius || plug == aStrandColorMode ||
         plug == aStrandColorSource || plug == aStrandColorMin || plug == aStrandColorMax || plug == aDisplayRibbons ||
-        plug == aRibbonWidthScale || plug == aDisplayWidthCoverage || plug == aDisplayCoverageDensity || plug == aDisplayClumpLod || plug == aClumpLodError || plug == aSculptDisplay || plug == aDisplayLevel || plug == aGuideColorMode ||
+        plug == aRibbonWidthScale || plug == aDisplayWidthCoverage || plug == aDisplayCoverageDensity || plug == aDisplayClumpLod || plug == aClumpLodError || plug == aSculptDisplay || plug == aIsolateGroup || plug == aGuideColorMode ||
         plug == aGuideColorLayer || plug == aDisplayInstances || plug == aDisplayLighting || plug == aDisplayShadows || plug == aDisplayHairShading || plug == aDisplaySelfShadowing || plug == aDisplayStrandVariation ||
         plug == aGuideWidth || plug == aGuidePoints || plug == aGuideSmoothing || plug == aGuideDisplaySegments || plug == aHiddenGuideGroups || plug == aGuideGroupColors ||
         plug == aDisplayFlow || plug == aDisplayColor ||

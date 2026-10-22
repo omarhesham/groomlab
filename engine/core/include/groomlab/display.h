@@ -366,7 +366,7 @@ struct DisplaySettings {
     // The groom's name: the automatic guide colors start from its hue (guideHueSeed).
     std::string guideColorSeed;
     std::string guideColorLayer;
-    int displayLevel = -1;   // >= 0: that level isolated, the others dimmed
+    std::string isolateGroup;  // a guide group's name: it and its child groups at full color, the others dimmed
     int guidePoints = 2;     // dots: 0 off, 1 roots and tips, 2 all
     int guideSmoothing = 4;  // pieces per segment (1 straight)
     int guideDisplaySegments = 6;  // dots evenly along the drawn guide (0: on its points)

@@ -2692,7 +2692,7 @@ DisplaySettings displaySettingsOf(ToolState& t, const json& v) {
             }
         } else if (key == "guideColorLayer") s.guideColorLayer = settingString(x, k);
         else if (key == "guideColorSeed") s.guideColorSeed = t.colorSeed = settingString(x, k);  // the groom's name
-        else if (key == "displayLevel") s.displayLevel = settingInt(x, k);
+        else if (key == "isolateGroup") s.isolateGroup = settingString(x, k);
         else if (key == "guidePoints") {
             if (x.is_string()) {
                 const std::string m = x.get<std::string>();

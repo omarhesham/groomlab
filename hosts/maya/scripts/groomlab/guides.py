@@ -307,9 +307,9 @@ def set_sculpt_display(groom, mode="dimStrands", density=0.35):
     cmds.setAttr(groom + ".sculptDensity", density)
 
 
-def isolate_level(groom, level=None):
-    """Show one guide level at full color and dim the rest; None shows all."""
-    cmds.setAttr(groom + ".displayLevel", -1 if level is None else int(level))
+def isolate_group(groom, group=None):
+    """Show one guide group (with its child groups) at full color and dim the rest; None shows all."""
+    cmds.setAttr(groom + ".isolateGroup", group or "", type="string")
 
 
 def color_guides_by_map(groom, name=None):

@@ -454,7 +454,7 @@ class GroomLabTools(bpy.types.PropertyGroup):
     group_index: IntProperty(update=_group_index_changed)
     groups: CollectionProperty(type=GroomLabGroupItem)
     isolate: BoolProperty(name="Isolate", default=False, update=_display,
-                          description="Show the group's level at full color and dim the others")
+                          description="Show the group (and its child groups) at full color and dim the others")
     guide_count: IntProperty()
     selected_count: IntProperty()
     frozen_count: IntProperty()

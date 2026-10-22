@@ -1794,7 +1794,7 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     key = hashCombine(key, static_cast<std::uint64_t>(smoothing + 32 * dotSegments));
     key = hashChars(key, s.hiddenGuideGroups);
     key = hashChars(key, s.guideGroupColors);
-    key = hashCombine(key, static_cast<std::uint64_t>(s.displayLevel + 1));
+    key = hashChars(key, s.isolateGroup);
     key = hashChars(key, s.guideColorLayer);
     key = hashChars(key, s.guideColorSeed);
     if (in.clumpCenters) {
@@ -1841,6 +1841,17 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
     }
     if (hierarchy && (s.guides || s.tubes)) {
         const bool attributes = hierarchy->hasAttributes();
+        // Isolate: the group and its child groups at full color, the rest dimmed (none dimmed when
+        // the groom has no such group).
+        const GroupId isolated = s.isolateGroup.empty() ? kNoGroup : hierarchy->findGroup(s.isolateGroup);
+        const auto inIsolated = [&](GroupId id) {
+            for (int steps = 0; id != kNoGroup && steps < 64; ++steps) {
+                if (id == isolated) return true;
+                const GuideGroup* grp = hierarchy->group(id);
+                id = grp ? grp->parent : kNoGroup;
+            }
+            return false;
+        };
         for (const HierarchyGuide& g : hierarchy->guides()) {
             const int level = hierarchy->groupDepth(g.group);
             if (level < 0 || level >= kMaxDrawnGuideLevels || hiddenGuide(g)) continue;
@@ -1866,7 +1877,7 @@ void DisplayBuilder::buildGuides(const DisplayInputs& in, const DisplaySettings&
             } else if (byLayer) {
                 c = {0.08f, 0.08f, 0.08f};
             }
-            const bool dimmed = s.displayLevel >= 0 && level != s.displayLevel;
+            const bool dimmed = isolated != kNoGroup && !inIsolated(g.group);
             if (dimmed) c = {c[0] * 0.25f, c[1] * 0.25f, c[2] * 0.25f};
             const std::size_t first = guides.positions.size() / 3;
             const std::size_t drawn = appendGuideCurve(guides, g.points, smoothing);

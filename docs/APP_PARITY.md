@@ -163,7 +163,7 @@ labels, search words and number decimals come from the core (`node_catalog.h`, t
 | Gestures: middle-drag radius, Shift+middle strength, Shift+click a guide solos it (its level), Ctrl reverse, Shift smooth | the viewport | present |
 | Hover highlight of the guides to be touched | the viewport | present |
 | Brush level (Page Up / Down) | hotkeys | present *new* |
-| Isolate a level | the palette | missing |
+| Isolate a group | the palette | present |
 | Groom picker / pin, show or hide the groom | the palette | Maya only: one groom per app window |
 | The starter card, status line | the palette | present by design (toasts and the stats line) |
 | Theme menu | the palette | present (View > Theme; see the graph section) |

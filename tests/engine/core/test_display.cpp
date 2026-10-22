@@ -223,7 +223,7 @@ std::vector<Scenario> scenarios() {
     add("strokeHidden", [](Scenario& s) { s.stroke = true, s.settings.sculptDisplay = 2, s.settings.tubes = true; });
     add("roots", [](Scenario& s) { s.roots = true; });
     add("guideLevels", [](Scenario& s) {
-        s.settings.displayLevel = 1, s.settings.tubes = true, s.settings.guidePoints = 1;
+        s.settings.isolateGroup = "children", s.settings.tubes = true, s.settings.guidePoints = 1;
     });
     add("guideLayer", [](Scenario& s) {
         s.settings.guideColorMode = 1, s.settings.guideColorLayer = "len", s.settings.guideSmoothing = 1;
@@ -1190,6 +1190,53 @@ TEST(Display, EveryGuideGroupHasItsOwnColor) {
     for (const auto& [id, c] : before) EXPECT_EQ(after.at(id), c) << id;
     // The seed turns every hue: two grooms' first groups differ.
     EXPECT_GE(hueApart(autoGuideColors(h, guideHueSeed("groom1")).at(primary), autoGuideColors(h, guideHueSeed("groom2")).at(primary)), 0.1f);
+}
+
+// Isolate dimmed every level but one, so a groom of several top-level groups (all level 0) dimmed
+// nothing. It isolates a group now: the group and its child groups at full color, the rest dimmed.
+TEST(Display, IsolateKeepsAGroupAndItsChildGroups) {
+    auto h = std::make_shared<GuideHierarchy>();
+    const GroupId bangs = h->addGroup("bangs");
+    const GroupId nape = h->addGroup("nape");
+    for (int i = 0; i < 3; ++i) {
+        const Vec3f at{0.3f * static_cast<float>(i), 1.0f, 0.0f}, up{0.0f, 0.5f, 0.0f};
+        h->addGuide(bangs, test::straightCurve(at, up));
+        h->addGuide(nape, test::straightCurve(at + Vec3f{0.0f, 0.0f, 0.4f}, up));
+    }
+    ChildGenerationParams params;
+    params.count = 2;
+    h->generateChildren(bangs, "fringe", params);  // a child group of bangs
+    DisplayInputs in;
+    in.hierarchy = h;
+    in.hierarchyVersion = 1;
+    // Vertices drawn at full color and dimmed (the automatic colors are bright, a dimmed one a quarter).
+    auto shares = [&](const std::string& isolate) {
+        DisplaySettings s;
+        s.guideSmoothing = 1;
+        s.guideDisplaySegments = 0;
+        s.isolateGroup = isolate;
+        DisplayBuilder builder;
+        const std::vector<float>& colors = builder.update(in, s).item(DisplayItemId::Guides).geometry->colors;
+        std::pair<std::size_t, std::size_t> out{0, 0};
+        for (std::size_t i = 0; i + 3 < colors.size(); i += 4) {
+            (std::max({colors[i], colors[i + 1], colors[i + 2]}) > 0.5f ? out.first : out.second) += 1;
+        }
+        return out;
+    };
+    const auto all = shares("");
+    ASSERT_GT(all.first, 0u);
+    EXPECT_EQ(all.second, 0u);
+    const auto withChildren = shares("bangs"), sibling = shares("nape"), child = shares("fringe");
+    // bangs (with fringe) and nape, two top-level groups: each dims the other, together every guide.
+    EXPECT_GT(withChildren.second, 0u);
+    EXPECT_GT(sibling.second, 0u);
+    EXPECT_EQ(withChildren.first + sibling.first, all.first);
+    EXPECT_EQ(withChildren.first, sibling.second);
+    // A child group alone: bangs' own guides dim too.
+    EXPECT_GT(child.first, 0u);
+    EXPECT_LT(child.first, withChildren.first);
+    EXPECT_EQ(child.first + child.second, all.first);
+    EXPECT_EQ(shares("nothing"), all);  // no such group: none dimmed
 }
 
 // Guide Color Mode: 1 a painted layer (black to white); anything else each group's color.

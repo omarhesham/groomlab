@@ -134,8 +134,8 @@ def settings_for(scalp, scene):
     if t.tool == "shape":
         s["tubeWires"] = True  # while the Shape brush is on: every tube it can shape as a wire (Maya's)
     if t.isolate:
-        level, _group = tools.group_target(scene)
-        s["displayLevel"] = level if level >= 0 else -1
+        _level, group = tools.group_target(scene)
+        s["isolateGroup"] = group or ""
     return s
 
 

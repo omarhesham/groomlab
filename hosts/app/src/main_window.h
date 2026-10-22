@@ -52,6 +52,7 @@ class QListWidget;
 class QMenu;
 class QProcessEnvironment;
 class QShowEvent;
+class QLineEdit;
 class QSpinBox;
 class QTemporaryDir;
 class QTimer;
@@ -758,7 +759,7 @@ private:
     QCheckBox* instances_ = nullptr;
     QSpinBox* guideSmoothing_ = nullptr;
     QSpinBox* guideDisplaySegments_ = nullptr;
-    QSpinBox* displayLevel_ = nullptr;
+    QLineEdit* isolateGroup_ = nullptr;
     QComboBox* guideColorMode_ = nullptr;
     QComboBox* sculptDisplay_ = nullptr;
     ValueSlider* sculptDensity_ = nullptr;

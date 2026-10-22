@@ -95,7 +95,7 @@ void bindDisplay(py::module_& m) {
         .def_readwrite("guide_width", &DisplaySettings::guideWidth)
         .def_readwrite("guide_color_mode", &DisplaySettings::guideColorMode, "1 by the painted layer guide_color_layer; else (0) by group.")
         .def_readwrite("guide_color_layer", &DisplaySettings::guideColorLayer)
-        .def_readwrite("display_level", &DisplaySettings::displayLevel)
+        .def_readwrite("isolate_group", &DisplaySettings::isolateGroup)
         .def_readwrite("guide_points", &DisplaySettings::guidePoints, "0 off, 1 roots and tips, 2 all.")
         .def_readwrite("guide_smoothing", &DisplaySettings::guideSmoothing)
         .def_readwrite("guide_display_segments", &DisplaySettings::guideDisplaySegments)

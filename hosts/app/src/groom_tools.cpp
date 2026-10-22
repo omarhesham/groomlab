@@ -331,7 +331,7 @@ GroomTools::GroomTools(QWidget* parent) : QWidget(parent) {
     row->addWidget(group_, 1);
     isolate_ = new QCheckBox(tr("Isolate"), targetRow_);
     isolate_->setObjectName(QStringLiteral("isolate"));
-    isolate_->setToolTip(tr("Show the group's level at full color and dim the others"));
+    isolate_->setToolTip(tr("Show the group (and its child groups) at full color and dim the others"));
     connect(isolate_, &QCheckBox::toggled, this, [this](bool) {
         if (!updating_) emit isolateChanged();
     });
@@ -829,10 +829,10 @@ void GroomTools::setTool(const std::string& id) {
     refreshCard();
 }
 
-int GroomTools::isolatedLevel() const {
-    if (!isolate_->isChecked()) return -1;
+std::string GroomTools::isolatedGroup() const {
+    if (!isolate_->isChecked()) return {};
     const QVariantList entry = group_->currentData().toList();
-    return entry.size() == 2 ? entry[0].toInt() : -1;
+    return entry.size() == 2 ? entry[1].toString().toStdString() : std::string();
 }
 
 void GroomTools::refreshTiles() {

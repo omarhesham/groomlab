@@ -869,7 +869,7 @@ class ToolPalette(QtWidgets.QWidget):
         self.level.currentIndexChanged.connect(self.target_changed)
         row.addWidget(self.level, 1)
         self.isolate = QtWidgets.QCheckBox("Isolate")
-        self.isolate.setToolTip("Show the group's level at full color and dim the others")
+        self.isolate.setToolTip("Show the group (and its child groups) at full color and dim the others")
         self.isolate.toggled.connect(lambda _: self.apply_isolation())
         row.addWidget(self.isolate)
         outer.addWidget(self.target_row)
@@ -1673,8 +1673,7 @@ class ToolPalette(QtWidgets.QWidget):
     def apply_isolation(self):
         groom = self.groom()
         if groom:
-            level = self.level.currentData()
-            groomlab.isolate_level(groom, level if self.isolate.isChecked() and level is not None and level >= 0 else None)
+            groomlab.isolate_group(groom, self.current_group() if self.isolate.isChecked() else None)
 
     def apply_sculpt_display(self, index):
         groom = self.groom()

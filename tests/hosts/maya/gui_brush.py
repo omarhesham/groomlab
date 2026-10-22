@@ -401,21 +401,21 @@ def step_redo():
     cmds.delete("notTheGroom")
     cmds.select(cmds.listRelatives(groom, parent=True)[0])
 
-    # Display: isolate a level, color by layer, frozen guides, sculpt display (drawn without errors).
-    groomlab.isolate_level(groom, 0)
+    # Display: isolate a group, color by layer, frozen guides, sculpt display (drawn without errors).
+    groomlab.isolate_group(groom, "primary")
     groomlab.add_map(groom, "fur", 0.5)
     groomlab.color_guides_by_map(groom, "fur")
     groomlab.set_sculpt_display(groom, "guidesOnly", 0.2)
     groomlab.freeze_guides(groom, guides=cmds.groomLabGuides(groom, listGuides="primary")[:2])
     cmds.refresh(force=True)
-    check("display options draw", cmds.getAttr(groom + ".displayLevel") == 0)
+    check("display options draw", cmds.getAttr(groom + ".isolateGroup") == "primary")
     frozen = cmds.groomLabGuides(groom, listGuides="primary")[0]
     before = cmds.groomLabGuides(groom, guidePoints=frozen)
     groomlab.brush_tool("comb", radius=2000, level=0)
     cmds.groomLabBrushCtx(ctx, edit=True, debugStroke=" ".join("%d %d" % (gx + 15 * k, gy) for k in range(12)))
     check("frozen guides are left alone", cmds.groomLabGuides(groom, guidePoints=frozen) == before)
     groomlab.unfreeze_all(groom)
-    groomlab.isolate_level(groom, None)
+    groomlab.isolate_group(groom, None)
     groomlab.color_guides_by_map(groom, None)
 
     # Scalp maps: the Paint brush on a vertex map and on a texture map, painted where the cursor

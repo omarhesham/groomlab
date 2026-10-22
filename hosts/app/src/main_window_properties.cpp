@@ -19,6 +19,7 @@
 #include <QLocale>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QLineEdit>
 #include <QSpinBox>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -330,9 +331,9 @@ void MainWindow::buildProperties() {
     p->setControl("guideSmoothing", guideSmoothing_);
     guideDisplaySegments_ = spin(0, 64, settings_.guideDisplaySegments);
     p->setControl("guideDisplaySegments", guideDisplaySegments_);
-    displayLevel_ = spin(-1, 32, settings_.displayLevel);
-    displayLevel_->setSpecialValueText(tr("All levels"));
-    p->setControl("displayLevel", displayLevel_);
+    isolateGroup_ = new QLineEdit(QString::fromStdString(settings_.isolateGroup));
+    isolateGroup_->setPlaceholderText(tr("None"));
+    p->setControl("isolateGroup", isolateGroup_);
     guideColorMode_ = combo({tr("Group"), tr("Painted Layer")});
     guideColorMode_->setCurrentIndex(settings_.guideColorMode == 1 ? 1 : 0);
     p->setControl("guideColorMode", guideColorMode_);
@@ -459,7 +460,10 @@ void MainWindow::buildProperties() {
     };
     number(guideSmoothing_, &DisplaySettings::guideSmoothing);
     number(guideDisplaySegments_, &DisplaySettings::guideDisplaySegments);
-    number(displayLevel_, &DisplaySettings::displayLevel);
+    connect(isolateGroup_, &QLineEdit::editingFinished, this, [this] {
+        settings_.isolateGroup = isolateGroup_->text().trimmed().toStdString();
+        redisplay();
+    });
     connect(guideColorMode_, &QComboBox::currentIndexChanged, this, [this](int mode) {
         settings_.guideColorMode = mode;
         redisplay();
@@ -554,8 +558,8 @@ void MainWindow::refreshProperties() {
     refreshScalpSubdivision();
     // The display's own state as other panels change it (Isolate, While sculpting).
     {
-        const QSignalBlocker a(displayLevel_), b(guideColorMode_), c(sculptDisplay_);
-        displayLevel_->setValue(settings_.displayLevel);
+        const QSignalBlocker a(isolateGroup_), b(guideColorMode_), c(sculptDisplay_);
+        isolateGroup_->setText(QString::fromStdString(settings_.isolateGroup));
         guideColorMode_->setCurrentIndex(settings_.guideColorMode == 1 ? 1 : 0);
         sculptDisplay_->setCurrentIndex(std::clamp(settings_.sculptDisplay, 0, std::max(0, sculptDisplay_->count() - 1)));
         if (!sculptDensity_->editing()) sculptDensity_->setValue(brush_.sculptDensity);

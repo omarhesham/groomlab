@@ -257,8 +257,8 @@ groomlab.brush_tool("place", length=0.6)                        # click the scal
 - **Hover:** the guides the brush would touch light up before you press.
 - **While sculpting:** strands drop to `sculptDensity` × the preview density and are dimmed
   (or hidden: `sculptDisplay`), so the guides read.
-- **Isolate** (beside the Group choice): the brushed level stays at full color and the rest dim
-  (`groomlab.isolate_level`).
+- **Isolate** (beside the Group choice): the brushed group and its child groups stay at full
+  color and the rest dim (`groomlab.isolate_group`).
 - **Guides by map:** guides can be colored by a painted map, black 0 to white 1
   (`color_guides_by_map`, or **Show on guides** in Groom Tools > Paint).
 - **Freeze mask:** **Freeze** (Groom Tools > Tools) paints the `freeze` map, and brushes leave

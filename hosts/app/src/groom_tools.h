@@ -142,8 +142,8 @@ public:
     // The active tool: a catalog id ("" none, the camera), its tiles lit and its card shown.
     void setTool(const std::string& id);
     const std::string& tool() const { return tool_; }
-    // The level Isolate shows at full color (-1: Isolate off, or All groups).
-    int isolatedLevel() const;
+    // The group Isolate shows at full color with its child groups ("": Isolate off, or All groups).
+    std::string isolatedGroup() const;
     // Everything takes the session's settings again (a radius drag, a picked level, a script).
     void refresh();
     // The tool tiles' names under their icons (View > Rail Labels): off, compact icon tiles.

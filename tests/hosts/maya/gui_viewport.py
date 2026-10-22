@@ -2961,9 +2961,9 @@ def overlay_snapshots(folder):
     cmds.setAttr(groom + ".displayTubes", True)
     shot("tubes")
     cmds.setAttr(groom + ".displayTubes", False)
-    cmds.setAttr(groom + ".displayLevel", 1)
+    cmds.setAttr(groom + ".isolateGroup", "children", type="string")
     shot("guide_level")
-    cmds.setAttr(groom + ".displayLevel", -1)
+    cmds.setAttr(groom + ".isolateGroup", "", type="string")
     cmds.setAttr(groom + ".guidePoints", 1)
     cmds.setAttr(groom + ".guideSmoothing", 1)
     shot("guide_groups")  # roots and tips on straight curves, each group in its own color

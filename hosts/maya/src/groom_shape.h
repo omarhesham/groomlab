@@ -217,9 +217,10 @@ public:
     // all (2); 0 leaves them alone.
     static MObject aSculptDisplay;
     static MObject aSculptDensity;
-    // Guides: displayLevel >= 0 isolates a level (others dim); guideColorMode 0
-    // colors them by group, 1 by the layer guideColorLayer (black to white ramp).
-    static MObject aDisplayLevel;
+    // Guides: isolateGroup names a group drawn at full color with its child groups (others
+    // dim); guideColorMode 0 colors them by group, 1 by the layer guideColorLayer (black to
+    // white ramp).
+    static MObject aIsolateGroup;
     static MObject aGuideColorMode;
     static MObject aGuideColorLayer;
     static MObject aRenderMode;      // Arnold: 0 curves (evaluated in Maya), 1 groom file (groomlab_procedural)

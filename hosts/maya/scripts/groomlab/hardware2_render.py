@@ -51,7 +51,7 @@ GROOM_DISPLAY = (
     ("renderView", True),              # renderDensity, renderOnly nodes, the render's width and length scales
     ("displayHair", True),             # the hair hidden in the viewport still renders
     ("displayGuides", False), ("displayFlow", False), ("displayTubes", False), ("scalpMapDisplay", ""),
-    ("displayLevel", -1), ("displayCards", False),
+    ("isolateGroup", ""), ("displayCards", False),
     ("displayClumpLod", False),        # renders never thin
     ("strandColorMode", 0),            # solid: the lit hair
     ("displayLighting", True), ("displayHairShading", 1), ("displayWidthCoverage", True), ("displayRibbons", False),

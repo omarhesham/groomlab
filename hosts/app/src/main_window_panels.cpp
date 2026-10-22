@@ -135,8 +135,8 @@ void MainWindow::buildPanels() {
     });
     connect(groomTools_, &GroomTools::clearFlowRequested, this, [this] { guidesPanel_->clearFlow(); });
     connect(groomTools_, &GroomTools::isolateChanged, this, [this] {
-        settings_.displayLevel = groomTools_->isolatedLevel();
-        refreshProperties();  // (Display Level follows)
+        settings_.isolateGroup = groomTools_->isolatedGroup();
+        refreshProperties();  // (Isolate Group follows)
         redisplay();
     });
     connect(groomTools_, &GroomTools::sculptDisplayChanged, this, [this] {
@@ -205,7 +205,7 @@ void MainWindow::buildPanels() {
         brush.group = name;
         brush.level = h->groupDepth(id);
         groomTools_->refresh();
-        settings_.displayLevel = groomTools_->isolatedLevel();
+        settings_.isolateGroup = groomTools_->isolatedGroup();
         refreshProperties();
         redisplay();
         refreshTool();
