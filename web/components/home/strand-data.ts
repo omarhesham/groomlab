@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 /*
- * What the 3D viewer draws, whoever makes it: the GroomLab engine built to WebAssembly
- * (home-engine.ts, the /view page) or the procedural stand-in in groom-3d.ts. Plain typed arrays, no
- * three.js, so a source never has to know about the renderer.
+ * What the 3D viewer draws: the GroomLab engine built to WebAssembly (home-engine.ts, the /view
+ * page), and the bare head (head-mesh.ts). Plain typed arrays, no three.js, so a source never has to
+ * know about the renderer.
  */
 
 /** Strands as polylines, one after the other in one buffer. */

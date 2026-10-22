@@ -1,147 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 /*
- * The head the landing page's hair grows on. Its shape is a radial map: the distance from the
- * cranium's center to the skin in every direction, kept in a small cube map. The procedural groom
- * places roots, combs guides and keeps strands out of the head with it, whatever the head is: an
- * ellipsoid until the real one loads, then the Manny sample head ("Manny head by Nick Rutlinh
- * (GroomLab), CC BY 4.0"), whose subdivision cage (web/public/samples/manny_head.bin, written by
- * tools/web/make_head_mesh.py) is smoothed here with Catmull-Clark.
+ * The head the landing page's grooms stand on while the engine loads: the Manny sample head ("Manny
+ * head by Nick Rutlinh (GroomLab), CC BY 4.0"), whose subdivision cage
+ * (web/public/samples/manny_head.bin, written by tools/web/make_head_mesh.py) is smoothed here with
+ * Catmull-Clark.
  */
 import type { RootMesh } from './strand-data';
 
-/** Cells per cube face edge. */
-const RES = 40;
-
 export interface HeadShape {
-  /** Distance from the center (the origin) to the skin along unit direction (x, y, z). */
-  radius(x: number, y: number, z: number): number;
   /** The head's surface as a mesh (y up, facing +z, the cranium's center at the origin). */
   mesh: { positions: Float32Array; indices: Uint32Array };
-}
-
-/** The cube face and cell for a direction, and the in-face coordinates (0 to RES - 1). */
-function faceUV(x: number, y: number, z: number, out: number[]) {
-  const ax = Math.abs(x);
-  const ay = Math.abs(y);
-  const az = Math.abs(z);
-  let f: number;
-  let u: number;
-  let v: number;
-  if (ax >= ay && ax >= az) {
-    f = x > 0 ? 0 : 1;
-    u = z / ax;
-    v = y / ax;
-  } else if (ay >= az) {
-    f = y > 0 ? 2 : 3;
-    u = x / ay;
-    v = z / ay;
-  } else {
-    f = z > 0 ? 4 : 5;
-    u = x / az;
-    v = y / az;
-  }
-  out[0] = f;
-  out[1] = ((u + 1) / 2) * (RES - 1);
-  out[2] = ((v + 1) / 2) * (RES - 1);
-}
-
-/** The direction through cell (i, j) of face f (i, j may step one past the face's edge). */
-function cellDir(f: number, i: number, j: number, out: number[]) {
-  const u = (i / (RES - 1)) * 2 - 1;
-  const v = (j / (RES - 1)) * 2 - 1;
-  const s = f % 2 === 0 ? 1 : -1;
-  let x: number, y: number, z: number;
-  if (f < 2) [x, y, z] = [s, v, u];
-  else if (f < 4) [x, y, z] = [u, s, v];
-  else [x, y, z] = [u, v, s];
-  const l = Math.hypot(x, y, z);
-  out[0] = x / l;
-  out[1] = y / l;
-  out[2] = z / l;
-}
-
-/** A radial cube map from points on a closed-ish surface around the origin: the farthest point per cell. */
-function radialMap(points: Float32Array): Float32Array {
-  const map = new Float32Array(6 * RES * RES);
-  const fuv = [0, 0, 0];
-  for (let p = 0; p < points.length; p += 3) {
-    const x = points[p];
-    const y = points[p + 1];
-    const z = points[p + 2];
-    const r = Math.hypot(x, y, z);
-    if (r < 1e-6) continue;
-    faceUV(x, y, z, fuv);
-    const c = fuv[0] * RES * RES + Math.round(fuv[2]) * RES + Math.round(fuv[1]);
-    if (r > map[c]) map[c] = r;
-  }
-  // Fill cells no point landed in (the open neck) from their neighbors, across face edges too.
-  const d = [0, 0, 0];
-  for (let pass = 0; pass < RES * 2; pass++) {
-    let empty = 0;
-    const next = map.slice();
-    for (let f = 0; f < 6; f++)
-      for (let j = 0; j < RES; j++)
-        for (let i = 0; i < RES; i++) {
-          const c = f * RES * RES + j * RES + i;
-          if (map[c] > 0) continue;
-          let sum = 0;
-          let n = 0;
-          for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-            cellDir(f, i + di, j + dj, d);
-            faceUV(d[0], d[1], d[2], fuv);
-            const v = map[fuv[0] * RES * RES + Math.round(fuv[2]) * RES + Math.round(fuv[1])];
-            if (v > 0) {
-              sum += v;
-              n++;
-            }
-          }
-          if (n) next[c] = sum / n;
-          else empty++;
-        }
-    map.set(next);
-    if (!empty) break;
-  }
-  return map;
-}
-
-function lookup(map: Float32Array, x: number, y: number, z: number, fuv: number[]) {
-  faceUV(x, y, z, fuv);
-  const f = fuv[0] * RES * RES;
-  const i0 = Math.min(RES - 2, Math.floor(fuv[1]));
-  const j0 = Math.min(RES - 2, Math.floor(fuv[2]));
-  const a = fuv[1] - i0;
-  const b = fuv[2] - j0;
-  const r0 = map[f + j0 * RES + i0] * (1 - a) + map[f + j0 * RES + i0 + 1] * a;
-  const r1 = map[f + (j0 + 1) * RES + i0] * (1 - a) + map[f + (j0 + 1) * RES + i0 + 1] * a;
-  return r0 * (1 - b) + r1 * b;
-}
-
-/** An ellipsoid head with these radii (the stand-in until the real head has loaded). */
-export function ellipsoidHead(hx = 0.84, hy = 1, hz = 0.94): HeadShape {
-  const W = 64;
-  const H = 40;
-  const positions = new Float32Array((W + 1) * (H + 1) * 3);
-  for (let r = 0, v = 0; r <= H; r++) {
-    const th = (r / H) * Math.PI;
-    for (let c = 0; c <= W; c++, v++) {
-      const ph = (c / W) * Math.PI * 2;
-      positions[v * 3] = Math.sin(th) * Math.sin(ph) * hx;
-      positions[v * 3 + 1] = Math.cos(th) * hy;
-      positions[v * 3 + 2] = Math.sin(th) * Math.cos(ph) * hz;
-    }
-  }
-  const indices = new Uint32Array(W * H * 6);
-  for (let r = 0, i = 0; r < H; r++)
-    for (let c = 0; c < W; c++) {
-      const a = r * (W + 1) + c;
-      const b = a + W + 1;
-      indices.set([a, b, a + 1, b, b + 1, a + 1], i);
-      i += 6;
-    }
-  return {
-    radius: (x, y, z) => 1 / Math.sqrt((x / hx) ** 2 + (y / hy) ** 2 + (z / hz) ** 2),
-    mesh: { positions, indices },
-  };
 }
 
 /** One Catmull-Clark step over triangles and quads (open edges kept as creases); returns quads. */
@@ -251,30 +119,12 @@ export function parseHead(buffer: ArrayBuffer): HeadShape {
   for (let level = 0; level < 2; level++) ({ pos, faces } = subdivide(pos, faces));
   const indices = new Uint32Array(faces.length * 6);
   faces.forEach((q, i) => indices.set([q[0], q[1], q[2], q[0], q[2], q[3]], i * 6));
-  // Points for the radial map: every vertex and the middle of every quad's edges and center.
-  const samples = new Float32Array(pos.length + faces.length * 3 * 3);
-  samples.set(pos);
-  let s = pos.length;
-  for (const q of faces) {
-    for (let k2 = 0; k2 < 3; k2++) {
-      const a = pos[q[0] * 3 + k2];
-      const b = pos[q[1] * 3 + k2];
-      const c = pos[q[2] * 3 + k2];
-      const d = pos[q[3] * 3 + k2];
-      samples[s + k2] = (a + b + c + d) / 4;
-      samples[s + 3 + k2] = (a + b) / 2;
-      samples[s + 6 + k2] = (a + d) / 2;
-    }
-    s += 9;
-  }
-  const map = radialMap(samples);
-  const fuv = [0, 0, 0];
-  return { radius: (x, y, z) => lookup(map, x, y, z, fuv), mesh: { positions: pos, indices } };
+  return { mesh: { positions: pos, indices } };
 }
 
 let pending: Promise<HeadShape | null> | null = null;
 
-/** The Manny head, fetched once per page; null when it can't be had (the ellipsoid stays). */
+/** The Manny head, fetched once per page; null when it can't be had. */
 export function loadHead(url = '/samples/manny_head.bin'): Promise<HeadShape | null> {
   pending ??= fetch(url)
     .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))

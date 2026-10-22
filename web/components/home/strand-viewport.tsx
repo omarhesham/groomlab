@@ -3,48 +3,29 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import type { EngineEdits } from './engine-grooms';
-import type { GroomStats } from './groom-3d';
-import type { EngineOptions, Groom3D } from './strand-3d';
-import { StrandRenderer, type StrandParams } from './strand-engine';
-
-/** True when this browser can make a WebGL2 context (three.js needs one). */
-function hasWebGL2() {
-  try {
-    const gl = document.createElement('canvas').getContext('webgl2');
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
-    return !!gl;
-  } catch {
-    return false;
-  }
-}
+import type { EngineOptions, Groom3D, GroomStats } from './strand-3d';
 
 /**
- * The groom's viewport. Once it comes near the screen it fetches three.js and the 3D groom: a head
- * whose hair is grown by the params (procedurally), standing still, that a drag orbits; with an
- * `engine` groom, the real GroomLab engine (WebAssembly, in a worker) then grows that groom with
- * `edits` and takes its place. Without WebGL2 (or when the 3D fails) a 2D canvas draws the
- * procedural graph instead. Nothing animates: each draws a frame when its params or edits change,
- * when it is resized or shown, and while it is dragged.
+ * The groom's viewport. Once it comes near the screen it fetches three.js and the bare head, standing
+ * still, that a drag orbits; the real GroomLab engine (WebAssembly, in a worker) then grows the
+ * `engine` groom with `edits` on it. Nothing animates: it draws a frame when its edits change, when
+ * it is resized or shown, and while it is dragged.
  */
 export function StrandViewport({
-  params,
   className,
   label,
-  strandScale = 10,
   pitch,
   fill,
   yaw,
   skin,
   framing,
+  showGuides = false,
   onStats,
   engine,
   edits,
 }: {
-  params: StrandParams;
   className?: string;
   label?: string;
-  /** 3D strands per unit of density (fewer on phones). */
-  strandScale?: number;
   pitch?: number;
   fill?: number;
   /** Which way the head faces, radians (0 faces the camera). */
@@ -53,90 +34,36 @@ export function StrandViewport({
   skin?: number[];
   /** The sphere the camera frames, in head units. */
   framing?: [[number, number, number], number];
+  showGuides?: boolean;
   onStats?: (stats: GroomStats) => void;
   /** The real groom (fixed for the viewport's life) and its callbacks. */
-  engine?: Omit<EngineOptions, 'edits' | 'scale'>;
+  engine: Omit<EngineOptions, 'edits' | 'scale'>;
   /** Edits of the engine's groom: param values and bypassed nodes. */
   edits?: EngineEdits;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
-  const paramsRef = useRef(params);
   const statsRef = useRef(onStats);
   const engineRef = useRef(engine);
   const editsRef = useRef(edits);
-  const redrawRef = useRef<() => void>(() => {});
+  const guidesRef = useRef(showGuides);
   const groomRef = useRef<Groom3D | null>(null);
-  /** Whether the 2D canvas draws: only without WebGL2 or when the 3D groom failed. */
-  const flatRef = useRef(false);
   const [three, setThree] = useState(false);
 
   useEffect(() => {
-    paramsRef.current = params;
     statsRef.current = onStats;
-    redrawRef.current();
-    groomRef.current?.update(params);
-  }, [params, onStats]);
+  }, [onStats]);
+
+  useEffect(() => {
+    guidesRef.current = showGuides;
+    groomRef.current?.showGuides(showGuides);
+  }, [showGuides]);
 
   useEffect(() => {
     engineRef.current = engine;
     editsRef.current = edits;
     if (edits) groomRef.current?.edit(edits);
   }, [engine, edits]);
-
-  // The 2D canvas: the fallback, one still frame per change.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    const renderer = new StrandRenderer(paramsRef.current.seed);
-    flatRef.current = !hasWebGL2();
-    let width = 0;
-    let height = 0;
-    let visible = false;
-    let raf = 0;
-
-    const loop = () => {
-      raf = 0;
-      if (!width || !height || groomRef.current || !flatRef.current || document.hidden) return;
-      renderer.draw(ctx, paramsRef.current, { width, height, time: 0, grow: 1, sway: false });
-    };
-    const kick = () => {
-      if (!raf && visible) raf = requestAnimationFrame(loop);
-    };
-    redrawRef.current = kick;
-
-    const resize = () => {
-      const rect = canvas.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      width = rect.width;
-      height = rect.height;
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      kick();
-    };
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        visible = entry.isIntersecting;
-        kick();
-      },
-      { rootMargin: '80px' },
-    );
-    io.observe(canvas);
-    const onVisibility = () => kick();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      ro.disconnect();
-      io.disconnect();
-      document.removeEventListener('visibilitychange', onVisibility);
-      cancelAnimationFrame(raf);
-      redrawRef.current = () => {};
-    };
-  }, []);
 
   // The 3D groom, fetched when the viewport comes within a screen or so of view.
   useEffect(() => {
@@ -158,11 +85,6 @@ export function StrandViewport({
     const load = () => {
       if (loading) return;
       loading = true;
-      if (flatRef.current) return;
-      const fail = () => {
-        flatRef.current = true;
-        redrawRef.current();
-      };
       import('./strand-3d')
         .then(({ mountGroom3D }) => {
           if (disposed) return null;
@@ -173,37 +95,33 @@ export function StrandViewport({
             yaw,
             skin,
             framing,
-            params: paramsRef.current,
-            strandScale: strandScale * (phone ? 0.55 : 1),
+            showGuides: guidesRef.current,
             onStats: (s) => statsRef.current?.(s),
-            engine: engineRef.current && {
+            engine: {
               source: engineRef.current.source,
               edits: editsRef.current ?? {},
               scale: phone ? 0.55 : 1,
-              onControls: (c) => engineRef.current?.onControls?.(c),
-              onReady: () => engineRef.current?.onReady?.(),
+              onControls: (c) => engineRef.current.onControls?.(c),
+              onReady: () => engineRef.current.onReady?.(),
             },
           });
         })
         .then((g) => {
-          if (!g) {
-            if (!disposed) fail();
-            return;
-          }
+          if (!g) return;
           if (disposed) {
             g.dispose();
             return;
           }
           groom = g;
           groomRef.current = groom;
-          // Params and edits that changed while it first grew.
-          groom.update(paramsRef.current);
+          // Edits and the guides' toggle that changed while it loaded.
           if (editsRef.current) groom.edit(editsRef.current);
+          groom.showGuides(guidesRef.current);
           size();
           activate();
           setThree(true);
         })
-        .catch(fail);
+        .catch((err) => console.warn('GroomLab viewport failed:', err));
     };
 
     const near = new IntersectionObserver(([e]) => e.isIntersecting && load(), { rootMargin: '600px 0px' });
@@ -240,11 +158,6 @@ export function StrandViewport({
       aria-hidden={label ? undefined : true}
       className={cn('relative size-full', className)}
     >
-      <canvas
-        ref={canvasRef}
-        aria-hidden="true"
-        className={cn('absolute inset-0 block size-full transition-opacity duration-500', three && 'opacity-0')}
-      />
       <canvas
         ref={glRef}
         aria-hidden="true"

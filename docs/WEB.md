@@ -173,12 +173,12 @@ the nodes after the one changed, so sliders stay live at full density.
 
 ## The home page
 
-Every strand on the home page is the engine's: three viewers, one worker. `strand-3d.ts` draws the
-procedural stand-in (`groom-3d.ts`) at once, then, once the page is idle, imports `home-engine.ts`,
-which starts the page's one engine (`createGroomEngine`, so `groomlab.wasm` is only fetched then) and
-loads each viewer's groom into its own slot. The engine's strands, scalp and guides replace the
-stand-in's in the same canvas. Without WebAssembly or workers (or WebGL2, where the 2D canvas draws)
-the stand-in stays.
+Every strand on the home page is the engine's: three viewers, one worker, no stand-in. `strand-3d.ts`
+draws the bare Manny head at once, then, once the page is idle, imports `home-engine.ts`, which
+starts the page's one engine (`createGroomEngine`, so `groomlab.wasm` is only fetched then) and
+loads each viewer's groom into its own slot. The engine's strands, scalp and guides come into the
+same canvas. Without WebAssembly or workers the head stays bare; without WebGL2 the viewport stays
+empty.
 
 | Viewer | Groom | Strands drawn | What the page sets |
 | --- | --- | --- | --- |
@@ -211,7 +211,7 @@ Measured 2026-10-21 (headless Chrome, SwiftShader, the static build served local
 - Edits: Try's sliders re-evaluate in 5 ms (melanin) to 20 to 95 ms (Curl's frequency, by how many
   points Curl adds), 50 to 180 ms round trip with the copies; the page thread spends 2 to 17 ms a
   result (and 5 to 40 ms when the scalp is painted again).
-- Dragging a slider (60 values, one a frame): no long task on the page's thread (the stand-in, before:
+- Dragging a slider (60 values, one a frame): no long task on the page's thread (the old procedural stand-in:
   9 long tasks, 604 ms, for Curl's radius); median frame 16.5 ms. The slow frames left (p90 ~100 to
   160 ms) are SwiftShader drawing the new strands in software.
 - The home page's initial JS: +3.8 KB raw, +1.3 KB gzip (the grooms' values for the sliders);

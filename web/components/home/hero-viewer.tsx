@@ -4,32 +4,16 @@ import { Move } from 'lucide-react';
 import type { GroomControl } from '@/lib/groomlab-wasm';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { HERO_CHIP, HERO_GROOM } from './engine-grooms';
-import type { GroomStats } from './groom-3d';
-import type { StrandParams } from './strand-engine';
+import type { GroomStats } from './strand-3d';
 import { StrandViewport } from './strand-viewport';
 
 /*
  * The hero's head of curls: big, in 3D, standing on the page with no frame, grown once by the
- * GroomLab engine in the browser (manny_curls.groom; the procedural look stands in while it loads).
+ * GroomLab engine in the browser (manny_curls.groom; the bare head shows while it loads).
  * A glass chip at the top right reads two of the groom's params (Curl's radius and its length
  * scale, a Transform node's) and the strands it draws; under it on the right, a hint that a drag
  * turns it.
  */
-
-/** The procedural stand-in, until the engine's groom is in. */
-const params: StrandParams = {
-  density: 1000,
-  clump: 0.86,
-  clumpCount: 110,
-  curl: 0.42,
-  curlFrequency: 2,
-  noise: 0.1,
-  color: { melanin: 0.66, redness: 0.5 },
-  showGuides: false,
-  seed: 7,
-  length: 1.8,
-  volume: 0.85,
-};
 
 export function HeroViewer() {
   const countRef = useRef<HTMLSpanElement>(null);
@@ -52,8 +36,6 @@ export function HeroViewer() {
   return (
     <div className="relative h-[min(104vw,460px)] sm:h-[clamp(460px,52vw,560px)] lg:h-[clamp(520px,44vw,640px)]">
       <StrandViewport
-        params={params}
-        strandScale={12}
         pitch={0.14}
         fill={1}
         yaw={2.45}

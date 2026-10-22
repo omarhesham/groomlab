@@ -15,9 +15,8 @@ import {
   type EngineSlider,
   type EngineSource,
 } from './engine-grooms';
-import type { GroomStats } from './groom-3d';
+import type { GroomStats } from './strand-3d';
 import { category, port, type Category, type PortType } from './graph-theme';
-import type { StrandParams } from './strand-engine';
 import { StrandViewport } from './strand-viewport';
 
 /*
@@ -25,7 +24,7 @@ import { StrandViewport } from './strand-viewport';
  * the GroomLab engine in the browser. Each card is one of its nodes: its switch is the node's bypass,
  * its sliders the node's params with the engine's ranges and labels (the app's ValueSlider: the
  * field fills as it is dragged). The strands in the viewport are grown again on the spot, in the
- * engine's worker; a procedural stand-in draws them until the engine has loaded.
+ * engine's worker; the bare head shows until the engine has loaded.
  */
 
 /** The nodes a card can bypass, by their names in the groom. */
@@ -59,31 +58,11 @@ const engineSource: EngineSource = {
   maxStrands: 16000,
 };
 
-/** The procedural stand-in's params for these values (its own units, roughly matched). */
-function standIn(s: State): StrandParams {
-  const v = (id: string) => s.values[id] ?? 0;
-  return {
-    density: Math.min(2000, v(DENSITY) * (320 / 140)),
-    clump: s.bypass.clump ? 0 : Math.max(0, Math.min(1, v('param:clump.strength'))),
-    clumpCount: Math.max(2, Math.round((v('param:clump.count') / 220) * 16)),
-    curl: s.bypass.curl ? 0 : Math.min(1, v('param:curl.radius') / 0.8),
-    curlFrequency: Math.max(0.5, v('param:curl.frequency') * 6),
-    noise: s.bypass.noise ? 0 : Math.min(1, v('param:noise.amplitude') * 2.5),
-    color: s.bypass.color ? null : { melanin: v('param:color.melanin'), redness: v('param:color.redness') },
-    showGuides: s.showGuides,
-    seed: s.seed,
-    length: 1.4,
-    volume: 0.15,
-  };
-}
-
 export function TryGraph() {
   // The sliders: the groom's exposed params, as the engine lists them once it has loaded.
   const [sliders, setSliders] = useState<EngineSlider[]>(SHORT_CURLS_SLIDERS);
   const [s, setS] = useState<State>(() => initialState(sliderValues(SHORT_CURLS_SLIDERS)));
   const [stats, setStats] = useState<GroomStats | null>(null);
-  /** Whether the engine's strands are on screen (the stand-in's guides are not the groom's). */
-  const [real, setReal] = useState(false);
   const strands = stats ? stats.strands.toLocaleString('en-US') : '7,000';
   const setValue = (id: string) => (v: number) => setS((prev) => ({ ...prev, values: { ...prev.values, [id]: v } }));
   const setOn = (node: Bypassable) => (on: boolean) => setS((prev) => ({ ...prev, bypass: { ...prev.bypass, [node]: !on } }));
@@ -98,12 +77,10 @@ export function TryGraph() {
         });
         setSliders(next);
       },
-      onReady: () => setReal(true),
     }),
     [],
   );
   const edits = useMemo<EngineEdits>(() => ({ params: { ...s.values, [SEED]: s.seed }, bypass: { ...s.bypass } }), [s.values, s.seed, s.bypass]);
-  const params = useMemo(() => standIn(s), [s]);
 
   const slider = (id: string, cat: Category) => {
     const spec = sliders.find((x) => x.id === id)!;
@@ -142,7 +119,7 @@ export function TryGraph() {
           </div>
           <div className="h-[min(46svh,360px)] lg:h-auto lg:aspect-[7/6]">
             <StrandViewport
-              params={params}
+              showGuides={s.showGuides}
               pitch={0.16}
               yaw={-0.6}
               framing={[[0, -0.3, 0], 1.85]}
@@ -181,7 +158,7 @@ export function TryGraph() {
             </IconButton>
           }
         >
-          <Static label="guides" value={String(real && stats ? stats.guides : 127)} />
+          <Static label="guides" value={String(stats ? stats.guides : 127)} />
         </Node>
         <Node cat="Look" name="Clump" out="strands" on={!s.bypass.clump} onToggle={setOn('clump')}>
           {slider('param:clump.strength', 'Look')}

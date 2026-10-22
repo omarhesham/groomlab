@@ -2,21 +2,24 @@
 /*
  * The lazily loaded half of StrandViewport: a groom wired to the three.js viewer, on the Manny head.
  * This module (and three.js with it) is only fetched when a viewport scrolls near the screen; the
- * head mesh (a few kB) is fetched with it, once per page. First it draws the procedural groom
- * (groom-3d.ts), at once; with an `engine` source it then fetches the real GroomLab engine
- * (home-engine.ts: WebAssembly, in a worker) when the page is idle and swaps in the engine's
- * strands, scalp and guides once they come, in the same canvas. Either stands still: it is grown
- * again only when its params or edits change (at most once a frame, the latest), and nothing renders
- * unless it is dragged, resized or changed.
+ * head mesh (a few kB) is fetched with it, once per page. First it draws the bare head; when the
+ * page is idle it fetches the real GroomLab engine (home-engine.ts: WebAssembly, in a worker) and
+ * shows the engine's strands, scalp and guides once they come, in the same canvas. It stands still:
+ * the engine grows it again only when its edits change, and nothing renders unless it is dragged,
+ * resized or changed.
  */
 import type { GroomControl } from '@/lib/groomlab-wasm';
 import type { EngineEdits, EngineSource } from './engine-grooms';
-import { MAX_STRANDS, ProceduralGroom, type GroomStats } from './groom-3d';
-import { loadHead } from './head-mesh';
+import { headRootMesh, loadHead } from './head-mesh';
 import type { EngineGroom } from './home-engine';
 import type { StrandData } from './strand-data';
-import type { StrandParams } from './strand-engine';
 import { createStrandViewer, type ViewerOptions } from './strand-three';
+
+/** What a viewport's groom has drawn. */
+export interface GroomStats {
+  strands: number;
+  guides: number;
+}
 
 /** The real groom a viewport shows once the engine has grown it. */
 export interface EngineOptions {
@@ -43,23 +46,20 @@ function record(slot: string, name: string, ms = performance.now()) {
 }
 
 export interface Groom3DOptions extends Omit<ViewerOptions, 'onFrame' | 'spin' | 'sway'> {
-  params: StrandParams;
-  /** Strands per unit of Scatter's density. */
-  strandScale: number;
   /** The head's clay color, sRGB 0 to 1. */
   skin?: number[];
   /** The sphere the camera frames: center and radius, in head units (the cranium ~1 across). */
   framing?: [[number, number, number], number];
+  showGuides?: boolean;
   onStats?: (stats: GroomStats) => void;
-  /** The real groom to swap in, grown by the engine. */
-  engine?: EngineOptions;
+  /** The groom the engine grows. */
+  engine: EngineOptions;
 }
 
 export interface Groom3D {
-  /** Grows the groom again with these params, on the next frame, if they change it. */
-  update(params: StrandParams): void;
   /** The engine's groom: these edits (sent once it has loaded). */
   edit(edits: EngineEdits): void;
+  showGuides(on: boolean): void;
   setActive(active: boolean): void;
   resize(width: number, height: number): void;
   invalidate(): void;
@@ -68,68 +68,43 @@ export interface Groom3D {
 
 /** The 3D groom on `canvas`, once its head has loaded; null without WebGL. */
 export async function mountGroom3D(canvas: HTMLCanvasElement, opts: Groom3DOptions): Promise<Groom3D | null> {
-  const groom = new ProceduralGroom();
   const head = await loadHead();
-  if (head) groom.setHead(head);
   const viewer = createStrandViewer(canvas, { ...opts, spin: 0, sway: 0 });
   if (!viewer) return null;
   // The head and the hair over it, a little above center.
   const [center, radius] = opts.framing ?? [[0, 0.1, 0], 1.45];
   viewer.setFraming(center, radius);
+  const skin = opts.skin ?? [0.7, 0.68, 0.66];
+  // The bare head, until the engine's scalp comes.
+  if (head) {
+    viewer.setScalp(
+      headRootMesh(head, (_x, _y, _z, out) => {
+        out[0] = skin[0];
+        out[1] = skin[1];
+        out[2] = skin[2];
+      }),
+    );
+  }
 
-  let shapeKey = '';
-  let guidesKey = '';
-  let strands = -1;
-  let params = opts.params;
-  let raf = 0;
-  /** Once the engine's strands are in: the procedural groom stops, only the guides follow params. */
-  let real = false;
+  let guidesOn = opts.showGuides ?? false;
   let realGuides: StrandData | null = null;
   let shownGuides: StrandData | null | undefined;
   const showGuides = () => {
-    const g = params.showGuides ? realGuides : null;
+    const g = guidesOn ? realGuides : null;
     if (g !== shownGuides) {
       shownGuides = g;
       viewer.setGuides(g);
     }
   };
-  const sync = () => {
-    raf = 0;
-    if (real) return showGuides();
-    const p = params;
-    const count = Math.min(MAX_STRANDS, Math.round(p.density * opts.strandScale));
-    const key = [count, p.clump, p.clumpCount, p.curl, p.curlFrequency, p.noise, p.seed, p.length ?? 1, p.volume ?? 0].join();
-    if (key !== shapeKey) {
-      shapeKey = key;
-      viewer.setStrands(groom.build(p, count));
-    }
-    const colors = groom.colorize(p);
-    if (colors) {
-      viewer.setStrandColors(colors);
-      viewer.setScalp(groom.scalp(p, opts.skin));
-    }
-    // The guides change with the seed and with the points per strand (Curl's on and frequency).
-    const gk = p.showGuides ? `${p.seed}:${p.curl > 0}:${p.curlFrequency}:${p.volume ?? 0}:${p.length ?? 1}` : '';
-    if (gk !== guidesKey) {
-      guidesKey = gk;
-      viewer.setGuides(p.showGuides ? groom.guides() : null);
-    }
-    const stats = groom.stats();
-    if (stats.strands !== strands) {
-      strands = stats.strands;
-      opts.onStats?.(stats);
-    }
-  };
-  sync();
 
   // The engine, once the page is idle: its worker and WebAssembly are fetched then, once a page.
   let engine: EngineGroom | null = null;
   let disposed = false;
-  let edits = opts.engine?.edits ?? {};
-  let idle = 0;
+  let ready = false;
+  let edits = opts.engine.edits;
   const startEngine = () => {
     const e = opts.engine;
-    if (!e || disposed) return;
+    if (disposed) return;
     const slot = e.source.slot;
     record(slot, 'engineAsked');
     import('./home-engine')
@@ -138,17 +113,15 @@ export async function mountGroom3D(canvas: HTMLCanvasElement, opts: Groom3DOptio
         engine = attachEngineGroom({
           source: e.source,
           strandScale: e.scale ?? 1,
-          skin: opts.skin ?? [0.7, 0.68, 0.66],
+          skin,
           edits,
           onControls: e.onControls,
           onTiming: (name, ms) => record(slot, name, ms),
-          onFail: (err) => console.warn(`GroomLab engine (${slot}): staying procedural:`, err),
+          onFail: (err) => console.warn(`GroomLab engine (${slot}) failed:`, err),
           onView(view) {
             if (disposed) return;
-            if (!real) {
-              real = true;
-              cancelAnimationFrame(raf);
-              raf = 0;
+            if (!ready) {
+              ready = true;
               record(slot, 'onScreen');
               e.onReady?.();
             }
@@ -159,29 +132,23 @@ export async function mountGroom3D(canvas: HTMLCanvasElement, opts: Groom3DOptio
             shownGuides = undefined;
             showGuides();
             record(slot, 'applyMs', performance.now() - t0);
-            strands = view.stats.strands;
             opts.onStats?.({ strands: view.stats.strands, guides: view.stats.guides });
           },
         });
       })
-      .catch((err) => console.warn('GroomLab engine: staying procedural:', err));
+      .catch((err) => console.warn('GroomLab engine failed:', err));
   };
-  if (opts.engine) {
-    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
-    if (w.requestIdleCallback) idle = w.requestIdleCallback(startEngine, { timeout: 1200 });
-    else idle = window.setTimeout(startEngine, 200);
-  }
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+  const idle = w.requestIdleCallback ? w.requestIdleCallback(startEngine, { timeout: 1200 }) : window.setTimeout(startEngine, 200);
 
   return {
-    update(p) {
-      if (p === params) return;
-      params = p;
-      // A slider fires faster than frames: grow once a frame, with the latest params.
-      if (!raf) raf = requestAnimationFrame(sync);
-    },
     edit(e) {
       edits = e;
       engine?.edit(e);
+    },
+    showGuides(on) {
+      guidesOn = on;
+      showGuides();
     },
     setActive: viewer.setActive,
     resize: viewer.resize,
@@ -192,7 +159,6 @@ export async function mountGroom3D(canvas: HTMLCanvasElement, opts: Groom3DOptio
       w.cancelIdleCallback?.(idle);
       clearTimeout(idle);
       engine?.dispose();
-      cancelAnimationFrame(raf);
       viewer.dispose();
     },
   };

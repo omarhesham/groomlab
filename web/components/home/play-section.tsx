@@ -7,9 +7,8 @@ import { Reveal } from '@/components/reveal';
 import { cn } from '@/lib/cn';
 import type { GroomControl } from '@/lib/groomlab-wasm';
 import { SHORT_CURLS_FULL, SHORT_CURLS_SEED, SHORT_CURLS_SLIDERS, SHORT_CURLS_URL, type EngineEdits, type EngineSlider } from './engine-grooms';
-import type { GroomStats } from './groom-3d';
+import type { GroomStats } from './strand-3d';
 import { category, port, surface } from './graph-theme';
-import type { StrandParams } from './strand-engine';
 import { StrandViewport } from './strand-viewport';
 import { connect, SvgNode, Wire, type NodeSpec } from './svg-graph';
 
@@ -221,23 +220,6 @@ function AppPanel() {
   );
   const edits = useMemo<EngineEdits>(() => ({ params: { [RADIUS]: look.curl, [SEED]: look.seed } }), [look.curl, look.seed]);
   const curlShare = (look.curl - radius.min) / (radius.max - radius.min);
-  // The procedural stand-in, until the engine's groom is in (its curl is 0 to 1, about 0.75 cm).
-  const params = useMemo<StrandParams>(
-    () => ({
-      density: 600,
-      clump: 0.62,
-      clumpCount: 60,
-      curl: Math.min(1, look.curl / 0.75),
-      curlFrequency: 2,
-      noise: 0.15,
-      color: { melanin: 0.56, redness: 0.42 },
-      showGuides: look.showGuides,
-      seed: look.seed,
-      length: 1.25,
-      volume: 0.35,
-    }),
-    [look],
-  );
   return (
     <div className="overflow-hidden rounded-[14px] border border-white/[0.09] bg-gl-panel shadow-[0_30px_80px_-40px_rgba(0,0,0,0.9)]">
       {/* The title bar. */}
@@ -301,9 +283,8 @@ function AppPanel() {
         </div>
         <div className="relative h-[300px] border-b border-white/[0.07] md:h-auto md:min-h-[340px] md:border-b-0">
           <StrandViewport
-            params={params}
+            showGuides={look.showGuides}
             onStats={setStats}
-            strandScale={12}
             pitch={0.1}
             yaw={1.05}
             fill={1}
