@@ -406,6 +406,19 @@ TEST(ScalpPaint, ColorVertexMapsStampSmoothAndMaskChannels) {
     EXPECT_THROW(stampVertexMap(short4, kColorMap, kAllChannels, *plane, center, 0.3f, 1.0f, {}), std::invalid_argument);
 }
 
+TEST(ScalpPaint, CompositeModesPreserveAndClampValues) {
+    EXPECT_FLOAT_EQ(compositePaintValue(0.3f, 0.2f, PaintMode::Replace), 0.2f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.3f, 0.2f, PaintMode::Add), 0.5f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.9f, 0.2f, PaintMode::Add), 1.0f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.3f, 0.2f, PaintMode::Subtract), 0.1f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.1f, 0.2f, PaintMode::Subtract), 0.0f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.8f, 0.6f, PaintMode::ClampMaximum), 0.6f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.4f, 0.6f, PaintMode::ClampMaximum), 0.4f);
+    EXPECT_EQ(paintModeFromString("add"), PaintMode::Add);
+    EXPECT_EQ(std::string(paintModeName(PaintMode::ClampMaximum)), "clampMaximum");
+    EXPECT_THROW(paintModeFromString("multiply"), std::invalid_argument);
+}
+
 TEST(ScalpPaint, ColorTexturesPaintFillRoundTripAndConvert) {
     const auto plane = uvPlane(8);
     TexturePaint paint(*plane, 32, 32, PaintColor{0.0f, 0.0f, 0.0f, 1.0f});

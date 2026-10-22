@@ -25,6 +25,16 @@
 
 namespace groomlab {
 
+float compositePaintValue(float current, float value, PaintMode mode) {
+    switch (mode) {
+        case PaintMode::Add: return std::clamp(current + value, 0.0f, 1.0f);
+        case PaintMode::Subtract: return std::clamp(current - value, 0.0f, 1.0f);
+        case PaintMode::ClampMaximum: return std::min(current, std::clamp(value, 0.0f, 1.0f));
+        case PaintMode::Replace: return std::clamp(value, 0.0f, 1.0f);
+    }
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
 namespace {
 
 // Scalp maps are one image over the UV square: a UDIM tile set is refused.
@@ -392,7 +402,7 @@ VertexReach vertexReach(const ScalpMesh& scalp, const Vec3f& center, float radiu
 }
 
 std::size_t stampVertexReach(std::vector<float>& values, int channels, unsigned mask, const ScalpMesh& scalp,
-                             const VertexReach& reach, float strength, const PaintColor& target) {
+                             const VertexReach& reach, float strength, const PaintColor& target, PaintMode mode) {
     requireChannels(channels, "stampVertexMap");
     const auto n = static_cast<std::size_t>(channels);
     if (values.size() != scalp.pointCount() * n) throw std::invalid_argument("stampVertexMap: one value per scalp vertex and channel");
@@ -405,7 +415,8 @@ std::size_t stampVertexReach(std::vector<float>& values, int channels, unsigned 
         for (std::size_t c = 0; c < n; ++c) {
             if (!(m & (1u << c))) continue;
             float& x = values[i * n + c];
-            const float next = std::clamp(x + (target[c] - x) * std::min(w, 1.0f), 0.0f, 1.0f);
+            const float composed = compositePaintValue(x, target[c], mode);
+            const float next = std::clamp(x + (composed - x) * std::min(w, 1.0f), 0.0f, 1.0f);
             if (next != x) {
                 x = next;
                 any = true;
@@ -1191,7 +1202,8 @@ void TexturePaint::keepTiles(const Reach& reach) {
     }
 }
 
-std::size_t TexturePaint::stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask) {
+std::size_t TexturePaint::stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask,
+                                     PaintMode mode) {
     const auto n = static_cast<std::size_t>(channels_);
     const unsigned m = effectiveMask(channels_, mask);
     keepTiles(reach);
@@ -1206,7 +1218,8 @@ std::size_t TexturePaint::stampReach(const Reach& reach, float strength, const P
         for (std::size_t c = 0; c < n; ++c) {
             if (!(m & (1u << c))) continue;
             float& x = values_[i * n + c];
-            const float next = std::clamp(x + (target[c] - x) * wt, 0.0f, 1.0f);
+            const float composed = compositePaintValue(x, target[c], mode);
+            const float next = std::clamp(x + (composed - x) * wt, 0.0f, 1.0f);
             if (next != x) {
                 x = next;
                 any = true;

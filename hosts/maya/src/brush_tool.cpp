@@ -94,6 +94,7 @@ const char* kStrengthProfileFlag[] = {"-stp", "-strengthProfile"};
 const char* kSmoothStrengthFlag[] = {"-sms", "-smoothStrength"};
 const char* kPaintColorFlag[] = {"-pco", "-paintColor"};
 const char* kPaintChannelsFlag[] = {"-pch", "-paintChannels"};
+const char* kPaintModeFlag[] = {"-pmd", "-paintMode"};
 const char* kDebugHoverFlag[] = {"-dbh", "-debugHover"};
 const char* kHeldBytesFlag[] = {"-hb", "-heldUndoBytes"};
 const char* kPreviewUploadFlag[] = {"-pup", "-previewUpload"};
@@ -243,6 +244,7 @@ void addBrushFlags(MSyntax& s) {
     s.addFlag(kSmoothStrengthFlag[0], kSmoothStrengthFlag[1], MSyntax::kDouble);
     s.addFlag(kPaintColorFlag[0], kPaintColorFlag[1], MSyntax::kDouble, MSyntax::kDouble, MSyntax::kDouble, MSyntax::kDouble);
     s.addFlag(kPaintChannelsFlag[0], kPaintChannelsFlag[1], MSyntax::kString);
+    s.addFlag(kPaintModeFlag[0], kPaintModeFlag[1], MSyntax::kString);
 }
 
 // Applies the shared flags that are set (not -radius) to `s`, from an
@@ -318,6 +320,13 @@ MStatus applyBrushFlags(const Args& args, BrushToolSettings& s, const char* comm
             s.paintChannels = channelMask(text.asChar());
         } catch (const std::invalid_argument& e) {
             return fail(command, (std::string("-paintChannels: ") + e.what()).c_str());
+        }
+    }
+    if (args.isFlagSet(kPaintModeFlag[0]) && args.getFlagArgument(kPaintModeFlag[0], 0, text)) {
+        try {
+            s.brush.paintMode = paintModeFromString(text.asChar());
+        } catch (const std::invalid_argument& e) {
+            return fail(command, (std::string("-paintMode: ") + e.what()).c_str());
         }
     }
     return MS::kSuccess;
@@ -1355,6 +1364,7 @@ MStatus BrushContextCmd::doQueryFlags() {
             }
             setResult(color);
         } else if (args.isFlagSet(kPaintChannelsFlag[0])) setResult(MString(channelLetters(s.paintChannels).c_str()));
+        else if (args.isFlagSet(kPaintModeFlag[0])) setResult(MString(paintModeName(s.brush.paintMode)));
         else if (args.isFlagSet(kDragSliderFlag[0])) setResult(MString(context_->dragSlider.empty() ? "none" : context_->dragSlider.c_str()));
         // Testing aids: what the texture strokes in the undo queue keep (bytes), and how the
         // viewport sends a stroke's texels to the map's texture.

@@ -202,6 +202,7 @@ struct MapDab {
     float strength = 1.0f;
     PaintColor target{1.0f, 1.0f, 1.0f, 1.0f};
     unsigned mask = kAllChannels;
+    PaintMode mode = PaintMode::Replace;
     BrushFalloff falloff;
     int mirrorAxis = -1;
     float mirrorCenter = 0.0f;

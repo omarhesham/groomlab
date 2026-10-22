@@ -21,9 +21,28 @@
 #include "groomlab/parallel.h"
 #include "groomlab/point_index.h"
 #include "groomlab/random.h"
+#include "groomlab/scalp_paint.h"
 #include "groomlab/scalp_mirror.h"
 
 namespace groomlab {
+
+const char* paintModeName(PaintMode mode) {
+    switch (mode) {
+        case PaintMode::Replace: return "replace";
+        case PaintMode::Add: return "add";
+        case PaintMode::Subtract: return "subtract";
+        case PaintMode::ClampMaximum: return "clampMaximum";
+    }
+    return "replace";
+}
+
+PaintMode paintModeFromString(const std::string& name) {
+    if (name.empty() || name == "replace") return PaintMode::Replace;
+    if (name == "add") return PaintMode::Add;
+    if (name == "subtract") return PaintMode::Subtract;
+    if (name == "clampMaximum" || name == "clamp") return PaintMode::ClampMaximum;
+    throw std::invalid_argument("paint mode takes replace, add, subtract or clampMaximum");
+}
 
 StrokeSymmetry StrokeSymmetry::of(const BrushSettings& s, const ScalpMesh* scalp) {
     StrokeSymmetry out;
@@ -362,7 +381,7 @@ Edit brushGuide(const HierarchyGuide& g, const ScalpMesh* scalp, const BrushSett
             if (w <= 0.0f) return e;
             auto it = g.attributes.find(s.attribute);
             const float current = it == g.attributes.end() ? 0.0f : it->second;
-            e.attribute = current + (s.value - current) * w;
+            e.attribute = current + (compositePaintValue(current, s.value, s.paintMode) - current) * w;
             return e;
         }
         case BrushMode::Twist: {

@@ -563,6 +563,7 @@ MapDab MapDab::of(const BrushToolSettings& s, const BrushSettings& b, int channe
     // A color map takes the paint color in the chosen channels; a gray map the value.
     d.target = channels == kColorMap ? s.paintTarget(inverted) : PaintColor{b.value, b.value, b.value, b.value};
     d.mask = s.paintChannels;
+    d.mode = b.paintMode;
     d.falloff = falloffOf(b);
     d.mirrorAxis = b.mirrorAxis;
     d.mirrorCenter = b.mirrorCenter;
@@ -582,13 +583,14 @@ std::size_t dabOnce(MapCanvas& map, const ScalpMesh& scalp, const MapDab& d, con
         const VertexNeighbors& neighbors = map.neighbors ? *map.neighbors : none;
         for (int pass = 0; pass < d.passes; ++pass) {
             changed += d.smoothing ? smoothVertexReach(*map.vertices, map.channels, d.mask, scalp, neighbors, reach, d.perPass)
-                                   : stampVertexReach(*map.vertices, map.channels, d.mask, scalp, reach, d.strength, d.target);
+                                   : stampVertexReach(*map.vertices, map.channels, d.mask, scalp, reach, d.strength, d.target, d.mode);
         }
     } else if (map.texture) {
         TexturePaint& paint = *map.texture;
         const TexturePaint::Reach reach = paint.reachOf(c, radius, w, threadSafe);
         for (int pass = 0; pass < d.passes; ++pass) {
-            changed += d.smoothing ? paint.smoothReach(reach, d.perPass, d.mask) : paint.stampReach(reach, d.strength, d.target, d.mask);
+            changed += d.smoothing ? paint.smoothReach(reach, d.perPass, d.mask)
+                                   : paint.stampReach(reach, d.strength, d.target, d.mask, d.mode);
         }
     }
     return changed;

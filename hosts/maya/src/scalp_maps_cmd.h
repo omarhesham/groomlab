@@ -30,7 +30,7 @@ namespace groomlab::maya {
 //   -rename/-rn <old> <new> [-texture/-tx path]
 //                                     a texture map's file moves to path (undone with the rename);
 //                                     copied instead when another groom reads that file
-//   -fill/-f <name> (-value/-v <v> | -fillColor/-fc r g b a) [-fillChannels/-fch rgba]
+//   -fill/-f <name> (-value/-v <v> | -fillColor/-fc r g b a) [-fillChannels/-fch rgba] [-paintMode/-pmd mode]
 //                                     a gray map takes v; a color map takes the color in the
 //                                     channels given (all by default), or v in its r g b (a kept)
 //   -convert/-cv <name> -kind/-k <kind> [-resolution/-res n] [-texture/-tx path]

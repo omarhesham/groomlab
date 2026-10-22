@@ -137,6 +137,7 @@ void applySettings(BrushToolSettings& s, const py::dict& kwargs) {
         else if (key == "paint_color") {
             if (!v.is_none()) s.paintColor = toColor(v);
         } else if (key == "paint_channels") s.paintChannels = channelMask(v.is_none() ? std::string("rgba") : v.cast<std::string>());
+        else if (key == "paint_mode") s.brush.paintMode = paintModeFromString(v.cast<std::string>());
         else if (key == "pressure") s.pressure = v.cast<bool>();
         else if (key == "mask_by_scalp") s.maskByScalp = v.cast<bool>();
         else if (key == "erase_guides") s.eraseGuides = v.cast<bool>();

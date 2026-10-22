@@ -39,6 +39,7 @@ constexpr int kGrayMap = 1;
 constexpr int kColorMap = 4;
 constexpr unsigned kAllChannels = 0xFu;
 using PaintColor = std::array<float, 4>;
+float compositePaintValue(float current, float value, PaintMode mode);
 
 // "rgba" or any non-empty subset of those letters <-> a mask. Throws std::invalid_argument.
 unsigned channelMask(const std::string& letters);
@@ -108,7 +109,8 @@ struct VertexNeighbors {
 using VertexReach = std::vector<std::pair<std::size_t, float>>;
 VertexReach vertexReach(const ScalpMesh& scalp, const Vec3f& center, float radius, const BrushWeightFn& weight = {});
 std::size_t stampVertexReach(std::vector<float>& values, int channels, unsigned mask, const ScalpMesh& scalp,
-                             const VertexReach& reach, float strength, const PaintColor& target);
+                             const VertexReach& reach, float strength, const PaintColor& target,
+                             PaintMode mode = PaintMode::Replace);
 std::size_t smoothVertexReach(std::vector<float>& values, int channels, unsigned mask, const ScalpMesh& scalp,
                               const VertexNeighbors& neighbors, const VertexReach& reach, float strength);
 
@@ -262,7 +264,8 @@ public:
     // `threadSafeWeight`: the weight may be called from several threads at once (the screen
     // brush's is), so a big dab weighs its texels in parallel (the same reach, in the same order).
     Reach reachOf(const Vec3f& center, float radius, const BrushWeightFn& weight = {}, bool threadSafeWeight = false) const;
-    std::size_t stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask);
+    std::size_t stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask,
+                           PaintMode mode = PaintMode::Replace);
     std::size_t smoothReach(const Reach& reach, float strength, unsigned mask = kAllChannels);
     // Every texel `value`: a color map's r g b (its alpha kept).
     void fill(float value);

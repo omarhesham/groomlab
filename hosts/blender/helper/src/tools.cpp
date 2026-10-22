@@ -577,6 +577,7 @@ void applySettings(ToolState& t, const json& settings) {
                 for (std::size_t i = 0; i < v.size(); ++i) c[i] = settingNumber(v[i], k);
                 s.setPaintColor(c);
             } else if (key == "paintChannels") s.paintChannels = channelMask(settingString(v, k).empty() ? std::string("rgba") : settingString(v, k));
+            else if (key == "paintMode") s.brush.paintMode = paintModeFromString(settingString(v, k));
             else if (key == "smoothStrength") s.setSmoothStrength(settingNumber(v, k));
             else fail("bad_request", "no tool setting '" + key + "'");
         }
@@ -640,6 +641,7 @@ json settingsJson(const ToolState& t) {
     j["paintResolution"] = s.paintResolution;
     j["paintColor"] = s.paintColor;
     j["paintChannels"] = channelLetters(s.paintChannels);
+    j["paintMode"] = paintModeName(s.brush.paintMode);
     j["smoothStrength"] = s.smoothStrength;
     return j;
 }

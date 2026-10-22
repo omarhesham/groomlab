@@ -47,6 +47,7 @@ const char* kValues[] = {"-val", "-values"};
 const char* kColor[] = {"-clr", "-color"};
 const char* kFillColor[] = {"-fc", "-fillColor"};
 const char* kFillChannels[] = {"-fch", "-fillChannels"};
+const char* kPaintMode[] = {"-pmd", "-paintMode"};
 const char* kChannelsOf[] = {"-cho", "-channelsOf"};
 const char* kSetChannels[] = {"-sch", "-setChannels"};
 const char* kRelink[] = {"-rl", "-relink"};
@@ -109,6 +110,7 @@ MSyntax ScalpMapsCmd::newSyntax() {
     s.addFlag(kColor[0], kColor[1]);
     s.addFlag(kFillColor[0], kFillColor[1], MSyntax::kDouble, MSyntax::kDouble, MSyntax::kDouble, MSyntax::kDouble);
     s.addFlag(kFillChannels[0], kFillChannels[1], MSyntax::kString);
+    s.addFlag(kPaintMode[0], kPaintMode[1], MSyntax::kString);
     s.addFlag(kChannelsOf[0], kChannelsOf[1], MSyntax::kString);
     s.addFlag(kSetChannels[0], kSetChannels[1], MSyntax::kString, MSyntax::kLong);
     s.addFlag(kRelink[0], kRelink[1], MSyntax::kString);
@@ -213,6 +215,14 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
                 fillMask = channelMask(flagString(db, kFillChannels[0]).asChar());
             } catch (const std::invalid_argument& e) {
                 return fail(kName, (std::string("-fillChannels: ") + e.what()).c_str());
+            }
+        }
+        PaintMode paintMode = PaintMode::Replace;
+        if (db.isFlagSet(kPaintMode[0])) {
+            try {
+                paintMode = paintModeFromString(flagString(db, kPaintMode[0]).asChar());
+            } catch (const std::invalid_argument& e) {
+                return fail(kName, (std::string("-paintMode: ") + e.what()).c_str());
             }
         }
         const MObject groomNode = groomPath.node();
@@ -358,7 +368,11 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
                 // A color map: the color in the channels asked for, or a value in r g b (the alpha kept).
                 const unsigned mask = byColor ? fillMask : (fillMask & 0x7u);
                 if (kind == "guides") {
-                    for (const HierarchyGuide& g : h->guides()) h->setAttribute(g.id, name, value);
+                    for (const HierarchyGuide& g : h->guides()) {
+                        float current = 0.0f;
+                        h->effectiveAttribute(g, name, &current);
+                        h->setAttribute(g.id, name, compositePaintValue(current, value, paintMode));
+                    }
                     guidesChanged = true;
                 } else if (kind == "vertices") {
                     ScalpMapEntry& entry = maps.maps[name];
@@ -368,8 +382,10 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
                         entry.values = filledVertexMap(scalp->pointCount(), channels, PaintColor{0.0f, 0.0f, 0.0f, 1.0f});
                     }
                     for (std::size_t i = 0; i < entry.values.size(); ++i) {
-                        if (per == 1) entry.values[i] = value;
-                        else if (mask & (1u << (i % 4))) entry.values[i] = color[i % 4];
+                        if (per == 1) entry.values[i] = compositePaintValue(entry.values[i], value, paintMode);
+                        else if (mask & (1u << (i % 4))) {
+                            entry.values[i] = compositePaintValue(entry.values[i], color[i % 4], paintMode);
+                        }
                     }
                     mapsChanged = true;
                 } else {
@@ -377,9 +393,11 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
                     mapsChanged = ownFile(name) || mapsChanged;
                     TexturePaint paint = texturePaint(maps.maps[name].texture, channels);
                     if (channels == kColorMap) {
-                        paint.fill(color, mask);
+                        for (std::size_t i = 0; i < paint.values().size(); ++i) {
+                            if (mask & (1u << (i % 4))) paint.values()[i] = compositePaintValue(paint.values()[i], color[i % 4], paintMode);
+                        }
                     } else {
-                        paint.fill(value);
+                        for (float& x : paint.values()) x = compositePaintValue(x, value, paintMode);
                     }
                     writeTexture(paint, maps.maps[name].texture);
                 }
