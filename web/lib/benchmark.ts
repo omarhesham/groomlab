@@ -40,10 +40,10 @@ export const benchmarkInfo = {
   host: 'Maya 2022, Windows 11',
   xgenRun: '2026-10-21',
   groomlabRun: '2026-10-22',
-  groomlabVersion: '0.24.0',
+  groomlabVersion: '0.25.0',
   setup:
     'The same 17k-triangle head-sized scalp, strands 15 cm long with 16 points each, clumping and noise on both (GroomLab adds a Curl), every strand shown in the viewport.',
-  runs: 'Medians of 5 runs, each measurement in a fresh Maya (the GPU preview rows: 3 runs, 2026-10-02).',
+  runs: 'Medians of 3 to 5 runs, each measurement in a fresh Maya; the orbit turns about the framed head, as the tumble tool does (the GPU preview rows: 3 runs, 2026-10-02).',
 };
 
 export const benchmarkRows: BenchmarkRow[] = [
@@ -53,7 +53,7 @@ export const benchmarkRows: BenchmarkRow[] = [
     unit: 's',
     better: 'faster',
     home: true,
-    values: { '100k': { xgen: 11.5, groomlab: 0.31 }, '500k': { xgen: 12.8, groomlab: 0.66 } },
+    values: { '100k': { xgen: 14.6, groomlab: 0.29 }, '500k': { xgen: 13.3, groomlab: 0.59 } },
   },
   {
     id: 'scene',
@@ -73,8 +73,8 @@ export const benchmarkRows: BenchmarkRow[] = [
     home: true,
     note: 'Without Follow Scalp, GroomLab grows the groom again every frame.',
     values: {
-      '100k': { xgen: 129, groomlab: 49.4, follow: 8.09 },
-      '500k': { xgen: 419, groomlab: 206, follow: 24.0 },
+      '100k': { xgen: 129, groomlab: 47.7, follow: 9.04 },
+      '500k': { xgen: 419, groomlab: 187, follow: 25.9 },
     },
   },
   {
@@ -84,8 +84,8 @@ export const benchmarkRows: BenchmarkRow[] = [
     compare: 'follow',
     better: 'faster',
     values: {
-      '100k': { xgen: 4.75, groomlab: 1.59, follow: 0.59 },
-      '500k': { xgen: 17.7, groomlab: 7.89, follow: 3.53 },
+      '100k': { xgen: 4.75, groomlab: 1.51, follow: 0.62 },
+      '500k': { xgen: 17.7, groomlab: 7.66, follow: 3.69 },
     },
   },
   {
@@ -95,8 +95,8 @@ export const benchmarkRows: BenchmarkRow[] = [
     compare: 'follow',
     better: 'faster',
     values: {
-      '100k': { xgen: 2.36, groomlab: 0.54, follow: 0.3 },
-      '500k': { xgen: 8.24, groomlab: 2.16, follow: 1.16 },
+      '100k': { xgen: 2.36, groomlab: 0.54, follow: 0.32 },
+      '500k': { xgen: 8.24, groomlab: 2.05, follow: 1.1 },
     },
   },
   {
@@ -105,14 +105,14 @@ export const benchmarkRows: BenchmarkRow[] = [
     unit: 'MB',
     better: 'less',
     note: 'Process working set, batch (no viewport).',
-    values: { '100k': { xgen: 286, groomlab: 205 }, '500k': { xgen: 1127, groomlab: 674 } },
+    values: { '100k': { xgen: 286, groomlab: 194 }, '500k': { xgen: 1127, groomlab: 663 } },
   },
   {
     id: 'gpu',
     label: 'GPU memory, viewport',
     unit: 'MB',
     better: 'less',
-    values: { '100k': { xgen: 190, groomlab: 151 }, '500k': { xgen: 959, groomlab: 475 } },
+    values: { '100k': { xgen: 191, groomlab: 146 }, '500k': { xgen: 960, groomlab: 447 } },
   },
   {
     id: 'save',
@@ -126,7 +126,7 @@ export const benchmarkRows: BenchmarkRow[] = [
     label: 'Open the scene and evaluate',
     unit: 's',
     better: 'faster',
-    values: { '100k': { xgen: 0.49, groomlab: 0.13 }, '500k': { xgen: 1.0, groomlab: 0.34 } },
+    values: { '100k': { xgen: 0.49, groomlab: 0.13 }, '500k': { xgen: 1.0, groomlab: 0.32 } },
   },
   {
     id: 'clumpEval',
@@ -134,8 +134,8 @@ export const benchmarkRows: BenchmarkRow[] = [
     unit: 'ms',
     better: 'faster',
     values: {
-      '100k': { xgen: 52.4, groomlab: 29.2, nocurl: 15.2 },
-      '500k': { xgen: 252, groomlab: 138, nocurl: 62.7 },
+      '100k': { xgen: 52.4, groomlab: 25.2, nocurl: 15.6 },
+      '500k': { xgen: 252, groomlab: 111, nocurl: 66.0 },
     },
   },
   {
@@ -144,8 +144,8 @@ export const benchmarkRows: BenchmarkRow[] = [
     unit: 'ms',
     better: 'faster',
     values: {
-      '100k': { xgen: 33.2, groomlab: 22.5, nocurl: 11.5 },
-      '500k': { xgen: 162, groomlab: 108, nocurl: 48.4 },
+      '100k': { xgen: 33.2, groomlab: 17.8, nocurl: 11.7 },
+      '500k': { xgen: 162, groomlab: 80.4, nocurl: 51.5 },
     },
   },
   {
@@ -153,14 +153,14 @@ export const benchmarkRows: BenchmarkRow[] = [
     label: 'Noise tweak to redrawn frame',
     unit: 'ms',
     better: 'faster',
-    values: { '100k': { xgen: 31.8, groomlab: 32.6, nocurl: 20.8 }, '500k': { xgen: 136, groomlab: 124, nocurl: 68.1 } },
+    values: { '100k': { xgen: 36.1, groomlab: 27.4, nocurl: 22.7 }, '500k': { xgen: 132, groomlab: 96.8, nocurl: 66.1 } },
   },
   {
     id: 'clumpDraw',
     label: 'Clump tweak to redrawn frame',
     unit: 'ms',
     better: 'faster',
-    values: { '100k': { xgen: 87.2, groomlab: 39.3, nocurl: 25.2 }, '500k': { xgen: 391, groomlab: 152, nocurl: 82.8 } },
+    values: { '100k': { xgen: 97.6, groomlab: 37.4, nocurl: 28.6 }, '500k': { xgen: 402, groomlab: 124, nocurl: 81.4 } },
   },
   {
     id: 'clumpDrag',
@@ -170,7 +170,7 @@ export const benchmarkRows: BenchmarkRow[] = [
     better: 'faster',
     home: true,
     note: "XGen: its clump tweak to redrawn frame. GroomLab: a slider drag in the Graph Editor, previewed on the GPU; letting go commits on the CPU.",
-    values: { '100k': { xgen: 87.2, gpu: 4.08 }, '500k': { xgen: 391, gpu: 13.3 } },
+    values: { '100k': { xgen: 97.6, gpu: 4.08 }, '500k': { xgen: 402, gpu: 13.3 } },
   },
   {
     id: 'noiseDrag',
@@ -179,7 +179,7 @@ export const benchmarkRows: BenchmarkRow[] = [
     compare: 'gpu',
     better: 'faster',
     note: 'As the clump slider: XGen its noise tweak, GroomLab the drag previewed on the GPU.',
-    values: { '100k': { xgen: 31.8, gpu: 3.5 }, '500k': { xgen: 136, gpu: 12.0 } },
+    values: { '100k': { xgen: 36.1, gpu: 3.5 }, '500k': { xgen: 132, gpu: 12.0 } },
   },
   {
     id: 'playback',
@@ -189,8 +189,8 @@ export const benchmarkRows: BenchmarkRow[] = [
     compare: 'follow',
     better: 'faster',
     values: {
-      '100k': { xgen: 4.78, groomlab: 16.8, follow: 90.3 },
-      '500k': { xgen: 1.46, groomlab: 4.44, follow: 26.0 },
+      '100k': { xgen: 4.78, groomlab: 17.4, follow: 109 },
+      '500k': { xgen: 1.46, groomlab: 5.09, follow: 79.0 },
     },
   },
   {
@@ -199,7 +199,7 @@ export const benchmarkRows: BenchmarkRow[] = [
     unit: 'fps',
     higherIsBetter: true,
     better: 'faster',
-    values: { '100k': { xgen: 551, groomlab: 129 }, '500k': { xgen: 123, groomlab: 36.0 } },
+    values: { '100k': { xgen: 491, groomlab: 456 }, '500k': { xgen: 116, groomlab: 148 } },
   },
   {
     id: 'brush',
@@ -207,7 +207,7 @@ export const benchmarkRows: BenchmarkRow[] = [
     unit: 'ms',
     compare: 'gpu',
     note: "XGen's brushes cannot be driven by a script, so it has no number here.",
-    values: { '100k': { groomlab: 20.7, nocurl: 16.9, gpu: 3.44 }, '500k': { groomlab: 63.7, nocurl: 44.6, gpu: 5.14 } },
+    values: { '100k': { groomlab: 21.9, nocurl: 17.1, gpu: 3.44 }, '500k': { groomlab: 65.6, nocurl: 46.4, gpu: 5.14 } },
   },
 ];
 
