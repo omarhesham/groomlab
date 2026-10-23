@@ -87,6 +87,13 @@ include(GroomLabBuildSpeed)
 
 if(MSVC)
     add_compile_options(/utf-8)
+    # Release builds (RelWithDebInfo, every product) inline any function the compiler finds worth
+    # it (/Ob2), not only those marked inline (CMake's /Ob1): with /Ob1, small helpers such as
+    # std::floor, std::clamp and atomic loads stayed calls inside the hottest loops. Inlining
+    # changes no float result under /fp:precise (test_determinism.cpp checks).
+    foreach(_lang C CXX)
+        string(REPLACE "/Ob1" "/Ob2" CMAKE_${_lang}_FLAGS_RELWITHDEBINFO "${CMAKE_${_lang}_FLAGS_RELWITHDEBINFO}")
+    endforeach()
 endif()
 if(EMSCRIPTEN)
     # The browser build (engine/web): C++ exceptions as WebAssembly exceptions (the core throws
