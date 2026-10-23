@@ -176,6 +176,39 @@ class GraphEditorTest(unittest.TestCase):
         self.assertEqual(self.editor.scene.selectedItems(), [])  # no rubber band from the port drag
         self.editor.hide()
 
+    def test_alt_shift_drag_cuts_a_connection_and_undo_restores_it(self):
+        QtCore, QtWidgets = self.ge.QtCore, self.ge.QtWidgets
+        self.editor.resize(1200, 600)
+        self.editor.show()
+        QtWidgets.QApplication.processEvents()
+        try:
+            view = self.editor.view
+            edge = self.edge("length", "width")
+            middle = edge.path().pointAtPercent(0.5)
+            start = view.mapFromScene(middle - QtCore.QPointF(0, 30))
+            end = view.mapFromScene(middle + QtCore.QPointF(0, 30))
+            settle_undo()
+            drag(view.viewport(), start, end, steps=4,
+                 modifiers=QtCore.Qt.AltModifier | QtCore.Qt.ShiftModifier)
+            self.assertIsNone(self.editor.model.source_of("width", "strands"))
+            self.assertIn("cut 1 connection", self.editor.status.text())
+            cmds.undo()
+            wait(50)
+            self.assertEqual(self.editor.model.source_of("width", "strands"), "length")
+        finally:
+            self.editor.hide()
+
+    def test_one_cut_of_several_connections_is_one_undo_step(self):
+        settle_undo()
+        links = [self.edge("length", "width").link(), self.edge("width", "resample").link()]
+        self.editor.cut_links(links)
+        self.assertIsNone(self.editor.model.source_of("width", "strands"))
+        self.assertIsNone(self.editor.model.source_of("resample", "strands"))
+        cmds.undo()
+        wait(50)
+        self.assertEqual(self.editor.model.source_of("width", "strands"), "length")
+        self.assertEqual(self.editor.model.source_of("resample", "strands"), "width")
+
     def test_tab_added_nodes_wire_after_the_selection(self):
         self.editor.items["length"].setSelected(True)
         search = self.ge.NodeSearch(self.editor, (321.0, 654.0))

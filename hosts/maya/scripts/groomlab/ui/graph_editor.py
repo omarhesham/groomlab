@@ -6,7 +6,7 @@ Edits a GraphModel (groomlab.graph) and writes it back to the groom:
   with several outputs (a Map node: luminance, r, g, b, a) shows one labelled
   port per output, stacked down its right edge, and a link starts at the one
   dragged from;
-- Delete removes selected nodes or connections;
+- Delete removes selected nodes or connections; Alt+Shift+drag cuts every connection crossed;
 - right-click a node for Set Output / Rename / Delete;
 - parameters of the selected node appear on the right; numbers get a slider
   whose range stretches to any value you type (right-click it for the
@@ -1108,6 +1108,7 @@ class EdgeItem(QtWidgets.QGraphicsPathItem):
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsSelectable)
         self.setAcceptHoverEvents(True)
         self.hovered = False
+        self.cutting = False
         src_item.edges.append(self)
         dst_item.edges.append(self)
         self.update_path()
@@ -1126,8 +1127,9 @@ class EdgeItem(QtWidgets.QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        color = SELECTED if self.isSelected() else (self.color.lighter(125) if self.hovered else self.color)
-        width = 3.0 if self.isSelected() or self.hovered else 2.2
+        color = ERROR if self.cutting else (SELECTED if self.isSelected() else
+                                            (self.color.lighter(125) if self.hovered else self.color))
+        width = 3.0 if self.isSelected() or self.hovered or self.cutting else 2.2
         if self.dst_item.inputs[self.input_name].is_param:
             pen = QtGui.QPen(color, width, QtCore.Qt.DashLine)
         else:
@@ -1380,7 +1382,7 @@ class BackdropItem(QtWidgets.QGraphicsItem):
 
 
 class GraphScene(QtWidgets.QGraphicsScene):
-    """Link dragging (with snapping and highlighted targets), deletion, a dot grid."""
+    """Link dragging, Alt+Shift connection cutting, deletion, and a dot grid."""
 
     def __init__(self, editor):
         super(GraphScene, self).__init__()
@@ -1391,6 +1393,9 @@ class GraphScene(QtWidgets.QGraphicsScene):
         self.drag_reason = None    # why the port under a dragged link can't take it (its tooltip)
         self._detach = None        # (node, input) whose existing link is being moved
         self._drop_wire = None     # the wire under an unwired node being dragged: dropped, it goes in it
+        self._cut_line = None      # the visible stroke of an Alt+Shift connection-cutting drag
+        self._cut_start = None
+        self._cut_edges = set()
         self._grid = {}            # (zoom, dot color) -> QBrush: the dot tile at that zoom
 
     GRID_STEP = 24
@@ -1503,8 +1508,61 @@ class GraphScene(QtWidgets.QGraphicsScene):
         """Drop a link drag in progress (before a rebuild, or when a popup takes the mouse)."""
         if self._drag_port is not None or self._drag_line is not None:
             self._end()
+        if self._cut_line is not None:
+            self._end_cut()
+
+    @staticmethod
+    def cutting(event):
+        modifiers = event.modifiers()
+        wanted = QtCore.Qt.AltModifier | QtCore.Qt.ShiftModifier
+        return event.button() == QtCore.Qt.LeftButton and modifiers & wanted == wanted
+
+    def _begin_cut(self, pos):
+        self._cut_start = pos
+        self._cut_edges = set()
+        pen = QtGui.QPen(ERROR, 2.0, QtCore.Qt.DashLine)
+        pen.setCapStyle(QtCore.Qt.RoundCap)
+        path = QtGui.QPainterPath()
+        path.moveTo(pos)
+        self._cut_line = self.addPath(path, pen)
+        self._cut_line.setZValue(20)
+
+    def _continue_cut(self, pos):
+        # One straight blade from where the drag began to where it is now. Constructing a path
+        # with QPainterPath(point) leaves an implicit subpath at (0, 0) on some Qt versions,
+        # which painted a stray line from the graph's origin.
+        segment = QtGui.QPainterPath()
+        segment.moveTo(self._cut_start)
+        segment.lineTo(pos)
+        stroker = QtGui.QPainterPathStroker()
+        stroker.setWidth(2.0)
+        crossed = stroker.createStroke(segment)
+        edges = [i for i in self.items() if isinstance(i, EdgeItem)]
+        now = {edge for edge in edges if edge.shape().intersects(crossed)}
+        for edge in self._cut_edges | now:
+            if edge.cutting != (edge in now):
+                edge.cutting = edge in now
+                edge.update()
+        self._cut_edges = now
+        self._cut_line.setPath(segment)
+
+    def _end_cut(self):
+        links = [edge.link() for edge in self._cut_edges]
+        for edge in self._cut_edges:
+            edge.cutting = False
+            edge.update()
+        if self._cut_line is not None:
+            self.removeItem(self._cut_line)
+        self._cut_line = self._cut_start = None
+        self._cut_edges = set()
+        return links
 
     def mousePressEvent(self, event):
+        if self.cutting(event):
+            self.clearSelection()
+            self._begin_cut(event.scenePos())
+            event.accept()
+            return
         port = self.port_at(event.scenePos())
         if port is not None and event.button() == QtCore.Qt.LeftButton:
             if self._drag_port is not None:
@@ -1546,6 +1604,10 @@ class GraphScene(QtWidgets.QGraphicsScene):
         return reason
 
     def mouseMoveEvent(self, event):
+        if self._cut_line is not None:
+            self._continue_cut(event.scenePos())
+            event.accept()
+            return
         if self._drag_port is not None:
             self._update_line(event.scenePos())
             self.hover_reason(event.scenePos(), event.screenPos())
@@ -1593,6 +1655,13 @@ class GraphScene(QtWidgets.QGraphicsScene):
             self._drop_wire = wire
 
     def mouseReleaseEvent(self, event):
+        if self._cut_line is not None and event.button() == QtCore.Qt.LeftButton:
+            self._continue_cut(event.scenePos())
+            links = self._end_cut()
+            event.accept()
+            if links:
+                self.editor.cut_links(links)
+            return
         if self._drag_port is not None:
             start, end, detach = self._drag_port, self._snap(event.scenePos()), self._detach
             refused = self.hover_reason(event.scenePos()) if end is None else None
@@ -1888,7 +1957,8 @@ class GraphView(QtWidgets.QGraphicsView):
             return
         self._zoomed = False
         if event.button() == QtCore.Qt.MiddleButton or (
-                event.button() == QtCore.Qt.LeftButton and event.modifiers() & QtCore.Qt.AltModifier):
+                event.button() == QtCore.Qt.LeftButton and event.modifiers() & QtCore.Qt.AltModifier
+                and not event.modifiers() & QtCore.Qt.ShiftModifier):
             self._pan = qt.event_pos(event)
             self.setCursor(QtCore.Qt.ClosedHandCursor)
             return
@@ -4063,7 +4133,12 @@ class GraphEditor(QtWidgets.QWidget):
         theme.listen(self, "restyle")
         self._graph_job = None     # callback: the groom's graph changed outside the editor
         self._time_job = None      # scriptJob: the time changed (timings and errors follow)
+        self._history_jobs = []    # scriptJobs: Maya undo/redo completed
         self._sync_pending = False
+        self._sync_timer = QtCore.QTimer(self)
+        self._sync_timer.setSingleShot(True)
+        self._sync_timer.setInterval(0)
+        self._sync_timer.timeout.connect(self._sync_from_groom)
         self._selection_job = None  # scriptJob: follow the selected groom
         self._scene_jobs = []       # callbacks: File > New and Open
         self._watch_selection()
@@ -4142,6 +4217,11 @@ class GraphEditor(QtWidgets.QWidget):
             self._time_job = cmds.scriptJob(event=["timeChanged", self._time_changed])
         except RuntimeError:  # no UI events (batch)
             self._time_job = None
+        try:
+            self._history_jobs = [cmds.scriptJob(event=[event, self._history_changed])
+                                  for event in ("Undo", "Redo")]
+        except RuntimeError:  # no UI events (batch)
+            self._history_jobs = []
 
     # The groom's attributes whose change means new timings and errors (graph: a reload too).
     WATCH = ("graph", "guideData", "correctiveData", "flowData", "partData", "viewNode", "cardMaps")
@@ -4156,6 +4236,20 @@ class GraphEditor(QtWidgets.QWidget):
             self._graph_job = None
         self._kill_job(getattr(self, "_time_job", None))
         self._time_job = None
+        for job in getattr(self, "_history_jobs", []):
+            self._kill_job(job)
+        self._history_jobs = []
+
+    def _history_changed(self):
+        """Reload after Maya's global Undo/Redo has fully completed.
+
+        Attribute callbacks can run partway through undo and are coalesced with callbacks from the
+        original edit.  Maya's history event is the reliable transaction boundary.
+        """
+        if widgets.alive(self):
+            self._graph_changed()
+            self.status_soon()
+            self._keys_soon()
 
     def _time_changed(self):
         """A new frame: keyed params show their values and states now, timings and errors once it settles."""
@@ -4192,6 +4286,7 @@ class GraphEditor(QtWidgets.QWidget):
 
     def sync_now(self):
         """Show the groom's graph now if it changed (a key edit linked or unlinked a param)."""
+        self._sync_timer.stop()
         self._sync_pending = False
         self._sync_from_groom()
 
@@ -4237,9 +4332,10 @@ class GraphEditor(QtWidgets.QWidget):
             return None
 
     def _graph_changed(self):
-        if not self._sync_pending:  # once, after the change settles
-            self._sync_pending = True
-            QtCore.QTimer.singleShot(0, self._sync_from_groom)
+        # Restart rather than discard a later notification.  A quick edit followed by undo can
+        # otherwise leave the undo's graph change hidden behind the edit's pending callback.
+        self._sync_pending = True
+        self._sync_timer.start()
 
     def _sync_from_groom(self):
         from maya import cmds
@@ -4433,6 +4529,8 @@ class GraphEditor(QtWidgets.QWidget):
         timer = getattr(self, "_status_timer", None)
         if timer is not None and widgets.alive(timer):
             timer.stop()
+        if widgets.alive(self._sync_timer):
+            self._sync_timer.stop()
 
     @staticmethod
     def silently(fn):
@@ -4472,10 +4570,10 @@ class GraphEditor(QtWidgets.QWidget):
         except RuntimeError as e:
             self.report(str(e).strip())
             return False
-        # The graph watcher reloads on the attribute change; this is the same path (once, after
-        # the change settles, and nothing when the graph is what the editor shows), for a step
-        # that touched something else, or an editor watching nothing yet.
-        self._graph_changed()
+        # Reconcile synchronously for shortcuts and the Edit menu.  The watcher remains the
+        # fallback for undo/redo invoked elsewhere in Maya, with its timer restarted by every
+        # graph notification so the last state always wins.
+        self.sync_now()
         self.status_soon()
         self._keys_soon()
         self.report("%s: %s" % (verb, name.strip()))
@@ -5253,6 +5351,44 @@ class GraphEditor(QtWidgets.QWidget):
         self.model.disconnect(dst, input_name)
         self.rebuild()
         self.changed()
+
+    def cut_links(self, links):
+        """Disconnect every (src, output, dst, input) crossed by one cut gesture as one edit."""
+        for _src, _output, dst, input_name in links:
+            self.model.disconnect(dst, input_name)
+        problems = self.model.validate()
+        if self.live and self.groom and self.same_groom():
+            # A cut changes connections only. Commit its final graph text directly and
+            # synchronously: apply() has several follow-up paths intended for general graph edits,
+            # and deferring it from mouseReleaseEvent lets unrelated UI work reach Maya's undo
+            # queue first. This one setAttr (plus shader sync when needed) is one deterministic
+            # undo record for the whole gesture.
+            from maya import cmds
+            import groomlab
+            text = self.model.to_json()
+            # A queued callback from an earlier node-layout save may still carry the graph text
+            # that undo is about to restore.  It is no longer safe to classify that text as a
+            # layout-only notification once this real edit begins, or a quick undo is ignored.
+            self._layout_text = None
+            recording = cmds.undoInfo(query=True, state=True)
+            # Preview and layout writes temporarily suspend recording. A completed user gesture
+            # must end with recording enabled; restoring the leaked disabled state makes Maya say
+            # "nothing to undo" even though this write was placed on its queue.
+            if not recording:
+                cmds.undoInfo(stateWithoutFlush=True)
+            with groomlab.undo_chunk("cut connections"):
+                if cmds.getAttr(self.groom + ".graph") != text:
+                    cmds.setAttr(self.groom + ".graph", text, type="string")
+                # A cut commonly leaves a required input disconnected. Store that incomplete
+                # graph so the edit is real and undoable, but do not inspect its invalid look.
+                if not problems:
+                    groomlab.sync_hair_shader(self.groom)
+            self.refresh_status()
+        else:
+            notes = ["warning: " + w for w in self.model.warnings()]
+            self.report("; ".join(problems or notes))
+        self.rebuild()
+        self.report("cut %d connection%s" % (len(links), "" if len(links) == 1 else "s"))
 
     def insert_on_wire(self, name, link):
         """Put node `name` into the link (src, output, dst, input): a node dropped on a wire."""
