@@ -5205,8 +5205,9 @@ class GraphEditor(QtWidgets.QWidget):
         try:
             params = [p["name"] for p in self.model.node_spec(name)["params"] if gm.linkable(p)]
             expose = not all(p in self.model.param_inputs(name) for p in params)
+            connected = {c["input"] for c in self.model.connections if c["to"] == name}
             for param in params:
-                if (param in self.model.param_inputs(name)) != expose:
+                if (param in self.model.param_inputs(name)) != expose and (expose or param not in connected):
                     (self.model.expose_param if expose else self.model.unexpose_param)(name, param)
         except gm.GraphError as e:
             self.report(str(e))

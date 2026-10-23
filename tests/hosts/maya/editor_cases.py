@@ -453,8 +453,12 @@ class GraphEditorTest(unittest.TestCase):
         self.assertIn("inputs", item.toggle_rects())
         self.editor.toggle_param_inputs("length")
         self.assertEqual(set(self.editor.model.param_inputs("length")), set(params))
+        field = self.editor.add_node("FieldNoise")
+        self.editor.link(field, "length", "keep")
         self.editor.toggle_param_inputs("length")
-        self.assertFalse(self.editor.model.param_inputs("length"))
+        self.assertEqual(self.editor.model.param_inputs("length"), ["keep"])
+        self.assertTrue(any(c["from"] == field and c["to"] == "length" and c["input"] == "keep"
+                            for c in self.editor.model.connections))
 
     def test_search_backdrops_badges_reset(self):
         from PySide2 import QtCore, QtWidgets

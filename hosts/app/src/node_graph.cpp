@@ -1314,7 +1314,13 @@ void NodeGraphView::toggleInputs(const std::string& name) {
     if (index < 0 || nodes_[index].linkableParams.empty()) return;
     const bool expose = !std::all_of(nodes_[index].linkableParams.begin(), nodes_[index].linkableParams.end(),
                                      [&](const std::string& param) { return document_->paramExposed(name, param); });
-    const std::string error = document_->exposeParams(name, nodes_[index].linkableParams, expose);
+    std::vector<std::string> changed = nodes_[index].linkableParams;
+    if (!expose) {
+        changed.erase(std::remove_if(changed.begin(), changed.end(), [&](const std::string& param) {
+            return !document_->paramInputSource(name, param).empty();
+        }), changed.end());
+    }
+    const std::string error = document_->exposeParams(name, changed, expose);
     if (!error.empty()) {
         emit message(QString::fromStdString(error));
         refresh();

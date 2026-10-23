@@ -233,9 +233,11 @@ class GROOMLAB_OT_graph_toggle_inputs(_NodeOp):
             return {"CANCELLED"}
         params = linkable(node)
         show = not all(param in exposed(node) for param in params)
+        connected = {c["input"] for c in json.loads(scalp.groomlab.graph_json or "{}").get("connections", [])
+                     if c.get("to") == node.gl_name}
         try:
             for param in params:
-                if (param in exposed(node)) != show:
+                if (param in exposed(node)) != show and (show or param not in connected):
                     (graph.expose_param if show else graph.unexpose_param)(scalp, node.gl_name, param)
         except HelperError as e:
             return _fail(self, e)

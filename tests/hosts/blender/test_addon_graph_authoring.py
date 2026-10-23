@@ -243,8 +243,19 @@ class GraphAuthoringTest(unittest.TestCase):
         self.assertGreater(len(params), 1)
         self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
         self.assertEqual(set(gnode(head, "width")["paramInputs"]), set(params))
+        tree = self.tree()
+        field = tree.nodes.new(gt.NODE_PREFIX + "FieldNoise")
+        field_name = field.gl_name
+        settle()
+        tree = self.tree()
+        field, width = node_of(tree, field_name), node_of(tree, "width")
+        with gt.building():
+            tree.links.new(field.outputs[0], width.inputs["width"])
+        gt.sync_from_tree(tree)
+        settle()
         self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
-        self.assertNotIn("paramInputs", gnode(head, "width"))
+        self.assertEqual(gnode(head, "width")["paramInputs"], ["width"])
+        self.assertIn((field_name, "width", "width"), links(head))
         # A node dropped on a link: Blender splices it in (the link a -> b goes, a -> node -> b come);
         # the graph's insert_on_link does it, one step on the helper's stack.
         tree = self.tree()
