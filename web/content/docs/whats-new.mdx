@@ -13,6 +13,26 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.27.0 (October 23, 2026)
+
+- **Display Ribbons shows the strands at their true width.** With Display Ribbons on (off by
+  default), the strands draw as ribbons facing the camera, as wide as the strands times Ribbon
+  Width Scale and never thinner than a pixel; the parts thinner than a pixel fade with their
+  width, as the lines do. Turning the camera keeps them facing it. Use it to judge widths and
+  density close up (it is slower than lines there). With lighting off, the ribbons now take the
+  groom's color as the lines do.
+- **Paint modes.** The Paint brush and Fill now **Replace**, **Add**, **Subtract** or **Clamp
+  Maximum**, on guide, vertex and texture maps, in Maya, the app and Blender. A stroke adds at most
+  its amount however often its dabs overlap. (Thanks to Omar Hesham.)
+- **Thinnest Strand for card bakes.** A Cards node setting: the narrowest a strand bakes, in the
+  atlas's pixels. 1, as before, keeps every strand solid and at least a pixel wide, so cards cut out
+  at a cutoff don't break up, though they read denser than the groom; 0 bakes the strands to
+  scale, as renders and the viewport show them, for blended or dithered cards.
+- **A Focal Length slider in the Photos tab.** Set the photo camera's lens by hand when you know it;
+  Keep focal length turns on, so a solve keeps it.
+- **Faster everywhere.** Release builds let the compiler inline more: about 6% off the operators on
+  average and 15 to 20% off brush dabs, with the same results to the last bit.
+
 ## 0.26.0 (October 22, 2026)
 
 - **Only a Resample on the way to the Output sets the resolution.** A Resample node fed by
