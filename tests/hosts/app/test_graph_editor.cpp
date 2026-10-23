@@ -201,9 +201,13 @@ TEST(AppGraphEditor, ExpandInputsButtonTogglesEveryConnectableParam) {
     std::string field;
     ASSERT_EQ(doc->addNode("FieldNoise", 0.0f, 0.0f, &field), "");
     ASSERT_EQ(doc->connectNodes(field, "", scatter, "density"), "");
+    graph->refresh();
+    ASSERT_EQ(doc->disconnectInput(scatter, "density"), "");
     mouse(graph, QEvent::MouseButtonPress, button, Qt::LeftButton);
-    for (const std::string& param : params) EXPECT_EQ(doc->paramExposed(scatter, param), param == "density") << param;
-    EXPECT_EQ(doc->paramInputSource(scatter, "density"), field) << "collapse keeps a connected port and its wire";
+    for (const std::string& param : params) EXPECT_FALSE(doc->paramExposed(scatter, param)) << param;
+    mouse(graph, QEvent::MouseButtonPress, button, Qt::LeftButton);
+    for (const std::string& param : params) EXPECT_TRUE(doc->paramExposed(scatter, param)) << param;
+    EXPECT_EQ(doc->connectNodes(field, "", scatter, "density"), "") << "re-expanding restores a reconnectable port";
 }
 
 TEST(AppGraphEditor, ShowInnerParamPutsAnInnerParamOnTheCompound) {

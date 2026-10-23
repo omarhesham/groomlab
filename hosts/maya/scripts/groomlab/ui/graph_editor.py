@@ -1441,7 +1441,9 @@ class GraphScene(QtWidgets.QGraphicsScene):
         if port.node_item is start.node_item or port.is_output == start.is_output:
             return False
         out, inp = (start, port) if start.is_output else (port, start)
-        return gm.types_match(out.port_type, inp.port_type, out.value_kind, inp.value_kind)
+        if gm.types_match(out.port_type, inp.port_type, out.value_kind, inp.value_kind):
+            return True
+        return inp.is_param and self.editor.value_kind_for_input(out.node_item.name, inp.node_item.name, inp.name) is not None
 
     def incompatible_reason(self, start, port):
         """Why a link from `start` can't end on `port` (said while hovering it), None when it can."""
@@ -1505,6 +1507,12 @@ class GraphScene(QtWidgets.QGraphicsScene):
     def mousePressEvent(self, event):
         port = self.port_at(event.scenePos())
         if port is not None and event.button() == QtCore.Qt.LeftButton:
+            if self._drag_port is not None:
+                # Recover if a transient window intercepted the previous mouse release.
+                self._end()
+                self._detach = None
+                self.drag_reason = None
+                QtWidgets.QToolTip.hideText()
             event.accept()  # else the view also starts a rubber-band selection
             model = self.editor.model
             source = None if port.is_output else model.source_of(port.node_item.name, port.name)
@@ -1529,7 +1537,9 @@ class GraphScene(QtWidgets.QGraphicsScene):
             self.drag_reason = reason
             if reason:
                 if screen_pos is not None:
-                    QtWidgets.QToolTip.showText(screen_pos, reason)
+                    # Keep the tooltip away from the port receiving the mouse release. A tooltip
+                    # under the cursor can intercept it and leave the scene stuck in wire-drag mode.
+                    QtWidgets.QToolTip.showText(screen_pos + QtCore.QPoint(18, 18), reason, self.editor.view)
                 self.editor.report(reason)
             else:
                 QtWidgets.QToolTip.hideText()
@@ -5179,6 +5189,9 @@ class GraphEditor(QtWidgets.QWidget):
         try:
             if detach and detach != (dst, input_name):
                 self.model.disconnect(*detach)
+            kind = self.value_kind_for_input(src, dst, input_name)
+            if kind is not None:
+                self.model.set_param(src, "kind", kind)
             self.model.connect(src, dst, input_name, output=output, by_hand=True)
         except gm.GraphError as e:
             self.report(str(e))
@@ -5186,6 +5199,26 @@ class GraphEditor(QtWidgets.QWidget):
             return
         self.rebuild()
         self.changed()
+
+    def value_kind_for_input(self, src, dst, input_name):
+        """A kind an unconnected Value node can adopt for a parameter input, else None."""
+        if self.model.node_type(src) != "Value" or self.model.downstream_of(src):
+            return None
+        spec = self.model.param_spec(dst, input_name)
+        if spec is None:
+            return None
+        kind = spec.get("kind")
+        if kind == "float":
+            return "number"
+        if kind == "int":
+            return "integer"
+        if kind == "bool":
+            return "bool"
+        if kind == "vec3":
+            return "color" if spec.get("unit") == "color" else "vector"
+        if kind == "string":
+            return "text"
+        return None
 
     def set_param_exposed(self, name, param, exposed):
         """Give a param an input port (a field node can then drive it), or take it away."""
@@ -5207,8 +5240,9 @@ class GraphEditor(QtWidgets.QWidget):
             expose = not all(p in self.model.param_inputs(name) for p in params)
             connected = {c["input"] for c in self.model.connections if c["to"] == name}
             for param in params:
-                if (param in self.model.param_inputs(name)) != expose and (expose or param not in connected):
-                    (self.model.expose_param if expose else self.model.unexpose_param)(name, param)
+                if (param in self.model.param_inputs(name)) != expose:
+                    if expose or param not in connected:
+                        (self.model.expose_param if expose else self.model.unexpose_param)(name, param)
         except gm.GraphError as e:
             self.report(str(e))
             return

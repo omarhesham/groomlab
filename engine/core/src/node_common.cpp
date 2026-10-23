@@ -123,10 +123,29 @@ ValueKind valueKindOf(const ParamValue& value, bool choice) {
     return ValueKind::Any;
 }
 
+namespace {
+class ConstantColorField final : public FieldValue {
+public:
+    explicit ConstantColorField(const Vec3f& value) : value_{{value.x, value.y, value.z}} {}
+    float atRoot(const StrandRoot&) const override { return (value_[0] + value_[1] + value_[2]) / 3.0f; }
+    float at(const StrandSet&, std::size_t) const override { return (value_[0] + value_[1] + value_[2]) / 3.0f; }
+    float maximum() const override { return std::max({value_[0], value_[1], value_[2]}); }
+    bool readsPositions() const override { return false; }
+    bool strandLocal() const override { return true; }
+    bool isColor() const override { return true; }
+    std::array<float, 3> colorAt(const StrandSet&, std::size_t) const override { return value_; }
+    std::array<float, 3> colorAtPoint(const StrandSet&, std::size_t, std::size_t) const override { return value_; }
+
+private:
+    std::array<float, 3> value_;
+};
+}  // namespace
+
 FieldPtr uniformField(const UniformValue& value) {
     if (const double* d = std::get_if<double>(&value.value)) return constantField(static_cast<float>(*d));
     if (const std::int64_t* i = std::get_if<std::int64_t>(&value.value)) return constantField(static_cast<float>(*i));
     if (const bool* b = std::get_if<bool>(&value.value)) return constantField(*b ? 1.0f : 0.0f);
+    if (const Vec3f* v = std::get_if<Vec3f>(&value.value)) return std::make_shared<const ConstantColorField>(*v);
     return nullptr;
 }
 

@@ -237,8 +237,9 @@ class GROOMLAB_OT_graph_toggle_inputs(_NodeOp):
                      if c.get("to") == node.gl_name}
         try:
             for param in params:
-                if (param in exposed(node)) != show and (show or param not in connected):
-                    (graph.expose_param if show else graph.unexpose_param)(scalp, node.gl_name, param)
+                if (param in exposed(node)) != show:
+                    if show or param not in connected:
+                        (graph.expose_param if show else graph.unexpose_param)(scalp, node.gl_name, param)
         except HelperError as e:
             return _fail(self, e)
         _settle(scalp)

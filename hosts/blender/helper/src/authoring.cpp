@@ -161,6 +161,14 @@ void exposeParam(GraphEdit& edit, const std::string& node, const std::string& pa
     json& exposed = n["paramInputs"];
     if (!exposed.is_array()) exposed = json::array();
     if (std::find(exposed.begin(), exposed.end(), json(param)) == exposed.end()) exposed.push_back(param);
+    const json params = specOf(edit, node).value("params", json::array());
+    auto rank = [&](const json& name) {
+        for (std::size_t i = 0; i < params.size(); ++i) {
+            if (params[i].value("name", std::string()) == name.get<std::string>()) return i;
+        }
+        return params.size();
+    };
+    std::stable_sort(exposed.begin(), exposed.end(), [&](const json& a, const json& b) { return rank(a) < rank(b); });
     edit = GraphEdit(g.dump());
 }
 

@@ -149,7 +149,7 @@ def types_match(out_type, in_type, out_kind=None, in_kind=None):
             return False
         if out_type != "Value":
             return True
-        want = "number" if in_type == "Field" else (in_kind or "any")
+        want = (in_kind or "number") if in_type == "Field" else (in_kind or "any")
         return groomlab_core.value_kinds_match(getattr(groomlab_core.ValueKind, VALUE_KINDS[out_kind or "any"]),
                                                getattr(groomlab_core.ValueKind, VALUE_KINDS[want]))
     except (AttributeError, TypeError, KeyError):  # a name no port type (or kind) has
@@ -628,6 +628,8 @@ class GraphModel(object):
         exposed = self._node(name).setdefault("paramInputs", [])
         if param not in exposed:
             exposed.append(param)
+            order = {p["name"]: i for i, p in enumerate(self.node_spec(name)["params"])}
+            exposed.sort(key=lambda p: order.get(p, len(order)))
 
     def unexpose_param(self, name, param):
         """Remove a param's input port (and what was connected to it); the param keeps its own value."""

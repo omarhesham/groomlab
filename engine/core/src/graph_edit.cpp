@@ -320,6 +320,10 @@ json specOfNode(const json& node) {
             json in = {{"name", name}, {"type", port != ports.end() ? port->second.value("type", std::string("Field")) : "Field"},
                        {"optional", true}, {"param", true}};
             if (port != ports.end() && port->second.contains("valueKind")) in["valueKind"] = port->second["valueKind"];
+            const auto paramSpec = std::find_if(spec["params"].begin(), spec["params"].end(), [&](const json& p) {
+                return p.value("name", std::string()) == name;
+            });
+            if (paramSpec != spec["params"].end() && paramSpec->value("colorField", false)) in["valueKind"] = "vec3";
             spec["inputs"].push_back(in);
         }
     }
@@ -462,7 +466,8 @@ struct GraphEdit::Impl {
         bool match = typesMatch(outType, inType);
         if (match && outType == "Value") {
             const ValueKind outKind = valueKindFromName(out.value("valueKind", std::string("any")));
-            const ValueKind inKind = inType == "Field" ? ValueKind::Number : valueKindFromName(port.value("valueKind", std::string("any")));
+            const ValueKind described = valueKindFromName(port.value("valueKind", std::string("any")));
+            const ValueKind inKind = inType == "Field" && described == ValueKind::Any ? ValueKind::Number : described;
             match = valueKindsMatch(outKind, inKind);
         }
         if (!match) {

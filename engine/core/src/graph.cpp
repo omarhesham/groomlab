@@ -542,7 +542,10 @@ std::vector<PortSpec> Graph::inputSpecs(NodeId id) const {
     for (const std::string& p : node.paramInputs) {
         const auto it = std::find_if(params.begin(), params.end(), [&](const ParamSpec& s) { return s.name == p; });
         PortSpec port{p, PortType::Field, true};  // a param its node no longer has (a compound's definition changed)
-        if (it != params.end()) paramPortSpec(*it, &port);
+        if (it != params.end()) {
+            paramPortSpec(*it, &port);
+            if (it->colorField) port.valueKind = ValueKind::Vec3;
+        }
         specs.push_back(port);
     }
     return specs;
@@ -810,7 +813,7 @@ void Graph::connect(NodeId src, NodeId dst, std::size_t inputSlot, std::size_t o
     }
     if (outType == PortType::Value) {
         const ValueKind outKind = srcNode.op->outputs()[output].valueKind;
-        const ValueKind inKind = in.type == PortType::Field ? ValueKind::Number : in.valueKind;
+        const ValueKind inKind = in.type == PortType::Field && in.valueKind == ValueKind::Any ? ValueKind::Number : in.valueKind;
         if (!valueKindsMatch(outKind, inKind)) {
             throw GraphError(std::string("type mismatch: a ") + valueKindName(outKind) + " Value cannot feed '" + in.name +
                              "', which takes " + (in.type == PortType::Field ? "a field or a number" : valueKindName(inKind)));

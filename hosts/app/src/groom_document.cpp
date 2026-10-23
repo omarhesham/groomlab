@@ -1755,6 +1755,11 @@ std::string GroomDocument::exposeParams(const std::string& node, const std::vect
     if (!nodeJson(node)) return "no node '" + node + "'";
     if (names.empty()) return {};
     const std::set<std::string> changed(names.begin(), names.end());
+    std::map<std::string, std::size_t> rank;
+    if (const json* spec = nodeSpec(node)) {
+        std::size_t i = 0;
+        for (const json& p : spec->value("params", json::array())) rank[p.value("name", std::string())] = i++;
+    }
     return editGraph((exposed ? "expose inputs on " : "collapse inputs on ") + node, [&](json& g) {
         for (json& n : g["nodes"]) {
             if (n.value("name", std::string()) != node) continue;
@@ -1764,6 +1769,10 @@ std::string GroomDocument::exposeParams(const std::string& node, const std::vect
             }
             if (exposed) {
                 for (const std::string& name : names) inputs.push_back(name);
+                std::stable_sort(inputs.begin(), inputs.end(), [&](const json& a, const json& b) {
+                    const auto ai = rank.find(a.get<std::string>()), bi = rank.find(b.get<std::string>());
+                    return (ai == rank.end() ? rank.size() : ai->second) < (bi == rank.end() ? rank.size() : bi->second);
+                });
             }
             if (inputs.empty()) n.erase("paramInputs");
             else n["paramInputs"] = inputs;
