@@ -140,6 +140,10 @@ CardsPanel::CardsPanel(QWidget* parent) : GlassPanel(parent, 24.0) {
     addSlider(tr("Segments"), "segments", 1, 32, true, theme::yellow(), tr("Quads along each card"));
     addSlider(tr("Variations"), "variations", 0, 64, true, theme::emerald(), tr("Textures the cards share (0: every card its own)"));
     addSlider(tr("Max cards"), "maxCards", 0, 20000, true, theme::red(), tr("The card budget (0: no limit): neighbouring clumps merge to keep within it; lower LODs use fewer"));
+    addSlider(tr("Thinnest strand"), "thinnestStrand", 0.0, 2.0, false, theme::emerald(),
+              tr("The narrowest a strand bakes, in the atlas's pixels: 1 keeps every strand solid and at least a pixel wide (cards "
+                 "cut out at a cutoff don't break up, but read denser than the groom); 0 to scale, thin strands fainter (for "
+                 "blended or dithered cards)"));
     auto* atlasRow = new QHBoxLayout();
     atlasRow->setSpacing(10);
     atlasRow->addWidget(captionLabel(tr("Atlas"), settings_));

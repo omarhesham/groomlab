@@ -67,7 +67,14 @@ Game cards as glTF, below).
   them through unchanged, so place it where the look should be carded (e.g. before frizz or
   flyaways that cards can't show). Several Cards nodes make layers of cards in one atlas and
   one bake: the bake's resolution is the largest `atlasSize` any of them asks for (unless Bake
-  Maps is given one) and the padding between textures the smallest. Only Cards nodes that make
+  Maps is given one) and the padding between textures the smallest.
+- **Thinnest Strand** (`thinnestStrand`, in the atlas's pixels, 1 by default): the narrowest a strand
+  bakes, solid. At 1 every strand is at least a pixel wide in the maps, so cards cut out at a
+  coverage cutoff (alpha tested, the usual game setup) don't break up, but the cards read denser
+  than the groom: a real hair is a fraction of a pixel, and the viewport's width coverage and
+  renders show it fainter. At 0 the strands bake to scale, each as faint as it is thin, for cards
+  drawn blended or dithered (alpha to coverage, temporal dithering), which then match the groom's
+  look. Several Cards nodes share the bake at the largest of theirs. Only Cards nodes that make
   the output build cards: one bypassed, not connected to the output, or on a Switch's other
   input makes none; one inside a Compound on the way does (named `compound/inner` in the stats
   and the atlas). `groomlab.create_cards` and `cards_preset` change every Cards node of the

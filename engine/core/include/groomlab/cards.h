@@ -230,6 +230,7 @@ struct CardMesh {
     std::vector<std::string> nodes;
     float padding = 0.004f;              // atlas units between textures (layoutCards)
     int atlasSize = 0;                   // suggested bake resolution (0: none)
+    float thinnestStrand = 1.0f;         // the narrowest a strand bakes, in texels (CardBakeSettings::minStrandTexels)
     std::size_t vertexCount() const { return positions.size(); }
     std::size_t triangleCount() const { return quads.size() / 2; }
     std::size_t textureCount() const;    // cards with a texture of their own

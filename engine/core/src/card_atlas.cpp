@@ -214,6 +214,7 @@ CardMesh combineCardLayers(const std::vector<std::shared_ptr<const CardMesh>>& l
         }
         out.padding = first ? layer->padding : std::min(out.padding, layer->padding);
         out.atlasSize = std::max(out.atlasSize, layer->atlasSize);
+        out.thinnestStrand = first ? layer->thinnestStrand : std::max(out.thinnestStrand, layer->thinnestStrand);
         first = false;
     }
     return out;

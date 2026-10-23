@@ -696,6 +696,14 @@ public:
                 .range(16, 16384)
                 .soft(256, 8192)
                 .in("Texture"),
+            notAnimatable({"thinnestStrand", 1.0, "The narrowest a strand bakes, in the atlas's pixels, solid: 1 keeps every strand at "
+                                                  "least a pixel wide, so cards cut out at a cutoff (alpha tested) don't break up, though they "
+                                                  "read denser than the groom; 0 bakes the strands to scale, a thinner one fainter (as "
+                                                  "renders and the viewport's width coverage show them), for blended or dithered cards. "
+                                                  "Several Cards nodes share one bake, at the largest of theirs", "pixels"})
+                .range(0, 8)
+                .soft(0, 2)
+                .in("Texture"),
         };
     }
     std::vector<std::string> externalInputs() const override { return {"scalp"}; }
@@ -764,6 +772,7 @@ public:
         layer->cards = makeCards(*source, scalpOf(ctx), s);
         for (CardMesh::Card& card : layer->cards) card.source = source;
         layer->atlasSize = static_cast<int>(params().getInt("atlasSize"));
+        layer->thinnestStrand = static_cast<float>(params().getDouble("thinnestStrand"));
         auto out = std::make_shared<StrandSet>(*in);
         out->addCardLayer(std::move(layer));
         return StrandsPtr(out);

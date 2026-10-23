@@ -451,6 +451,7 @@ void bindGroom(py::module_& m) {
         .def_readonly("cards", &CardMesh::cards)
         .def_readonly("padding", &CardMesh::padding)
         .def_readonly("atlas_size", &CardMesh::atlasSize)
+        .def_readonly("thinnest_strand", &CardMesh::thinnestStrand)
         .def("positions_view", [](py::object self) { return pointsView(self, self.cast<const CardMesh&>().positions, true); })
         .def("normals_view", [](py::object self) { return pointsView(self, self.cast<const CardMesh&>().normals, true); })
         .def("u_view", [](py::object self) { return flatView(self, self.cast<const CardMesh&>().u, true); })
@@ -651,7 +652,8 @@ void bindGroom(py::module_& m) {
         .def_readwrite("strand_width", &PyCardBakeSettings::strandWidth)
         .def_readwrite("occlusion", &PyCardBakeSettings::occlusion)
         .def_readwrite("dilate", &PyCardBakeSettings::dilate)
-        .def_readwrite("root_fade", &PyCardBakeSettings::rootFade);
+        .def_readwrite("root_fade", &PyCardBakeSettings::rootFade)
+        .def_readwrite("min_strand_texels", &PyCardBakeSettings::minStrandTexels);
     py::class_<CardTextures>(m, "CardTextures", "Baked card textures (Unreal hair card layout), row 0 at the top.")
         .def_readonly("size", &CardTextures::size)
         .def_readonly("coverage", &CardTextures::coverage)

@@ -47,13 +47,14 @@ StrandsPtr clumpedFur() {
     return Groom(d).evaluate(1.0f, 0.0);
 }
 
-// The fur through a Cards node, evaluated for cards (the strands carry the card layers).
-StrandsPtr furWithCards(const MeshPtr& scalp) {
-    GraphDocument doc = loadGraphJson(R"j({"version": 1, "output": "out", "nodes": [
+// The fur through a Cards node, evaluated for cards (the strands carry the card layers); `thinnest`,
+// the Cards node's Thinnest Strand (texels).
+StrandsPtr furWithCards(const MeshPtr& scalp, double thinnest = 1.0) {
+    GraphDocument doc = loadGraphJson(std::string(R"j({"version": 1, "output": "out", "nodes": [
         {"name": "scalp", "type": "Scalp"},
         {"name": "scatter", "type": "Scatter", "params": {"density": 800.0}},
         {"name": "clump", "type": "Clump", "params": {"count": 12, "strength": 0.8}},
-        {"name": "cards", "type": "Cards", "params": {"segments": 4}},
+        {"name": "cards", "type": "Cards", "params": {"segments": 4, "thinnestStrand": )j") + std::to_string(thinnest) + R"j(}},
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 10}}],
       "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"},
         {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "clump", "input": "strands"},
@@ -160,6 +161,36 @@ TEST(CardMaps, TheUnrealPresetWritesTheBakesOwnFiles) {
         ASSERT_FALSE(a.empty()) << map;
         EXPECT_TRUE(a == fileBytes(paths[i])) << map;
     }
+}
+
+// The Cards node's Thinnest Strand reaches both bakes: at 1 (the default) every strand bakes at least
+// a texel wide and solid; at 0 to scale, the fur's strands (a fraction of a texel at 128) fainter, so
+// the cards' coverage sums lower; the export's maps alike.
+TEST(CardMaps, ThinnestStrandBakesStrandsToScaleAtZero) {
+    const MeshPtr plane = test::makePlane(16);
+    const StrandsPtr solid = furWithCards(plane, 1.0), scaled = furWithCards(plane, 0.0);
+    ASSERT_EQ(combineCardLayers(solid->cardLayers()).thinnestStrand, 1.0f);
+    ASSERT_EQ(combineCardLayers(scaled->cardLayers()).thinnestStrand, 0.0f);
+    auto sum = [](const std::vector<std::uint8_t>& v) {
+        double s = 0;
+        for (const std::uint8_t b : v) s += b;
+        return s;
+    };
+    const double a = sum(bakeCardsInMemory(solid, plane, 128).textures.coverage);
+    const double b = sum(bakeCardsInMemory(scaled, plane, 128).textures.coverage);
+    EXPECT_GT(a, 0.0);
+    EXPECT_GT(b, 0.0);
+    EXPECT_LT(b, 0.9 * a) << "to scale, the thin strands bake fainter";
+    CardMapExport settings;
+    settings.resolution = 128;
+    const CardBake solidMaps = bakeCardMapsInMemory(solid, plane, settings), scaledMaps = bakeCardMapsInMemory(scaled, plane, settings);
+    ASSERT_TRUE(solidMaps.maps && scaledMaps.maps);
+    auto coverageOf = [](const CardMaps& m) {
+        double s = 0;
+        for (const float v : m.coverage) s += v;
+        return s;
+    };
+    EXPECT_LT(coverageOf(*scaledMaps.maps), 0.9 * coverageOf(*solidMaps.maps));
 }
 
 TEST(CardMaps, NormalsAreRoundFibersOutOfTheCard) {

@@ -137,6 +137,7 @@ CardBake bakeCardMapsInMemory(StrandsPtr strands, MeshPtr scalp, const CardMapEx
     CardBakeSettings base;
     base.scalp = bake.scalp.get();
     base.occlusion = occlusion;
+    base.minStrandTexels = bake.cards->thinnestStrand;  // (the Cards nodes' Thinnest Strand)
     const CardBakeSettings bakeSettings = cardMapBakeSettings(base, settings, resolution);
     CardMaps maps = bakeCardMaps(*bake.strands, *bake.cards, bakeSettings);
     if (maps.size > resolution) maps = downsampleCardMaps(maps, maps.size / resolution);
@@ -150,6 +151,7 @@ CardBake bakeCardsInMemory(StrandsPtr strands, MeshPtr scalp, int resolution, fl
     settings.size = resolution > 0 ? resolution : (bake.cards->atlasSize > 0 ? bake.cards->atlasSize : 2048);
     settings.scalp = bake.scalp.get();
     settings.occlusion = occlusion;
+    settings.minStrandTexels = bake.cards->thinnestStrand;  // (the Cards nodes' Thinnest Strand)
     bake.textures = bakeCardTextures(*bake.strands, *bake.cards, settings);
     return bake;
 }
