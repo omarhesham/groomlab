@@ -433,7 +433,7 @@ std::size_t stampVertexReach(std::vector<float>& values, int channels, unsigned 
             float& x = values[i * n + c];
             const float start = strokeStart ? (*strokeStart)[i * n + c] : x;
             const float composed = compositePaintValue(start, target[c], mode);
-            const float next = std::clamp(start + (composed - start) * std::min(w, 1.0f), 0.0f, 1.0f);
+            const float next = std::clamp(x + (composed - x) * std::min(w, 1.0f), 0.0f, 1.0f);
             if (next != x) {
                 x = next;
                 any = true;
@@ -1252,7 +1252,7 @@ std::size_t TexturePaint::stampReach(const Reach& reach, float strength, const P
             float& x = values_[i * n + c];
             const float start = fromEditStart ? editStartValue(i, c) : x;
             const float composed = compositePaintValue(start, target[c], mode);
-            const float next = std::clamp(start + (composed - start) * wt, 0.0f, 1.0f);
+            const float next = std::clamp(x + (composed - x) * wt, 0.0f, 1.0f);
             if (next != x) {
                 x = next;
                 any = true;
