@@ -182,6 +182,26 @@ TEST(AppGraphEditor, TheNodeMenuFollowsTheNodesKind) {
     EXPECT_EQ(w.doc()->sculptTarget(), sculpt);
 }
 
+TEST(AppGraphEditor, ExpandInputsButtonTogglesEveryConnectableParam) {
+    Window w;
+    NodeGraphView* graph = w.graph();
+    GroomDocument* doc = w.doc();
+    const std::string scatter = nodeOf(*doc, "Scatter");
+    ASSERT_FALSE(scatter.empty());
+    std::vector<std::string> params;
+    for (const json& p : doc->nodeSpec(scatter)->value("params", json::array())) {
+        if (p.contains("port") && p["port"].is_object()) params.push_back(p.value("name", std::string()));
+    }
+    ASSERT_GT(params.size(), 1u);
+    const QRectF card = graph->nodeRect(scatter);
+    const qreal scale = graph->viewScale();
+    const QPointF button(card.right() - 40.0 * scale, card.top() + 14.0 * scale);
+    mouse(graph, QEvent::MouseButtonPress, button, Qt::LeftButton);
+    for (const std::string& param : params) EXPECT_TRUE(doc->paramExposed(scatter, param)) << param;
+    mouse(graph, QEvent::MouseButtonPress, button, Qt::LeftButton);
+    for (const std::string& param : params) EXPECT_FALSE(doc->paramExposed(scatter, param)) << param;
+}
+
 TEST(AppGraphEditor, ShowInnerParamPutsAnInnerParamOnTheCompound) {
     Window w;
     GroomDocument* doc = w.doc();

@@ -238,6 +238,13 @@ class GraphAuthoringTest(unittest.TestCase):
         self.assertEqual(checked[4], "CHECKBOX_HLT")
         bpy.ops.groomlab.graph_expose(node="width", param="width")
         self.assertNotIn("paramInputs", gnode(head, "width"))
+        # The node's three-line button exposes every connectable param, then collapses them all.
+        params = ga.linkable(node_of(self.tree(), "width"))
+        self.assertGreater(len(params), 1)
+        self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
+        self.assertEqual(set(gnode(head, "width")["paramInputs"]), set(params))
+        self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
+        self.assertNotIn("paramInputs", gnode(head, "width"))
         # A node dropped on a link: Blender splices it in (the link a -> b goes, a -> node -> b come);
         # the graph's insert_on_link does it, one step on the helper's stack.
         tree = self.tree()

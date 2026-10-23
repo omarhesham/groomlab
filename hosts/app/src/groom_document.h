@@ -221,6 +221,8 @@ public:
     // Exposes the param as a Field (or Curve) input port the graph can wire, or hides the port
     // again (what fed it is disconnected). One undo step; "" or the error.
     std::string exposeParam(const std::string& node, const std::string& name, bool exposed);
+    // The node header's Expand Inputs: expose or collapse several params atomically.
+    std::string exposeParams(const std::string& node, const std::vector<std::string>& names, bool exposed);
     // A map for this param (+ New Map > for a setting; a param's Paint, as Maya's right-click >
     // Paint): the map the param reads already, else a map named <node>_<name> (made free) of
     // `kind` ("vertices" or "texture"), filled 1.0, and the param reading it (0 to its value

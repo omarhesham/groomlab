@@ -446,6 +446,16 @@ class GraphEditorTest(unittest.TestCase):
         labels = [w.text() for w in self.editor.params.findChildren(self.ge.QtWidgets.QLabel)]
         self.assertTrue(any("driven by" in t or "×" in t for t in labels))  # the field named beside the value
 
+    def test_expand_inputs_button_toggles_every_connectable_param(self):
+        item = self.editor.items["length"]
+        params = item.mappable()
+        self.assertGreater(len(params), 1)
+        self.assertIn("inputs", item.toggle_rects())
+        self.editor.toggle_param_inputs("length")
+        self.assertEqual(set(self.editor.model.param_inputs("length")), set(params))
+        self.editor.toggle_param_inputs("length")
+        self.assertFalse(self.editor.model.param_inputs("length"))
+
     def test_search_backdrops_badges_reset(self):
         from PySide2 import QtCore, QtWidgets
         from groomlab.ui import widgets
