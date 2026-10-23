@@ -385,6 +385,8 @@ Role roleOf(const GraphDocument& doc, NodeId id, StageKind* kind, std::string* w
     }
     if (type == op::kOutput || off || (affect == AffectKind::None && !affectPlugged) || type == op::kSwitch ||
         (type == op::kResample && evenResample(graph, id)) || channelsOnly(type) ||
+        // A Subdivide of no viewport levels hands its input on in the viewport (SubdivideOp).
+        (type == op::kSubdivide && graph.node(id).params().getInt("viewportLevels") == 0) ||
         ((type == op::kJiggle || type == op::kMeshCut) && jiggleHandsOn(graph, id)) ||
         dryWet(graph, id)) {
         return Role::PassOn;

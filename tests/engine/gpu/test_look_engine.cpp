@@ -1780,6 +1780,26 @@ TEST(GpuPreview, AScriptNodeRunsOnTheCpu) {
     EXPECT_NE(why.find("script node runs on the CPU"), std::string::npos) << why;
 }
 
+TEST(GpuPreview, ASubdivideOfNoViewportLevelsHandsOn) {
+    // A Subdivide at the end: of no viewport levels it hands its input on in the viewport, so the
+    // nodes before it run on the GPU; of some, its smooth points are the CPU's.
+    const auto doc = [](int viewportLevels) {
+        return loadGraphJson(R"({"version": 1, "output": "out",
+          "nodes": [{"name": "scalp", "type": "Scalp"}, {"name": "scatter", "type": "Scatter"},
+                    {"name": "clump", "type": "Clump"},
+                    {"name": "smooth", "type": "Subdivide", "params": {"viewportLevels": )" + std::to_string(viewportLevels) + R"(}},
+                    {"name": "out", "type": "Output"}],
+          "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"}, {"from": "scatter", "to": "clump", "input": "strands"},
+                          {"from": "clump", "to": "smooth", "input": "strands"}, {"from": "smooth", "to": "out", "input": "strands"}]})");
+    };
+    gpu::LookChain chain;
+    std::string why;
+    ASSERT_TRUE(gpu::findLookChain(doc(0), &chain, &why)) << why;
+    EXPECT_EQ(chain.stages.size(), 1u);
+    gpu::LookChain smooth;
+    EXPECT_FALSE(gpu::findLookChain(doc(1), &smooth, &why) && !smooth.stages.empty());
+}
+
 TEST(GpuPreview, StageTableNamesRealTypesAndParams) {
     // Every row of look_stages.inc names a registered node type, and every param it lists (mapped,
     // ramp, vector, number) is one of that type's, of the kind it says: a typo there would keep a

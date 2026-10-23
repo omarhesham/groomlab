@@ -1831,6 +1831,74 @@ TEST(Resample, ByCurvature) {
     EXPECT_THROW(op->evaluate(ctx, {StrandsPtr(s)}), GraphError);
 }
 
+TEST(Subdivide, SmoothStrandsThroughTheirPointsAtTheRendersLevels) {
+    // A quarter circle of 5 points (radius 1, about the origin), its widths and a point channel going
+    // down to the tip, and a strand of 2 points.
+    auto s = std::make_shared<StrandSet>();
+    std::vector<Vec3f> arc;
+    std::vector<float> widths;
+    for (int k = 0; k < 5; ++k) {
+        const float a = 0.5f * 3.14159265f * static_cast<float>(k) / 4.0f;
+        arc.push_back({std::cos(a), std::sin(a), 0.0f});
+        widths.push_back(0.02f - 0.004f * static_cast<float>(k));
+    }
+    s->addStrand(7, arc, widths);
+    s->addStrand(9, {{0, 0, 0}, {0, 1, 0}}, {0.01f, 0.01f});
+    std::vector<float>& opacity = s->addPointChannel("opacity", 1.0f);
+    for (std::size_t k = 0; k < 5; ++k) opacity[k] = 1.0f - 0.25f * static_cast<float>(k);
+    s->addStrandChannel("melanin", 0.0f)[0] = 0.4f;
+    auto op = OperatorRegistry::instance().create(op::kSubdivide);
+    EvalContext render;
+    const StrandsPtr out = valueAs<StrandsPtr>(op->evaluate(render, {StrandsPtr(s)}));
+    ASSERT_TRUE(out->validate());
+    ASSERT_EQ(out->strandPointCount(0), 17u);  // 2 levels: 4 pieces a segment
+    EXPECT_EQ(out->strandPointCount(1), 2u);   // too short to bend: as it came
+    EXPECT_EQ(out->ids(), s->ids());
+    EXPECT_FLOAT_EQ(out->strandChannel("melanin")->at(0), 0.4f);
+    float worstNew = 0.0f, chordMid = 0.0f;
+    for (std::size_t j = 0; j < 17; ++j) {
+        const Vec3f p = out->strandPoints(0)[j];
+        if (j % 4 == 0) {
+            EXPECT_LT((p - arc[j / 4]).length(), 1e-6f) << j;  // through the strand's own points
+            EXPECT_NEAR(out->widths()[j], widths[j / 4], 1e-6f);
+        } else {
+            worstNew = std::max(worstNew, std::abs(p.length() - 1.0f));
+        }
+    }
+    chordMid = 1.0f - ((arc[0] + arc[1]) * 0.5f).length();
+    EXPECT_LT(worstNew, 0.1f * chordMid) << "the new points lie on the circle, not on its chords";
+    EXPECT_NEAR(out->widths()[2], 0.5f * (widths[0] + widths[1]), 1e-6f);  // widths follow, linearly
+    EXPECT_NEAR(out->pointChannel("opacity")->at(6), 0.625f, 1e-6f);  // halfway from 0.75 to 0.5
+    // The viewport's levels: 1 by default; none hands the strands on as they came.
+    EvalContext viewport;
+    viewport.viewport = true;
+    EXPECT_EQ(valueAs<StrandsPtr>(op->evaluate(viewport, {StrandsPtr(s)}))->strandPointCount(0), 9u);
+    op->params().set("viewportLevels", std::int64_t{0});
+    EXPECT_EQ(valueAs<StrandsPtr>(op->evaluate(viewport, {StrandsPtr(s)})), StrandsPtr(s));
+}
+
+TEST(Subdivide, LeavesTheGrowthResolutionToTheResample) {
+    // Resample asks the Scatter for its segments; a Subdivide after it adds points to the output only.
+    GroomData d;
+    d.scalp = test::makePlane(4);
+    d.graphJson = R"j({"version": 1, "output": "out", "nodes": [
+        {"name": "scalp", "type": "Scalp"},
+        {"name": "scatter", "type": "Scatter", "params": {"density": 50.0}},
+        {"name": "resample", "type": "Resample", "params": {"segments": 4}},
+        {"name": "smooth", "type": "Subdivide", "params": {"levels": 2}},
+        {"name": "out", "type": "Output"}],
+      "connections": [{"from": "scalp", "to": "scatter", "input": "scalp"}, {"from": "scatter", "to": "resample", "input": "strands"},
+        {"from": "resample", "to": "smooth", "input": "strands"}, {"from": "smooth", "to": "out", "input": "strands"}]})j";
+    Groom groom(d);
+    EXPECT_EQ(groom.evaluate(1.0f, 0.0)->uniformPointCount(), 17u);
+    GraphDocument doc = loadGraphJson(d.graphJson);
+    ExternalInputs ext;
+    ext.set("scalp", test::makePlane(4), 1);
+    EvalContext ctx;
+    ctx.externals = &ext;
+    EXPECT_EQ(doc.graph.evaluateStrands(doc.node("scatter"), ctx)->uniformPointCount(), 5u);
+}
+
 TEST(Resample, OnlyEnabledOnesOnStrandsSetTheResolution) {
     // A bypassed Resample, or one fed guides, doesn't resample the strands: its segments don't grow them.
     GraphDocument doc = loadGraphJson(R"j({"version": 1, "output": "out", "nodes": [

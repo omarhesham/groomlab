@@ -573,6 +573,8 @@ std::vector<Case> cases() {
             {"name": "op", "type": "Propagate", "params": {"count": 4, "segments": 3, "keepShaft": false}})",
          R"({"from": "interp", "to": "split", "input": "strands"},
             {"from": "split", "to": "op", "input": "shafts", "output": "b"})"},
+        // Subdivide: a render's one level (each segment halved along the smooth curve).
+        {"Subdivide", "op", R"({"name": "op", "type": "Subdivide", "params": {"levels": 1}})", link("interp", "op", "strands")},
     };
 }
 
