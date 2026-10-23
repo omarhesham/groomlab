@@ -4576,16 +4576,25 @@ class ReferenceTabTest(unittest.TestCase):
         self.tab.poll()
         self.assertEqual(self.tab.current(), other)
         self.assertTrue(self.tab.look.isChecked())
-        reference.look_back(self.panel)
+        # Looking through one, picking the other looks through it; Back to Perspective still goes back.
+        self.tab.select(cam)
+        self.assertEqual(reference.current_reference(self.panel), cam)
+        self.tab.poll()
+        self.assertEqual(self.tab.current(), cam)
+        self.assertTrue(self.tab.look.isChecked())
+        self.tab.look.click()
+        self.assertEqual(cmds.modelPanel(self.panel, query=True, camera=True), "persp")
         self.tab.poll()
         self.assertFalse(self.tab.look.isChecked())
+        self.tab.select(other)  # not looking through: picking only picks
+        self.assertEqual(cmds.modelPanel(self.panel, query=True, camera=True), "persp")
         # Remove is one undo step (no question asked: undo brings it back).
         self.tab.select(other)
         self.tab.remove()
         self.assertEqual(reference.list_references(), [cam])
         self.assertEqual(self.tab.list.count(), 1)
         cmds.undo()
-        self.tab.poll()
+        self.tab.poll(full=True)  # (the tick that rereads the scene every few seconds)
         self.assertEqual(self.tab.list.count(), 2)
 
     def test_align_photo_opens_the_window_and_the_tab_shows_where_it_stands(self):

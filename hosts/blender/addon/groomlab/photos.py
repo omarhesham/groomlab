@@ -95,7 +95,11 @@ def _photo_index_get(self):
 
 def _photo_index_set(self, value):
     if 0 <= value < len(bpy.data.objects) and is_photo(bpy.data.objects[value]):
-        self.photo = bpy.data.objects[value]
+        was, self.photo = self.photo, bpy.data.objects[value]
+        # Looking through a photo: the picked one is looked through instead (Look Through again
+        # still returns to the view and the camera before).
+        if was is not None and was != self.photo and looking_through(bpy.context, was):
+            look_through(bpy.context, self.photo)
 
 
 def _is_photo_poll(self, obj):

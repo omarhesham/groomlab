@@ -101,7 +101,11 @@ PhotosPanel::PhotosPanel(QWidget* parent) : QWidget(parent) {
     list_->setToolTip(tr("The reference photos. Double-click: look through it; right-click: more"));
     list_->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(list_, &QListWidget::currentRowChanged, this, [this](int) {
-        if (!updating_) refreshControls();
+        if (updating_) return;
+        // Looking through a photo: the picked one is looked through instead (Back to Perspective still
+        // returns to the camera before).
+        if (const int i = current(); i >= 0 && !looking_.isEmpty() && name(i) != looking_) emit lookThroughRequested(i, true);
+        refreshControls();
     });
     connect(list_, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
         if (current() >= 0) emit lookThroughRequested(current(), true);

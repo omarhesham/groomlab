@@ -369,7 +369,20 @@ TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignPhoto) {
     camera.dolly(0.5f);
     EXPECT_LT((camera.eye() - lockedEye).length(), 1e-5f) << "a locked camera does not move";
     bindings.at("photo.lookThrough").trigger(nullptr, false);  // (again: still through it)
+    // Looking through one, picking another looks through it; Back to Perspective still goes back.
+    ASSERT_EQ(photos->importPhoto(QString::fromStdString(file)), 1);
+    ASSERT_TRUE(camera.lookingThrough());
+    EXPECT_EQ(photos->lookingThrough(), photos->name(1));
+    EXPECT_NEAR(camera.eye().z(), photos->camera(1)->pose.position[2], 1e-3);
+    photos->select(0);
+    EXPECT_EQ(photos->lookingThrough(), photos->name(0));
+    EXPECT_TRUE(camera.lookThroughLocked());  // photo 0's lock
     photos->lookButton()->click();  // Back to Perspective
+    EXPECT_FALSE(camera.lookingThrough());
+    photos->select(1);  // not looking through: picking only picks
+    EXPECT_FALSE(camera.lookingThrough());
+    photos->remove(1);
+    photos->select(0);
     EXPECT_FALSE(camera.lookingThrough());
     EXPECT_LT((camera.eye() - before).length(), 1e-4f) << "the camera before it";
     EXPECT_FALSE(renderer.photoShown());

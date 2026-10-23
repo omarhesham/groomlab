@@ -901,6 +901,10 @@ void MainWindow::lookThroughPhoto(int index, bool on) {
         photos_->setLookingThrough(lookPhoto_);
         return;
     }
+    if (lookStore_->isActive() && lookPhoto_ != photos_->name(index)) {  // another photo: the one looked through keeps its tumble
+        lookStore_->stop();
+        storeLookThroughCamera();
+    }
     const PhotosPanel::Display display = photos_->display(index);
     const QVector3D eye(static_cast<float>(c->pose.position[0]), static_cast<float>(c->pose.position[1]), static_cast<float>(c->pose.position[2]));
     // The orbit's pivot: the groom's center along the view (else its distance from the camera).

@@ -1988,7 +1988,15 @@ class ReferenceTab(_GroomTab):
         self.show_generate()
 
     def picked(self):
-        """Another reference picked: its controls."""
+        """Another reference picked: its controls. While the viewport looks through a reference, it
+        looks through the picked one instead (Back to Perspective still returns to the camera before)."""
+        camera = self.current()
+        try:
+            viewing = self.ref.current_reference()
+        except (RuntimeError, ValueError):
+            viewing = None
+        if camera and viewing and not self.ref._same_node(viewing, camera):
+            self.run(self.ref.look_through, camera)
         self._shown = None
         self.show_controls()
 
