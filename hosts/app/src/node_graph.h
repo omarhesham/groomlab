@@ -304,6 +304,7 @@ private:
         QPointF pos;   // scene units (the card's top-left)
         QSizeF size;
         std::vector<Port> inputs, outputs;
+        std::vector<std::string> linkableParams;  // params the header's Expand Inputs button toggles
         std::string libraryLabel;      // a node from the node library: its label
         bool updateAvailable = false;  // the library has a newer copy of it
     };
@@ -339,15 +340,18 @@ private:
     bool portAt(const QPointF& scene, int* node, int* port, bool* output) const;
     int wireAt(const QPointF& scene) const;
     bool bypassButtonAt(const QPointF& scene, int* node) const;
+    bool inputsButtonAt(const QPointF& scene, int* node) const;
     // The backdrop whose title bar (or, `grip`, resize corner) is under a scene point; -1 none.
     int backdropTitleAt(const QPointF& scene, bool* grip = nullptr) const;
     int backdropAt(const QPointF& scene) const;  // anywhere on it
     QRectF bypassButtonRect(const Node& node) const;
+    QRectF inputsButtonRect(const Node& node) const;
     void drawNode(QPainter& painter, const Node& node, bool selected);
     void forwardToViewport(QEvent* event);
     void addFromSearch();
     void filterSearch(const QString& text);
     void setBypass(const std::string& node, bool bypass);
+    void toggleInputs(const std::string& node);
     void setEvaluation(const std::string& node, const std::string& mode);
 
     GroomDocument* document_ = nullptr;

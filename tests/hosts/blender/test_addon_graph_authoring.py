@@ -238,6 +238,44 @@ class GraphAuthoringTest(unittest.TestCase):
         self.assertEqual(checked[4], "CHECKBOX_HLT")
         bpy.ops.groomlab.graph_expose(node="width", param="width")
         self.assertNotIn("paramInputs", gnode(head, "width"))
+        # The node's three-line button exposes every connectable param, then collapses them all.
+        params = ga.linkable(node_of(self.tree(), "width"))
+        self.assertGreater(len(params), 1)
+        self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
+        self.assertEqual(gnode(head, "width")["paramInputs"], params)
+        tree = self.tree()
+        field = tree.nodes.new(gt.NODE_PREFIX + "FieldNoise")
+        field_name = field.gl_name
+        settle()
+        tree = self.tree()
+        field, width = node_of(tree, field_name), node_of(tree, "width")
+        with gt.building():
+            tree.links.new(field.outputs[0], width.inputs["width"])
+        gt.sync_from_tree(tree)
+        settle()
+        tree = self.tree()
+        link = next(link for link in tree.links if link.to_node.gl_name == "width" and link.to_socket.identifier == "width")
+        with gt.building():
+            tree.links.remove(link)
+        gt.sync_from_tree(tree)
+        settle()
+        self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
+        self.assertNotIn("paramInputs", gnode(head, "width"))
+        self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
+        self.assertEqual(gnode(head, "width")["paramInputs"], params)
+        tree = self.tree()
+        field, width = node_of(tree, field_name), node_of(tree, "width")
+        with gt.building():
+            tree.links.new(field.outputs[0], width.inputs["width"])
+        gt.sync_from_tree(tree)
+        settle()
+        self.assertIn((field_name, "width", "width"), links(head))
+        # Back as it was for what follows (a param fed by a port is not keyed): the field gone, the
+        # inputs collapsed.
+        self.assertEqual(bpy.ops.groomlab.graph_delete(node=field_name), {"FINISHED"})
+        settle()
+        self.assertEqual(bpy.ops.groomlab.graph_toggle_inputs(node="width"), {"FINISHED"})
+        self.assertNotIn("paramInputs", gnode(head, "width"))
         # A node dropped on a link: Blender splices it in (the link a -> b goes, a -> node -> b come);
         # the graph's insert_on_link does it, one step on the helper's stack.
         tree = self.tree()

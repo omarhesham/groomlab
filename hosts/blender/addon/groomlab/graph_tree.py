@@ -325,6 +325,13 @@ class GroomLabNodeBase(object):
         return self.name
 
     def draw_buttons(self, context, layout):
+        linkable = [p["name"] for p in node_param_specs(self) if p.get("port")]
+        if linkable:
+            row = layout.row(align=True)
+            exposed = set(json.loads(self.gl_inputs or "[]"))
+            op = row.operator("groomlab.graph_toggle_inputs", text="", icon="LINENUMBERS_ON",
+                              depress=all(param in exposed for param in linkable))
+            op.node = self.gl_name
         col = layout.column(align=True)
         col.scale_y = 0.8
         kind = "OUTPUT" if self.gl_is_output and self.gl_type == "Output" else label_of(self.gl_type).upper()

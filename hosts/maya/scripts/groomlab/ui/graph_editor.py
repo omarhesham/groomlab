@@ -71,7 +71,7 @@ PORT_R = 5.5      # drawn radius
 PORT_HIT = 11.0   # picking radius: ports are easy to grab
 SNAP = 28.0       # a dragged link snaps to a compatible port this close (scene units)
 CORNER = 9.0
-TOGGLE_ROOM = 44.0  # header space for the Focus and Bypass toggles
+TOGGLE_ROOM = 66.0  # header space for Expand Inputs, Focus and Bypass
 
 # The port types' and the node categories' colors, every host's (engine/ui/graph_ui.json; a theme's
 # graph.ports and graph.categories override them: apply_theme).
@@ -803,18 +803,22 @@ class NodeItem(QtWidgets.QGraphicsItem):
                              QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter,
                              QtGui.QFontMetrics(small).elidedText(self.summary, QtCore.Qt.ElideRight, NODE_W - 24))
 
-    # -- Header toggles: Focus (view up to here) and Bypass, as in Yeti --
+    # -- Header toggles: exposed inputs, Focus (view up to here) and Bypass, as in Yeti --
 
     def viewable(self):
         """Focus shows a node giving strands (a Clump's centers as dots)."""
         return self.output.port_type == "Strands"
 
     def toggle_rects(self):
-        """{"focus": rect, "disable": rect} in item coordinates; no focus on nodes that output no strands."""
+        """Header button rectangles; only nodes with linkable params get Expand Inputs."""
         size = 18.0
         rects = {"disable": QtCore.QRectF(NODE_W - 10 - size, 8, size, size)}
+        left = NODE_W - 14 - 2 * size
         if self.viewable():
-            rects["focus"] = QtCore.QRectF(NODE_W - 14 - 2 * size, 8, size, size)
+            rects["focus"] = QtCore.QRectF(left, 8, size, size)
+            left -= size + 4
+        if self.mappable():
+            rects["inputs"] = QtCore.QRectF(left, 8, size, size)
         return rects
 
     def paint_toggles(self, painter, viewed, bypassed):
@@ -822,12 +826,14 @@ class NodeItem(QtWidgets.QGraphicsItem):
         painter.save()
         painter.setOpacity(1.0)
         for kind, rect in rects.items():
-            on = viewed if kind == "focus" else bypassed
+            available = self.mappable() if kind == "inputs" else []
+            on = (viewed if kind == "focus" else
+                  (all(p in self.editor.model.param_inputs(self.name) for p in available) if kind == "inputs" else bypassed))
             ink = getattr(self, "header_ink", None)  # on a filled header: its readable color
             idle = QtGui.QColor(ink) if ink is not None else QtGui.QColor(MUTED)
             if ink is not None:
                 idle.setAlpha(150)
-            active = FOCUS if kind == "focus" else WARNING
+            active = FOCUS if kind in ("focus", "inputs") else WARNING
             color = (ink if ink is not None else active) if on else idle
             if on:
                 fill = QtGui.QColor(color)
@@ -845,6 +851,9 @@ class NodeItem(QtWidgets.QGraphicsItem):
                 painter.drawPath(path)
                 painter.setBrush(color)
                 painter.drawEllipse(c, 2.2, 2.2)
+            elif kind == "inputs":  # Maya Hypershade's three-line expand-inputs glyph
+                for dy in (-4, 0, 4):
+                    painter.drawLine(c + QtCore.QPointF(-5, dy), c + QtCore.QPointF(5, dy))
             else:  # a power symbol
                 arc = QtCore.QRectF(c.x() - 5.5, c.y() - 5, 11, 11)
                 painter.drawArc(arc, 120 * 16, 300 * 16)
@@ -859,6 +868,8 @@ class NodeItem(QtWidgets.QGraphicsItem):
                     editor, name = self.editor, self.name
                     if kind == "focus":
                         later(lambda: editor.view_node(None if editor.viewed == name else name))
+                    elif kind == "inputs":
+                        later(lambda: editor.toggle_param_inputs(name))
                     else:
                         later(lambda: editor.set_bypass([name], not editor.model.bypassed(name)))
                     return
@@ -867,6 +878,7 @@ class NodeItem(QtWidgets.QGraphicsItem):
     def hoverMoveEvent(self, event):
         tips = {"focus": "Focus: show the groom up to this node in the viewport (%s); a Clump's centers show as "
                          "dots" % shortcut_keys("graph.view"),
+                "inputs": "Expand Inputs: show or hide all connectable parameter ports",
                 "disable": "Bypass: pass the input straight through (%s)" % shortcut_keys("graph.bypass")}
         over = next((k for k, r in self.toggle_rects().items() if r.contains(event.pos())), None)
         self.setToolTip(tips[over] if over else (self.editor.node_errors.get(self.name)
@@ -1429,7 +1441,9 @@ class GraphScene(QtWidgets.QGraphicsScene):
         if port.node_item is start.node_item or port.is_output == start.is_output:
             return False
         out, inp = (start, port) if start.is_output else (port, start)
-        return gm.types_match(out.port_type, inp.port_type, out.value_kind, inp.value_kind)
+        if gm.types_match(out.port_type, inp.port_type, out.value_kind, inp.value_kind):
+            return True
+        return inp.is_param and self.editor.value_kind_for_input(out.node_item.name, inp.node_item.name, inp.name) is not None
 
     def incompatible_reason(self, start, port):
         """Why a link from `start` can't end on `port` (said while hovering it), None when it can."""
@@ -1493,6 +1507,12 @@ class GraphScene(QtWidgets.QGraphicsScene):
     def mousePressEvent(self, event):
         port = self.port_at(event.scenePos())
         if port is not None and event.button() == QtCore.Qt.LeftButton:
+            if self._drag_port is not None:
+                # Recover if a transient window intercepted the previous mouse release.
+                self._end()
+                self._detach = None
+                self.drag_reason = None
+                QtWidgets.QToolTip.hideText()
             event.accept()  # else the view also starts a rubber-band selection
             model = self.editor.model
             source = None if port.is_output else model.source_of(port.node_item.name, port.name)
@@ -1517,7 +1537,9 @@ class GraphScene(QtWidgets.QGraphicsScene):
             self.drag_reason = reason
             if reason:
                 if screen_pos is not None:
-                    QtWidgets.QToolTip.showText(screen_pos, reason)
+                    # Keep the tooltip away from the port receiving the mouse release. A tooltip
+                    # under the cursor can intercept it and leave the scene stuck in wire-drag mode.
+                    QtWidgets.QToolTip.showText(screen_pos + QtCore.QPoint(18, 18), reason, self.editor.view)
                 self.editor.report(reason)
             else:
                 QtWidgets.QToolTip.hideText()
@@ -5167,6 +5189,9 @@ class GraphEditor(QtWidgets.QWidget):
         try:
             if detach and detach != (dst, input_name):
                 self.model.disconnect(*detach)
+            kind = self.value_kind_for_input(src, dst, input_name)
+            if kind is not None:
+                self.model.set_param(src, "kind", kind)
             self.model.connect(src, dst, input_name, output=output, by_hand=True)
         except gm.GraphError as e:
             self.report(str(e))
@@ -5174,6 +5199,26 @@ class GraphEditor(QtWidgets.QWidget):
             return
         self.rebuild()
         self.changed()
+
+    def value_kind_for_input(self, src, dst, input_name):
+        """A kind an unconnected Value node can adopt for a parameter input, else None."""
+        if self.model.node_type(src) != "Value" or self.model.downstream_of(src):
+            return None
+        spec = self.model.param_spec(dst, input_name)
+        if spec is None:
+            return None
+        kind = spec.get("kind")
+        if kind == "float":
+            return "number"
+        if kind == "int":
+            return "integer"
+        if kind == "bool":
+            return "bool"
+        if kind == "vec3":
+            return "color" if spec.get("unit") == "color" else "vector"
+        if kind == "string":
+            return "text"
+        return None
 
     def set_param_exposed(self, name, param, exposed):
         """Give a param an input port (a field node can then drive it), or take it away."""
@@ -5186,6 +5231,22 @@ class GraphEditor(QtWidgets.QWidget):
             self.report(str(e))
             return
         QtCore.QTimer.singleShot(0, self.rebuild)  # not from inside the node's own menu
+        self.changed()
+
+    def toggle_param_inputs(self, name):
+        """Expose every connectable param, or collapse them all when they are already exposed."""
+        try:
+            params = [p["name"] for p in self.model.node_spec(name)["params"] if gm.linkable(p)]
+            expose = not all(p in self.model.param_inputs(name) for p in params)
+            connected = {c["input"] for c in self.model.connections if c["to"] == name}
+            for param in params:
+                if (param in self.model.param_inputs(name)) != expose:
+                    if expose or param not in connected:
+                        (self.model.expose_param if expose else self.model.unexpose_param)(name, param)
+        except gm.GraphError as e:
+            self.report(str(e))
+            return
+        self.rebuild()
         self.changed()
 
     def unlink(self, dst, input_name):

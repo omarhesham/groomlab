@@ -1748,14 +1748,32 @@ bool GroomDocument::paramExposed(const std::string& node, const std::string& nam
 std::string GroomDocument::exposeParam(const std::string& node, const std::string& name, bool exposed) {
     if (!nodeJson(node)) return "no node '" + node + "'";
     if (paramExposed(node, name) == exposed) return {};
-    return editGraph((exposed ? "expose " : "hide the port of ") + node + "." + name, [&](json& g) {
+    return exposeParams(node, {name}, exposed);
+}
+
+std::string GroomDocument::exposeParams(const std::string& node, const std::vector<std::string>& names, bool exposed) {
+    if (!nodeJson(node)) return "no node '" + node + "'";
+    if (names.empty()) return {};
+    const std::set<std::string> changed(names.begin(), names.end());
+    std::map<std::string, std::size_t> rank;
+    if (const json* spec = nodeSpec(node)) {
+        std::size_t i = 0;
+        for (const json& p : spec->value("params", json::array())) rank[p.value("name", std::string())] = i++;
+    }
+    return editGraph((exposed ? "expose inputs on " : "collapse inputs on ") + node, [&](json& g) {
         for (json& n : g["nodes"]) {
             if (n.value("name", std::string()) != node) continue;
             json inputs = json::array();
             for (const json& p : n.value("paramInputs", json::array())) {
-                if (!(p.is_string() && p.get<std::string>() == name)) inputs.push_back(p);
+                if (!(p.is_string() && changed.count(p.get<std::string>()))) inputs.push_back(p);
             }
-            if (exposed) inputs.push_back(name);
+            if (exposed) {
+                for (const std::string& name : names) inputs.push_back(name);
+                std::stable_sort(inputs.begin(), inputs.end(), [&](const json& a, const json& b) {
+                    const auto ai = rank.find(a.get<std::string>()), bi = rank.find(b.get<std::string>());
+                    return (ai == rank.end() ? rank.size() : ai->second) < (bi == rank.end() ? rank.size() : bi->second);
+                });
+            }
             if (inputs.empty()) n.erase("paramInputs");
             else n["paramInputs"] = inputs;
         }
@@ -1763,7 +1781,7 @@ std::string GroomDocument::exposeParam(const std::string& node, const std::strin
             // The port goes with what fed it.
             json connections = json::array();
             for (const json& c : g.value("connections", json::array())) {
-                if (!(c.value("to", std::string()) == node && c.value("input", std::string()) == name)) connections.push_back(c);
+                if (!(c.value("to", std::string()) == node && changed.count(c.value("input", std::string())))) connections.push_back(c);
             }
             g["connections"] = connections;
         }

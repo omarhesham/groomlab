@@ -14,6 +14,8 @@
 # name, which Maya's own is.
 set(GROOMLAB_PYTHON_ROOT "" CACHE PATH
     "A CPython matching the Maya devkit's (python.exe, libs/python3x.lib), for a devkit without them")
+set(GROOMLAB_PYBIND_INTERNALS_VERSION "" CACHE STRING
+    "A unique pybind11 registry generation for loading rebuilt modules in one development process")
 
 set(_maya_python_h "")
 if(MAYA_LOCATION)
@@ -89,6 +91,10 @@ pybind11_add_module(groomlab_core_py MODULE
 )
 set_target_properties(groomlab_core_py PROPERTIES OUTPUT_NAME groomlab_core)
 target_link_libraries(groomlab_core_py PRIVATE groomlab::core groomlab::warnings)
+if(GROOMLAB_PYBIND_INTERNALS_VERSION)
+    target_compile_definitions(groomlab_core_py PRIVATE
+        PYBIND11_INTERNALS_VERSION=${GROOMLAB_PYBIND_INTERNALS_VERSION})
+endif()
 if(MSVC)
     target_compile_options(groomlab_core_py PRIVATE /bigobj)
     # No incremental linking: its growing .pdb (several hundred MB with /Z7 objects) failed with

@@ -343,6 +343,30 @@ TEST(ValueInputs, ANumberValueFeedsAField) {
     EXPECT_THROW(g.connect(vec, combine, 0), GraphError);
 }
 
+TEST(ValueInputs, AColorValueFeedsAColorField) {
+    Graph g;
+    const NodeId color = valueNode(g, "color", "color", Vec3f(0.2f, 0.4f, 0.8f));
+    const NodeId hair = g.addNode("HairColor");
+    g.setParamInputs(hair, {"tipColor"});
+    EXPECT_NO_THROW(g.connect(color, hair, g.node(hair).inputs().size()));
+    const UniformValue value{Vec3f(0.2f, 0.4f, 0.8f), false};
+    const FieldPtr field = uniformField(value);
+    ASSERT_TRUE(field);
+    EXPECT_TRUE(field->isColor());
+    EXPECT_FLOAT_EQ(field->maximum(), 0.8f);
+
+    GraphEdit edit(R"({"nodes": [
+        {"name": "color", "type": "Value", "params": {"kind": "color", "color": [0.2, 0.4, 0.8]}},
+        {"name": "hair", "type": "HairColor", "paramInputs": ["tipColor"]}],
+        "connections": [], "output": "hair"})");
+    const auto spec = nlohmann::json::parse(edit.nodeSpecJson("hair"));
+    const auto input = std::find_if(spec["inputs"].begin(), spec["inputs"].end(),
+                                    [](const auto& p) { return p.value("name", "") == "tipColor"; });
+    ASSERT_NE(input, spec["inputs"].end());
+    EXPECT_EQ(input->value("valueKind", ""), "vec3");
+    EXPECT_NO_THROW(edit.connect("color", "hair", "tipColor"));
+}
+
 TEST(ValueInputs, ACompoundsExposedParamAndValueInput) {
     // The inner Clump's size is the compound's "size", set by a Value outside; its centersFrom
     // comes in through an Input node of type Value.

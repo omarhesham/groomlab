@@ -446,6 +446,42 @@ class GraphEditorTest(unittest.TestCase):
         labels = [w.text() for w in self.editor.params.findChildren(self.ge.QtWidgets.QLabel)]
         self.assertTrue(any("driven by" in t or "×" in t for t in labels))  # the field named beside the value
 
+    def test_expand_inputs_button_toggles_every_connectable_param(self):
+        from PySide2 import QtCore, QtWidgets
+        item = self.editor.items["length"]
+        params = item.mappable()
+        self.assertGreater(len(params), 1)
+        self.assertIn("inputs", item.toggle_rects())
+        self.editor.toggle_param_inputs("length")
+        self.assertEqual(self.editor.model.param_inputs("length"), params)
+        x, y = self.editor.model.position("length")
+        value = self.editor.add_node("Value", at=(x - 280, y + 100), params={"kind": "number", "number": 0.5})
+        self.editor.resize(1200, 700)
+        self.editor.show()
+        QtWidgets.QApplication.processEvents()
+        view = self.editor.view
+        src = view.mapFromScene(self.editor.items[value].output.scene_center())
+        dst = view.mapFromScene(self.editor.items["length"].inputs["keep"].scene_center())
+        drag(view.viewport(), src, dst)
+        self.assertEqual(self.editor.model.source_of("length", "keep"), value)
+        # Collapse with the live connection: its port and wire survive; the unused ports go.
+        self.editor.toggle_param_inputs("length")
+        self.assertEqual(self.editor.model.param_inputs("length"), ["keep"])
+        # Pick up that wire and drop it on empty space, through the real scene event path.
+        pick = view.mapFromScene(self.editor.items["length"].inputs["keep"].scene_center())
+        empty = view.mapFromScene(self.editor.items["length"].sceneBoundingRect().bottomLeft() + QtCore.QPointF(-80, 80))
+        drag(view.viewport(), pick, empty)
+        self.assertIsNone(self.editor.model.source_of("length", "keep"))
+        self.assertIsNone(self.editor.scene._drag_port)
+        # Expanding again recreates compatible sockets; the disconnected Value can wire back in.
+        self.editor.toggle_param_inputs("length")
+        self.assertEqual(self.editor.model.param_inputs("length"), params)
+        src = view.mapFromScene(self.editor.items[value].output.scene_center())
+        dst = view.mapFromScene(self.editor.items["length"].inputs["keep"].scene_center())
+        drag(view.viewport(), src, dst)
+        self.assertEqual(self.editor.model.source_of("length", "keep"), value)
+        self.assertIsNone(self.editor.scene._drag_port)
+
     def test_search_backdrops_badges_reset(self):
         from PySide2 import QtCore, QtWidgets
         from groomlab.ui import widgets

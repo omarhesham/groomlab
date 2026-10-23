@@ -220,6 +220,32 @@ class GROOMLAB_OT_graph_expose(_ParamOp):
         return {"FINISHED"}
 
 
+class GROOMLAB_OT_graph_toggle_inputs(_NodeOp):
+    """Expose all connectable parameter inputs, or collapse them when all are exposed."""
+    bl_idname = "groomlab.graph_toggle_inputs"
+    bl_label = "Expand Inputs"
+    bl_description = "Show or hide all connectable parameter ports"
+
+    def execute(self, context):
+        scalp = _ge().context_groom(context)
+        node = _node(context, self.node)
+        if node is None:
+            return {"CANCELLED"}
+        params = linkable(node)
+        show = not all(param in exposed(node) for param in params)
+        connected = {c["input"] for c in json.loads(scalp.groomlab.graph_json or "{}").get("connections", [])
+                     if c.get("to") == node.gl_name}
+        try:
+            for param in params:
+                if (param in exposed(node)) != show:
+                    if show or param not in connected:
+                        (graph.expose_param if show else graph.unexpose_param)(scalp, node.gl_name, param)
+        except HelperError as e:
+            return _fail(self, e)
+        _settle(scalp)
+        return {"FINISHED"}
+
+
 def control_names(node, param):
     """The control(s) a keyed param reads ([] when not keyed): one, or three for a vector."""
     value = json.loads(node.gl_controls or "{}").get(param)
@@ -1495,6 +1521,7 @@ def _bind_all():
 
 
 classes = (GROOMLAB_OT_graph_group, GROOMLAB_OT_graph_ungroup, GROOMLAB_OT_graph_show_inner, GROOMLAB_OT_graph_expose,
+           GROOMLAB_OT_graph_toggle_inputs,
            GROOMLAB_OT_graph_set_key, GROOMLAB_OT_graph_delete_key, GROOMLAB_OT_graph_remove_animation,
            GROOMLAB_OT_graph_add_control, GROOMLAB_OT_graph_map_source, GROOMLAB_OT_graph_edit_expression,
            GROOMLAB_OT_graph_apply_text, GROOMLAB_OT_graph_script_edit, GROOMLAB_OT_graph_script_done,

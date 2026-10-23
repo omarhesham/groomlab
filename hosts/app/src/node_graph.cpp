@@ -222,6 +222,9 @@ void NodeGraphView::rebuild() {
             for (const nlohmann::json& p : spec->value("outputs", nlohmann::json::array())) {
                 node.outputs.push_back({p.value("name", std::string()), p.value("type", std::string()), false});
             }
+            for (const nlohmann::json& p : spec->value("params", nlohmann::json::array())) {
+                if (p.contains("port") && p["port"].is_object()) node.linkableParams.push_back(p.value("name", std::string()));
+            }
         }
         if (info.type == "Output") node.category = "output";
         if (info.type == "Compound" || info.type == "Script") {
@@ -592,6 +595,10 @@ QRectF NodeGraphView::bypassButtonRect(const Node& node) const {
     return QRectF(node.pos.x() + node.size.width() - 26, node.pos.y() + 5, 18, 18);
 }
 
+QRectF NodeGraphView::inputsButtonRect(const Node& node) const {
+    return QRectF(node.pos.x() + node.size.width() - 49.0, node.pos.y() + 5.0, 18.0, 18.0);
+}
+
 int NodeGraphView::backdropTitleAt(const QPointF& scene, bool* grip) const {
     for (int i = static_cast<int>(backdrops_.size()) - 1; i >= 0; --i) {
         const QRectF& r = backdrops_[i].rect;
@@ -617,6 +624,16 @@ int NodeGraphView::backdropAt(const QPointF& scene) const {
 bool NodeGraphView::bypassButtonAt(const QPointF& scene, int* node) const {
     for (std::size_t i = 0; i < nodes_.size(); ++i) {
         if (bypassButtonRect(nodes_[i]).contains(scene)) {
+            *node = static_cast<int>(i);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool NodeGraphView::inputsButtonAt(const QPointF& scene, int* node) const {
+    for (std::size_t i = 0; i < nodes_.size(); ++i) {
+        if (!nodes_[i].linkableParams.empty() && inputsButtonRect(nodes_[i]).contains(scene)) {
             *node = static_cast<int>(i);
             return true;
         }
@@ -662,7 +679,7 @@ void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected)
     // The name, with the type after it when the name says something else.
     painter.setFont(theme::uiFont(13, 800));
     painter.setPen(headerText(color));
-    const QRectF title(rect.x() + 12, rect.y(), rect.width() - 40, kHeader);
+    const QRectF title(rect.x() + 12, rect.y(), rect.width() - (node.linkableParams.empty() ? 40 : 62), kHeader);
     painter.drawText(title, Qt::AlignVCenter | Qt::AlignLeft, QString::fromStdString(node.name));
     // The node's time in its last run, before the bypass toggle (a tenth of a millisecond and up).
     if (const auto t = times_.find(node.name); t != times_.end() && t->second >= 0.05) {
@@ -671,7 +688,8 @@ void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected)
         dim.setAlpha(170);
         painter.setPen(dim);
         const QString ms = t->second < 10.0 ? QString::number(t->second, 'f', 1) : QString::number(std::lround(t->second));
-        painter.drawText(QRectF(rect.x(), rect.y(), rect.width() - 30, kHeader), Qt::AlignVCenter | Qt::AlignRight, ms + QStringLiteral(" ms"));
+        painter.drawText(QRectF(rect.x(), rect.y(), rect.width() - (node.linkableParams.empty() ? 30 : 55), kHeader),
+                         Qt::AlignVCenter | Qt::AlignRight, ms + QStringLiteral(" ms"));
     }
     // A note (the node does nothing as set): a grey "i" on the node's corner (left of the error
     // badge when the node failed too).
@@ -696,6 +714,18 @@ void NodeGraphView::drawNode(QPainter& painter, const Node& node, bool selected)
     painter.setPen(QPen(headerText(color), 1.6));
     painter.setBrush(node.bypass ? headerText(color) : Qt::NoBrush);
     painter.drawEllipse(bypass.adjusted(3, 3, -3, -3));
+    if (!node.linkableParams.empty()) {
+        const QRectF inputs = inputsButtonRect(node);
+        const bool expanded = std::all_of(node.linkableParams.begin(), node.linkableParams.end(), [&](const std::string& p) {
+            return document_ && document_->paramExposed(node.name, p);
+        });
+        QColor ink = headerText(color);
+        if (!expanded) ink.setAlpha(170);
+        painter.setPen(QPen(ink, 1.6));
+        for (qreal dy : {5.0, 9.0, 13.0}) {
+            painter.drawLine(QPointF(inputs.left() + 4.0, inputs.top() + dy), QPointF(inputs.right() - 4.0, inputs.top() + dy));
+        }
+    }
     // The ports: inputs down the left edge, outputs down the right, named inside.
     painter.setFont(theme::uiFont(11, 600));
     for (std::size_t i = 0; i < node.inputs.size(); ++i) {
@@ -930,6 +960,10 @@ void NodeGraphView::mousePressEvent(QMouseEvent* event) {
     bool output = false;
     if (bypassButtonAt(pressScene_, &node)) {
         setBypass(nodes_[node].name, !nodes_[node].bypass);
+        return;
+    }
+    if (inputsButtonAt(pressScene_, &node)) {
+        toggleInputs(nodes_[node].name);
         return;
     }
     if (portAt(pressScene_, &node, &port, &output)) {
@@ -1274,6 +1308,30 @@ void NodeGraphView::setBypass(const std::string& node, bool bypass) {
     refresh();
 }
 
+void NodeGraphView::toggleInputs(const std::string& name) {
+    if (!document_) return;
+    const int index = nodeIndex(name);
+    if (index < 0 || nodes_[index].linkableParams.empty()) return;
+    const bool expose = !std::all_of(nodes_[index].linkableParams.begin(), nodes_[index].linkableParams.end(),
+                                     [&](const std::string& param) { return document_->paramExposed(name, param); });
+    std::vector<std::string> changed = nodes_[index].linkableParams;
+    if (!expose) {
+        changed.erase(std::remove_if(changed.begin(), changed.end(), [&](const std::string& param) {
+            return !document_->paramInputSource(name, param).empty();
+        }), changed.end());
+    }
+    const std::string error = document_->exposeParams(name, changed, expose);
+    if (!error.empty()) {
+        emit message(QString::fromStdString(error));
+        refresh();
+        return;
+    }
+    emit edited();
+    emit status(expose ? tr("Exposed all inputs on %1").arg(QString::fromStdString(name))
+                       : tr("Collapsed all inputs on %1").arg(QString::fromStdString(name)));
+    refresh();
+}
+
 void NodeGraphView::setEvaluation(const std::string& node, const std::string& mode) {
     if (!document_) return;
     const std::string error = document_->setEvaluation(node, mode);
@@ -1381,9 +1439,12 @@ bool NodeGraphView::event(QEvent* event) {
     // A node's tooltip: its error, else its note (the badges' text).
     if (event->type() == QEvent::ToolTip) {
         auto* help = static_cast<QHelpEvent*>(event);
-        const int node = nodeAt(toScene(QPointF(help->pos())));
+        const QPointF scene = toScene(QPointF(help->pos()));
+        int node = -1;
         QString tip;
-        if (node >= 0) {
+        if (inputsButtonAt(scene, &node)) {
+            tip = tr("Expand Inputs: show or hide all connectable parameter ports");
+        } else if ((node = nodeAt(scene)) >= 0) {
             const std::string error = nodeError(nodes_[node].name), note = nodeNote(nodes_[node].name);
             tip = !error.empty() ? QString::fromStdString(error) : QString::fromStdString(note);
         }
