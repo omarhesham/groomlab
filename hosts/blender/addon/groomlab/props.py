@@ -125,7 +125,7 @@ class GroomLabObject(bpy.types.PropertyGroup):
     preview_density: FloatProperty(name="Preview Density", default=1.0, min=0.0, max=1.0, subtype="FACTOR",
                                    description="Share of the strands the viewport shows; final renders get all of them",
                                    update=_settings_changed)
-    preview_point_budget: IntProperty(name="Point Budget (k)", default=500, min=0, soft_max=5000,
+    preview_point_budget: IntProperty(name="Point Budget (k)", default=0, min=0, soft_max=5000,
                                       description="At most this many thousand points in the viewport: a denser preview "
                                                   "shows fewer of the same strands (0: no limit). Final renders get every "
                                                   "strand", update=_settings_changed)

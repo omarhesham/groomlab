@@ -1057,10 +1057,8 @@ one), a param painted
 grabs it with its UI after the first frame
 (`MainWindow::grabUi`: the viewport's framebuffer with the pieces rendered over it) and quits;
 `--display name=value` sets the display options first (`colorMode`, `colorSource`, `scalpMap`,
-`guides`, `cardsView`, `widthCoverage`...). The preview starts with a point budget of 300k points
-(the Display panel's; every Scatter thins to fit, as Maya previews at 10%), so a preset that grows a groom
-to hundreds of thousands of strands keeps the brush responsive; `--density` and the panel
-change it.
+`guides`, `cardsView`, `widthCoverage`...). The preview starts with no point budget (the Display
+panel's: past one every Scatter thins to fit); `--density` and the panel change it.
 
 **Graph presets** are the Maya host's files (`hosts/maya/presets/*.json`), read through the core's
 `presets.h` by both hosts: where they are looked up (`GROOMLAB_PRESET_PATH`, the user's folder,

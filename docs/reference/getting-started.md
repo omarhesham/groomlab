@@ -45,9 +45,9 @@ cmds.setAttr(groom + ".previewDensity", 1.0)
   preview runs them too and writes the shown ones alone). The one difference left is an
   expression's `$index` (a strand's place in the set, which a thinned set changes).
 - **Viewport memory:** every node keeps a copy of the strands while previewing, and the draw
-  buffers more, so the preview is held to `previewPointBudget` million strand points (16 by
-  default; 0: no limit). Past it Scatter thins the preview on its own (the same strands, fewer
-  of them), so raising density or segments can't exhaust memory. Renders and exports ignore it.
+  buffers more, so the preview can be held to `previewPointBudget` million strand points (0, the
+  default: no limit). Past it Scatter thins the preview on its own (the same strands, fewer of
+  them), so raising density or segments can't exhaust memory. Renders and exports ignore it.
 - **Even roots:** `Scatter.randomness` (1 by default: random) below 1 spreads the roots evenly
   first (blue noise: roots relaxed apart on the scalp's rest pose until the spacing settles; open
   edges push back, so no row piles up along a hairline), then puts each root that fraction of the

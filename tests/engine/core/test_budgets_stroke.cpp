@@ -342,7 +342,7 @@ StrokeTimes strokeLatency(Bench bench, float sculptDensity, int strokes, int dab
     ViewRequest request;
     request.density = 1.0f;
     request.sculptDensity = sculptDensity;
-    request.pointBudget = 16.0e6;  // groomLabShape's previewPointBudget default (16 M points)
+    request.pointBudget = 16.0e6;  // a 16 M point preview budget (groomLabShape's previewPointBudget)
     HostViewport viewport;
     std::uint64_t version = 0;
     double changed = -1.0;  // the last evaluation's changed share

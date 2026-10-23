@@ -159,7 +159,7 @@ void MainWindow::buildProperties() {
     budget_ = rowSlider(0.0, 2000.0, 0, 50.0, theme::purple());
     budget_->setInteger(true);
     budget_->setLimits(0.0, 1000000.0);
-    budget_->setValue(kDefaultPointBudget);  // sensible by default (Maya previews at 10%): brushing stays responsive on a big groom
+    budget_->setValue(kDefaultPointBudget);
     budget_->setValueWidth(64);
     budget_->setFormat([](double v) { return v < 0.5 ? tr("no limit") : QString::number(std::lround(v)) + tr(" k"); });
     p->setControl("budget", budget_);

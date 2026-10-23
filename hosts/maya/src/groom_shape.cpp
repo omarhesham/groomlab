@@ -1006,8 +1006,8 @@ MStatus GroomShape::initialize() {
     nAttr.setMax(1.0);
     nAttr.setKeyable(true);
     // Millions of strand points the viewport may hold (each node keeps a copy, and the
-    // draw buffers more): past it the preview thins itself. 0: no limit.
-    aPreviewPointBudget = nAttr.create("previewPointBudget", "glppb", MFnNumericData::kFloat, 16.0, &status);
+    // draw buffers more): past it the preview thins itself. 0 (the default): no limit.
+    aPreviewPointBudget = nAttr.create("previewPointBudget", "glppb", MFnNumericData::kFloat, 0.0, &status);
     CHECK_MSTATUS_AND_RETURN_IT(status);
     nAttr.setMin(0.0);
     nAttr.setSoftMax(64.0);
