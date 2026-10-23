@@ -97,7 +97,18 @@ public:
         void* tangents = nullptr;
         void* colors = nullptr;
     };
-    void runRibbons(void* points, void* lineUvs, float widthScale, bool lit, const RibbonTargets& targets, const float light[3]);
+    // With `facing`, the ribbons face the viewer instead (the strand lines drawn at their true width):
+    // across each point by cross(its tangent, toward the viewer), half its width times the scale but
+    // never less than half of `minPixels` pixels at its distance, so a strand thinner than a pixel is
+    // a pixel wide (its coverage then says how much of it it covers). Run again when the view moves.
+    struct RibbonFacing {
+        float eye[3] = {0.0f, 0.0f, 0.0f};  // the eye (world); orthographic: the direction toward the viewer
+        bool orthographic = false;
+        float pixelWorld = 0.0f;            // world units a pixel spans at distance 1 (orthographic: a pixel)
+        float minPixels = 1.0f;
+    };
+    void runRibbons(void* points, void* lineUvs, float widthScale, bool lit, const RibbonTargets& targets, const float light[3],
+                    const RibbonFacing* facing = nullptr);
 
     // ---- Following the scalp (follow_scalp.h; shaders/follow.slang) ----
     //
@@ -203,7 +214,7 @@ protected:
 private:
     std::size_t densityCells_ = 0, densityPoints_ = 0;
     void dispatchPoints(Kernel kernel, const Binding& binding, const float* values = nullptr, std::uint32_t flag = 0,
-                        std::uint32_t flagZ = 0);
+                        std::uint32_t flagZ = 0, const float* values2 = nullptr);
     std::size_t strands_ = 0, points_ = 0, uniform_ = 0;
     std::uint64_t layoutKey_ = 0, normalsKey_ = 0, colorsKey_ = 0;
     bool hasLayout_ = false, hasNormals_ = false;

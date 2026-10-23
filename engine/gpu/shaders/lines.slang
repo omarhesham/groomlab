@@ -71,6 +71,11 @@ void WidthsCS(uint3 id : SV_DispatchThreadID) {
 // (gAux0, float4 a strand) shaded by the fixed key light (gValue.yzw, ribbonKeyLight) across the
 // ribbon's face, into gOut2 (float4 a vertex). Strands of one point (which the CPU's ribbons leave
 // out) make vertices no triangle uses. gFlag.x: the threads in a row of the dispatch.
+//
+// Facing the viewer (gFlag.z 1: the eye at gValue2.xyz; 2: an orthographic view, gValue2.xyz toward
+// the viewer; line_frames.h RibbonFacing): across by cross(the tangent, toward the viewer) in place
+// of the frame's side (the side where the strand points at the viewer), half as wide as above but
+// at least gValue2.w x the distance (half the least pixels at distance 1; orthographic: x 1).
 
 [shader("compute")]
 [numthreads(POINT_GROUP_SIZE, 1, 1)]
@@ -82,8 +87,16 @@ void RibbonsCS(uint3 id : SV_DispatchThreadID) {
     float3 t, nrm, side;
     lineFrame(begin, n, p - begin, rootNormal(s), t, nrm, side);
     const float width = asfloat(gAux1.Load(p * 8 + 4));
-    const float halfWidth = 0.5f * gValue.x * (width < 0.0f ? 0.01f : width);
+    float halfWidth = 0.5f * gValue.x * (width < 0.0f ? 0.01f : width);
     const float3 q = loadPoint(p);
+    if (gFlag.z != 0u) {
+        const bool orthographic = gFlag.z == 2u;
+        const float3 toViewer = orthographic ? gValue2.xyz : gValue2.xyz - q;
+        const float distance = orthographic ? 1.0f : len3(toViewer);
+        const float3 across = cross(t, toViewer);
+        if (len3(across) > 1e-6f * max(distance, 1e-6f)) side = normalized(across);
+        halfWidth = max(halfWidth, gValue2.w * distance);
+    }
     storePoint(gOut, 2 * p, q - side * halfWidth);
     storePoint(gOut, 2 * p + 1, q + side * halfWidth);
     if (gFlag.y == 0u) {

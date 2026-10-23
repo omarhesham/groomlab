@@ -4,6 +4,7 @@
 // frames and widths written by the kernels, read back and compared, on every backend (DirectX 11:
 // a hardware device; OpenGL: a hidden window's 4.5 context). A backend without a device skips.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -417,6 +418,91 @@ TEST_P(LineFramesTest, RibbonsAreTheCpus) {
             for (void* b : out) device->release(b);
         }
     }
+}
+
+// Ribbons facing the viewer (runRibbons with RibbonFacing: the strand lines at their true width):
+// each point's two vertices about it, across both its tangent and the way to the viewer, half its
+// width times the scale apart from it, or half the least pixels at its distance where that is more
+// (the pixel's size picked so that about half the points are widened), seen from an eye and along
+// an orthographic view.
+TEST_P(LineFramesTest, FacingRibbonsFaceTheViewer) {
+    auto device = makeDevice(GetParam());
+    if (!device->available()) GTEST_SKIP() << GetParam() << ": no device";
+    auto frames = device->frames();
+    const auto scalp = test::makeSphere(12, 24);
+    const float light[3] = {0.0f, 1.0f, 0.0f};
+    const StrandsPtr strands = wavyStrands(scalp, 2000, 17, false);
+    const std::size_t n = strands->pointCount(), count = strands->strandCount();
+    const StrandLines lines(strands, scalp, true, nullptr);
+    const float scale = 1.5f;
+    void* points = device->buffer(n * 12);
+    void* lineUvs = device->buffer(n * 8);
+    void* out[3] = {device->buffer(n * 24), device->buffer(n * 24), device->buffer(n * 24)};
+    frames->write(points, strands->positions().data(), 0, n * 12);
+    std::vector<float> uvs(n * 2);
+    lines.writeUvs(uvs.data(), 2);
+    frames->write(lineUvs, uvs.data(), 0, n * 8);
+    frames->setLayout(strands->offsets().data(), count, lines.layoutKey());
+    std::vector<float> up(count * 4);
+    frames->setRootNormals(up.data(), lines.writeRootNormals(up.data()));
+    gpu::LineFrames::RibbonTargets targets;
+    targets.positions = out[0];
+    targets.normals = out[1];
+    targets.tangents = out[2];
+    const auto& p = strands->positions();
+    auto at = [&](std::size_t i) { return Vec3f(p[i]); };
+    auto halfWidthOf = [&](std::size_t i) { return 0.5f * scale * (uvs[i * 2 + 1] < 0.0f ? 0.01f : uvs[i * 2 + 1]); };
+    for (const bool orthographic : {false, true}) {
+        SCOPED_TRACE(orthographic ? "orthographic" : "from an eye");
+        gpu::LineFrames::RibbonFacing facing;
+        const Vec3f eye{0.5f, 0.8f, 6.0f}, toward = Vec3f{0.2f, 0.3f, 1.0f}.normalized();
+        const Vec3f viewer = orthographic ? toward : eye;
+        facing.eye[0] = viewer.x;
+        facing.eye[1] = viewer.y;
+        facing.eye[2] = viewer.z;
+        facing.orthographic = orthographic;
+        auto distanceOf = [&](std::size_t i) { return orthographic ? 1.0f : (eye - at(i)).length(); };
+        // The pixel: half of it at each point's distance as wide as the median half width.
+        std::vector<float> ratios(n);
+        for (std::size_t i = 0; i < n; ++i) ratios[i] = halfWidthOf(i) / distanceOf(i);
+        std::nth_element(ratios.begin(), ratios.begin() + n / 2, ratios.end());
+        facing.pixelWorld = 2.0f * ratios[n / 2];
+        facing.minPixels = 1.0f;
+        frames->runRibbons(points, lineUvs, scale, true, targets, light, &facing);
+        const std::vector<float> v = frames->read(out[0], n * 6);
+        float worstMiddle = 0, worstHalf = 0, worstAlong = 0, worstToward = 0;
+        std::size_t widened = 0, kept = 0;
+        for (std::size_t s = 0; s < count; ++s) {
+            const std::size_t pts = strands->strandPointCount(s), begin = strands->strandBegin(s);
+            if (pts < 2) continue;
+            for (std::size_t k = 0; k < pts; ++k) {
+                const std::size_t i = begin + k;
+                const Vec3f a{v[i * 6], v[i * 6 + 1], v[i * 6 + 2]}, b{v[i * 6 + 3], v[i * 6 + 4], v[i * 6 + 5]};
+                const Vec3f q = at(i), across = b - a;
+                const Vec3f along = at(begin + std::min(k + 1, pts - 1)) - at(begin + (k > 0 ? k - 1 : 0));
+                if (along.length() < 1e-6f) continue;  // (points on each other: no tangent, no side, as the frames' own ribbons)
+                const Vec3f t = along.normalized();
+                const Vec3f view = (orthographic ? toward : eye - q).normalized();
+                const float least = 0.5f * facing.pixelWorld * distanceOf(i), half = std::max(halfWidthOf(i), least);
+                (least > halfWidthOf(i) ? widened : kept) += 1;
+                worstMiddle = std::max(worstMiddle, (0.5f * (a + b) - q).length());
+                worstHalf = std::max(worstHalf, std::abs(0.5f * across.length() - half) / half);
+                const Vec3f unit = across.normalized();
+                worstAlong = std::max(worstAlong, std::abs(unit.dot(t)));
+                // (A strand pointing at the viewer keeps its frame's side: across the view only where it can be.)
+                if (t.cross(view).length() > 0.05f) worstToward = std::max(worstToward, std::abs(unit.dot(view)));
+            }
+        }
+        EXPECT_GT(widened, n / 4);
+        EXPECT_GT(kept, n / 4);
+        EXPECT_LT(worstMiddle, 1e-5f);
+        EXPECT_LT(worstHalf, 1e-4f);
+        EXPECT_LT(worstAlong, 1e-4f);
+        EXPECT_LT(worstToward, 1e-4f);
+    }
+    device->release(points);
+    device->release(lineUvs);
+    for (void* b : out) device->release(b);
 }
 
 // Following the scalp (setFollowRest, setFollowRoots, setFollowScalp, runFollow) against the CPU's

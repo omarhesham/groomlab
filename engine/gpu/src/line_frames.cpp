@@ -124,7 +124,8 @@ void LineFrames::writeRibbonColors(void* colors) {
     dispatchPoints(Kernel::RibbonColors, b);
 }
 
-void LineFrames::runRibbons(void* points, void* lineUvs, float widthScale, bool lit, const RibbonTargets& t, const float light[3]) {
+void LineFrames::runRibbons(void* points, void* lineUvs, float widthScale, bool lit, const RibbonTargets& t, const float light[3],
+                            const RibbonFacing* facing) {
     if (!points || !lineUvs || !t.positions || (lit ? !t.normals || !t.tangents : !t.colors)) {
         throw std::runtime_error("GPU ribbons: a target is missing");
     }
@@ -142,7 +143,13 @@ void LineFrames::runRibbons(void* points, void* lineUvs, float widthScale, bool 
         b.outBytes[1] = points_ * 32;
     }
     const float values[4] = {widthScale, light[0], light[1], light[2]};
-    dispatchPoints(Kernel::Ribbons, b, values, lit ? 0u : 1u);
+    if (!facing) {
+        dispatchPoints(Kernel::Ribbons, b, values, lit ? 0u : 1u);
+        return;
+    }
+    // (lines.slang RibbonsCS: gValue2 the viewer and the least half width at distance 1, gFlag.z how it faces.)
+    const float viewer[4] = {facing->eye[0], facing->eye[1], facing->eye[2], 0.5f * facing->minPixels * facing->pixelWorld};
+    dispatchPoints(Kernel::Ribbons, b, values, lit ? 0u : 1u, facing->orthographic ? 2u : 1u, viewer);
 }
 
 std::size_t LineFrames::setFollowRest(const float* points, std::uint64_t key) {
@@ -226,7 +233,8 @@ double LineFrames::densitySum() {
     return sum / 65536.0;  // (density.slang's kFixed)
 }
 
-void LineFrames::dispatchPoints(Kernel kernel, const Binding& binding, const float* values, std::uint32_t flag, std::uint32_t flagZ) {
+void LineFrames::dispatchPoints(Kernel kernel, const Binding& binding, const float* values, std::uint32_t flag, std::uint32_t flagZ,
+                                const float* values2) {
     if (points_ == 0) return;
     const std::uint64_t groups = (points_ + kPointGroup - 1) / kPointGroup;
     const auto groupsX = static_cast<std::uint32_t>(std::min<std::uint64_t>(groups, kMaxGroups));
@@ -240,7 +248,8 @@ void LineFrames::dispatchPoints(Kernel kernel, const Binding& binding, const flo
     c.flag[1] = flag;
     c.flag[2] = flagZ;
     if (values) std::memcpy(c.value, values, sizeof c.value);
-    c.table[1] = 0;                     // the root normals: block 0 of gStrandData
+    if (values2) std::memcpy(c.value2, values2, sizeof c.value2);
+    c.table[1] = 0;                    // the root normals: block 0 of gStrandData
     dispatch(kernel, &c, sizeof c, binding, groupsX, groupsY);
 }
 
