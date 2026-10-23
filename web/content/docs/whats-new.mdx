@@ -13,6 +13,23 @@ version. While GroomLab is in early access, a node's params can still change bet
 param renamed, or two merged into one); the entries below say when one does and what to set. Once
 it leaves early access, saved grooms will keep their look across updates.
 
+## 0.26.0 (October 22, 2026)
+
+- **Only a Resample on the way to the Output sets the resolution.** A Resample node fed by
+  nothing, or one whose strands never reach the Output, still set every strand's point count; now
+  only the Resamples the Output's strands pass through do. If a scene of yours has a Resample off to
+  the side, its strands come back with the default resolution: wire the Resample into the chain.
+- **Feather shafts show their rachis.** The shaft a feather's Propagate keeps is drawn and rendered
+  as the rachis tube (Arnold, V-Ray, RenderMan), not as a strand of barb width, and its width no
+  longer comes from the Width node. The feather presets now offer **Vane width** and **Barb width**
+  in place of Length and Width.
+- **Smooth card edges in Maya's viewport.** Textured cards are smoothed by the viewport's
+  anti-aliasing instead of a hard cut-out, their shadows follow the card's shape, and ambient
+  occlusion no longer draws boxes around them.
+- **Guide dots stay behind the scalp.** With a feather's Keep Shaft on, the dots on guides behind the
+  scalp no longer showed through it.
+- **Faster Merge, Smooth and Clump.** Each takes less time, with the same results to the last bit.
+
 ## 0.25.0 (October 22, 2026)
 
 - **Isolate works by group.** Isolate, beside the Group choice in the Groom Tools, dimmed every
