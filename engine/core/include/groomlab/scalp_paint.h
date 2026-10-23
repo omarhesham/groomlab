@@ -39,6 +39,11 @@ constexpr int kGrayMap = 1;
 constexpr int kColorMap = 4;
 constexpr unsigned kAllChannels = 0xFu;
 using PaintColor = std::array<float, 4>;
+float compositePaintValue(float current, float value, PaintMode mode);
+// Fill interleaved gray or color map values in the selected channels, compositing each value in
+// `mode`. A gray map takes color[0].
+void fillMapValues(std::vector<float>& values, int channels, unsigned mask, const PaintColor& color,
+                   PaintMode mode = PaintMode::Replace);
 
 // "rgba" or any non-empty subset of those letters <-> a mask. Throws std::invalid_argument.
 unsigned channelMask(const std::string& letters);
@@ -108,7 +113,8 @@ struct VertexNeighbors {
 using VertexReach = std::vector<std::pair<std::size_t, float>>;
 VertexReach vertexReach(const ScalpMesh& scalp, const Vec3f& center, float radius, const BrushWeightFn& weight = {});
 std::size_t stampVertexReach(std::vector<float>& values, int channels, unsigned mask, const ScalpMesh& scalp,
-                             const VertexReach& reach, float strength, const PaintColor& target);
+                             const VertexReach& reach, float strength, const PaintColor& target,
+                             PaintMode mode = PaintMode::Replace, const std::vector<float>* strokeStart = nullptr);
 std::size_t smoothVertexReach(std::vector<float>& values, int channels, unsigned mask, const ScalpMesh& scalp,
                               const VertexNeighbors& neighbors, const VertexReach& reach, float strength);
 
@@ -262,12 +268,13 @@ public:
     // `threadSafeWeight`: the weight may be called from several threads at once (the screen
     // brush's is), so a big dab weighs its texels in parallel (the same reach, in the same order).
     Reach reachOf(const Vec3f& center, float radius, const BrushWeightFn& weight = {}, bool threadSafeWeight = false) const;
-    std::size_t stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask);
+    std::size_t stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask,
+                           PaintMode mode = PaintMode::Replace, bool fromEditStart = false);
     std::size_t smoothReach(const Reach& reach, float strength, unsigned mask = kAllChannels);
     // Every texel `value`: a color map's r g b (its alpha kept).
-    void fill(float value);
+    void fill(float value, PaintMode mode = PaintMode::Replace);
     // The channels of `mask` set to the color's (a gray map: value = color[0]).
-    void fill(const PaintColor& color, unsigned mask = kAllChannels);
+    void fill(const PaintColor& color, unsigned mask = kAllChannels, PaintMode mode = PaintMode::Replace);
 
     // Sets every covered texel from `f(root, position)`, e.g. a guide layer sampled there (a
     // color map: r = g = b = that, alpha 1).
@@ -332,6 +339,7 @@ private:
     int tilesAcross() const { return (width_ + kEditTile - 1) / kEditTile; }
     // While editing: keeps the tiles of `reach`'s texels as they are, those not kept yet.
     void keepTiles(const Reach& reach);
+    float editStartValue(std::size_t texel, std::size_t channel) const;
     void requireNotEditing(const char* what) const;
 
     int width_ = 0, height_ = 0;
@@ -342,6 +350,7 @@ private:
     // The edit being recorded: per tile, where its values before are kept (slot + 1; 0: not yet).
     bool editing_ = false;
     std::vector<std::uint32_t> editSlot_;
+    std::vector<std::size_t> editOffset_;  // per tile: offset in editBefore_ + 1; 0 not kept
     std::vector<std::uint32_t> editTiles_;
     std::vector<float> editBefore_;
 };

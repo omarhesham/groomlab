@@ -643,7 +643,8 @@ std::string GroomDocument::setMapChannels(const std::string& name, int wanted) {
     return {};
 }
 
-std::string GroomDocument::fillMap(const std::string& name, float value, bool selectedOnly, const PaintColor* color, unsigned mask) {
+std::string GroomDocument::fillMap(const std::string& name, float value, bool selectedOnly, const PaintColor* color, unsigned mask,
+                                   PaintMode mode) {
     const PaintedMap* source = map(name);
     if (!source) return "no map named '" + name + "'";
     const std::string kind = source->kind;
@@ -660,10 +661,18 @@ std::string GroomDocument::fillMap(const std::string& name, float value, bool se
         return editGuides(label, [&](GuideHierarchy& h) {
             if (selectedOnly) {
                 for (const GuideId id : picked) {
-                    if (h.guide(id)) h.setAttribute(id, name, value);
+                    if (const HierarchyGuide* g = h.guide(id)) {
+                        float current = 0.0f;
+                        h.effectiveAttribute(*g, name, &current);
+                        h.setAttribute(id, name, compositePaintValue(current, value, mode));
+                    }
                 }
             } else {
-                for (const HierarchyGuide& g : h.guides()) h.setAttribute(g.id, name, value);
+                for (const HierarchyGuide& g : h.guides()) {
+                    float current = 0.0f;
+                    h.effectiveAttribute(g, name, &current);
+                    h.setAttribute(g.id, name, compositePaintValue(current, value, mode));
+                }
             }
         });
     }
@@ -679,10 +688,7 @@ std::string GroomDocument::fillMap(const std::string& name, float value, bool se
                 for (std::size_t i = 3; i < entry.values.size(); i += 4) entry.values[i] = 1.0f;
             }
         }
-        for (std::size_t i = 0; i < entry.values.size(); ++i) {
-            if (per == 1) entry.values[i] = value;
-            else if (mask & (1u << (i % 4))) entry.values[i] = fill[i % 4];
-        }
+        fillMapValues(entry.values, channels, mask, fill, mode);
         commitMaps(label, maps);
         return {};
     }
@@ -694,8 +700,8 @@ std::string GroomDocument::fillMap(const std::string& name, float value, bool se
     try {
         requirePaintablePng(full);
         const std::shared_ptr<TexturePaint> paint = openTexturePaint(*scalp, full, channels, 1024);
-        if (channels == kColorMap) paint->fill(fill, mask);
-        else paint->fill(value);
+        if (channels == kColorMap) paint->fill(fill, mask, mode);
+        else paint->fill(value, mode);
         Edit::FileState state{full, readBytes(full), std::nullopt};
         paint->save(full);
         state.after = readBytes(full);

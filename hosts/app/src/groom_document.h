@@ -534,7 +534,7 @@ public:
     // The map set to `value` (a guide layer on the selected guides only with `selectedOnly`), or a
     // color map to `color` in the channels of `channelMask` (Maya's fill_map). One undo step.
     std::string fillMap(const std::string& name, float value, bool selectedOnly = false, const PaintColor* color = nullptr,
-                        unsigned channelMask = kAllChannels);
+                        unsigned channelMask = kAllChannels, PaintMode mode = PaintMode::Replace);
     // Where a texture map's file goes: <groom folder>/masks/<groom name>/ ("" until the groom is
     // saved), and the file of a texture map resolved against the groom's folder.
     std::string mapsDirectory() const;

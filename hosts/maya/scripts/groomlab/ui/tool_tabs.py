@@ -787,6 +787,7 @@ class PaintTab(_GroomTab):
         super(PaintTab, self).__init__(owner)
         self.paint_color = (1.0, 1.0, 1.0, 1.0)  # what paint puts on a color map (r g b a, 0-1)
         self.paint_channels = CHANNELS          # the channels it changes
+        self.paint_mode = "replace"
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(theme.px(6))
@@ -808,6 +809,28 @@ class PaintTab(_GroomTab):
         layout.addWidget(self.list, 1)
         form = QtWidgets.QFormLayout()
         form.setLabelAlignment(QtCore.Qt.AlignRight)
+        self.mode_group = QtWidgets.QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+        mode_row = QtWidgets.QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.setSpacing(theme.px(3))
+        self.mode_buttons = {}
+        for choice in definitions.choices("paintMode"):
+            button = QtWidgets.QToolButton()
+            button.setText(choice["label"])
+            button.setToolTip(choice.get("tip", ""))
+            button.setCheckable(True)
+            button.setProperty("role", "chip")
+            button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            button.clicked.connect(lambda _checked=False, value=choice["value"]: self.paint_mode_changed(value))
+            self.mode_group.addButton(button)
+            self.mode_buttons[choice["value"]] = button
+            mode_row.addWidget(button)
+        self.mode_buttons["replace"].setChecked(True)
+        mode_widget = QtWidgets.QWidget()
+        mode_widget.setToolTip(definitions.get("choices/paintMode")["tip"])
+        mode_widget.setLayout(mode_row)
+        form.addRow("Mode", mode_widget)
         self.value = widgets.SoftSlider(1.0, 0.0, 1.0, minimum=0.0, maximum=1.0, key=None)
         self.value.setToolTip("What the Paint brush paints toward, and what Fill sets")
         self.value.committed.connect(lambda v: self.owner.push(value=v))
@@ -1020,7 +1043,13 @@ class PaintTab(_GroomTab):
         """paint_flags as the brush context's flags."""
         flags = self.paint_flags()
         return {"paintKind": flags["paint_kind"], "paintTexture": flags["paint_texture"],
-                "paintColor": tuple(flags["paint_color"]), "paintChannels": flags["paint_channels"]}
+                "paintColor": tuple(flags["paint_color"]), "paintChannels": flags["paint_channels"],
+                "paintMode": self.paint_mode}
+
+    def paint_mode_changed(self, mode):
+        self.paint_mode = mode or "replace"
+        if self.owner.tool == "paint":
+            self.owner.push(paintMode=self.paint_mode)
 
     # -- Color maps --------------------------------------------------------------
 
@@ -1366,12 +1395,13 @@ class PaintTab(_GroomTab):
             return
         if self.current_channels() == 4:  # a color map: the color, in the channels ticked
             if self.run(groomlab.fill_map, self.groom, self.current(), color=self.paint_color,
-                        channels=self.paint_channels):
+                        channels=self.paint_channels, mode=self.paint_mode):
                 self.status("Filled %s's %s with the color." % (self.current(), self.paint_channels))
             return
         if selected_only is None:
             selected_only = self.current_kind() == "guides" and bool(groomlab.selected_guides(self.groom))
-        if self.run(groomlab.fill_map, self.groom, self.current(), self.value.value(), selected_only=selected_only):
+        if self.run(groomlab.fill_map, self.groom, self.current(), self.value.value(), selected_only=selected_only,
+                    mode=self.paint_mode):
             self.status("Filled %s with %g%s." % (self.current(), self.value.value(),
                                                   " on the selected guides" if selected_only else ""))
 

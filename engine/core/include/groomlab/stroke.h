@@ -187,6 +187,7 @@ void flowSinksAt(FlowSet& flow, const ScalpMesh& scalp, const BrushToolSettings&
 // The map a stroke paints: a vertex map's values (channels per scalp point) or a texture map.
 struct MapCanvas {
     std::vector<float>* vertices = nullptr;
+    const std::vector<float>* strokeStartVertices = nullptr;  // non-Replace modes: values at press
     const VertexNeighbors* neighbors = nullptr;  // smoothing a vertex map
     TexturePaint* texture = nullptr;
     int channels = kGrayMap;
@@ -197,11 +198,13 @@ struct MapCanvas {
 // of the dab's radius and `falloff`).
 struct MapDab {
     bool smoothing = false;
+    bool fromStrokeStart = false;  // non-Replace: overlapping dabs share one compositing baseline
     int passes = 1;
     float perPass = 1.0f;
     float strength = 1.0f;
     PaintColor target{1.0f, 1.0f, 1.0f, 1.0f};
     unsigned mask = kAllChannels;
+    PaintMode mode = PaintMode::Replace;
     BrushFalloff falloff;
     int mirrorAxis = -1;
     float mirrorCenter = 0.0f;
@@ -638,6 +641,7 @@ private:
     bool mapStroke_ = false;
     std::string paintMapName_;
     std::shared_ptr<std::vector<float>> workingVertexMap_;
+    std::shared_ptr<const std::vector<float>> startingVertexMap_;
     std::shared_ptr<TexturePaint> paint_;
     std::shared_ptr<TexturePreview> preview_;
     int workingChannels_ = 1;

@@ -165,7 +165,7 @@ def add_map(groom, name, value=0.0, kind="guides", resolution=1024, texture=None
     return name
 
 
-def fill_map(groom, name, value=None, selected_only=False, color=None, channels="rgba"):
+def fill_map(groom, name, value=None, selected_only=False, color=None, channels="rgba", mode="replace"):
     """Set a map to `value` everywhere, or (a guide layer) on the selected guides only. A color
     map takes `color` (r, g, b[, a]) in the channels of `channels` (a subset of "rgba"), or
     `value` in its r g b (its alpha kept)."""
@@ -176,16 +176,19 @@ def fill_map(groom, name, value=None, selected_only=False, color=None, channels=
             raise ValueError("Fill Selected sets a guide layer, which is gray; a color fills a color map")
         if not map_kind(groom, name):
             raise ValueError("no map named %r" % name)
-        return cmds.groomLabScalpMaps(groom, fill=name, fillColor=_rgba(color), fillChannels=channels or "rgba")
+        return cmds.groomLabScalpMaps(groom, fill=name, fillColor=_rgba(color), fillChannels=channels or "rgba",
+                                      paintMode=mode)
     if selected_only:
         if map_kind(groom, name) != "guides":
             raise ValueError("Fill Selected sets a guide layer on the selected guides; %s lives on the scalp" % name)
         if not selected_guides(groom):
             raise ValueError("no guides selected")
+        if mode != "replace":
+            raise ValueError("Add, Subtract and Clamp Maximum Fill currently require filling the whole guide map")
         return cmds.groomLabGuides(groom, setAttribute=name, value=value)
     if not map_kind(groom, name):
         raise ValueError("no map named %r" % name)
-    return cmds.groomLabScalpMaps(groom, fill=name, value=float(value))
+    return cmds.groomLabScalpMaps(groom, fill=name, value=float(value), paintMode=mode)
 
 
 def _in_folder(path, folder):

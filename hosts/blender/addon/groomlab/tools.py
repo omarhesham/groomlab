@@ -233,7 +233,8 @@ def settings_of(scene, tool=None):
     if tool == "paint":
         m = current_map(scene)
         channels = "".join(c for c, on in zip("rgba", (t.channel_r, t.channel_g, t.channel_b, t.channel_a)) if on)
-        s.update(value=float(t.value), paintColor=[float(c) for c in t.paint_color], paintChannels=channels or "rgba")
+        s.update(value=float(t.value), paintColor=[float(c) for c in t.paint_color], paintChannels=channels or "rgba",
+                 paintMode=t.paint_mode)
         if m is not None:
             s.update(attribute=m.name, paintKind=m.kind)
             if m.kind == "texture" and m.texture:
@@ -593,10 +594,10 @@ def map_set_channels(scalp, name, channels):
     return _map_edit(scalp, "map_set_channels", name=name, channels=int(channels))
 
 
-def map_fill(scalp, name, value=None, color=None, channels="rgba", selected=False):
+def map_fill(scalp, name, value=None, color=None, channels="rgba", selected=False, mode="replace"):
     """Set a map to `value` everywhere (any kind), or a guide layer on the selected guides only; a
     color map takes `color` (r, g, b[, a]) in the channels of `channels`."""
-    args = {"name": name, "channels": channels or "rgba", "selected": bool(selected)}
+    args = {"name": name, "channels": channels or "rgba", "selected": bool(selected), "paintMode": mode}
     if value is not None:
         args["value"] = float(value)
     if color is not None:

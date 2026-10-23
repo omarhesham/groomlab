@@ -25,6 +25,28 @@
 
 namespace groomlab {
 
+float compositePaintValue(float current, float value, PaintMode mode) {
+    switch (mode) {
+        case PaintMode::Add: return std::clamp(current + value, 0.0f, 1.0f);
+        case PaintMode::Subtract: return std::clamp(current - value, 0.0f, 1.0f);
+        case PaintMode::ClampMaximum: return std::min(current, std::clamp(value, 0.0f, 1.0f));
+        case PaintMode::Replace: return std::clamp(value, 0.0f, 1.0f);
+    }
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
+void fillMapValues(std::vector<float>& values, int channels, unsigned mask, const PaintColor& color, PaintMode mode) {
+    if (channels != kGrayMap && channels != kColorMap) {
+        throw std::invalid_argument("fillMapValues: a map has 1 channel (gray) or 4 (color)");
+    }
+    const auto n = static_cast<std::size_t>(channels);
+    if (values.size() % n != 0) throw std::invalid_argument("fillMapValues: incomplete map value");
+    const unsigned m = channels == kGrayMap ? 1u : (mask & kAllChannels);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        if (m & (1u << (i % n))) values[i] = compositePaintValue(values[i], color[i % n], mode);
+    }
+}
+
 namespace {
 
 // Scalp maps are one image over the UV square: a UDIM tile set is refused.
@@ -392,10 +414,14 @@ VertexReach vertexReach(const ScalpMesh& scalp, const Vec3f& center, float radiu
 }
 
 std::size_t stampVertexReach(std::vector<float>& values, int channels, unsigned mask, const ScalpMesh& scalp,
-                             const VertexReach& reach, float strength, const PaintColor& target) {
+                             const VertexReach& reach, float strength, const PaintColor& target, PaintMode mode,
+                             const std::vector<float>* strokeStart) {
     requireChannels(channels, "stampVertexMap");
     const auto n = static_cast<std::size_t>(channels);
     if (values.size() != scalp.pointCount() * n) throw std::invalid_argument("stampVertexMap: one value per scalp vertex and channel");
+    if (strokeStart && strokeStart->size() != values.size()) {
+        throw std::invalid_argument("stampVertexMap: the stroke's starting values have another size");
+    }
     const unsigned m = effectiveMask(channels, mask);
     std::size_t changed = 0;
     for (const auto& [i, weightThere] : reach) {
@@ -405,7 +431,9 @@ std::size_t stampVertexReach(std::vector<float>& values, int channels, unsigned 
         for (std::size_t c = 0; c < n; ++c) {
             if (!(m & (1u << c))) continue;
             float& x = values[i * n + c];
-            const float next = std::clamp(x + (target[c] - x) * std::min(w, 1.0f), 0.0f, 1.0f);
+            const float start = strokeStart ? (*strokeStart)[i * n + c] : x;
+            const float composed = compositePaintValue(start, target[c], mode);
+            const float next = std::clamp(x + (composed - x) * std::min(w, 1.0f), 0.0f, 1.0f);
             if (next != x) {
                 x = next;
                 any = true;
@@ -1182,6 +1210,7 @@ void TexturePaint::keepTiles(const Reach& reach) {
         if (editSlot_[tile] != 0) continue;
         editTiles_.push_back(static_cast<std::uint32_t>(tile));
         editSlot_[tile] = static_cast<std::uint32_t>(editTiles_.size());
+        editOffset_[tile] = editBefore_.size() + 1;
         const std::size_t tx0 = (tile % across) * kEditTile, ty0 = (tile / across) * kEditTile;
         const std::size_t tx1 = std::min(tx0 + kEditTile, w), ty1 = std::min(ty0 + kEditTile, static_cast<std::size_t>(height_));
         for (std::size_t ty = ty0; ty < ty1; ++ty) {
@@ -1191,7 +1220,22 @@ void TexturePaint::keepTiles(const Reach& reach) {
     }
 }
 
-std::size_t TexturePaint::stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask) {
+float TexturePaint::editStartValue(std::size_t texel, std::size_t channel) const {
+    if (!editing_) return values_[texel * static_cast<std::size_t>(channels_) + channel];
+    const auto w = static_cast<std::size_t>(width_);
+    const auto n = static_cast<std::size_t>(channels_);
+    const auto across = static_cast<std::size_t>(tilesAcross());
+    const std::size_t x = texel % w, y = texel / w;
+    const std::size_t tile = (y / kEditTile) * across + x / kEditTile;
+    if (tile >= editOffset_.size() || editOffset_[tile] == 0) return values_[texel * n + channel];
+    const std::size_t tx0 = (tile % across) * kEditTile, ty0 = (tile / across) * kEditTile;
+    const std::size_t tx1 = std::min(tx0 + kEditTile, w);
+    const std::size_t local = ((y - ty0) * (tx1 - tx0) + (x - tx0)) * n + channel;
+    return editBefore_[editOffset_[tile] - 1 + local];
+}
+
+std::size_t TexturePaint::stampReach(const Reach& reach, float strength, const PaintColor& target, unsigned mask,
+                                     PaintMode mode, bool fromEditStart) {
     const auto n = static_cast<std::size_t>(channels_);
     const unsigned m = effectiveMask(channels_, mask);
     keepTiles(reach);
@@ -1206,7 +1250,9 @@ std::size_t TexturePaint::stampReach(const Reach& reach, float strength, const P
         for (std::size_t c = 0; c < n; ++c) {
             if (!(m & (1u << c))) continue;
             float& x = values_[i * n + c];
-            const float next = std::clamp(x + (target[c] - x) * wt, 0.0f, 1.0f);
+            const float start = fromEditStart ? editStartValue(i, c) : x;
+            const float composed = compositePaintValue(start, target[c], mode);
+            const float next = std::clamp(x + (composed - x) * wt, 0.0f, 1.0f);
             if (next != x) {
                 x = next;
                 any = true;
@@ -1277,25 +1323,19 @@ std::size_t TexturePaint::smoothReach(const Reach& reach, float strength, unsign
     return changed;
 }
 
-void TexturePaint::fill(float value) {
+void TexturePaint::fill(float value, PaintMode mode) {
     requireNotEditing("fill");
     if (channels_ == kGrayMap) {
-        std::fill(values_.begin(), values_.end(), std::clamp(value, 0.0f, 1.0f));
+        fillMapValues(values_, channels_, kAllChannels, {value, value, value, value}, mode);
         dirty_ = TexelRect::all(width_, height_);
     } else {
-        fill({value, value, value, 1.0f}, 0x7u);  // r g b; the alpha stays
+        fill({value, value, value, 1.0f}, 0x7u, mode);  // r g b; the alpha stays
     }
 }
 
-void TexturePaint::fill(const PaintColor& color, unsigned mask) {
+void TexturePaint::fill(const PaintColor& color, unsigned mask, PaintMode mode) {
     requireNotEditing("fill");
-    const auto n = static_cast<std::size_t>(channels_);
-    const unsigned m = effectiveMask(channels_, mask);
-    for (std::size_t i = 0; i < texelCount(); ++i) {
-        for (std::size_t c = 0; c < n; ++c) {
-            if (m & (1u << c)) values_[i * n + c] = std::clamp(color[c], 0.0f, 1.0f);
-        }
-    }
+    fillMapValues(values_, channels_, mask, color, mode);
     dirty_ = TexelRect::all(width_, height_);
 }
 
@@ -1304,6 +1344,7 @@ void TexturePaint::beginEdit() {
     editing_ = true;
     const std::size_t tiles = static_cast<std::size_t>(tilesAcross()) * static_cast<std::size_t>((height_ + kEditTile - 1) / kEditTile);
     editSlot_.assign(tiles, 0);
+    editOffset_.assign(tiles, 0);
     editTiles_.clear();
     editBefore_.clear();
 }
@@ -1346,6 +1387,8 @@ TextureEdit TexturePaint::endEdit() {
     }
     editSlot_.clear();
     editSlot_.shrink_to_fit();
+    editOffset_.clear();
+    editOffset_.shrink_to_fit();
     editTiles_.clear();
     editBefore_.clear();
     editBefore_.shrink_to_fit();

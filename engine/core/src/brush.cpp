@@ -21,9 +21,28 @@
 #include "groomlab/parallel.h"
 #include "groomlab/point_index.h"
 #include "groomlab/random.h"
+#include "groomlab/scalp_paint.h"
 #include "groomlab/scalp_mirror.h"
 
 namespace groomlab {
+
+const char* paintModeName(PaintMode mode) {
+    switch (mode) {
+        case PaintMode::Replace: return "replace";
+        case PaintMode::Add: return "add";
+        case PaintMode::Subtract: return "subtract";
+        case PaintMode::ClampMaximum: return "clampMaximum";
+    }
+    return "replace";
+}
+
+PaintMode paintModeFromString(const std::string& name) {
+    if (name.empty() || name == "replace") return PaintMode::Replace;
+    if (name == "add") return PaintMode::Add;
+    if (name == "subtract") return PaintMode::Subtract;
+    if (name == "clampMaximum" || name == "clamp") return PaintMode::ClampMaximum;
+    throw std::invalid_argument("paint mode takes replace, add, subtract or clampMaximum");
+}
 
 StrokeSymmetry StrokeSymmetry::of(const BrushSettings& s, const ScalpMesh* scalp) {
     StrokeSymmetry out;
@@ -205,6 +224,7 @@ struct Edit {
     bool tubeEdited = false;    // the Shape brush's: `tube` is the guide's new tube
     TubeProfile tube;
     float attribute = std::numeric_limits<float>::quiet_NaN();
+    float attributeWeight = 0.0f;
     std::vector<float> pointWeights;  // pointwise Attribute: how far each point moves toward the value, or empty
     bool erase = false;
 };
@@ -360,9 +380,10 @@ Edit brushGuide(const HierarchyGuide& g, const ScalpMesh* scalp, const BrushSett
             }
             const float w = guideWeight(pts, weigh) * strength;
             if (w <= 0.0f) return e;
+            e.attributeWeight = w;
             auto it = g.attributes.find(s.attribute);
             const float current = it == g.attributes.end() ? 0.0f : it->second;
-            e.attribute = current + (s.value - current) * w;
+            e.attribute = current + (compositePaintValue(current, s.value, s.paintMode) - current) * w;
             return e;
         }
         case BrushMode::Twist: {
@@ -609,6 +630,9 @@ struct BrushStrokeCache::State {
     // out of date (the guide or an ancestor was edited).
     std::vector<Vec3f> lo, hi;
     std::vector<char> stale;
+    // Attribute modes that offset or clamp a value composite against the value at stroke start.
+    // The strongest dab wins, so overlapping dabs never add the amount repeatedly.
+    std::vector<float> attributeStart, attributeWeight;
     bool anyStale = true;
     // Targets binned by where their roots were when the cache was filled: a cluster's bounds hold
     // its members', so a stamp skips a whole cluster out of its reach with one test.
@@ -644,9 +668,17 @@ struct BrushStrokeCache::State {
         lo.assign(n, Vec3f{});
         hi.assign(n, Vec3f{});
         stale.assign(n, 1);
+        attributeStart.assign(n, 0.0f);
+        attributeWeight.assign(n, 0.0f);
         anyStale = true;
         slot.clear();
-        for (std::size_t i = 0; i < n; ++i) slot.emplace(targets[i].first, static_cast<std::uint32_t>(i));
+        for (std::size_t i = 0; i < n; ++i) {
+            slot.emplace(targets[i].first, static_cast<std::uint32_t>(i));
+            if (const HierarchyGuide* g = h.guide(targets[i].first)) {
+                const auto it = g->attributes.find(s.attribute);
+                attributeStart[i] = it == g->attributes.end() ? 0.0f : it->second;
+            }
+        }
         children.clear();
         for (const HierarchyGuide& g : h.guides()) {
             if (g.isChild()) children[g.parent].push_back(g.id);
@@ -840,6 +872,13 @@ std::size_t stamp(GuideHierarchy& h, const ScalpMesh* scalp, const BrushSettings
             h.setTube(id, std::move(e.tube));
             edited.push_back(id);  // children sit inside the tube
         } else if (!std::isnan(e.attribute)) {
+            if (cache && s.paintMode != PaintMode::Replace) {
+                const std::size_t k = reached[r];
+                cache->attributeWeight[k] = std::max(cache->attributeWeight[k], e.attributeWeight);
+                const float start = cache->attributeStart[k];
+                const float target = compositePaintValue(start, s.value, s.paintMode);
+                e.attribute = start + (target - start) * cache->attributeWeight[k];
+            }
             h.setAttribute(id, s.attribute, e.attribute);
         } else if (!e.pointWeights.empty()) {
             // The guide's per-point layer (its own or inherited, resampled to its

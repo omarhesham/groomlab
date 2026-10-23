@@ -12,6 +12,7 @@
 #include <tuple>
 
 #include "groomlab/scalp_paint.h"
+#include "groomlab/stroke.h"
 #include "groomlab/texture.h"
 #include "test_helpers.h"
 
@@ -404,6 +405,97 @@ TEST(ScalpPaint, ColorVertexMapsStampSmoothAndMaskChannels) {
     EXPECT_NEAR(vertexColorAt(g, kGrayMap, *plane, root)[2], 0.4f, 1e-6f);
     std::vector<float> short4 = g;  // one value per vertex is not a color map
     EXPECT_THROW(stampVertexMap(short4, kColorMap, kAllChannels, *plane, center, 0.3f, 1.0f, {}), std::invalid_argument);
+}
+
+TEST(ScalpPaint, CompositeModesPreserveAndClampValues) {
+    EXPECT_FLOAT_EQ(compositePaintValue(0.3f, 0.2f, PaintMode::Replace), 0.2f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.3f, 0.2f, PaintMode::Add), 0.5f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.9f, 0.2f, PaintMode::Add), 1.0f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.3f, 0.2f, PaintMode::Subtract), 0.1f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.1f, 0.2f, PaintMode::Subtract), 0.0f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.8f, 0.6f, PaintMode::ClampMaximum), 0.6f);
+    EXPECT_FLOAT_EQ(compositePaintValue(0.4f, 0.6f, PaintMode::ClampMaximum), 0.4f);
+    EXPECT_EQ(paintModeFromString("add"), PaintMode::Add);
+    EXPECT_EQ(std::string(paintModeName(PaintMode::ClampMaximum)), "clampMaximum");
+    EXPECT_THROW(paintModeFromString("multiply"), std::invalid_argument);
+}
+
+TEST(ScalpPaint, CompositeModesFillAndStampRealMapsOncePerStroke) {
+    const auto plane = uvPlane(8);
+    const Vec3f center{0.5f, 0.0f, 0.5f};
+    const std::vector<Vec3f> one{center}, overlaps{center, center, center};
+    const std::array<PaintMode, 4> modes{
+        PaintMode::Replace, PaintMode::Add, PaintMode::Subtract, PaintMode::ClampMaximum};
+    const std::array<float, 4> filled{0.2f, 0.6f, 0.2f, 0.2f};
+    for (std::size_t m = 0; m < modes.size(); ++m) {
+        std::vector<float> vertices(plane->pointCount(), 0.4f);
+        fillMapValues(vertices, kGrayMap, kAllChannels, {0.2f, 0.2f, 0.2f, 0.2f}, modes[m]);
+        for (float x : vertices) EXPECT_FLOAT_EQ(x, filled[m]);
+
+        TexturePaint filledTexture(*plane, 32, 32, 0.4f);
+        filledTexture.fill(0.2f, modes[m]);
+        for (float x : filledTexture.values()) EXPECT_FLOAT_EQ(x, filled[m]);
+
+        MapDab dab;
+        dab.target = {0.2f, 0.2f, 0.2f, 0.2f};
+        dab.mode = modes[m];
+        dab.fromStrokeStart = modes[m] != PaintMode::Replace;
+
+        std::vector<float> vertexOnce(plane->pointCount(), 0.4f), vertexOverlaps = vertexOnce;
+        MapCanvas onceCanvas, overlapsCanvas;
+        onceCanvas.vertices = &vertexOnce;
+        overlapsCanvas.vertices = &vertexOverlaps;
+        paintMapStroke(onceCanvas, *plane, dab, one, 0.3f);
+        paintMapStroke(overlapsCanvas, *plane, dab, overlaps, 0.3f);
+        if (modes[m] != PaintMode::Replace) {
+            const float limit = compositePaintValue(0.4f, 0.2f, modes[m]);
+            for (float x : vertexOverlaps) {
+                EXPECT_LE(std::min(0.4f, limit), x) << paintModeName(modes[m]);
+                EXPECT_GE(std::max(0.4f, limit), x) << paintModeName(modes[m]);
+            }
+        }
+
+        TexturePaint textureOnce(*plane, 32, 32, 0.4f), textureOverlaps = textureOnce;
+        MapCanvas textureOnceCanvas, textureOverlapsCanvas;
+        textureOnceCanvas.texture = &textureOnce;
+        textureOverlapsCanvas.texture = &textureOverlaps;
+        paintMapStroke(textureOnceCanvas, *plane, dab, one, 0.3f);
+        paintMapStroke(textureOverlapsCanvas, *plane, dab, overlaps, 0.3f);
+        if (modes[m] != PaintMode::Replace) {
+            const float limit = compositePaintValue(0.4f, 0.2f, modes[m]);
+            for (float x : textureOverlaps.values()) {
+                EXPECT_LE(std::min(0.4f, limit), x) << paintModeName(modes[m]);
+                EXPECT_GE(std::max(0.4f, limit), x) << paintModeName(modes[m]);
+            }
+        }
+
+        if (modes[m] != PaintMode::Replace) {
+            const Vec3f offset{0.58f, 0.0f, 0.5f};
+            const std::vector<float> vertexStart(plane->pointCount(), 0.4f);
+            std::vector<float> crossedVertices = vertexStart;
+            stampVertexReach(crossedVertices, kGrayMap, kAllChannels, *plane, vertexReach(*plane, center, 0.3f), 1.0f,
+                             dab.target, modes[m], &vertexStart);
+            const std::vector<float> afterFirstVertex = crossedVertices;
+            stampVertexReach(crossedVertices, kGrayMap, kAllChannels, *plane, vertexReach(*plane, offset, 0.3f), 1.0f,
+                             dab.target, modes[m], &vertexStart);
+            for (std::size_t i = 0; i < crossedVertices.size(); ++i) {
+                EXPECT_GE(std::abs(crossedVertices[i] - vertexStart[i]),
+                          std::abs(afterFirstVertex[i] - vertexStart[i]))
+                    << paintModeName(modes[m]);
+            }
+
+            TexturePaint crossedTexture(*plane, 32, 32, 0.4f);
+            crossedTexture.beginEdit();
+            crossedTexture.stampReach(crossedTexture.reachOf(center, 0.3f), 1.0f, dab.target, kAllChannels, modes[m], true);
+            const std::vector<float> afterFirstTexture = crossedTexture.values();
+            crossedTexture.stampReach(crossedTexture.reachOf(offset, 0.3f), 1.0f, dab.target, kAllChannels, modes[m], true);
+            for (std::size_t i = 0; i < crossedTexture.values().size(); ++i) {
+                EXPECT_GE(std::abs(crossedTexture.values()[i] - 0.4f), std::abs(afterFirstTexture[i] - 0.4f))
+                    << paintModeName(modes[m]);
+            }
+            crossedTexture.endEdit();
+        }
+    }
 }
 
 TEST(ScalpPaint, ColorTexturesPaintFillRoundTripAndConvert) {

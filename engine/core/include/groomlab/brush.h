@@ -38,6 +38,10 @@ enum class BrushMode {
     Noise,      // add smooth random jitter along guides, seeded per guide, lengths kept (negative: smooth it out)
 };
 
+enum class PaintMode { Replace, Add, Subtract, ClampMaximum };
+const char* paintModeName(PaintMode mode);
+PaintMode paintModeFromString(const std::string& name);
+
 // What the Shape brush (BrushMode::ShapeTube) paints on a guide's tube sections (tube.h), each
 // section by the brush's weight at its guide point (the painted list first resampled to one value
 // per point, so edits are per CV):
@@ -85,6 +89,7 @@ struct BrushSettings {
     // Attribute mode: the attribute painted and the value it moves toward.
     std::string attribute = "clump";
     float value = 1.0f;
+    PaintMode paintMode = PaintMode::Replace;
     // Attribute mode: paint a per-point layer, each point of a guide moving
     // toward `value` by the brush's weight there (a band along the guide),
     // instead of one value per guide. A guide without the layer starts it from

@@ -34,7 +34,8 @@ def brush_stroke(groom, mode, points, radius=0.25, strength=1.0, level=0, group=
                  attribute=None, value=1.0, match_neighbors=True, collide=True, part_name="part", stretch=False,
                  targets="guides", paint_kind="guides", paint_texture="", paint_resolution=1024, hardness=0.0,
                  smooth_strength=1.0, paint_color=None, paint_channels="rgba", strength_profile=None,
-                 falloff_profile=None, solo_new_guides=False, tube_channel="width", tube=None):
+                 falloff_profile=None, solo_new_guides=False, tube_channel="width", tube=None,
+                 paint_mode="replace"):
     """Apply one scripted brush stroke (one undo step) to a groom's guides, parts or flow arrows.
 
     `points` is the stroke path in world space; each point stamps a brush
@@ -90,6 +91,7 @@ def brush_stroke(groom, mode, points, radius=0.25, strength=1.0, level=0, group=
               "stretch": stretch, "targets": targets, "hardness": float(hardness), "smoothStrength": float(smooth_strength),
               "strengthProfile": curve_text(strength_profile), "falloffProfile": curve_text(falloff_profile),
               "soloNewGuides": bool(solo_new_guides), "tubeChannel": _tube_channel(tube_channel)}
+    kwargs["paintMode"] = paint_mode
     if tube is not None:
         kwargs["placeTube"] = _placement_tube(tube)
     if group:
@@ -165,7 +167,8 @@ def brush_tool(mode="comb", radius=60, strength=1.0, level=0, group="", propagat
                attribute=None, value=1.0, match_neighbors=True, spacing=0.1, collide=True, pressure=True,
                part_name="part", erase_guides=True, erase_parts=True, erase_flow=True, stretch=False, flow_sink="",
                targets="guides", paint_color=None, paint_channels="rgba", mask_by_scalp=True, strength_profile=None,
-               falloff_profile=None, solo_new_guides=False, tube_channel="width", tube=None, activate=True):
+               falloff_profile=None, solo_new_guides=False, tube_channel="width", tube=None, activate=True,
+               paint_mode="replace"):
     """Configure the interactive GroomLab brush (radius in pixels) and make it the current tool.
 
     Select the groom first; then drag over it in the viewport. Each drag is one undo step.
@@ -207,6 +210,7 @@ def brush_tool(mode="comb", radius=60, strength=1.0, level=0, group="", propagat
         cmds.groomLabBrushCtx(BRUSH_CONTEXT)
     kwargs = {"paintKind": paint_kind, "paintTexture": paint_texture or "", "paintResolution": int(paint_resolution),
               "hardness": float(hardness), "smoothStrength": float(smooth_strength),
+              "paintMode": paint_mode,
               "strengthProfile": curve_text(strength_profile), "falloffProfile": curve_text(falloff_profile),
               "soloNewGuides": bool(solo_new_guides), "tubeChannel": _tube_channel(tube_channel)}
     kwargs.update(_paint_color_flags(paint_color, paint_channels))

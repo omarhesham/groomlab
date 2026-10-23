@@ -36,6 +36,7 @@ class QListWidgetItem;
 class QMenu;
 class QPushButton;
 class QSpinBox;
+class QToolButton;
 
 namespace groomlab::app {
 
@@ -159,6 +160,7 @@ private:
     ColorEditor* paintColor_ = nullptr;
     ValueSlider* paintAlpha_ = nullptr;
     std::vector<QCheckBox*> paintChannels_;
+    std::vector<QToolButton*> paintModes_;
     QWidget* colorRow_ = nullptr;
     RoundButton* paint_ = nullptr;
     bool updating_ = false;

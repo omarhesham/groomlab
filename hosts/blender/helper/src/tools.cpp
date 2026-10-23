@@ -577,6 +577,7 @@ void applySettings(ToolState& t, const json& settings) {
                 for (std::size_t i = 0; i < v.size(); ++i) c[i] = settingNumber(v[i], k);
                 s.setPaintColor(c);
             } else if (key == "paintChannels") s.paintChannels = channelMask(settingString(v, k).empty() ? std::string("rgba") : settingString(v, k));
+            else if (key == "paintMode") s.brush.paintMode = paintModeFromString(settingString(v, k));
             else if (key == "smoothStrength") s.setSmoothStrength(settingNumber(v, k));
             else fail("bad_request", "no tool setting '" + key + "'");
         }
@@ -640,6 +641,7 @@ json settingsJson(const ToolState& t) {
     j["paintResolution"] = s.paintResolution;
     j["paintColor"] = s.paintColor;
     j["paintChannels"] = channelLetters(s.paintChannels);
+    j["paintMode"] = paintModeName(s.brush.paintMode);
     j["smoothStrength"] = s.smoothStrength;
     return j;
 }
@@ -2405,6 +2407,12 @@ json mapFill(ToolState& t, const json& args) {
     const std::string kind = mapKindOf(s, name);
     const int channels = mapChannelsOf(s, name);
     const bool selected = optBool(args, "selected", false);
+    PaintMode paintMode = PaintMode::Replace;
+    try {
+        paintMode = paintModeFromString(optString(args, "paintMode", "replace"));
+    } catch (const std::invalid_argument& e) {
+        fail("bad_request", std::string("paintMode: ") + e.what());
+    }
     if (byColor && selected) fail("bad_request", "Fill Selected sets a guide layer, which is gray; a color fills a color map");
     if (byColor && channels != kColorMap) fail("bad_request", "a color fills a color map; " + name + " is gray (a value fills it)");
     if (selected && kind != "guides") fail("bad_request", "Fill Selected sets a guide layer on the selected guides; " + name + " lives on the scalp");
@@ -2412,9 +2420,19 @@ json mapFill(ToolState& t, const json& args) {
     if (kind == "guides") {
         editGuides(t, label, [&](GuideHierarchy& h) {
             if (selected) {
-                for (const GuideId id : targetGuides(t, h, args, false, "fill selected")) h.setAttribute(id, name, value);
+                for (const GuideId id : targetGuides(t, h, args, false, "fill selected")) {
+                    if (const HierarchyGuide* g = h.guide(id)) {
+                        float current = 0.0f;
+                        h.effectiveAttribute(*g, name, &current);
+                        h.setAttribute(id, name, compositePaintValue(current, value, paintMode));
+                    }
+                }
             } else {
-                for (const HierarchyGuide& g : h.guides()) h.setAttribute(g.id, name, value);
+                for (const HierarchyGuide& g : h.guides()) {
+                    float current = 0.0f;
+                    h.effectiveAttribute(g, name, &current);
+                    h.setAttribute(g.id, name, compositePaintValue(current, value, paintMode));
+                }
             }
         });
     } else if (kind == "vertices") {
@@ -2428,10 +2446,7 @@ json mapFill(ToolState& t, const json& args) {
                 for (std::size_t i = 3; i < entry.values.size(); i += 4) entry.values[i] = 1.0f;
             }
         }
-        for (std::size_t i = 0; i < entry.values.size(); ++i) {
-            if (per == 1) entry.values[i] = value;
-            else if (mask & (1u << (i % 4))) entry.values[i] = color[i % 4];
-        }
+        fillMapValues(entry.values, channels, mask, per == 1 ? PaintColor{value, value, value, value} : color, paintMode);
         StrokeEdit edit;
         edit.mode = label;
         edit.set(StrokeField::ScalpMaps, maps.toJson());
@@ -2441,9 +2456,9 @@ json mapFill(ToolState& t, const json& args) {
         const ScalpMapEntry entry = s.groom->scalpMaps().maps.at(name);
         const std::shared_ptr<TexturePaint> paint = openPaint(s, entry, resolutionOf(args));
         if (channels == kColorMap) {
-            paint->fill(color, mask);
+            paint->fill(color, mask, paintMode);
         } else {
-            paint->fill(value);
+            paint->fill(value, paintMode);
         }
         writePaint(t, *paint, resolveMapFile(s, entry.texture));
         dropPaints(t);
