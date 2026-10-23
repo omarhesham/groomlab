@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include <QAbstractItemDelegate>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
@@ -217,6 +218,31 @@ MapsPanel::MapsPanel(QWidget* parent) : QWidget(parent) {
     auto* paintBox = new QGroupBox(tr("Paint"), host);
     auto* paintLayout = new QVBoxLayout(paintBox);
     paintLayout->setSpacing(6);
+    {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(3);
+        auto* group = new QButtonGroup(paintBox);
+        group->setExclusive(true);
+        for (const ui::json& choice : defs().choices("paintMode")) {
+            const std::string value = choice.value("value", std::string());
+            auto* button = new QToolButton(paintBox);
+            button->setText(qs(choice.value("label", std::string())));
+            button->setToolTip(qs(choice.value("tip", std::string())));
+            button->setCheckable(true);
+            button->setProperty("role", "chip");
+            button->setProperty("paintMode", qs(value));
+            button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            group->addButton(button);
+            paintModes_.push_back(button);
+            row->addWidget(button);
+            connect(button, &QToolButton::clicked, this, [this, value] {
+                if (session_) session_->settings().brush.paintMode = paintModeFromString(value);
+                applyPaintSettings();
+            });
+            if (value == "replace") button->setChecked(true);
+        }
+        paintLayout->addLayout(row);
+    }
     valueRow_ = new QWidget(paintBox);
     auto* valueLine = new QHBoxLayout(valueRow_);
     valueLine->setContentsMargins(0, 0, 0, 0);
@@ -767,10 +793,12 @@ std::string MapsPanel::fillSelected() {
         for (std::size_t i = 0; i < paintChannels_.size(); ++i) {
             if (paintChannels_[i]->isChecked()) mask |= 1u << i;
         }
-        error = document_->fillMap(name, 0.0f, false, &color, mask == 0 ? kAllChannels : mask);
+        error = document_->fillMap(name, 0.0f, false, &color, mask == 0 ? kAllChannels : mask,
+                                   session_ ? session_->settings().brush.paintMode : PaintMode::Replace);
     } else {
         const bool selected = selectedKind() == "guides" && !document_->selection().empty();
-        error = document_->fillMap(name, static_cast<float>(paintValue_->value()), selected);
+        error = document_->fillMap(name, static_cast<float>(paintValue_->value()), selected, nullptr, kAllChannels,
+                                   session_ ? session_->settings().brush.paintMode : PaintMode::Replace);
     }
     return done(error, name);
 }
@@ -779,6 +807,9 @@ void MapsPanel::applyPaintSettings() {
     if (!session_ || updating_) return;
     BrushToolSettings& s = session_->settings();
     s.brush.value = static_cast<float>(paintValue_->value());
+    for (QToolButton* button : paintModes_) {
+        if (button->isChecked()) s.brush.paintMode = paintModeFromString(button->property("paintMode").toString().toStdString());
+    }
     const auto rgb = paintColor_->linear();
     s.paintColor = {rgb[0], rgb[1], rgb[2], static_cast<float>(paintAlpha_->value())};
     unsigned mask = 0;

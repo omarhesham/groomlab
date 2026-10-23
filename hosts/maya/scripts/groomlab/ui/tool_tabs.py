@@ -809,13 +809,28 @@ class PaintTab(_GroomTab):
         layout.addWidget(self.list, 1)
         form = QtWidgets.QFormLayout()
         form.setLabelAlignment(QtCore.Qt.AlignRight)
-        self.mode = QtWidgets.QComboBox()
+        self.mode_group = QtWidgets.QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+        mode_row = QtWidgets.QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.setSpacing(theme.px(3))
+        self.mode_buttons = {}
         for choice in definitions.choices("paintMode"):
-            self.mode.addItem(choice["label"], choice["value"])
-            self.mode.setItemData(self.mode.count() - 1, choice.get("tip", ""), QtCore.Qt.ToolTipRole)
-        self.mode.setToolTip(definitions.get("choices/paintMode")["tip"])
-        self.mode.currentIndexChanged.connect(self.paint_mode_changed)
-        form.addRow("Mode", self.mode)
+            button = QtWidgets.QToolButton()
+            button.setText(choice["label"])
+            button.setToolTip(choice.get("tip", ""))
+            button.setCheckable(True)
+            button.setProperty("role", "chip")
+            button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            button.clicked.connect(lambda _checked=False, value=choice["value"]: self.paint_mode_changed(value))
+            self.mode_group.addButton(button)
+            self.mode_buttons[choice["value"]] = button
+            mode_row.addWidget(button)
+        self.mode_buttons["replace"].setChecked(True)
+        mode_widget = QtWidgets.QWidget()
+        mode_widget.setToolTip(definitions.get("choices/paintMode")["tip"])
+        mode_widget.setLayout(mode_row)
+        form.addRow("Mode", mode_widget)
         self.value = widgets.SoftSlider(1.0, 0.0, 1.0, minimum=0.0, maximum=1.0, key=None)
         self.value.setToolTip("What the Paint brush paints toward, and what Fill sets")
         self.value.committed.connect(lambda v: self.owner.push(value=v))
@@ -1031,8 +1046,8 @@ class PaintTab(_GroomTab):
                 "paintColor": tuple(flags["paint_color"]), "paintChannels": flags["paint_channels"],
                 "paintMode": self.paint_mode}
 
-    def paint_mode_changed(self, _index):
-        self.paint_mode = self.mode.currentData() or "replace"
+    def paint_mode_changed(self, mode):
+        self.paint_mode = mode or "replace"
         if self.owner.tool == "paint":
             self.owner.push(paintMode=self.paint_mode)
 

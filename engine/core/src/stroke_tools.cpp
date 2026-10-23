@@ -555,6 +555,7 @@ ParamMapBinding bindParamMap(const std::string& graphJson, const ScalpMaps& maps
 MapDab MapDab::of(const BrushToolSettings& s, const BrushSettings& b, int channels, bool inverted, float smoothScale) {
     MapDab d;
     d.smoothing = b.mode == BrushMode::Smooth;
+    d.fromStrokeStart = !d.smoothing && b.paintMode != PaintMode::Replace;
     // Smoothing past strength 1 runs in passes (each a full blur at most).
     const float amount = d.smoothing ? s.smoothStrength * smoothScale : 0.0f;
     d.passes = d.smoothing ? std::max(1, static_cast<int>(std::ceil(amount - 1e-4f))) : 1;
@@ -583,14 +584,15 @@ std::size_t dabOnce(MapCanvas& map, const ScalpMesh& scalp, const MapDab& d, con
         const VertexNeighbors& neighbors = map.neighbors ? *map.neighbors : none;
         for (int pass = 0; pass < d.passes; ++pass) {
             changed += d.smoothing ? smoothVertexReach(*map.vertices, map.channels, d.mask, scalp, neighbors, reach, d.perPass)
-                                   : stampVertexReach(*map.vertices, map.channels, d.mask, scalp, reach, d.strength, d.target, d.mode);
+                                   : stampVertexReach(*map.vertices, map.channels, d.mask, scalp, reach, d.strength, d.target, d.mode,
+                                                      d.fromStrokeStart ? map.strokeStartVertices : nullptr);
         }
     } else if (map.texture) {
         TexturePaint& paint = *map.texture;
         const TexturePaint::Reach reach = paint.reachOf(c, radius, w, threadSafe);
         for (int pass = 0; pass < d.passes; ++pass) {
             changed += d.smoothing ? paint.smoothReach(reach, d.perPass, d.mask)
-                                   : paint.stampReach(reach, d.strength, d.target, d.mask, d.mode);
+                                   : paint.stampReach(reach, d.strength, d.target, d.mask, d.mode, d.fromStrokeStart);
         }
     }
     return changed;
@@ -615,6 +617,14 @@ std::size_t paintMapDab(MapCanvas& map, const ScalpMesh& scalp, const MapDab& d,
 }
 
 std::size_t paintMapStroke(MapCanvas& map, const ScalpMesh& scalp, const MapDab& d, const std::vector<Vec3f>& path, float radius) {
+    std::vector<float> vertexStart;
+    const std::vector<float>* oldStart = map.strokeStartVertices;
+    if (d.fromStrokeStart && map.vertices && !map.strokeStartVertices) {
+        vertexStart = *map.vertices;
+        map.strokeStartVertices = &vertexStart;
+    }
+    const bool beganTextureEdit = d.fromStrokeStart && map.texture && !map.texture->editing();
+    if (beganTextureEdit) map.texture->beginEdit();
     // Dabs spaced a quarter radius apart along the path, in world space (as guide strokes).
     std::vector<Vec3f> dabs;
     for (std::size_t i = 0; i < path.size(); ++i) {
@@ -629,6 +639,8 @@ std::size_t paintMapStroke(MapCanvas& map, const ScalpMesh& scalp, const MapDab&
     }
     std::size_t changed = 0;
     for (const Vec3f& c : dabs) changed += paintMapDab(map, scalp, d, c, radius, sphereWeight(c, radius, d.falloff), true);
+    map.strokeStartVertices = oldStart;
+    if (beganTextureEdit) map.texture->endEdit();
     return changed;
 }
 

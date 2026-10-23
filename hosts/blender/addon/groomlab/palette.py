@@ -248,6 +248,7 @@ class VIEW3D_PT_groomlab_tools(bpy.types.Panel):
         list_with_menu(layout, "GROOMLAB_UL_maps", t, "maps", "map_index", "GROOMLAB_MT_map_context")
         m = tools.current_map(context.scene)
         col = layout.column(align=True)
+        col.prop(t, "paint_mode", expand=True)
         if m is None or m.channels == 1:
             row = col.row(align=True)
             row.prop(t, "value", slider=True)

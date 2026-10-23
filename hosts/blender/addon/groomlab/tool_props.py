@@ -375,6 +375,9 @@ class GroomLabTools(bpy.types.PropertyGroup):
     maps: CollectionProperty(type=GroomLabMapItem)
     value: FloatProperty(name="Value", default=1.0, min=0.0, max=1.0, subtype="FACTOR", update=_push(),
                          description="What the Paint brush paints toward, and what Fill sets")
+    paint_mode: EnumProperty(name=defs.get("choices/paintMode")["label"], items=defs.enum_items("paintMode"),
+                             default=defs.enum_default("paintMode"), update=_push(),
+                             description=defs.get("choices/paintMode")["tip"])
     paint_color: FloatVectorProperty(name="Color", size=4, default=(1.0, 1.0, 1.0, 1.0), min=0.0, max=1.0,
                                      subtype="COLOR_GAMMA", update=_push(),
                                      description="The color the Paint brush paints on a color map (Ctrl: its inverse)")

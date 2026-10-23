@@ -908,10 +908,11 @@ class GROOMLAB_OT_map_fill(MapOperator):
         try:
             if m.channels > 1:
                 channels = "".join(c for c, on in zip("rgba", (t.channel_r, t.channel_g, t.channel_b, t.channel_a)) if on)
-                tools.map_fill(active(context), m.name, color=list(t.paint_color), channels=channels or "rgba")
+                tools.map_fill(active(context), m.name, color=list(t.paint_color), channels=channels or "rgba",
+                               mode=t.paint_mode)
             else:
                 tools.map_fill(active(context), m.name, value=float(t.value),
-                               selected=m.kind == "guides" and t.selected_count > 0)
+                               selected=m.kind == "guides" and t.selected_count > 0, mode=t.paint_mode)
         except HelperError as e:
             return _fail(self, e)
         return {"FINISHED"}

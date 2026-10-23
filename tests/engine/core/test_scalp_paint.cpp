@@ -12,6 +12,7 @@
 #include <tuple>
 
 #include "groomlab/scalp_paint.h"
+#include "groomlab/stroke.h"
 #include "groomlab/texture.h"
 #include "test_helpers.h"
 
@@ -417,6 +418,47 @@ TEST(ScalpPaint, CompositeModesPreserveAndClampValues) {
     EXPECT_EQ(paintModeFromString("add"), PaintMode::Add);
     EXPECT_EQ(std::string(paintModeName(PaintMode::ClampMaximum)), "clampMaximum");
     EXPECT_THROW(paintModeFromString("multiply"), std::invalid_argument);
+}
+
+TEST(ScalpPaint, CompositeModesFillAndStampRealMapsOncePerStroke) {
+    const auto plane = uvPlane(8);
+    const Vec3f center{0.5f, 0.0f, 0.5f};
+    const std::vector<Vec3f> one{center}, overlaps{center, center, center};
+    const std::array<PaintMode, 4> modes{
+        PaintMode::Replace, PaintMode::Add, PaintMode::Subtract, PaintMode::ClampMaximum};
+    const std::array<float, 4> filled{0.2f, 0.6f, 0.2f, 0.2f};
+    for (std::size_t m = 0; m < modes.size(); ++m) {
+        std::vector<float> vertices(plane->pointCount(), 0.4f);
+        fillMapValues(vertices, kGrayMap, kAllChannels, {0.2f, 0.2f, 0.2f, 0.2f}, modes[m]);
+        for (float x : vertices) EXPECT_FLOAT_EQ(x, filled[m]);
+
+        TexturePaint filledTexture(*plane, 32, 32, 0.4f);
+        filledTexture.fill(0.2f, modes[m]);
+        for (float x : filledTexture.values()) EXPECT_FLOAT_EQ(x, filled[m]);
+
+        MapDab dab;
+        dab.target = {0.2f, 0.2f, 0.2f, 0.2f};
+        dab.mode = modes[m];
+        dab.fromStrokeStart = modes[m] != PaintMode::Replace;
+
+        std::vector<float> vertexOnce(plane->pointCount(), 0.4f), vertexOverlaps = vertexOnce;
+        MapCanvas onceCanvas, overlapsCanvas;
+        onceCanvas.vertices = &vertexOnce;
+        overlapsCanvas.vertices = &vertexOverlaps;
+        paintMapStroke(onceCanvas, *plane, dab, one, 0.3f);
+        paintMapStroke(overlapsCanvas, *plane, dab, overlaps, 0.3f);
+        if (modes[m] != PaintMode::Replace)
+            EXPECT_EQ(vertexOverlaps, vertexOnce) << paintModeName(modes[m]);
+
+        TexturePaint textureOnce(*plane, 32, 32, 0.4f), textureOverlaps = textureOnce;
+        MapCanvas textureOnceCanvas, textureOverlapsCanvas;
+        textureOnceCanvas.texture = &textureOnce;
+        textureOverlapsCanvas.texture = &textureOverlaps;
+        paintMapStroke(textureOnceCanvas, *plane, dab, one, 0.3f);
+        paintMapStroke(textureOverlapsCanvas, *plane, dab, overlaps, 0.3f);
+        if (modes[m] != PaintMode::Replace)
+            EXPECT_EQ(textureOverlaps.values(), textureOnce.values()) << paintModeName(modes[m]);
+    }
 }
 
 TEST(ScalpPaint, ColorTexturesPaintFillRoundTripAndConvert) {

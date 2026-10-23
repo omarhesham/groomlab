@@ -640,6 +640,7 @@ bool BrushTool::beginMapStroke(StrokeHost& host) {
     paintMapName_ = settings.brush.attribute;
     mapChanged_ = false;
     workingVertexMap_.reset();
+    startingVertexMap_.reset();
     paint_.reset();
     if (paintMapName_.empty()) {
         host.warn("GroomLab paint: pick a map to paint (Groom Tools > Paint)");
@@ -657,6 +658,7 @@ bool BrushTool::beginMapStroke(StrokeHost& host) {
                       " was painted on a scalp with another vertex count; painting starts it over here");
         }
         workingVertexMap_ = std::make_shared<std::vector<float>>(std::move(values));
+        startingVertexMap_ = std::make_shared<const std::vector<float>>(*workingVertexMap_);
         host.dropTexturePaint();  // a texture map is opened again from its file next time
         if (settings.brush.mode == BrushMode::Smooth && neighborsScalp_ != paintScalp_->contentHash()) {
             neighbors_ = VertexNeighbors::of(*paintScalp_);
@@ -689,6 +691,7 @@ void BrushTool::stampMap(StrokeHost& host, const ToolView& view, const Vec3f& ce
     canvas.channels = workingChannels_;
     if (workingVertexMap_) {
         canvas.vertices = workingVertexMap_.get();
+        canvas.strokeStartVertices = startingVertexMap_.get();
         canvas.neighbors = &neighbors_;
     } else if (paint_) {
         canvas.texture = paint_.get();

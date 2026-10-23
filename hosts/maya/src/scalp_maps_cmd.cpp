@@ -381,24 +381,15 @@ MStatus ScalpMapsCmd::doIt(const MArgList& args) {
                         // Refitted to this scalp.
                         entry.values = filledVertexMap(scalp->pointCount(), channels, PaintColor{0.0f, 0.0f, 0.0f, 1.0f});
                     }
-                    for (std::size_t i = 0; i < entry.values.size(); ++i) {
-                        if (per == 1) entry.values[i] = compositePaintValue(entry.values[i], value, paintMode);
-                        else if (mask & (1u << (i % 4))) {
-                            entry.values[i] = compositePaintValue(entry.values[i], color[i % 4], paintMode);
-                        }
-                    }
+                    fillMapValues(entry.values, channels, mask, per == 1 ? PaintColor{value, value, value, value} : color,
+                                  paintMode);
                     mapsChanged = true;
                 } else {
                     // A file another groom reads too: this groom gets its own copy first.
                     mapsChanged = ownFile(name) || mapsChanged;
                     TexturePaint paint = texturePaint(maps.maps[name].texture, channels);
-                    if (channels == kColorMap) {
-                        for (std::size_t i = 0; i < paint.values().size(); ++i) {
-                            if (mask & (1u << (i % 4))) paint.values()[i] = compositePaintValue(paint.values()[i], color[i % 4], paintMode);
-                        }
-                    } else {
-                        for (float& x : paint.values()) x = compositePaintValue(x, value, paintMode);
-                    }
+                    if (channels == kColorMap) paint.fill(color, mask, paintMode);
+                    else paint.fill(value, paintMode);
                     writeTexture(paint, maps.maps[name].texture);
                 }
             } else if (db.isFlagSet(kConvert[0])) {
