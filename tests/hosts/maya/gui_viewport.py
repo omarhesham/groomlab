@@ -327,6 +327,7 @@ def run():
     coverage_check(snapshots)
     dense_coverage_check(snapshots)
     lod_check(snapshots)
+    true_width_check(snapshots)
     overlay_check(snapshots)
     clump_centers_check(snapshots)
     cards_check(snapshots)
@@ -349,8 +350,8 @@ def follow_check(snapshots=None):
     """Following the scalp on the GPU (line_frames.h runFollow): a groom with Follow Scalp on a bent
     scalp draws its strands at rest carried by the GPU, frame by frame, as lit lines and as ribbons:
     each frame sends the scalp alone (not the strands' points), the drawn buffers hold what the CPU
-    carries (groomLabGpuPreview -checkFrames, against the evaluated strands), and the pictures are
-    those of the CPU's carried strands (the GPU frames off: placed on the CPU, all written)."""
+    carries (groomLabGpuPreview -checkFrames, against the evaluated strands), and the lines' pictures
+    are those of the CPU's carried strands (the GPU frames off: placed on the CPU, all written)."""
     import groomlab
     cmds.file(new=True, force=True)
     scalp = cmds.polySphere(radius=1, subdivisionsX=40, subdivisionsY=20)[0]
@@ -412,7 +413,11 @@ def follow_check(snapshots=None):
             ok = all(c.get("positions", 1) < 1e-4 and c.get("normals", 1) < 1e-3 and c.get("tangents", 1) < 1e-3
                      and c.get("u") == 0.0 and c.get("widths") == 0.0 for c in checks)
         check("follow %s: the drawn buffers hold the CPU's carried strands to rounding (%s)" % (look, checks), ok)
-        # The CPU's: the GPU frames off, the strands carried and written by the CPU.
+        # The CPU's: the GPU frames off, the strands carried and written by the CPU. (Ribbons: the
+        # buffers above alone; without the GPU they are the CPU's ribbons along the scalp, not facing
+        # the camera, another picture.)
+        if look == "ribbons":
+            continue
         cmds.groomLabGpuPreview(frames=False)
         same = True
         for frame in (3, 5):
@@ -999,6 +1004,129 @@ def lod_check(snapshots=None):
     cmds.setAttr("persp.rotate", *camera["rotate"])
     cmds.setAttr("persp.centerOfInterest", camera["centerOfInterest"])
     cmds.camera("persp", edit=True, nearClipPlane=camera["near"], farClipPlane=camera["far"])
+
+
+def true_width_check(snapshots=None):
+    """Ribbons at the strands' true width (displayRibbons, off by default): the strands draw as
+    ribbons facing the camera at their width (groomLabRibbons), at least a pixel, their thinner
+    segments as lines with width as coverage (groomLabRibbonsThin), so they cover more of the picture
+    than the lines; far away as near (no switch by distance). An orbit makes the ribbons again for
+    each view (refaced); flat (lighting off) alike; off, the lines."""
+    import tempfile
+    import groomlab
+    from PySide2 import QtGui
+    folder = snapshots or tempfile.mkdtemp(prefix="groomlab_truewidth_")
+    cmds.file(new=True, force=True)
+    scalp = cmds.polySphere(radius=1, subdivisionsX=40, subdivisionsY=20)[0]
+    groom = groomlab.create_groom(scalp)
+    groomlab.set_param(groom, "scatter", "density", 300.0)
+    cmds.setAttr(groom + ".previewDensity", 1.0)
+    cmds.setAttr(groom + ".displayGuides", False)
+    cmds.setAttr(groom + ".displayLighting", True)
+    cmds.setAttr(scalp + ".visibility", False)  # the hair over the background alone
+    api = cmds.groomLabGpuPreview(drawApi=True)
+    panel = persp_panel()
+    cmds.modelPanel(panel, edit=True, camera="persp")
+    grid = cmds.modelEditor(panel, query=True, grid=True)
+    cmds.modelEditor(panel, edit=True, grid=False)
+    kept = (cmds.getAttr("persp.translate")[0], cmds.getAttr("persp.rotate")[0])
+
+    def draw():
+        cmds.refresh(currentView=True, force=True)
+        return json.loads(cmds.groomLabGraphStats(groom, drawTimes=True))["draw"]
+
+    def ink(name):
+        """The share of the picture's pixels that are not the background (its corner's)."""
+        path = os.path.join(folder, "truewidth_%s.png" % name)
+        cmds.playblast(frame=[1], format="image", compression="png", viewer=False, showOrnaments=False,
+                       percent=100, widthHeight=(480, 360), completeFilename=path)
+        image = QtGui.QImage(path).convertToFormat(QtGui.QImage.Format_RGB32)
+        corner = QtGui.QColor(image.pixel(2, 2))
+        inked = 0
+        for y in range(0, image.height(), 2):
+            for x in range(0, image.width(), 2):
+                c = QtGui.QColor(image.pixel(x, y))
+                if abs(c.red() - corner.red()) + abs(c.green() - corner.green()) + abs(c.blue() - corner.blue()) > 24:
+                    inked += 1
+        return inked / float((image.width() // 2) * (image.height() // 2))
+
+    def near():
+        cmds.setAttr("persp.translate", 0.3, 1.6, 0.9)
+        cmds.viewLookAt("persp", position=(0.0, 1.0, 0.0))
+
+    try:
+        # Off by default: the lines.
+        near()
+        default = draw()
+        lines = ink("near_lines")
+        check("true width on %s: off by default, the strands draw as lines (facing %s, ribbons %s)"
+              % (api, default.get("facing"), cmds.getAttr(groom + ".displayRibbons")),
+              default.get("facing") is False and not cmds.getAttr(groom + ".displayRibbons"))
+        # On: facing ribbons, their thin segments as lines with width as coverage, more ink than the lines.
+        cmds.setAttr(groom + ".displayRibbons", True)
+        close = draw()
+        thin = close.get("shaders", {}).get("groomLabRibbonsThin", {})
+        check("true width on %s: the strands draw as ribbons facing the camera, their thin segments as lines with "
+              "width as coverage (facing %s, items %s, thin %s)" % (api, close.get("facing"), sorted(close["items"]), thin),
+              close.get("facing") is True and "groomLabRibbons" in close["items"] and thin.get("coverage") is True)
+        wide = ink("near")
+        check("true width on %s: the strands cover more of the picture at their width than as lines (%.3f, lines %.3f)"
+              % (api, wide, lines), wide > 1.25 * lines)
+        checked = json.loads(cmds.groomLabGpuPreview(groom, checkFrames=True) or "{}").get("ribbons") or {}
+        check("true width on %s: the GPU's facing ribbons are each point's, at its width or a pixel (%s)" % (api, checked),
+              checked.get("facing") is True and checked.get("positions", 1) < 1e-4 and checked.get("normals", 1) < 1e-4
+              and checked.get("tangents", 1) < 1e-4)
+        # Far: the same ribbons (no switch by distance).
+        cmds.viewFit("persp", allObjects=True)
+        cmds.dolly("persp", distance=-30.0)
+        far = draw()
+        check("true width on %s: far away, still the facing ribbons (facing %s)" % (api, far.get("facing")), far.get("facing") is True)
+        # An orbit: the ribbons made again for each view, the strands not built again.
+        near()
+        draw()
+        refaced, facing = 0, []
+        for _ in range(4):
+            cmds.orbit("persp", rotationAngles=(0, 10))
+            d = draw()
+            refaced += d["items"].get("groomLabRibbons", {}).get("refaced", 0)
+            facing.append(d.get("facing"))
+        orbited = ink("orbited")
+        check("true width on %s: an orbit makes the facing ribbons again for each view (%d, facing %s), at the strands' "
+              "width throughout (%.3f, lines %.3f)" % (api, refaced, facing, orbited, lines),
+              refaced >= 3 and all(facing) and orbited > 1.25 * lines)
+        # Flat (lighting off): the same.
+        near()
+        cmds.setAttr(groom + ".displayLighting", False)
+        flat = draw()
+        flatInk = ink("flat")
+        cmds.setAttr(groom + ".displayRibbons", False)
+        flatLines = ink("flat_lines")
+        flatThin = flat.get("shaders", {}).get("groomLabRibbonsThin", {})
+        check("true width on %s: flat (lighting off) too, ribbons and thin lines with width as coverage, more ink than "
+              "the lines (facing %s, thin %s, %.3f, lines %.3f)" % (api, flat.get("facing"), flatThin, flatInk, flatLines),
+              flat.get("facing") is True and flatThin.get("coverage") is True and flatInk > 1.25 * flatLines)
+        # Far, flat: every segment thinner than a pixel, drawn by the thin lines alone with width as
+        # coverage (the uvs' u read there too), about as much ink as the lines' coverage; and in one
+        # color (no strand colors: Display Color) as well.
+        cmds.viewFit("persp", allObjects=True)
+        cmds.dolly("persp", distance=-12.0)
+        farLines = ink("far_flat_lines")
+        cmds.setAttr(groom + ".displayRibbons", True)
+        farRibbons = ink("far_flat_ribbons")
+        cmds.setAttr(groom + ".useMaterialColor", False)
+        cmds.setAttr(groom + ".strandColorMode", 0)
+        farOne = ink("far_flat_one_color")
+        oneColor = json.loads(cmds.groomLabGpuPreview(groom, checkFrames=True) or "{}").get("ribbons") or {}
+        check("true width on %s: far away and flat, the thin segments draw with width as coverage about as the lines do "
+              "(%.4f, lines %.4f), in one color too (%.4f, made by the GPU facing: %s)"
+              % (api, farRibbons, farLines, farOne, oneColor),
+              0.5 * farLines < farRibbons < 2.0 * farLines and farOne > 0.25 * farLines and oneColor.get("facing") is True)
+        check("true width on %s: no errors" % api, not groomlab.errors(groom))
+    finally:
+        cmds.setAttr("persp.translate", *kept[0])
+        cmds.setAttr("persp.rotate", *kept[1])
+        cmds.modelEditor(panel, edit=True, grid=grid)
+        cmds.file(new=True, force=True)
 
 
 def lod_orbit_checks(groom, api, frame):

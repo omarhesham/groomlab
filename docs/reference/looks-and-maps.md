@@ -374,8 +374,10 @@ The viewport can color strands and draw them as ribbons. Neither re-evaluates th
 The Attribute Editor shows `strandColorMode`; `strandColorSource` is set by the Groom Tools (the
 Paint tab's map display) or by script.
 
-`displayRibbons` draws strands as ribbons as wide as their `Width`, times `ribbonWidthScale`, for
-width and density look checks.
+`displayRibbons` (off by default) draws strands at their true width: ribbons facing the camera as
+wide as their `Width`, times `ribbonWidthScale`, never thinner than a pixel, the parts thinner than
+a pixel fading with their width as the lines do. Use it for width and density look checks; it is
+slower than lines close up (every pixel a strand covers is shaded).
 
 `displayWidthCoverage` (on by default) draws the strand lines with their widths too: they stay a
 pixel wide, and each point covers the share of the pixel its width (times `ribbonWidthScale`)

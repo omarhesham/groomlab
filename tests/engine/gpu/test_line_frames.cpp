@@ -500,6 +500,64 @@ TEST_P(LineFramesTest, FacingRibbonsFaceTheViewer) {
         EXPECT_LT(worstAlong, 1e-4f);
         EXPECT_LT(worstToward, 1e-4f);
     }
+    // Split for the view: each segment drawn once, as the ribbon's two triangles where it is a pixel or
+    // more wide at either end (its width times the scale over a pixel at its distance), else as its
+    // line (the ribbon's vertices on one side); a strand's last point draws nothing.
+    {
+        gpu::LineFrames::RibbonFacing facing;
+        const Vec3f eye{0.5f, 0.8f, 6.0f};
+        facing.eye[0] = eye.x;
+        facing.eye[1] = eye.y;
+        facing.eye[2] = eye.z;
+        std::vector<float> ratios(n);
+        for (std::size_t i = 0; i < n; ++i) ratios[i] = 2.0f * halfWidthOf(i) / (eye - at(i)).length();
+        std::nth_element(ratios.begin(), ratios.begin() + n / 2, ratios.end());
+        facing.pixelWorld = ratios[n / 2];  // (about half the points a pixel or more)
+        void* triangles = device->buffer(n * 24);
+        void* lineIndices = device->buffer(n * 8);
+        frames->writeFacingSplit(triangles, lineIndices, points, lineUvs, scale, facing, 1.0f);
+        const std::vector<float> tri = frames->read(triangles, n * 6), seg = frames->read(lineIndices, n * 2);
+        auto index = [](const std::vector<float>& v, std::size_t k) {
+            std::uint32_t u;
+            std::memcpy(&u, &v[k], 4);
+            return u;
+        };
+        auto pixels = [&](std::size_t i) { return 2.0f * halfWidthOf(i) / (facing.pixelWorld * (eye - at(i)).length()); };
+        std::size_t wrong = 0, wide = 0, thin = 0, nearEdge = 0;
+        for (std::size_t s = 0; s < count; ++s) {
+            const std::size_t pts = strands->strandPointCount(s), begin = strands->strandBegin(s);
+            for (std::size_t k = 0; k < pts; ++k) {
+                const std::size_t i = begin + k;
+                const auto a = static_cast<std::uint32_t>(2 * i);
+                const bool drawnAsTriangles = index(tri, i * 6) != index(tri, i * 6 + 1);
+                const bool drawnAsLine = index(seg, i * 2) != index(seg, i * 2 + 1);
+                if (k + 1 == pts) {
+                    if (drawnAsTriangles || drawnAsLine) ++wrong;
+                    continue;
+                }
+                const float px = std::max(pixels(i), pixels(i + 1));
+                if (std::abs(px - 1.0f) < 1e-3f) {  // (at the edge: rounding may go either way, once)
+                    ++nearEdge;
+                    if (drawnAsTriangles == drawnAsLine) ++wrong;
+                    continue;
+                }
+                const bool want = px >= 1.0f;
+                (want ? wide : thin) += 1;
+                if (drawnAsTriangles != want || drawnAsLine == want) ++wrong;
+                if (want && (index(tri, i * 6) != a || index(tri, i * 6 + 1) != a + 1 || index(tri, i * 6 + 2) != a + 2 ||
+                             index(tri, i * 6 + 3) != a + 1 || index(tri, i * 6 + 4) != a + 3 || index(tri, i * 6 + 5) != a + 2)) {
+                    ++wrong;
+                }
+                if (!want && (index(seg, i * 2) != a || index(seg, i * 2 + 1) != a + 2)) ++wrong;
+            }
+        }
+        EXPECT_EQ(wrong, 0u);
+        EXPECT_GT(wide, n / 8);
+        EXPECT_GT(thin, n / 8);
+        EXPECT_LT(nearEdge, n / 100);
+        device->release(triangles);
+        device->release(lineIndices);
+    }
     // Their coverage's uvs: the lines' (u with the strand's number, width) on both vertices, to the bit.
     void* ribbonUvs = device->buffer(n * 16);
     frames->writeRibbonUvs(ribbonUvs, lineUvs);

@@ -30,6 +30,9 @@ inline const MString kInstanceMeshesItem("groomLabInstanceMeshes");
 inline const MString kScalesItem("groomLabScales");
 inline const MString kColoredStrandsItem("groomLabStrandsColored");
 inline const MString kRibbonsItem("groomLabRibbons");
+// Facing ribbons' (true width) segments thinner than a pixel: lines drawn from the ribbons' own
+// buffers with width as coverage (updateThinRibbons), the ribbons drawing the rest opaque.
+inline const MString kThinRibbonsItem("groomLabRibbonsThin");
 inline const MString kTubesItem("groomLabTubes");
 inline const MString kSelectedItem("groomLabSelectedGuides");
 inline const MString kPartsItem("groomLabParts");
@@ -93,6 +96,7 @@ struct DrawTimes {
     struct Item {
         double acquireMs = 0, writeMs = 0, commitMs = 0, bindMs = 0, megabytes = 0;
         std::size_t partialStrands = 0;  // strands written alone (updateItemPartly); 0: the item written whole
+        int refaced = 0;                 // facing ribbons made again for a new view alone (refaceRibbons)
         bool gpuFrames = false;          // lit lines whose frames the GPU wrote (gpu_lines.h)
         // ... the CPU's milliseconds of writeGpuLines: the points sent, the layout, the root normals
         // made, sent, the frames' kernel dispatched, the uvs.
@@ -121,6 +125,7 @@ struct DrawTimes {
     };
     std::map<std::string, Shader> shaders;
     std::uint64_t serial = 0;  // updates that wrote or ran something, counted (tests: a drag draws every step)
+    bool facing = false;  // true width as this update left it: the strands as facing ribbons
 };
 DrawTimes& currentDraw();
 // The level of detail as the last viewport update drew it (any groom's; lastDrawTimesJson "lod").

@@ -119,6 +119,7 @@ private:
         std::unique_ptr<MHWRender::MVertexBuffer> colors;
         std::unique_ptr<MHWRender::MVertexBuffer> normals, tangents, bitangents, uvs;
         std::unique_ptr<MHWRender::MIndexBuffer> indices;
+        std::unique_ptr<MHWRender::MIndexBuffer> lineIndices;  // facing ribbons: their thin segments as lines
         MHWRender::MShaderInstance* shader = nullptr;
         // Which shader that is (a new number each time the item gets another): a copy made like it
         // knows it by this, not by its address, which a later shader may take once it is released.
@@ -145,6 +146,10 @@ private:
         // Following the scalp on the GPU (carryOnGpu): the strands at rest (followRestVersion_) and
         // the scalp (its content hash) its points were carried for (0: none, the CPU's points).
         std::uint64_t followRest = 0, followTo = 0;
+        // GPU ribbons facing the camera (true width: facing_), and the view-projection they were
+        // last made for (refaceRibbons makes them again for another).
+        bool facing = false;
+        MMatrix facedFor;
         bool lit = false;     // strand lines with frames (normals, tangents; bitangents carry the cards' and scales' shading normal only)
         // Strand lines drawn with width as coverage (displayWidthCoverage): their shader reads the
         // uvs' widths and draws with the lines' blending (the flat lines' effect, the lit graph's
@@ -267,6 +272,27 @@ private:
     friend bool gpuPreviewDrawn(const GroomShape* shape, std::uint64_t version);
     // displayWidthCoverage as this update read it (the strands are built again when it changes).
     bool widthCoverage_ = true;
+    // Ribbons at the strands' true width (displayRibbons, where the GPU makes them): facing the camera
+    // (kRibbonsItem), at least a pixel wide, their segments thinner than a pixel drawn as lines with
+    // width as coverage (kThinRibbonsItem); a camera move makes them again for the new view
+    // (refaceRibbons). The view they face (readFacingView: the eye, or the direction toward an
+    // orthographic viewer; a pixel's world size at distance 1) and the view-projection and height it
+    // was read from. (Where the GPU cannot, the CPU builds ribbons along the scalp as before.)
+    bool facing_ = false;
+    float facingEye_[3] = {0.0f, 0.0f, 0.0f};
+    float facingPixelWorld_ = 0.0f;
+    bool facingOrthographic_ = false;
+    mutable MMatrix facingCamera_;
+    mutable int facingHeight_ = 0;
+    void readFacingView(const MHWRender::MFrameContext& context);
+    void refaceRibbons();
+    // The facing ribbons' thin segments as lines (kThinRibbonsItem): drawn from the ribbons' item's
+    // buffers (`base`) with its line indices and its shader's lines kind with width as coverage (lit:
+    // the hair graph's; unlit: the flat lines' effect), styled as it is; dropped when the ribbons no longer face the camera (before the
+    // ribbons' buffers go: it draws them).
+    void updateThinRibbons(MHWRender::MSubSceneContainer& container, ItemBuffers& base, const MHWRender::MRenderItem& baseItem,
+                           const MBoundingBox& bounds, const float color[4], float lineWidth);
+    void dropThinRibbons(MHWRender::MSubSceneContainer& container);
     // GroomLab's hair shading (hair_shading.h): displayHairShading as this update read it (and
     // whether the effect compiles), what the groom's hair shaders share (the lights it ignores,
     // refreshed now and then: lightsChecked_).

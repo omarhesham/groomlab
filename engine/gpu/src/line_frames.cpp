@@ -109,6 +109,22 @@ void LineFrames::writeRibbonLayout(void* indices, void* uvs, void* lineUvs) {
     dispatchPoints(Kernel::RibbonLayout, b, nullptr, !uvs ? 0u : lineUvs ? 2u : 1u);
 }
 
+void LineFrames::writeFacingSplit(void* indices, void* lineIndices, void* points, void* lineUvs, float widthScale,
+                                  const RibbonFacing& facing, float splitPixels) {
+    if (!indices || !lineIndices || !points || !lineUvs) throw std::runtime_error("GPU ribbons: a split's buffer is missing");
+    Binding b;
+    b.in = points;
+    b.lineUvs = lineUvs;
+    b.out[0] = indices;
+    b.outBytes[0] = points_ * 24;
+    b.out[1] = lineIndices;
+    b.outBytes[1] = points_ * 8;
+    // (lines.slang RibbonLayoutCS gFlag.y 4: gValue the scale, the split's pixels, a pixel at distance 1; gValue2 the viewer.)
+    const float values[4] = {widthScale, splitPixels, facing.pixelWorld, 0.0f};
+    const float viewer[4] = {facing.eye[0], facing.eye[1], facing.eye[2], 0.0f};
+    dispatchPoints(Kernel::RibbonLayout, b, values, 4u, facing.orthographic ? 2u : 1u, viewer);
+}
+
 void LineFrames::writeRibbonUvs(void* uvs, void* lineUvs) {
     if (!uvs || !lineUvs) throw std::runtime_error("GPU ribbons: no uvs");
     Binding b;

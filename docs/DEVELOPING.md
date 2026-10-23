@@ -2508,10 +2508,17 @@ frame's side (look.slang `lineFrame`, the CPU's `strandFrame`) times half its wi
 (`kRibbonDefaultWidth` where the strands carry none) times `ribbonWidthScale`, the point's normal and
 tangent on both (lit) or the strand's color shaded by `ribbonKeyLight` (unlit); the triangles (six
 indices a point, nothing past a strand's last point) and the lit uvs (u, 0.5) once per layout, the
-colors onto both vertices once per key. So the ribbons face away from the scalp as before (not the
-camera) and draw with the same shaders (kinds 1, 2 and 9: Maya's hair tube graph, its lights,
-shadows, selection and post effects), to float rounding the CPU's vertices (`groomlab_gpu_tests`
-`RibbonsAreTheCpus`; `groomLabGpuPreview -checkFrames` says `ribbons`). Strands of one point make
+colors onto both vertices once per key. They draw with the same shaders (kinds 1, 2 and 9: Maya's
+hair tube graph, its lights, shadows, selection and post effects), to float rounding the CPU's
+vertices (`groomlab_gpu_tests` `RibbonsAreTheCpus`; `groomLabGpuPreview -checkFrames` says
+`ribbons`). In the viewport they face the camera (the strands at their true width: `RibbonFacing`,
+`FacingRibbonsFaceTheViewer`): across cross(tangent, toward the eye), at least a pixel wide, made
+again for each view (`refaceRibbons`, the strands not built again); each view also splits them
+(`writeFacingSplit`): a segment a pixel or more wide keeps its triangles, drawn opaque, a thinner
+one goes into the line indices, drawn by `groomLabRibbonsThin` from the ribbons' own buffers with
+width as coverage (`updateThinRibbons`), since lines draw sub-pixel strands far faster than
+pixel-wide triangles. Unlit, they keep the strands' colors (`RibbonFacing::unshaded`). Where the GPU
+cannot make them, the CPU's `strandRibbons` (along the scalp) draw instead. Strands of one point make
 vertices no triangle uses (the CPU's leave them out). Every buffer the ribbons item draws (and the
 lines it is made from) is the override's own (`gpu_lines.h` `GpuRibbonStreams`), handed to Viewport
 2.0 as custom resource handles: under DirectX 11 made for compute (the indices

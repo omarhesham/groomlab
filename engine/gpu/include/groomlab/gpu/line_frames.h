@@ -112,6 +112,14 @@ public:
     // uvs (`lineUvs`, float2 a point: u with the strand's number, width) onto both vertices of each
     // point (`uvs`: float2 a vertex, points x 16 bytes), each time the widths change.
     void writeRibbonUvs(void* uvs, void* lineUvs);
+    // Facing ribbons split for the view (`facing`, as runRibbons takes it): a segment `splitPixels`
+    // or more wide at either end (its width times the scale, on screen) keeps its two triangles in
+    // `indices` (six a point, the ribbons' triangles written over), a thinner one is drawn as its line
+    // instead, into `lineIndices` (two uint32 a point: the ribbon's vertices on one side, so half a
+    // pixel off the strand), each degenerate where the other draws it: lines draw thin strands far
+    // faster than triangles a pixel wide. `points` and `lineUvs` as runRibbons reads them. Each view.
+    void writeFacingSplit(void* indices, void* lineIndices, void* points, void* lineUvs, float widthScale, const RibbonFacing& facing,
+                          float splitPixels);
     void runRibbons(void* points, void* lineUvs, float widthScale, bool lit, const RibbonTargets& targets, const float light[3],
                     const RibbonFacing* facing = nullptr);
 

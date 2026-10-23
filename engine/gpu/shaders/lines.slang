@@ -121,6 +121,18 @@ void RibbonsCS(uint3 id : SV_DispatchThreadID) {
 // twice the strand's number too, display.h lineIdOf, for the hair shading's strand variation).
 // gFlag.y 3: the uvs alone, the lines' whole (u and width, gAux1) on both vertices (facing
 // ribbons' coverage: line_frames.h writeRibbonUvs), no triangles written.
+// gFlag.y 4: facing ribbons split for the view (line_frames.h writeFacingSplit): a segment as wide
+// as gValue.y pixels or more at either end keeps its two triangles (gOut), a thinner one is drawn
+// as its line instead (gOut2: two indices a point, the ribbon's vertices on one side, half a pixel
+// off the strand), each degenerate where the other draws it. A point's pixels: its width (gAux1)
+// times the scale (gValue.x) over gValue.z (a pixel's world size at distance 1) times its distance
+// from the eye at gValue2.xyz (gFlag.z 2: orthographic, distance 1).
+float facingPixels(uint q) {
+    const float width = asfloat(gAux1.Load(q * 8 + 4));
+    const float distance = gFlag.z == 2u ? 1.0f : len3(gValue2.xyz - loadPoint(q));
+    return gValue.x * (width < 0.0f ? 0.01f : width) / max(gValue.z * distance, 1e-12f);
+}
+
 [shader("compute")]
 [numthreads(POINT_GROUP_SIZE, 1, 1)]
 void RibbonLayoutCS(uint3 id : SV_DispatchThreadID) {
@@ -134,6 +146,19 @@ void RibbonLayoutCS(uint3 id : SV_DispatchThreadID) {
     uint s, begin, n;
     lineStrand(p, s, begin, n);
     const uint k = p - begin, a = 2 * p;
+    if (gFlag.y == 4u) {
+        const bool segment = k + 1 < n;
+        const bool wide = segment && max(facingPixels(p), facingPixels(p + 1)) >= gValue.y;
+        if (wide) {
+            gOut.Store3(p * 24, uint3(a, a + 1, a + 2));
+            gOut.Store3(p * 24 + 12, uint3(a + 1, a + 3, a + 2));
+        } else {
+            gOut.Store3(p * 24, uint3(a, a, a));
+            gOut.Store3(p * 24 + 12, uint3(a, a, a));
+        }
+        gOut2.Store2(p * 8, segment && !wide ? uint2(a, a + 2) : uint2(a, a));
+        return;
+    }
     if (k + 1 < n) {
         gOut.Store3(p * 24, uint3(a, a + 1, a + 2));
         gOut.Store3(p * 24 + 12, uint3(a + 1, a + 3, a + 2));

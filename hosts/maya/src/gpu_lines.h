@@ -62,12 +62,14 @@ struct GpuLineStreams {
 // million strands half a second). The MVertexBuffers and MIndexBuffer naming them go first
 // (declared after this in ItemBuffers).
 struct GpuRibbonStreams {
-    enum Buffer { kPoints, kLineUvs, kPositions, kNormals, kTangents, kUvs, kColors, kIndices, kBufferCount };
+    // kLineIndices: facing ribbons' thin segments drawn as lines (line_frames.h writeFacingSplit).
+    enum Buffer { kPoints, kLineUvs, kPositions, kNormals, kTangents, kUvs, kColors, kIndices, kLineIndices, kBufferCount };
     bool gl = false;
     void* device = nullptr;  // ID3D11Device*, or the OpenGL context they were made in
     unsigned count = 0;      // the lines' points (the ribbons draw twice as many vertices)
     unsigned capacity = 0;   // the points the buffers hold (a little more: other counts reuse them)
     bool lit = false, colors = false;
+    bool uvs = false;  // a uvs stream (lit; unlit facing: its thin segments' coverage)
     ID3D11Buffer* buffers[kBufferCount] = {};
     unsigned names[kBufferCount] = {};  // OpenGL: the buffers' names (the handles Viewport 2.0 holds point at them)
     // What the kernels take as buffer `i` (line_frames.h targets).
@@ -99,9 +101,10 @@ public:
     // as lit, as colored, not more than twice as long), and what names them put into `vertices`
     // (the lines' points and uvs, then positions, normals, tangents, uvs and colors: those the
     // ribbons draw, the others reset) and `indices`.
-    std::shared_ptr<GpuRibbonStreams> makeRibbonStreams(unsigned count, bool lit, bool colors, std::shared_ptr<GpuRibbonStreams> held,
+    std::shared_ptr<GpuRibbonStreams> makeRibbonStreams(unsigned count, bool lit, bool colors, bool uvs, std::shared_ptr<GpuRibbonStreams> held,
                                                         std::unique_ptr<MHWRender::MVertexBuffer>* vertices[7],
-                                                        std::unique_ptr<MHWRender::MIndexBuffer>* indices);
+                                                        std::unique_ptr<MHWRender::MIndexBuffer>* indices,
+                                                        std::unique_ptr<MHWRender::MIndexBuffer>* lineIndices);
 
 private:
     std::unique_ptr<gpu::LineFrames> engine_;

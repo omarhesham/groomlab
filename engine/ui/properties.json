@@ -204,7 +204,7 @@
               {"id": "useMaterialColor", "label": "Use Material Color", "maya": "useMaterialColor", "app": "useMaterialColor", "tip": "The strands in the hair shader's color (else Display Color)"},
               {"id": "displayColor", "label": "Display Color", "maya": "displayColor", "app": "displayColor", "tip": "The strands' color without a material color"},
               "-",
-              {"id": "displayRibbons", "label": "Display Ribbons", "maya": "displayRibbons", "app": "ribbons", "tip": "The strands as camera-facing ribbons as wide as the strands"},
+              {"id": "displayRibbons", "label": "Display Ribbons", "maya": "displayRibbons", "app": "ribbons", "tip": "The strands at their true width: ribbons facing the camera as wide as the strands, at least a pixel, the thinner parts fading with their width (slower than lines close up)"},
               {"id": "ribbonWidthScale", "label": "Ribbon Width Scale", "labels": {"app": "Width Scale"}, "maya": "ribbonWidthScale", "app": "ribbonWidthScale", "tip": "Times the strands' widths in the viewport (ribbons, and lines with width coverage)"}
             ]
           }

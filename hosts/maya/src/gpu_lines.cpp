@@ -116,8 +116,8 @@ GpuRibbonStreams::~GpuRibbonStreams() {
 }
 
 std::size_t GpuRibbonStreams::bytes() const {
-    // Per point: the lines' 12 + 8, two vertices' 24 (+ 24 + 24 + 16 lit, + 32 colored), 24 of indices.
-    return std::size_t{capacity} * (12 + 8 + 24 + (lit ? 64 : 0) + (colors ? 32 : 0) + 24);
+    // Per point: the lines' 12 + 8, two vertices' 24 (+ 24 + 24 + 16 lit, + 32 colored), 24 of indices, 8 of line indices.
+    return std::size_t{capacity} * (12 + 8 + 24 + (lit ? 48 : 0) + (uvs ? 16 : 0) + (colors ? 32 : 0) + 24 + 8);
 }
 
 GpuLines::GpuLines() = default;
@@ -188,16 +188,18 @@ std::shared_ptr<GpuLineStreams> GpuLines::makeStreams(unsigned count, std::share
     return streams;
 }
 
-std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bool lit, bool colors, std::shared_ptr<GpuRibbonStreams> held,
+std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bool lit, bool colors, bool uvs, std::shared_ptr<GpuRibbonStreams> held,
                                                               std::unique_ptr<MHWRender::MVertexBuffer>* vertices[7],
-                                                              std::unique_ptr<MHWRender::MIndexBuffer>* indices) {
+                                                              std::unique_ptr<MHWRender::MIndexBuffer>* indices,
+                                                              std::unique_ptr<MHWRender::MIndexBuffer>* lineIndices) {
     if (!engine_) throw std::runtime_error("GPU ribbons: no device");
 #ifdef _WIN32
     const bool gl = engine_->api() == gpu::GpuApi::OpenGL;
     void* device = engine_->device();
     GlBuffers glCalls;
     if (gl && !glCalls.load()) throw std::runtime_error("GPU ribbons: OpenGL buffer functions missing");
-    const bool reuse = held && held->gl == gl && held->device == device && held->lit == lit && held->colors == colors &&
+    uvs = uvs || lit;
+    const bool reuse = held && held->gl == gl && held->device == device && held->lit == lit && held->colors == colors && held->uvs == uvs &&
                        held->capacity >= count && held->capacity / 2 <= count;
     std::shared_ptr<GpuRibbonStreams> streams = reuse ? std::move(held) : std::make_shared<GpuRibbonStreams>();
     streams->gl = gl;
@@ -205,6 +207,7 @@ std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bo
     streams->count = count;
     streams->lit = lit;
     streams->colors = colors;
+    streams->uvs = uvs;
     using MG = MHWRender::MGeometry;
     // Per buffer: the floats a point (or vertex) holds, the semantic, the dimension, the vertices a
     // point (1: the lines', 2: the ribbons'), whether the ribbons have it.
@@ -214,7 +217,7 @@ std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bo
         bool used;
     };
     const Stream kStreams[7] = {{MG::kPosition, 3, 1, true}, {MG::kTexture, 2, 1, true},  {MG::kPosition, 3, 2, true},
-                                {MG::kNormal, 3, 2, lit},    {MG::kTangent, 3, 2, lit},  {MG::kTexture, 2, 2, lit},
+                                {MG::kNormal, 3, 2, lit},    {MG::kTangent, 3, 2, lit},  {MG::kTexture, 2, 2, uvs},
                                 {MG::kColor, 4, 2, colors}};
     if (!reuse) {
         streams->capacity = count + count / 8;
@@ -222,9 +225,11 @@ std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bo
         GLint bound = 0;
         if (gl) glGetIntegerv(kCopyWriteBinding, &bound);
         for (int i = 0; i < GpuRibbonStreams::kBufferCount; ++i) {
-            const bool index = i == GpuRibbonStreams::kIndices;
+            const bool index = i == GpuRibbonStreams::kIndices || i == GpuRibbonStreams::kLineIndices;
             if (!index && !kStreams[i].used) continue;
-            const std::size_t bytes = index ? room * 24 : room * 4 * kStreams[i].dimension * kStreams[i].perPoint;
+            const std::size_t bytes = i == GpuRibbonStreams::kIndices ? room * 24
+                                    : i == GpuRibbonStreams::kLineIndices ? room * 8
+                                    : room * 4 * kStreams[i].dimension * kStreams[i].perPoint;
             if (!gl) {
                 auto* d3d = static_cast<ID3D11Device*>(device);
                 streams->buffers[i] = index ? gpu::createD3D11IndexBuffer(d3d, bytes) : gpu::createD3D11DisplayBuffer(d3d, bytes);
@@ -254,9 +259,12 @@ std::shared_ptr<GpuRibbonStreams> GpuLines::makeRibbonStreams(unsigned count, bo
     auto index = std::make_unique<MHWRender::MIndexBuffer>(MG::kUnsignedInt32);
     index->resourceHandle(handle(GpuRibbonStreams::kIndices), count * 6);
     *indices = std::move(index);
+    auto lines = std::make_unique<MHWRender::MIndexBuffer>(MG::kUnsignedInt32);
+    lines->resourceHandle(handle(GpuRibbonStreams::kLineIndices), count * 2);
+    *lineIndices = std::move(lines);
     return streams;
 #else
-    (void)count, (void)lit, (void)colors, (void)held, (void)vertices, (void)indices;
+    (void)count, (void)lit, (void)colors, (void)uvs, (void)held, (void)vertices, (void)indices, (void)lineIndices;
     throw std::runtime_error("GPU ribbons: no backend on this platform");
 #endif
 }

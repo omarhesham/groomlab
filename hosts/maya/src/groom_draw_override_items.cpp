@@ -107,6 +107,7 @@ void GroomSubSceneOverride::updateItem(MHWRender::MSubSceneContainer& container,
     ItemBuffers& buffers = items_[name.asChar()];
     if (batch.empty()) {
         // Nothing to draw: take the item out and give its GPU memory back.
+        if (name == kRibbonsItem) dropThinRibbons(container);  // (it draws the ribbons' buffers)
         if (item) container.remove(name);
         ownBuffersBound(name);
         releaseGeometry(buffers);
@@ -231,9 +232,15 @@ void GroomSubSceneOverride::updateItem(MHWRender::MSubSceneContainer& container,
             ownBuffersBound(name);
             item->enable(true);
             buffers.shown = true;
+            if (buffers.facing) {
+                updateThinRibbons(container, buffers, *item, bounds, color, lineWidth);
+            } else {
+                dropThinRibbons(container);
+            }
             timed.bindMs += ribbonLap();
             return;
         }
+        dropThinRibbons(container);
         dropGpuRibbons(buffers);
         if (follow_) followBroken_ = true;  // (the strands at rest: drawn where they are from the next update)
         const auto built = std::make_shared<const DisplayGeometry>(batch.materialized());
@@ -636,6 +643,7 @@ void GroomSubSceneOverride::releaseGeometry(ItemBuffers& buffers) {
     buffers.bitangents.reset();
     buffers.uvs.reset();
     buffers.indices.reset();
+    buffers.lineIndices.reset();
     buffers.gpuStreams.reset();  // after the MVertexBuffers naming them
     buffers.ribbonStreams.reset();
     buffers.shown = false;

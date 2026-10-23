@@ -256,6 +256,7 @@ void GroomSubSceneOverride::dropGpuRibbons(ItemBuffers& buffers) {
         buffers.uvs.reset();
         buffers.colors.reset();
         buffers.indices.reset();
+        buffers.lineIndices.reset();
         buffers.ribbonStreams.reset();  // after the buffers naming them
     }
     buffers.ribbonLayout = buffers.ribbonUvsKey = buffers.ribbonColorsKey = buffers.ribbonIdsKey = 0;
@@ -301,14 +302,18 @@ bool GroomSubSceneOverride::writeGpuRibbons(gpu::LineFrames& engine, ItemBuffers
     // (kind 9; kind 2, Maya's graph as it is, takes the item's one color).
     const StrandColors* colors = lit && b.shaderKind != 9 ? nullptr : lines.colors.get();
     const bool gl = engine.api() == gpu::GpuApi::OpenGL;
-    if (!lit && !colors) return false;  // (unlit ribbons take their strands' colors: the builder gives them)
+    // Unlit in the item's one color (kind 0, a solid shader): the kernels still write a color a
+    // vertex (white, read by nothing), so the ribbons are made as the colored ones are.
+    const bool oneColor = !lit && !colors;
+    const bool colorStream = colors != nullptr || oneColor;
     if (2ull * count > 0xffffffffull / 4) throw std::runtime_error("more ribbon vertices than 32-bit indices hold");
     // Buffers made now (for these counts, lit or not, colored or not): their triangles, uvs and
     // colors are written whatever the keys say.
     bool fresh = false;
     const GpuRibbonStreams* held = b.ribbonStreams.get();
+    const bool uvs = lit || facing_;  // (unlit facing: the thin segments' coverage reads the widths)
     if (!held || held->gl != gl || held->device != engine.device() || held->count != count || held->lit != lit ||
-        held->colors != (colors != nullptr)) {
+        held->colors != colorStream || held->uvs != uvs) {
         if (!held) {  // (the item's own buffers, Maya's, go first: the streams' take their place)
             b.positions.reset();
             b.normals.reset();
@@ -319,21 +324,25 @@ bool GroomSubSceneOverride::writeGpuRibbons(gpu::LineFrames& engine, ItemBuffers
         }
         std::unique_ptr<MHWRender::MVertexBuffer>* vertices[7] = {&b.ribbonPoints, &b.ribbonUvs, &b.positions, &b.normals,
                                                                   &b.tangents,     &b.uvs,       &b.colors};
-        b.ribbonStreams = gpuLines_->makeRibbonStreams(count, lit, colors != nullptr, b.ribbonStreams, vertices, &b.indices);
+        b.ribbonStreams = gpuLines_->makeRibbonStreams(count, lit, colorStream, uvs, b.ribbonStreams, vertices, &b.indices, &b.lineIndices);
         fresh = true;
     }
     if (fresh) b.ribbonLayout = b.ribbonUvsKey = b.ribbonColorsKey = b.ribbonIdsKey = 0;
     b.bitangents.reset();
     b.lit = lit;
     b.vertexColors = colors != nullptr;
-    b.coverage = false;
+    b.coverage = false;  // (facing: the thin segments' item draws the coverage, the uvs the lines' widths)
+    if (b.facing != facing_) {
+        b.facing = facing_;
+        b.ribbonLayout = 0;  // (the lit uvs written again: the lines' whole, or u and 0.5)
+    }
     b.layout = b.uvsKey = b.uvsIdsKey = b.colorsKey = 0;  // (the lines' keys: none here)
     b.ribbonWidthScale = ribbons.ribbonWidthScale;
     void* t[GpuRibbonStreams::kBufferCount] = {};
     gpuRibbonTargets(engine, b, t);
     for (int i = 0; i < GpuRibbonStreams::kBufferCount; ++i) {
-        const bool used = i < 3 || i == GpuRibbonStreams::kIndices || (lit && i <= GpuRibbonStreams::kUvs) ||
-                          (colors && i == GpuRibbonStreams::kColors);
+        const bool used = i < 3 || i == GpuRibbonStreams::kIndices || (lit && i <= GpuRibbonStreams::kUvs) || (uvs && i == GpuRibbonStreams::kUvs) ||
+                          (colorStream && i == GpuRibbonStreams::kColors);
         if (used && !t[i]) throw std::runtime_error("the ribbons' buffers have no names on the device");
     }
 
@@ -364,8 +373,12 @@ bool GroomSubSceneOverride::writeGpuRibbons(gpu::LineFrames& engine, ItemBuffers
     // number, which the lit ribbons' uvs take for the hair shading's strand variation, when the
     // strands' IDs changed; kNoLineWidth where the strands carry no widths).
     const std::uint64_t uvsKey = hashCombine(lines.layoutKey(), lines.widthsKey()) | 1u;
-    const bool idsHeld = !lit || b.ribbonIdsKey == lines.idsKey();
+    // (Lit, and facing: the uvs' u read too, the hair shading's strand variation and the thin segments' coverage.)
+    const bool readsU = lit || b.facing;
+    const bool idsHeld = !readsU || b.ribbonIdsKey == lines.idsKey();
+    bool uvsWritten = false;
     if (b.ribbonUvsKey != uvsKey || !idsHeld) {
+        uvsWritten = true;
         const float* widths = s.widths().size() == s.pointCount() ? s.widths().data() : nullptr;
         if (widths && idsHeld) {
             bytes += static_cast<double>(engine.writeWidths(t[GpuRibbonStreams::kLineUvs], widths));
@@ -377,7 +390,7 @@ bool GroomSubSceneOverride::writeGpuRibbons(gpu::LineFrames& engine, ItemBuffers
             bytes += static_cast<double>(count) * 8;
         }
         b.ribbonUvsKey = uvsKey;
-        b.ribbonIdsKey = lit ? lines.idsKey() : 0;
+        b.ribbonIdsKey = readsU ? lines.idsKey() : 0;
     }
     // The triangles (and lit uvs: the lines' u with the strand's number) when the point counts
     // (or, lit, the strands' IDs) changed. (ribbonLayout stays the lines' layout key: following the
@@ -387,7 +400,10 @@ bool GroomSubSceneOverride::writeGpuRibbons(gpu::LineFrames& engine, ItemBuffers
                                  lit ? t[GpuRibbonStreams::kLineUvs] : nullptr);
         b.ribbonLayout = lines.layoutKey();
         b.ribbonColorsKey = 0;  // (colors keyed for other point counts)
+        uvsWritten = true;
     }
+    // Facing: the thin segments' coverage reads the lines' widths, so the uvs are the lines' whole.
+    if (b.facing && uvsWritten) engine.writeRibbonUvs(t[GpuRibbonStreams::kUvs], t[GpuRibbonStreams::kLineUvs]);
     // The colors, when they changed: lit, the strands' own a point, onto the vertices once; unlit,
     // one a strand, held by the engine (each run shades them).
     if (colors) {
@@ -406,6 +422,14 @@ bool GroomSubSceneOverride::writeGpuRibbons(gpu::LineFrames& engine, ItemBuffers
                 for (int c = 0; c < 3; ++c) rgba[i * 4 + c] = colors->colors[i][c];
             }
             bytes += static_cast<double>(engine.setRibbonColors(rgba.data(), strands, key));
+        }
+        b.ribbonColorsKey = key;
+    } else if (oneColor) {
+        const std::uint64_t key = (std::uint64_t{0x0C0102} << 40) | s.strandCount();  // (white, by the strands' count)
+        if (!engine.ribbonColorsHeld(key)) {
+            thread_local std::vector<float> rgba;
+            rgba.assign(s.strandCount() * 4, 1.0f);
+            bytes += static_cast<double>(engine.setRibbonColors(rgba.data(), s.strandCount(), key));
         }
         b.ribbonColorsKey = key;
     }
@@ -427,7 +451,132 @@ void GroomSubSceneOverride::expandGpuRibbons(gpu::LineFrames& engine, ItemBuffer
     targets.colors = b.lit ? nullptr : t[GpuRibbonStreams::kColors];
     const Vec3f key = ribbonKeyLight();
     const float light[3] = {key.x, key.y, key.z};
-    engine.runRibbons(points, lineUvs, b.ribbonWidthScale, b.lit, targets, light);
+    if (!b.facing) {
+        engine.runRibbons(points, lineUvs, b.ribbonWidthScale, b.lit, targets, light);
+        return;
+    }
+    gpu::LineFrames::RibbonFacing facing;
+    for (int k = 0; k < 3; ++k) facing.eye[k] = facingEye_[k];
+    facing.orthographic = facingOrthographic_;
+    facing.pixelWorld = facingPixelWorld_;
+    facing.minPixels = 1.0f;
+    facing.unshaded = !b.lit;  // (flat lines keep their colors)
+    engine.runRibbons(points, lineUvs, b.ribbonWidthScale, b.lit, targets, light, &facing);
+    // Each segment a pixel or more wide stays a ribbon (opaque), the thinner ones lines (the thin item).
+    if (t[GpuRibbonStreams::kIndices] && t[GpuRibbonStreams::kLineIndices]) {
+        engine.writeFacingSplit(t[GpuRibbonStreams::kIndices], t[GpuRibbonStreams::kLineIndices], points, lineUvs, b.ribbonWidthScale,
+                                facing, 1.0f);
+    }
+    b.facedFor = facingCamera_;
+}
+
+void GroomSubSceneOverride::readFacingView(const MHWRender::MFrameContext& context) {
+    int ox = 0, oy = 0, width = 0, height = 0;
+    context.getViewportDimensions(ox, oy, width, height);
+    const MMatrix view = context.getMatrix(MHWRender::MFrameContext::kViewInverseMtx);
+    const MMatrix projection = context.getMatrix(MHWRender::MFrameContext::kProjectionMtx);
+    facingOrthographic_ = std::fabs(projection(3, 3) - 1.0) < 1e-9;
+    // Toward an orthographic viewer: the camera's +Z (cameras look down -Z); else the eye.
+    const int row = facingOrthographic_ ? 2 : 3;
+    Vec3f eye(static_cast<float>(view(row, 0)), static_cast<float>(view(row, 1)), static_cast<float>(view(row, 2)));
+    if (facingOrthographic_) eye = eye.normalized();
+    facingEye_[0] = eye.x;
+    facingEye_[1] = eye.y;
+    facingEye_[2] = eye.z;
+    facingPixelWorld_ = height > 0 && projection(1, 1) > 0.0 ? static_cast<float>(2.0 / (projection(1, 1) * height)) : 0.0f;
+    facingCamera_ = context.getMatrix(MHWRender::MFrameContext::kViewProjMtx);
+    facingHeight_ = height;
+}
+
+void GroomSubSceneOverride::updateThinRibbons(MHWRender::MSubSceneContainer& container, ItemBuffers& base,
+                                              const MHWRender::MRenderItem& baseItem, const MBoundingBox& bounds, const float color[4],
+                                              float lineWidth) {
+    const MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
+    const MHWRender::MShaderManager* shaders = renderer ? renderer->getShaderManager() : nullptr;
+    const bool lit = base.shaderKind == 2 || base.shaderKind == 9;
+    if (!shaders || !base.lineIndices || !base.shader || !base.positions || !base.uvs || (!lit && base.shaderKind != 0 && base.shaderKind != 1)) {
+        dropThinRibbons(container);
+        return;
+    }
+    // Width as coverage as the lines take it (displayWidthCoverage; off: opaque, a pixel wide).
+    const bool coverage = widthCoverage_ && (lit || linesShaderAvailable(*shaders));
+    // The ribbons' own buffers: the lines drawn from their vertices on one side.
+    MHWRender::MVertexBufferArray streams;
+    streams.addBuffer("positions", base.positions.get());
+    if (lit) {
+        streams.addBuffer("normals", base.normals.get());
+        streams.addBuffer("tangents", base.tangents.get());
+    }
+    streams.addBuffer("uvs", base.uvs.get());
+    if (base.vertexColors && base.colors) streams.addBuffer("colors", base.colors.get());
+    ItemBuffers& thin = items_[kThinRibbonsItem.asChar()];
+    // The copy kept while the ribbons' shader is the same (thin.shaderSerial: the ribbons' it was made for).
+    if (!thin.shader || thin.shaderSerial != base.shaderSerial || thin.coverage != coverage) {
+        const bool perVertex = base.shaderKind == 1;
+        MHWRender::MShaderInstance* shader = lit        ? acquireLitShader(*shaders, base.shaderKind, coverage)
+                                           : coverage ? acquireLinesShader(*shaders, perVertex)
+                                                      : shaders->getStockShader(perVertex ? MHWRender::MShaderManager::k3dCPVSolidShader
+                                                                                          : MHWRender::MShaderManager::k3dSolidShader);
+        if (!shader) {
+            dropThinRibbons(container);
+            return;
+        }
+        shader->setIsTransparent(false);
+        if (lit && !base.hair) hairShaderDefaults(*shader, base.shaderKind);
+        if (MHWRender::MRenderItem* item = container.find(kThinRibbonsItem)) item->setShader(shader);
+        if (thin.shader) shaders->releaseShader(thin.shader);
+        thin.shader = shader;
+        thin.shaderSerial = base.shaderSerial;
+        thin.shaderKind = base.shaderKind;
+        thin.coverage = coverage;
+    }
+    MHWRender::MRenderItem* item = container.find(kThinRibbonsItem);
+    if (!item) {
+        item = MHWRender::MRenderItem::Create(kThinRibbonsItem, MHWRender::MRenderItem::MaterialSceneItem, MHWRender::MGeometry::kLines);
+        item->setDrawMode(MHWRender::MGeometry::kAll);
+        item->setShader(thin.shader);
+        container.add(item);
+    }
+    item->depthPriority(baseItem.depthPriority());
+    // Styled as the ribbons' item, with its coverage (the copy and the coverage in its place for the call).
+    std::swap(base.shader, thin.shader);
+    const bool ribbonsCoverage = base.coverage;
+    base.coverage = coverage;
+    style(*item, base, color, lineWidth);
+    base.coverage = ribbonsCoverage;
+    std::swap(base.shader, thin.shader);
+    setGeometryForRenderItem(*item, streams, *base.lineIndices, &bounds);
+    item->enable(true);
+    thin.shown = true;
+}
+
+void GroomSubSceneOverride::dropThinRibbons(MHWRender::MSubSceneContainer& container) {
+    if (container.find(kThinRibbonsItem)) container.remove(kThinRibbonsItem);
+    const auto it = items_.find(kThinRibbonsItem.asChar());
+    if (it == items_.end()) return;
+    if (it->second.shader) {
+        const MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
+        if (const MHWRender::MShaderManager* shaders = renderer ? renderer->getShaderManager() : nullptr) shaders->releaseShader(it->second.shader);
+    }
+    items_.erase(it);
+}
+
+void GroomSubSceneOverride::refaceRibbons() {
+    const auto it = items_.find(kRibbonsItem.asChar());
+    if (it == items_.end() || !it->second.facing || !it->second.ribbonStreams) return;
+    if (it->second.facedFor.isEquivalent(facingCamera_)) return;
+    gpu::LineFrames* engine = gpuLines_ ? gpuLines_->engine() : nullptr;
+    if (!engine) return;
+    void* t[GpuRibbonStreams::kBufferCount] = {};
+    gpuRibbonTargets(*engine, it->second, t);
+    if (!t[GpuRibbonStreams::kPoints] || !t[GpuRibbonStreams::kLineUvs]) return;
+    try {
+        expandGpuRibbons(*engine, it->second, t[GpuRibbonStreams::kPoints], t[GpuRibbonStreams::kLineUvs]);
+        ++currentDraw().items[kRibbonsItem.asChar()].refaced;
+    } catch (const std::exception& e) {
+        gpuLines_->fail(e.what());
+        MGlobal::displayWarning(MString("GroomLab: the ribbons are built on the CPU (") + e.what() + ")");
+    }
 }
 
 void GroomSubSceneOverride::checkHairGrid(gpu::LineFrames& engine, HairGroomState& grid, void* target) {
@@ -952,7 +1101,7 @@ namespace {
 // Ribbons the GPU made from the lines (writeGpuRibbons) against the CPU's strandRibbons, vertex by
 // vertex (the CPU's leave strands of one point out): the largest differences.
 nlohmann::json ribbonsCheck(gpu::LineFrames& frames, GroomShape& shape, const void* const targets[8], bool lit, float widthScale,
-                            unsigned pointsDrawn) {
+                            unsigned pointsDrawn, const gpu::LineFrames::RibbonFacing* facing) {
     nlohmann::json r;
     const StrandsPtr strands = shape.evaluatedStrands();
     const std::size_t n = strands ? strands->pointCount() : 0;
@@ -972,8 +1121,23 @@ nlohmann::json ribbonsCheck(gpu::LineFrames& frames, GroomShape& shape, const vo
         if (pts < 2) continue;
         for (std::size_t k = 0; k < 2 * pts; ++k, ++v) {
             const std::size_t g = 2 * begin + k;
+            if (facing && k % 2 == 0) {
+                // Facing the camera: the point's two vertices about it, half its width times the
+                // scale apart from it, or half the least pixels at its distance (the frames as the CPU's).
+                const std::size_t i = begin + k / 2;
+                const Vec3f q = strands->positions()[i];
+                const Vec3f a{positions[g * 3], positions[g * 3 + 1], positions[g * 3 + 2]};
+                const Vec3f b{positions[g * 3 + 3], positions[g * 3 + 4], positions[g * 3 + 5]};
+                const float width = strands->widths().size() == n ? strands->widths()[i] : kRibbonDefaultWidth;
+                const Vec3f toward = facing->orthographic ? Vec3f{facing->eye[0], facing->eye[1], facing->eye[2]}
+                                                          : Vec3f{facing->eye[0], facing->eye[1], facing->eye[2]} - q;
+                const float distance = facing->orthographic ? 1.0f : toward.length();
+                const float half = std::max(0.5f * widthScale * width, 0.5f * facing->minPixels * facing->pixelWorld * distance);
+                worst[0] = std::max(worst[0], static_cast<double>((0.5f * (a + b) - q).length()));
+                worst[0] = std::max(worst[0], static_cast<double>(std::abs(0.5f * (b - a).length() - half)));
+            }
             for (int c = 0; c < 3; ++c) {
-                worst[0] = std::max(worst[0], std::abs(static_cast<double>(positions[g * 3 + c]) - cpu.positions[v * 3 + c]));
+                if (!facing) worst[0] = std::max(worst[0], std::abs(static_cast<double>(positions[g * 3 + c]) - cpu.positions[v * 3 + c]));
                 if (!lit) continue;
                 worst[1] = std::max(worst[1], std::abs(static_cast<double>(normals[g * 3 + c]) - cpu.normals[v * 3 + c]));
                 worst[2] = std::max(worst[2], std::abs(static_cast<double>(tangents[g * 3 + c]) - cpu.tangents[v * 3 + c]));
@@ -987,6 +1151,7 @@ nlohmann::json ribbonsCheck(gpu::LineFrames& frames, GroomShape& shape, const vo
     }
     r["points"] = n;
     r["lit"] = lit;
+    r["facing"] = facing != nullptr;
     return r;
 }
 
@@ -1006,8 +1171,13 @@ std::string gpuFramesCheckJson(const GroomShape* shape) {
         }
         void* targets[GpuRibbonStreams::kBufferCount] = {};
         GroomSubSceneOverride::gpuRibbonTargets(*frames, item->second, targets);
+        gpu::LineFrames::RibbonFacing facing;
+        for (int k = 0; k < 3; ++k) facing.eye[k] = o.facingEye_[k];
+        facing.orthographic = o.facingOrthographic_;
+        facing.pixelWorld = o.facingPixelWorld_;
         j["ribbons"] = ribbonsCheck(*frames, *o.shape_, targets, item->second.lit, item->second.ribbonWidthScale,
-                                    item->second.ribbonStreams ? item->second.ribbonStreams->count : 0u);
+                                    item->second.ribbonStreams ? item->second.ribbonStreams->count : 0u,
+                                    item->second.facing ? &facing : nullptr);
         break;
     }
     // The override drawing lit strands (of the shape's: one a viewport, say), else the first.

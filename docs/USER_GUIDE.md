@@ -484,8 +484,8 @@ own paths about `region` apart: box braids with nothing drawn (the **Box braids*
 
 - `strandColorMode` `clump` colors the strands by clump; `attribute` shows a channel.
 - The viewport draws each strand's width as pixel coverage (`displayWidthCoverage`, on), so thin
-  tips fade and a thinned preview reads as dense as the full groom. `displayRibbons` shows widths as
-  geometry.
+  tips fade and a thinned preview reads as dense as the full groom. `displayRibbons` shows strands
+  at their true width (ribbons facing the camera, at least a pixel wide).
 - Seen from afar, each clump draws only as many strands as cover its pixels (`displayClumpLod`,
   on; `clumpLodError` 0.175). Renders and exports always take every strand.
 

@@ -165,18 +165,18 @@ std::string lastDrawTimesJson() {
     char buffer[1024];
     std::string out;
     std::snprintf(buffer, sizeof buffer,
-                  "{\"serial\": %llu, \"updateMs\": %.3f, \"buildMs\": %.3f, \"uploadMs\": %.3f, \"pullMs\": %.3f, \"previewMs\": %.3f, \"gridMs\": %.3f, \"settingsMs\": %.3f, \"afterMs\": %.3f, \"lodMs\": %.3f, \"items\": {",
+                  "{\"serial\": %llu, \"updateMs\": %.3f, \"buildMs\": %.3f, \"uploadMs\": %.3f, \"pullMs\": %.3f, \"previewMs\": %.3f, \"gridMs\": %.3f, \"settingsMs\": %.3f, \"afterMs\": %.3f, \"lodMs\": %.3f, \"facing\": %s, \"items\": {",
                   static_cast<unsigned long long>(t.serial), t.updateMs, t.buildMs, t.uploadMs, t.pullMs, t.previewMs, t.gridMs, t.settingsMs,
-                  t.afterMs, t.lodMs);
+                  t.afterMs, t.lodMs, t.facing ? "true" : "false");
     out = buffer;
     bool first = true;
     for (const auto& [name, item] : t.items) {
         std::snprintf(buffer, sizeof buffer,
                       "%s\"%s\": {\"acquireMs\": %.3f, \"writeMs\": %.3f, \"commitMs\": %.3f, \"bindMs\": %.3f, \"megabytes\": %.3f, "
-                      "\"partialStrands\": %zu, \"gpuFrames\": %s, \"gpuParts\": [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f], \"gpuMB\": %.3f, "
+                      "\"partialStrands\": %zu, \"refaced\": %d, \"gpuFrames\": %s, \"gpuParts\": [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f], \"gpuMB\": %.3f, "
                       "\"follow\": %s, \"streams\": \"%s\"}",
                       first ? "" : ", ", name.c_str(), item.acquireMs, item.writeMs, item.commitMs, item.bindMs, item.megabytes,
-                      item.partialStrands, item.gpuFrames ? "true" : "false", item.gpuParts[0], item.gpuParts[1], item.gpuParts[2],
+                      item.partialStrands, item.refaced, item.gpuFrames ? "true" : "false", item.gpuParts[0], item.gpuParts[1], item.gpuParts[2],
                       item.gpuParts[3], item.gpuParts[4], item.gpuParts[5], item.gpuMegabytes, item.follow ? "true" : "false",
                       item.streams.substr(0, 300).c_str());
         out += buffer;
@@ -256,6 +256,14 @@ bool GroomSubSceneOverride::requiresUpdate(const MHWRender::MSubSceneContainer&,
             const MMatrix view = frameContext.getMatrix(MHWRender::MFrameContext::kViewInverseMtx);
             const Vec3f camera(static_cast<float>(view(3, 0)), static_cast<float>(view(3, 1)), static_cast<float>(view(3, 2)));
             if (!overlayCameraKnown_ || (camera - overlayCamera_).length() > 1e-4f * std::max(overlayPull_, 1e-3f)) return true;
+        }
+        // Ribbons facing the camera: made again for each new view.
+        if (facing_) {
+            int ox = 0, oy = 0, width = 0, height = 0;
+            frameContext.getViewportDimensions(ox, oy, width, height);
+            if (height != facingHeight_ || !frameContext.getMatrix(MHWRender::MFrameContext::kViewProjMtx).isEquivalent(facingCamera_)) {
+                return true;
+            }
         }
         // The level of detail: another level (the camera came nearer or went farther) draws again;
         // an orbit keeps it.
@@ -589,6 +597,13 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
         widthCoverage_ = coverage;
         builder_.invalidate(DisplayPart::Strands);
     }
+    // Ribbons at their true width where the GPU makes them (else the CPU's along the scalp): the
+    // strands built again when that changes.
+    if (const bool facing = displayFlag(GroomShape::aDisplayRibbons) && gpuLines_ && gpuLines_->engine(); facing != facing_) {
+        facing_ = facing;
+        builder_.invalidate(DisplayPart::Strands);
+    }
+    if (facing_) readFacingView(context);
     // GroomLab's hair shading or Maya's: the lit strands are built again (their shaders) when it changes.
     {
         const MHWRender::MShaderManager* shaders = MHWRender::MRenderer::theRenderer()->getShaderManager();
@@ -808,6 +823,9 @@ void GroomSubSceneOverride::updateGuarded(MHWRender::MSubSceneContainer& contain
     Lap phases;
     if (gpuPreview_) applyGpuPreview(container, strands);
     currentDraw().previewMs = phases();
+    // Ribbons facing the camera: made again for this view where nothing above made them.
+    if (facing_) refaceRibbons();
+    currentDraw().facing = facing_;
     // The level of detail last: it binds the streams the strands' item draws now.
     updateLod(container, context);
     currentDraw().lodMs = phases();
