@@ -109,7 +109,7 @@ std::string lookGraph(double density, int segments) {
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": %d}}],
       "connections": [
         {"from": "scalp", "to": "scatter", "input": "scalp"},
-        {"from": "scatter", "to": "interp", "input": "strands"},
+        {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "interp", "input": "strands"},
         {"from": "guides", "to": "interp", "input": "guides"},
         {"from": "scalp", "to": "interp", "input": "scalp"},
         {"from": "interp", "to": "clump", "input": "strands"},
@@ -1120,7 +1120,7 @@ TEST(Budget, InterpolateHalfMillion) {
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 15}}],
       "connections": [
         {"from": "scalp", "to": "scatter", "input": "scalp"},
-        {"from": "scatter", "to": "out", "input": "strands"}]})";
+        {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "out", "input": "strands"}]})";
     GraphDocument doc = loadGraphJson(graph);
     // The inputs on a frame: the strands scattered on the scalp there, the guides rooted on it.
     struct Frame {
@@ -1495,7 +1495,7 @@ TEST(Budget, InterpolateKeepingClearanceOnAHead) {
             {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 15}}],
           "connections": [
             {"from": "scalp", "to": "scatter", "input": "scalp"},
-            {"from": "scatter", "to": "out", "input": "strands"}]})",
+            {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "out", "input": "strands"}]})",
                       static_cast<double>(count) / area);
         GraphDocument doc = loadGraphJson(graph);
         ExternalInputs ext;
@@ -1579,7 +1579,7 @@ std::string lodGraph(int maxCards) {
         {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 11}}],
       "connections": [
         {"from": "scalp", "to": "scatter", "input": "scalp"},
-        {"from": "scatter", "to": "interp", "input": "strands"},
+        {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "interp", "input": "strands"},
         {"from": "guides", "to": "interp", "input": "guides"},
         {"from": "scalp", "to": "interp", "input": "scalp"},
         {"from": "interp", "to": "clump", "input": "strands"},

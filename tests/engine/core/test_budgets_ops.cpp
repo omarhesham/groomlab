@@ -110,7 +110,7 @@ const HeadGroom& headGroom() {
             {"name": "out", "type": "Output"}, {"name": "resolution", "type": "Resample", "params": {"segments": 15}}],
           "connections": [
             {"from": "scalp", "to": "scatter", "input": "scalp"},
-            {"from": "scatter", "to": "out", "input": "strands"}]})",
+            {"from": "scatter", "to": "resolution", "input": "strands"}, {"from": "resolution", "to": "out", "input": "strands"}]})",
                       500000.0 / area);
         GraphDocument doc = loadGraphJson(graph);
         setGroomExternals(g->ext, g->head, nullptr, nullptr);
