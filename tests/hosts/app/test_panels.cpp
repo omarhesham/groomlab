@@ -2512,10 +2512,11 @@ TEST(AppPanels, TransferWindowPlacesMarkerPairsInTwoViews) {
 }
 
 TEST(AppPanels, ReferenceWindowLinesAPhotoUpAndGrowsGuides) {
-    // Tools > Guides from Reference: a photo of the groom's scalp drawn through a known camera,
-    // imported; landmarks clicked on the photo and the mesh; the camera solves live (4 pairs, the
-    // focal length kept; 6+, solved); flow arrows and mask touch-ups drawn on the photo with the
-    // window's undo; Generate grows the fromReference group; all of it saved with the groom.
+    // The Photos window: a photo of the groom's scalp drawn through a known camera, imported;
+    // landmarks clicked on the photo and the mesh; the camera solves live (4 pairs, the focal length
+    // kept; 6+, solved); the focal length by hand, Keep focal length, Lock; flow arrows and mask
+    // touch-ups drawn on the photo with the window's undo (the Guides stage); Generate grows the
+    // fromReference group; all of it saved with the groom.
     const std::string groom = sampleCopy("groomlab_app_reference_window");
     const std::filesystem::path dir = std::filesystem::u8path(groom).parent_path();
     MainWindow window;
@@ -2639,6 +2640,39 @@ TEST(AppPanels, ReferenceWindowLinesAPhotoUpAndGrowsGuides) {
     }
     EXPECT_TRUE(rw->photo()->solve.focalSolved);
     EXPECT_LT(rw->photo()->solve.rms, 1.0);
+    EXPECT_EQ(rw->stage(), ReferenceWindow::Stage::Align);
+    EXPECT_FALSE(rw->guidesPanel()->isVisibleTo(rw));
+    // Keep focal length (kept with the photo); the focal length by hand turns it on, the camera follows.
+    rw->setKeepFocal(true);
+    EXPECT_FALSE(rw->photo()->solve.focalSolved);
+    EXPECT_TRUE(QString::fromStdString(rw->photo()->display).contains("keepFocal"));
+    rw->setKeepFocal(false);
+    EXPECT_TRUE(rw->photo()->solve.focalSolved);
+    const double solvedMm = rw->photo()->camera->focalPx * 36.0 / W;
+    EXPECT_NEAR(rw->focalSlider()->value(), solvedMm, 0.05);
+    ASSERT_TRUE(rw->setFocal(solvedMm * 1.5));
+    EXPECT_TRUE(rw->keepFocal());
+    EXPECT_NEAR(rw->photo()->camera->focalPx, solvedMm * 1.5 * W / 36.0, 1e-6);
+    EXPECT_TRUE(rw->photo()->solve.ok);
+    EXPECT_FALSE(rw->photo()->solve.focalSolved);
+    ASSERT_TRUE(rw->setFocal(3000.0));
+    EXPECT_GE(rw->focalSlider()->maximum(), 3000.0);
+    ASSERT_TRUE(rw->resetFocal());  // the default lens, the slider's starting range
+    EXPECT_NEAR(rw->photo()->camera->focalPx, 50.0 * W / 36.0, 1e-6);
+    EXPECT_EQ(rw->focalSlider()->maximum(), 200.0);
+    rw->setKeepFocal(false);
+    // Lock: the landmarks no longer move the camera, nor does the focal length change.
+    rw->setLocked(true);
+    EXPECT_TRUE(rw->lockButton()->isChecked());
+    EXPECT_FALSE(rw->focalSlider()->isEnabled());
+    const auto lockedAt = rw->photo()->camera->pose.position;
+    EXPECT_FALSE(rw->setFocal(20.0));
+    rw->moveLandmark(kLandmarkPhoto, 0, Vec3f(static_cast<float>(pixel(picks[0]).x() + 6.0), static_cast<float>(pixel(picks[0]).y()), 0.0f));
+    EXPECT_EQ(rw->photo()->camera->pose.position, lockedAt);
+    EXPECT_TRUE(rw->messageText().contains("locked")) << rw->messageText().toStdString();
+    ASSERT_TRUE(rw->undo());
+    rw->setLocked(false);
+    EXPECT_TRUE(rw->focalSlider()->isEnabled());
     // A point dragged off turns bad; undo puts it back.
     const QPointF third = pixel(picks[2]);
     dragPhoto(view, {third, third + QPointF(25, 0), third + QPointF(50, 10)});
@@ -2655,8 +2689,10 @@ TEST(AppPanels, ReferenceWindowLinesAPhotoUpAndGrowsGuides) {
     EXPECT_EQ(rw->markerLists().count(kLandmarkMesh), 6u);
     ASSERT_TRUE(rw->undo());
 
-    // Flow arrows: a drag root to tip; Ctrl+drag erases; undo.
+    // Flow arrows (a tool of the Guides stage): a drag root to tip; Ctrl+drag erases; undo.
     rw->setMode(ReferenceWindow::Mode::Flow);
+    EXPECT_EQ(rw->stage(), ReferenceWindow::Stage::Guides);
+    EXPECT_TRUE(rw->guidesPanel()->isVisibleTo(rw));
     const QPointF top = pixel(center + Vec3f(0, radius * 0.5f, 0)), bottom = pixel(center - Vec3f(0, radius * 0.3f, 0));
     std::vector<QPointF> stroke;
     for (int k = 0; k <= 10; ++k) stroke.push_back(top + (bottom - top) * (k / 10.0));

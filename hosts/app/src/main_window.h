@@ -229,6 +229,8 @@ public:
     // and the scalp side by side, landmarks, flow arrows, mask touch-ups, Generate), made once and
     // raised again; it follows the open groom.
     ReferenceWindow* openReferenceWindow();
+    // The Photos window's Align stage on photo `index` (Align Photo...).
+    ReferenceWindow* openPhotoAlign(int index);
     ReferenceWindow* referenceWindow() const { return referenceWindow_; }
     // The last message reported (an error's, a transfer's), for windows that show it themselves.
     const QString& lastReport() const { return lastReport_; }

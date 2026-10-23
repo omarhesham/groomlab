@@ -3,14 +3,15 @@
 
 A reference is a Maya camera with the photo on an image plane, under one group
 (groomlab_references). Look through it, line it up with the mesh (by eye, or by
-pairs of points: a feature clicked on the photo and the same feature clicked on the
-mesh, then a solve for the camera's position, rotation and focal length), lock it,
-and set how the photo shows: its opacity, and in front of the mesh or behind it.
+pairs of points in the Photos window, ui/reference_window.py: a feature clicked on the photo
+and the same feature clicked on the mesh, side by side, the camera solved for its position,
+rotation and focal length as they come), lock it, and set how the photo shows: its opacity,
+and in front of the mesh or behind it.
 
     import groomlab.reference as ref
     cam = ref.import_reference("C:/photos/front.jpg")    # copied into groomlab/<scene>/references
     ref.look_through(cam)
-    ref.align_tool(cam)          # click the photo (through the camera), the mesh (in another view)
+    ref.set_pair(cam, 0, image=(412, 230), mesh=(0, 9.5, 3.1))  # ... 6 pairs (4 keeping the focal length)
     ref.solve(cam)               # {"rms": 0.8, "focal": 52.3, ...}
     ref.lock_reference(cam)
     ref.set_reference_opacity(cam, 0.4)
@@ -24,7 +25,8 @@ Each camera keeps its settings in attributes that save with the scene: glReferen
 glRefImage (the photo, relative to the scene like GroomLab's other files), glRefWidth and
 glRefHeight (pixels), glRefPairs (the point pairs, JSON: [{"image": [u, v], "mesh": [x, y,
 z]}, ...], pixels from the photo's top-left, world space), glRefDepth ("front" or
-"behind") and glRefRms (the last solve's error in pixels, -1 before one).
+"behind"), glRefRms (the last solve's error in pixels, -1 before one) and glRefKeepFocal (a
+solve keeps the focal length: set by hand, or Keep focal length).
 """
 
 import filecmp
@@ -39,9 +41,9 @@ import groomlab
 
 GROUP = "groomlab_references"
 KIND = "references"  # groomlab/<scene>/references
-CONTEXT = "groomLabReferenceContext"
 FILM_WIDTH = 36.0 / 25.4  # the film back's width, inches (a full-frame 36 mm)
 DEFAULT_FOCAL = 35.0
+FOCAL_RANGE = (10.0, 200.0)  # the Focal Length sliders' starting range (mm)
 DEFAULT_OPACITY = 0.6
 DEPTHS = ("front", "behind")
 MIN_PAIRS = 6          # pairs to solve the focal length too
@@ -236,7 +238,7 @@ def import_reference(image_path, name=None, groom=None, copy=True):
         transform = cmds.ls(transform, long=True)[0]
         shape = _shape(transform)
         for attr, kind in (("glReference", "bool"), ("glRefWidth", "long"), ("glRefHeight", "long"),
-                           ("glRefRms", "double")):
+                           ("glRefRms", "double"), ("glRefKeepFocal", "bool")):
             cmds.addAttr(transform, longName=attr, shortName=attr, attributeType=kind)
         for attr in ("glRefImage", "glRefPairs", "glRefDepth"):
             cmds.addAttr(transform, longName=attr, shortName=attr, dataType="string")
@@ -302,7 +304,7 @@ def adopt_camera(camera):
     width, height = image_size(path)
     with groomlab.undo_chunk("adopt reference camera"):
         for attr, kind in (("glReference", "bool"), ("glRefWidth", "long"), ("glRefHeight", "long"),
-                           ("glRefRms", "double")):
+                           ("glRefRms", "double"), ("glRefKeepFocal", "bool")):
             cmds.addAttr(transform, longName=attr, shortName=attr, attributeType=kind)
         for attr in ("glRefImage", "glRefPairs", "glRefDepth"):
             cmds.addAttr(transform, longName=attr, shortName=attr, dataType="string")
@@ -499,13 +501,28 @@ def reference_opacity(camera):
     return cmds.getAttr(image_plane(camera) + ".alphaGain")
 
 
-def set_reference_focal(camera, focal):
-    """The photo camera's focal length (mm, 2.5 to 3500), set by hand: a solve with Keep focal
-    length keeps it. A locked camera keeps its own (unlock it first)."""
+def set_reference_focal(camera, focal, keep=True):
+    """The photo camera's focal length (mm, 2.5 to 3500), set by hand; with `keep` Keep focal
+    length turns on, so a solve keeps it. A locked camera keeps its own (unlock it first)."""
     camera = _camera(camera)
     if is_locked(camera):
         raise RuntimeError("%s is locked: unlock it to change its focal length" % _short(camera))
     cmds.setAttr(_shape(camera) + ".focalLength", min(max(float(focal), 2.5), 3500.0))
+    if keep:
+        set_keep_focal(camera, True)
+
+
+def keep_focal(camera):
+    """Whether a solve keeps the camera's focal length (else 6 or more pairs solve it too)."""
+    camera = _camera(camera)
+    return cmds.attributeQuery("glRefKeepFocal", node=camera, exists=True) and         bool(cmds.getAttr(camera + ".glRefKeepFocal"))
+
+
+def set_keep_focal(camera, on=True):
+    camera = _camera(camera)
+    if not cmds.attributeQuery("glRefKeepFocal", node=camera, exists=True):
+        cmds.addAttr(camera, longName="glRefKeepFocal", shortName="glRefKeepFocal", attributeType="bool")
+    cmds.setAttr(camera + ".glRefKeepFocal", bool(on))
 
 
 def set_reference_visible(camera, visible=True):
@@ -597,25 +614,6 @@ def _store_pairs(camera, data):
     cmds.setAttr(_camera(camera) + ".glRefPairs", json.dumps(clean), type="string")
 
 
-def add_pick(camera, kind, value):
-    """A picked point: `kind` "image" ((u, v) pixels from the photo's top-left) or "mesh"
-    ((x, y, z) world space) goes into the first pair still missing one, else a new pair.
-    The pick tool calls it. Returns the pair's index."""
-    if kind not in ("image", "mesh"):
-        raise ValueError("a pick is an image or a mesh point")
-    value = [float(v) for v in value]
-    if len(value) != (2 if kind == "image" else 3):
-        raise ValueError("an image point is (u, v), a mesh point (x, y, z)")
-    data = pairs(camera)
-    index = next((i for i, p in enumerate(data) if not p.get(kind)), len(data))
-    if index == len(data):
-        data.append({"image": None, "mesh": None})
-    data[index][kind] = value
-    data[index]["error"] = None
-    _store_pairs(camera, data)
-    return index
-
-
 def set_pair(camera, index, image=None, mesh=None):
     """Set pair `index`'s image point and/or mesh point (index == the count: a new pair)."""
     data = pairs(camera)
@@ -627,16 +625,6 @@ def set_pair(camera, index, image=None, mesh=None):
         data[index]["image"] = list(image)
     if mesh is not None:
         data[index]["mesh"] = list(mesh)
-    data[index]["error"] = None
-    _store_pairs(camera, data)
-
-
-def clear_point(camera, index, kind):
-    """Forget pair `index`'s image or mesh point: the next pick of that kind fills it again."""
-    data = pairs(camera)
-    if not 0 <= index < len(data):
-        raise ValueError("no pair %d" % (index + 1))
-    data[index][kind] = None
     data[index]["error"] = None
     _store_pairs(camera, data)
 
@@ -659,23 +647,9 @@ def complete_pairs(camera):
     return [(i, p) for i, p in enumerate(pairs(camera)) if p.get("image") and p.get("mesh")]
 
 
-def align_tool(camera, activate=True):
-    """The pick tool for `camera`'s pairs: looking through the camera, a click marks a point on
-    the photo; in any other view, a click marks the point on the mesh under the cursor. Every
-    pair's points draw numbered while it is on. Returns the tool's context."""
-    camera = _camera(camera)
-    groomlab.ensure_plugin()
-    if not cmds.contextInfo(CONTEXT, exists=True):
-        cmds.groomLabReferenceCtx(CONTEXT)
-    cmds.groomLabReferenceCtx(CONTEXT, edit=True, camera=camera)
-    if activate:
-        cmds.setToolTo(CONTEXT)
-    return CONTEXT
-
-
-def solve(camera, fix_focal=False, apply=True):
-    """Line the camera up with its pairs: the position, rotation and (unless `fix_focal`)
-    focal length that put every pair's mesh point on its image point (6 complete pairs, 4 with
+def solve(camera, fix_focal=None, apply=True):
+    """Line the camera up with its pairs: the position, rotation and (unless `fix_focal`, by
+    default the camera's Keep focal length) focal length that put every pair's mesh point on its image point (6 complete pairs, 4 with
     the focal length kept). With `apply` the camera takes them (one undo step; its film back
     stays) and each pair keeps its error. Returns {"translate", "rotate", "focal" (mm), "rms"
     (pixels), "errors" (pixels, per complete pair)}."""
@@ -683,6 +657,8 @@ def solve(camera, fix_focal=False, apply=True):
     shape = _shape(camera)
     if apply and is_locked(camera):
         raise ValueError("%s is locked: unlock it to align it again" % _short(camera))
+    if fix_focal is None:
+        fix_focal = keep_focal(camera)
     complete = complete_pairs(camera)
     need = MIN_PAIRS_FIXED if fix_focal else MIN_PAIRS
     if len(complete) < need:
@@ -759,5 +735,5 @@ def reference_info(camera):
             "width": cmds.getAttr(camera + ".glRefWidth"), "height": cmds.getAttr(camera + ".glRefHeight"),
             "opacity": reference_opacity(camera), "visible": reference_visible(camera),
             "depth": reference_depth(camera), "locked": is_locked(camera),
-            "focal": cmds.getAttr(shape + ".focalLength"), "rms": cmds.getAttr(camera + ".glRefRms"),
-            "pairs": pairs(camera)}
+            "focal": cmds.getAttr(shape + ".focalLength"), "keepFocal": keep_focal(camera),
+            "rms": cmds.getAttr(camera + ".glRefRms"), "pairs": pairs(camera)}

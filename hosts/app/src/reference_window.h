@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-// Tools > Guides from Reference (experimental): the app's Reference window, as Maya's
-// (groomlab.ui.reference_window) and built like the Transfer window (marker_view.h): never modal,
-// the reference photo on the left (2D: the wheel zooms at the cursor, the middle button or Alt+left
-// pans, F or Fit fits) and the groom's scalp on the right (a MarkerView: its own orbit camera),
-// settings and Generate beside them. Photos: a tab each (Import Photo..., Remove), each with its
-// own landmarks, flow arrows, mask touch-ups and solved camera (the core's ReferencePhotoEditor,
-// reference_edit.h, the same rules as Maya's window):
+// The app's Photos window (Groom Tools > Photos > Align Photo..., Tools > Guides from Photos
+// (experimental)), as Maya's (groomlab.ui.reference_window) and built like the Transfer window
+// (marker_view.h): never modal, the reference photo on the left (2D: the wheel zooms at the
+// cursor, the middle button or Alt+left pans, F or Fit fits) and the groom's scalp on the right (a
+// MarkerView: its own orbit camera), settings beside them. Two stages (the chips at the top left):
+//   - Align: landmarks only; the panel holds the pairs and their errors, the camera (Focal Length,
+//     Keep focal length, Lock) and the mesh drawn over the photo.
+//   - Guides (experimental): Guides from Photos besides: flow arrows, mask touch-ups, Generate.
+// Photos: a tab each (Import Photo..., Remove), each with its own landmarks, flow arrows, mask
+// touch-ups and solved camera (the core's ReferencePhotoEditor, reference_edit.h, the same rules
+// as Maya's window):
 //   - Landmarks: a click on the photo and one on the mesh (either order) make a pair; a drag moves
 //     a point, Ctrl+click deletes it and its partner. 4 pairs solve the camera live (the focal
-//     length kept, a 50 mm guess until then), 6 or more the focal length too; each pair's error
-//     shows as a line to where its mesh point lands, bad pairs red; the mesh's outline or
-//     wireframe draws over the photo through the camera.
+//     length kept), 6 or more the focal length too, unless Keep focal length (the photo's, kept in
+//     its "display" with the Photos tab's settings; a focal length set by hand turns it on); a
+//     locked photo's camera stays where it is. Each pair's error shows as a line to where its mesh
+//     point lands, bad pairs red; the mesh's outline or wireframe draws over the photo.
 //   - Flow: a drag from root to tip draws an arrow; Ctrl+drag erases.
 //   - Hair / Backdrop: mask touch-ups (Ctrl swaps them); Mask tint and Flow field show the mask
 //     and the strand directions the core reads (previewReferenceView).
@@ -48,6 +53,7 @@ namespace groomlab::app {
 
 class MainWindow;
 class ReferenceWindow;
+class ValueSlider;
 
 // One photo of the window: its file, its edits and its camera.
 struct ReferencePhoto {
@@ -59,7 +65,7 @@ struct ReferencePhoto {
     std::optional<RefCamera> camera;  // solved (or as stored)
     ReferenceLandmarkSolve solve;     // the last solve
     QImage picture;                   // the photo as read
-    std::string display;              // the Photos tab's "display" (opacity, depth, locked, visible) as JSON text, kept
+    std::string display;              // the Photos tab's "display" (opacity, depth, locked, visible, keepFocal) as JSON text
 };
 
 // The photo, 2D.
@@ -102,6 +108,7 @@ private:
 class ReferenceWindow : public QWidget, public MarkerViewHost {
     Q_OBJECT
 public:
+    enum class Stage { Align, Guides };
     enum class Mode { Landmarks, Flow, Hair, Backdrop };
     enum class Overlay { Outline, Wireframe, Off };
 
@@ -129,6 +136,10 @@ public:
     const ReferencePhoto* photo() const;
 
     // ---- Edits (the clicks call these; scripts and tests too) ----
+    // Align (landmarks only) or Guides (the flow, the mask and Generate too).
+    void setStage(Stage stage);
+    Stage stage() const { return stage_; }
+    // The photo view's tool; one of Guides' moves to the Guides stage.
     void setMode(Mode mode);
     Mode mode() const { return mode_; }
     std::size_t addLandmark(MarkerSide side, const Vec3f& point);  // photo: (u, v, 0); mesh: snapped
@@ -140,7 +151,16 @@ public:
     void clearFlow();
     std::size_t addMaskStroke(const std::vector<std::array<float, 2>>& points, float radius, bool include);
     void clearMask();
-    void setKeepFocal(bool on);
+    void setKeepFocal(bool on);  // the current photo's Keep focal length (stored with it)
+    bool keepFocal() const;
+    // The current photo's focal length set by hand (mm on a 36 mm film back): Keep focal length turns
+    // on and the camera lines up again keeping it. False: no photo, or locked.
+    bool setFocal(double mm);
+    // The focal length back to 50 mm and its slider to its starting range (a solve gone wrong; the
+    // slider's right-click menu).
+    bool resetFocal();
+    void setLocked(bool on);  // the current photo's camera kept where it is (the landmarks don't move it)
+    bool locked() const;
     bool undo();
     bool redo();
     // The photo landmark within `pixels` (photo pixels) of `uv`, or -1.
@@ -175,6 +195,10 @@ public:
     PhotoView* photoView() const { return photoView_; }
     MarkerView* meshView() const { return meshView_; }
     QPushButton* generateButton() const { return generateButton_; }
+    QWidget* guidesPanel() const { return guidesPanel_; }
+    QToolButton* modeButton(Mode mode) const { return modeButtons_[static_cast<int>(mode)]; }
+    ValueSlider* focalSlider() const { return focal_; }
+    QToolButton* lockButton() const { return lock_; }
     QString statusText() const;
     QString messageText() const;
     QString solveText() const;
@@ -202,10 +226,13 @@ private:
     void store();
     void loadPhotos();
     double focalGuess(const ReferencePhoto& p) const;
+    void setDisplayFlag(const char* key, bool on);  // in the current photo's "display", stored
 
     MainWindow* main_;
     std::vector<std::unique_ptr<ReferencePhoto>> photos_;
     int current_ = -1;
+    Stage stage_ = Stage::Align;
+    bool updatingCamera_ = false;  // the camera controls set from the photo (not an edit)
     Mode mode_ = Mode::Landmarks;
     MarkerHover hover_;
     std::unique_ptr<QRhi> rhi_;
@@ -222,6 +249,7 @@ private:
 
     QTabBar* tabs_ = nullptr;
     QPushButton* removeButton_ = nullptr;
+    QToolButton* stageButtons_[2] = {};
     QToolButton* modeButtons_[4] = {};
     PhotoView* photoView_ = nullptr;
     MarkerView* meshView_ = nullptr;
@@ -229,8 +257,11 @@ private:
     QLabel* solveLabel_ = nullptr;
     QTreeWidget* pairs_ = nullptr;
     QCheckBox* keepFocal_ = nullptr;
+    ValueSlider* focal_ = nullptr;
+    QToolButton* lock_ = nullptr;
     QComboBox* overlayBox_ = nullptr;
     QSlider* opacity_ = nullptr;
+    QWidget* guidesPanel_ = nullptr;
     QLabel* flowLabel_ = nullptr;
     QCheckBox* maskTint_ = nullptr;
     QCheckBox* fieldLines_ = nullptr;

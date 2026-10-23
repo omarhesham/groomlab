@@ -933,7 +933,7 @@ def draw_tab(layout, context, chars):
     scene = context.scene
     s = scene.groomlab_photos
     lists = defs.get("lists/photos")
-    _wrap(layout, defs.plain(lists["about"]).replace("Align by Points", "Pick Points and Solve"), width=chars)
+    _wrap(layout, defs.plain(lists["about"]).replace("Align Photo", "Pick Points and Solve"), width=chars)
     palette.draw_bar(layout, "lists/photos/bar", "photosbar", context)
     row = layout.row()  # the list (bpy.data.objects, the photos shown) with its right-click menu beside it
     row.template_list("GROOMLAB_UL_photos", "", bpy.data, "objects", s, "photo_index", rows=3)

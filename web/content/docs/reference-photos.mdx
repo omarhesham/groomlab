@@ -1,6 +1,6 @@
 ---
 title: Reference photos
-description: Importing reference photos as image-plane cameras, aligning them to the head mesh by point pairs, and grooming through them.
+description: Importing reference photos as image-plane cameras, aligning them to the head mesh in the Photos window, and grooming through them.
 ---
 
 <Example name="reference.png" alt="A reference photo lined up with the head mesh" caption="Groom Tools > Photos" optional />
@@ -29,28 +29,31 @@ previous camera.
 
 ### Line it up
 
-Align it by eye (move the camera), or **by point pairs**:
+**Align Photo...** opens the **Photos** window on the photo: the photo on the left, the head mesh on
+the right, like the Transfer Groom window. You never have to look through the camera to do it.
 
-1. Click **Pick Points**.
-2. Click a feature on the photo (the corner of an eye, the tip of the nose, an ear) while looking
-   through it, then the same feature on the mesh in the perspective view.
-3. Pick at least six pairs, spread in depth (four with **Keep focal length**), then **Solve**.
-   If you know the lens, set **Focal Length** (mm) under Opacity first: Keep focal length turns on, so
-   the solve keeps it (it is greyed out while the camera is locked).
-   The solve computes the camera's position, orientation and (unless kept) focal length.
+1. Click a feature on the photo (the corner of an eye, the tip of the nose, an ear), then the same
+   feature on the mesh, or the other way round. The Nth point on the photo pairs with the Nth on the
+   mesh, numbered on both sides. Drag a point to adjust it; Ctrl+click deletes it and its partner.
+2. From four pairs the camera lines up as you place them (the focal length kept). Six or more,
+   spread in depth, solve the focal length too, unless **Keep focal length** is on.
+3. If you know the lens, set **Focal Length** (mm): Keep focal length turns on and the camera
+   lines up again keeping it.
 
-The status line reports the reprojection error in pixels, and each pair shows its own error, so a
-mismatched pair is easy to find.
+The mesh's outline draws over the photo through the camera, and each pair shows its error in pixels
+(a line to where its mesh point lands). A pair that disagrees with the rest turns red: fix that one
+first. Ctrl+Z and Ctrl+Y undo and redo in the window. Below **Align Photo...**, the tab says how
+far along the photo is.
 
-Easier: the [Guides from Photos window](#guides-from-photos-experimental) shows the photo and the
-mesh side by side; click the pairs there and the camera solves as you go, no looking through it.
+You can also line it up by eye: look through it and move the camera.
 
 </Step>
 <Step>
 
 ### Lock and groom
 
-**Lock** the camera once it is aligned. Set the photo's **Opacity**, place it **In front** of the
+**Lock** the camera once it is aligned (in the tab or the Photos window): the landmarks no longer
+move it, nor does tumbling through it. Set the photo's **Opacity**, place it **In front** of the
 mesh or **Behind** it, and brush the guides to match the photo while looking through the camera.
 
 </Step>
@@ -60,8 +63,9 @@ mesh or **Behind** it, and brush the guides to match the photo while looking thr
 import groomlab.reference as ref
 
 cam = ref.import_reference("C:/photos/front.jpg", groom=groom)
+ref.set_pair(cam, 0, image=(412, 230), mesh=(0.0, 9.5, 3.1))   # ... 6 pairs (4 keeping the focal length)
+ref.solve(cam)          # the camera from the pairs (the Photos window does it as you click)
 ref.look_through(cam)
-ref.solve(cam)          # after picking point pairs
 ref.lock_reference(cam)
 ref.set_reference_opacity(cam, 0.4)
 ```
@@ -73,13 +77,13 @@ Guides from Photos grows guides that follow the hair in your reference photos. I
 version: try it, then brush the result.
 </Callout>
 
-**GroomLab > Guides from Photos (experimental)...** opens the **Guides from Photos** window
-(Groom Tools > Photos has an **Open Guides from Photos...** button too). It works like the Transfer
-Groom window: the photo on the left, the groom's scalp on the right, the settings beside them. You
-never have to look through a Maya camera; each photo still gets a camera with the photo on an image
-plane, kept lined up, so renders and Arnold can use it.
+**GroomLab > Guides from Photos (experimental)...** opens the Photos window at its **Guides** stage
+(Groom Tools > Photos has an **Open Guides from Photos...** button too; the **Align** and **Guides
+(experimental)** chips at the top left switch stages). The Guides stage adds flow arrows, mask
+touch-ups, Generate and the measured look to the Align stage's landmarks. Each photo keeps its camera
+with the photo on an image plane, lined up, so renders and Arnold can use it.
 
-<Example name="reference-window.png" alt="The Guides from Photos window: a photo with numbered landmarks, flow arrows and the mesh's outline on the left, the scalp with the matching landmarks on the right" caption="The Guides from Photos window" optional />
+<Example name="reference-window.png" alt="The Photos window at its Guides stage: a photo with numbered landmarks, flow arrows and the mesh's outline on the left, the scalp with the matching landmarks on the right" caption="The Photos window, Guides stage" optional />
 
 <Steps>
 <Step>
@@ -96,15 +100,8 @@ zooms at the cursor, the middle button (or Alt+drag) pans, and **F** or **Fit** 
 
 ### Line each photo up with landmarks
 
-With **Landmarks** on, click a feature on the photo (an eye corner, an ear tip, the nose), then the
-same feature on the mesh, or the other way round: the Nth point on the photo pairs with the Nth on
-the mesh, numbered on both sides. Drag a point to adjust it; Ctrl+click deletes it and its partner.
-
-From four pairs the camera solves live as you place them (the focal length kept); six or more solve
-the focal length too, unless **Keep focal length** is on. The mesh's outline (or wireframe) draws
-over the photo through the solved camera (**Mesh over photo**, with its **Opacity**), each pair shows
-a line to where its mesh point lands, and the table lists each pair's error in pixels. A pair that
-disagrees with the rest turns red: fix that one first.
+With **Landmarks** on, line each photo up as in [Line it up](#line-it-up) above. The mesh can draw
+over the photo as its outline or its wireframe (**Mesh over photo**, with its **Opacity**).
 
 </Step>
 <Step>
@@ -151,9 +148,9 @@ clumps in short fur, and flyaways against a backdrop of the hair's own shade.
 </Step>
 </Steps>
 
-The standalone app has the same window: **Tools > Guides from Photos (Experimental)...** (photos,
-landmarks, flow arrows, mask touch-ups and Generate, saved with the groom; the measured look is
-Maya's for now).
+The standalone app has the same window: **Align Photo...** in its Photos tab, and **Tools > Guides
+from Photos (Experimental)...** (photos, landmarks, the camera, flow arrows, mask touch-ups and
+Generate, saved with the groom; the measured look is Maya's for now).
 
 What works so far: long hair and longer fur, one to three views, symmetry that covers the side a
 photo doesn't show, and flow arrows that settle which way hair runs.
@@ -166,7 +163,7 @@ import groomlab
 from groomlab import from_reference as fr
 from groomlab.ui import reference_window
 
-w = reference_window.show(groom)                  # the Guides from Photos window; scripts drive it too:
+w = reference_window.show(groom, stage="guides")  # the Photos window; scripts drive it too:
 cam = w.import_photo("C:/photos/front.jpg")
 w.add_landmark("photo", (412, 230)); w.add_landmark("mesh", (0.0, 9.5, 3.1))   # ... 4 pairs or more
 w.add_flow_stroke([(820, 300), (790, 620)])        # photo pixels, root first

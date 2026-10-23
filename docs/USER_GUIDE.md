@@ -212,10 +212,11 @@ from these names.
   **Fix Frame** makes a shot fix that blends in and out around the current frame. See
   https://getgroomlab.com/docs/motion-and-simulation.
 - **Groom to photos** (Photos tab): **Import Photo...** makes each photo a camera aimed at the
-  head. **Look Through** it, then line it up by eye or by points: click **Pick Points**, click a
-  feature on the photo (an eye corner, the nose tip), then the same feature on the mesh in the
-  perspective view. Six pairs or more, spread in depth (four with **Keep focal length**), then
-  **Solve**; the status says how many pixels off it lands. **Lock** it, set its **Opacity** and
+  head. **Align Photo...** opens the Photos window: the photo and the mesh side by side; click a
+  feature on the photo (an eye corner, the nose tip), then the same feature on the mesh. From four
+  pairs the camera lines up as you click (six or more solve the focal length too, unless **Keep
+  focal length**); each pair shows how many pixels off it lands. Or line it up by eye, looking
+  through it. **Lock** it, set its **Opacity** and
   **In front** or **Behind**, and brush the guides to the photo while looking through it
   (`groomlab.reference`).
 

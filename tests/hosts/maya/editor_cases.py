@@ -4526,7 +4526,7 @@ class ReferenceTabTest(unittest.TestCase):
         self.assertEqual((self.tab.list.count(), self.tab.current()), (1, cam))
         self.assertIn("64 x 48", self.tab.list.item(0).text())
         self.assertFalse(self.tab.list.item(0).icon().isNull())  # the photo's thumbnail
-        self.assertIn("Look Through", self.tools.status.text())
+        self.assertIn("Align Photo", self.tools.status.text())
         # The controls call through to the camera and its image plane.
         plane = reference.image_plane(cam)
         self.tab.opacity.committed.emit(0.3)
@@ -4540,11 +4540,19 @@ class ReferenceTabTest(unittest.TestCase):
         self.tab.visible.setChecked(True)
         # The focal length by hand: the camera takes it and Keep focal length turns on (a solve keeps it).
         shape = cmds.listRelatives(cam, shapes=True, type="camera", fullPath=True)[0]
-        self.assertFalse(self.tab.keep_focal.isChecked())
+        self.assertFalse(reference.keep_focal(cam))
         self.tab.focal.committed.emit(85.0)
         self.assertAlmostEqual(cmds.getAttr(shape + ".focalLength"), 85.0)
-        self.assertTrue(self.tab.keep_focal.isChecked())
-        self.tab.keep_focal.setChecked(False)
+        self.assertTrue(reference.keep_focal(cam))
+        # A focal length gone wrong: Reset Focal Length (the slider's right-click menu) brings the default
+        # lens and the slider's starting range back.
+        self.tab.focal.setValue(3000.0)  # (as a drag past the range would)
+        self.tab.focal.committed.emit(3000.0)
+        self.assertGreaterEqual(self.tab.focal.hi, 3000.0)
+        self.tab.reset_focal()
+        self.assertAlmostEqual(cmds.getAttr(shape + ".focalLength"), reference.DEFAULT_FOCAL)
+        self.assertEqual((self.tab.focal.lo, self.tab.focal.hi), reference.FOCAL_RANGE)
+        reference.set_keep_focal(cam, False)
         self.tab.lock.click()
         self.assertTrue(reference.is_locked(cam))
         self.tab.show_controls()
@@ -4580,70 +4588,69 @@ class ReferenceTabTest(unittest.TestCase):
         self.tab.poll()
         self.assertEqual(self.tab.list.count(), 2)
 
-    def test_pairs_pick_and_solve_from_the_tab(self):
+    def test_align_photo_opens_the_window_and_the_tab_shows_where_it_stands(self):
+        """The pairs are made in the Photos window (Align Photo...); the tab says how far along they are."""
+        from PySide2 import QtWidgets
         from groomlab import reference
+        from groomlab.ui import reference_window
         from maya.api import OpenMaya as om
         cam = self.tab.import_photo(self.photo)
         shape = cmds.listRelatives(cam, shapes=True, type="camera", fullPath=True)[0]
-        # Pick Points turns the pick tool on for the picked reference, and off again.
-        self.tab.pick.click()
-        self.assertEqual(cmds.currentCtx(), reference.CONTEXT)
-        self.assertEqual(cmds.groomLabReferenceCtx(reference.CONTEXT, query=True, camera=True),
-                         cmds.ls(cam, long=True)[0])
-        self.assertTrue(self.tab.pick.isChecked())
-        # Pairs made from a known camera (as the tool's clicks would add them) show up in the list.
+        self.tools.poll()
+        self.assertIn("Not lined up yet", self.tab.align_about.text())
+        # Pairs from a known camera (as the window's clicks would make them).
         cmds.xform(cam, worldSpace=True, translation=(12, 8, 40), rotation=(-10, 16, 0))
         cmds.setAttr(shape + ".focalLength", 50)
-        path = om.MSelectionList().add(cam).getDagPath(0)
-        inverse = path.inclusiveMatrixInverse()
+        inverse = om.MSelectionList().add(cam).getDagPath(0).inclusiveMatrixInverse()
         xyz = cmds.xform(self.scalp + ".vtx[*]", query=True, worldSpace=True, translation=True)
         points = [p for p in (tuple(xyz[i:i + 3]) for i in range(0, len(xyz), 3)) if p[2] > 3.0][::9][:7]
         k = 50.0 / 25.4
-        for p in points:
+        for i, p in enumerate(points[:3]):
             c = om.MPoint(*p) * inverse
             u = (k * c.x / -c.z / cmds.getAttr(shape + ".horizontalFilmAperture") + 0.5) * 64
             v = (0.5 - k * c.y / -c.z / cmds.getAttr(shape + ".verticalFilmAperture")) * 48
-            reference.add_pick(cam, "image", (u, v))
-        self.tab.poll()
-        self.assertEqual(self.tab.pairs.topLevelItemCount(), 7)
-        self.assertEqual(self.tab.pairs.topLevelItem(0).text(2), "pick on the mesh")
-        self.assertIn("0 of 6 pairs", self.tab.align_about.text())
-        for p in points:
-            reference.add_pick(cam, "mesh", p)
-        self.tab.poll(full=True)  # picks made elsewhere: the full tick shows them
-        self.assertIn("7 of 6 pairs", self.tab.align_about.text())
-        self.tab.keep_focal.setChecked(True)
-        self.assertIn("7 of 4 pairs", self.tab.align_about.text())
-        self.tab.keep_focal.setChecked(False)
-        # Solve: the camera comes back; the status and the list say how well it fits.
+            reference.set_pair(cam, i, image=(u, v), mesh=p)
+        self.tab.poll(full=True)  # pairs made elsewhere: the full tick shows them
+        self.assertIn("3 of 6 pairs", self.tab.align_about.text())
+        reference.set_keep_focal(cam, True)
+        self.tab.poll(full=True)
+        self.assertIn("3 of 4 pairs (focal length kept)", self.tab.align_about.text())
+        reference.set_keep_focal(cam, False)
+        for i, p in enumerate(points[3:], 3):
+            c = om.MPoint(*p) * inverse
+            u = (k * c.x / -c.z / cmds.getAttr(shape + ".horizontalFilmAperture") + 0.5) * 64
+            v = (0.5 - k * c.y / -c.z / cmds.getAttr(shape + ".verticalFilmAperture")) * 48
+            reference.set_pair(cam, i, image=(u, v), mesh=p)
         cmds.xform(cam, worldSpace=True, translation=(0, 0, 60), rotation=(0, 0, 0))
         cmds.setAttr(shape + ".focalLength", 35)
-        self.chip("referenceSolve").click()
-        self.assertIn("px off on average", self.tools.status.text())
-        self.assertAlmostEqual(cmds.getAttr(shape + ".focalLength"), 50.0, delta=0.5)
-        self.assertLess(max(abs(a - b) for a, b in zip(cmds.xform(cam, query=True, worldSpace=True, translation=True),
-                                                       (12, 8, 40))), 0.1)
-        self.assertTrue(self.tab.pairs.topLevelItem(0).text(3).endswith("px"))
-        self.assertIn("focal length 50", self.tab.result.text())
-        # A locked reference is not re-aligned: the status says why.
-        self.tab.lock.click()
-        self.chip("referenceSolve").click()
-        self.assertIn("locked", self.tools.status.text())
-        self.tab.lock.click()
-        # Delete a pair, then clear them all.
-        self.tab.pairs.setCurrentItem(self.tab.pairs.topLevelItem(0))
-        self.tab.delete_pair()
-        self.assertEqual(len(reference.pairs(cam)), 6)
-        self.assertEqual(self.tab.pairs.topLevelItemCount(), 6)
-        self.tab.clear_pairs()
-        self.assertEqual((reference.pairs(cam), self.tab.pairs.topLevelItemCount()), ([], 0))
-        self.assertEqual(self.tab.result.text(), "")
-        self.tab.pick.click()
-        self.assertEqual(cmds.currentCtx(), "selectSuperContext")
+        reference.solve(cam)
+        self.tab.poll(full=True)
+        self.assertIn("Lined up by 7 pairs", self.tab.align_about.text())
+        self.assertIn("50.0 mm", self.tab.align_about.text())
+        # Align Photo...: the Photos window on the picked photo, its Align stage (landmarks only).
+        self.tab.findChild(QtWidgets.QAbstractButton, "referenceAlign").click()
+        window = reference_window.window()
+        try:
+            self.assertIsNotNone(window)
+            self.assertEqual(reference._camera(window.current_photo()), reference._camera(cam))
+            self.assertEqual((window.stage(), window.mode()), ("align", "landmarks"))
+            self.assertFalse(window.guides_panel.isVisibleTo(window))
+            self.assertFalse(window.generate_button.isVisibleTo(window))
+            self.assertFalse(window.mode_buttons["flow"].isVisibleTo(window))
+            self.assertEqual(window.pairs_tree.topLevelItemCount(), 7)
+            self.assertAlmostEqual(window.focal.value(), cmds.getAttr(shape + ".focalLength"), places=3)
+            # Guides from Photos opens the same window at its Guides stage.
+            self.tab.findChild(QtWidgets.QToolButton, "referenceOpenWindow").click()
+            self.assertIs(reference_window.window(), window)
+            self.assertEqual(window.stage(), "guides")
+            self.assertTrue(window.guides_panel.isVisibleTo(window))
+            self.assertTrue(window.generate_button.isVisibleTo(window))
+        finally:
+            window.close()
 
     def test_the_tab_opens_the_reference_window_and_the_old_flow_tool_still_draws(self):
-        """Guides from Reference lives in the Reference window now: the tab keeps a way in and where
-        things stand. The older Reference Flow tool (looking through the camera) still draws."""
+        """Guides from Reference lives in the Photos window's Guides stage: the tab keeps a way in and
+        where things stand. The older Reference Flow tool (looking through the camera) still draws."""
         from PySide2 import QtWidgets
         from maya.api import OpenMaya as om
         import maya.api.OpenMayaUI as omui
@@ -4658,6 +4665,7 @@ class ReferenceTabTest(unittest.TestCase):
             self.assertIsNotNone(window)
             self.assertEqual(window.groom, self.groom)
             self.assertEqual(reference._camera(window.current_photo()), reference._camera(cam))
+            self.assertEqual(window.stage(), "guides")
         finally:
             window.close()
         wait(30)
@@ -4832,7 +4840,41 @@ class ReferenceWindowTest(unittest.TestCase):
         self.assertLess(solve["rms"], 1.0)
         window.keep_focal.setChecked(True)
         self.assertFalse(window.solve_result()["focal_solved"])
+        self.assertTrue(reference.keep_focal(cam))  # kept on the camera (the tab and a script's solve read it)
         window.keep_focal.setChecked(False)
+        self.assertFalse(reference.keep_focal(cam))
+        # The focal length by hand: Keep focal length turns on and the camera lines up again keeping it.
+        solved = cmds.getAttr(reference._shape(cam) + ".focalLength")
+        window.focal.committed.emit(solved * 1.5)
+        self.assertAlmostEqual(cmds.getAttr(reference._shape(cam) + ".focalLength"), solved * 1.5, places=3)
+        self.assertTrue(window.keep_focal.isChecked())
+        self.assertFalse(window.solve_result()["focal_solved"])
+        self.assertTrue(window.solve_result()["ok"])
+        self.assertTrue(window.reset_focal())  # the default lens, the slider's starting range
+        self.assertAlmostEqual(cmds.getAttr(reference._shape(cam) + ".focalLength"), reference.DEFAULT_FOCAL, places=3)
+        self.assertEqual((window.focal.lo, window.focal.hi), reference.FOCAL_RANGE)
+        window.keep_focal.setChecked(False)  # 7 pairs: the focal length solved again
+        self.assertTrue(window.solve_result()["focal_solved"])
+        self.assertAlmostEqual(window.focal.value(), cmds.getAttr(reference._shape(cam) + ".focalLength"), places=3)
+        # Lock: the landmarks no longer move the camera, nor does the focal length change.
+        window.lock.click()
+        self.assertTrue(reference.is_locked(cam))
+        self.assertFalse(window.focal.isEnabled())
+        before = cmds.xform(cam, query=True, worldSpace=True, translation=True)
+        self.assertFalse(window.set_focal(20.0))
+        window.add_landmark("photo", (5.0, 5.0))
+        window.add_landmark("mesh", points[0])
+        self.assertEqual(cmds.xform(cam, query=True, worldSpace=True, translation=True), before)
+        self.assertIn("locked", window.message.text())
+        window.undo()
+        window.undo()
+        window.lock.click()
+        self.assertFalse(reference.is_locked(cam))
+        self.assertTrue(window.focal.isEnabled())
+        # The stages: Align shows the landmarks only; a Guides tool moves to the Guides stage.
+        window.set_stage("align")
+        self.assertFalse(window.guides_panel.isVisibleTo(window))
+        self.assertFalse(window.mode_buttons["flow"].isVisibleTo(window))
         # Stored on the camera (pairs with their errors) as the old tab reads them.
         self.assertEqual(len(reference.complete_pairs(cam)), len(points))
         self.assertIsNotNone(reference.pairs(cam)[0].get("error"))
@@ -4858,6 +4900,8 @@ class ReferenceWindowTest(unittest.TestCase):
 
         # Flow arrows: a drag root to tip, Ctrl+drag erases; each an undo step.
         window.set_mode("flow")
+        self.assertEqual(window.stage(), "guides")
+        self.assertTrue(window.guides_panel.isVisibleTo(window))
         self.drag_photo([(80, 30 + 7 * k) for k in range(11)])
         self.assertEqual(len(window.editor().strokes), 1)
         self.assertEqual(len(from_reference.reference_hints(self.groom, cam)), 1)  # stored on the groom

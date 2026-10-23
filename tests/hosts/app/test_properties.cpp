@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Properties dock's Groom workspace from properties.json (Maya's Attribute Editor's sections,
 // order, labels and tips: properties_panel.h), what its controls edit, the Groom Tools' Photos tab
-// (photos_panel.h: Look Through, Lock, Opacity, In front / Behind, Align by Points) and what the
+// (photos_panel.h: Look Through, Lock, Opacity, In front / Behind, Align Photo...) and what the
 // groom file keeps of the guide groups' display (their colors, the hidden ones). The offscreen
 // platform; the prompts answered by their labels.
 
@@ -31,6 +31,7 @@
 #include "main_window.h"
 #include "overlay.h"
 #include "photos_panel.h"
+#include "reference_window.h"
 #include "prman_render.h"
 #include "properties_panel.h"
 #include "render_job.h"
@@ -262,7 +263,7 @@ TEST(AppProperties, GroupColorsAndHiddenGroupsSaveWithTheGroom) {
     EXPECT_EQ(window.document()->hiddenGroups(), (std::set<std::string>{root}));
 }
 
-TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignByPoints) {
+TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignPhoto) {
     const std::string path = sampleCopy("groomlab_app_photos");
     const std::filesystem::path dir = std::filesystem::u8path(path).parent_path();
     MainWindow window;
@@ -275,7 +276,6 @@ TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignByPoints) {
     ASSERT_TRUE(photos && viewport);
     const ui::Bindings bindings = AppActions::bindings(window);
     EXPECT_EQ(photos->bar()->ids(), (std::vector<std::string>{"photo.import", "photo.rename", "photo.remove"}));
-    EXPECT_EQ(photos->pairsBar()->ids(), (std::vector<std::string>{"pairs.solve", "pairs.clear", "pairs.delete"}));
 
     // Import: the photo as a camera in front of the groom, 50 mm on 36, shown at 60%, in front.
     const int W = 400, H = 300;
@@ -318,8 +318,14 @@ TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignByPoints) {
     EXPECT_TRUE(photos->keepFocal());
     camera.projection(1.0f);
     EXPECT_NEAR(camera.fovDegrees(), 2.0 * std::atan(0.5 * W / (85.0 * W / 36.0)) * 180.0 / 3.14159265358979, 1e-3);
-    emit photos->focalSlider()->valueChanged(50.0);  // (back to the import's, for what follows)
-    photos->findChild<QCheckBox*>(QStringLiteral("referenceKeepFocal"))->setChecked(false);
+    photos->focalSlider()->setValue(3000.0);  // (as a value typed past the range would)
+    emit photos->focalSlider()->valueChanged(3000.0);
+    EXPECT_GE(photos->focalSlider()->maximum(), 3000.0);
+    photos->resetFocal();  // (back to the import's 50 mm and the starting range, for what follows)
+    EXPECT_NEAR(photos->camera(0)->focalPx, 50.0 * W / 36.0, 1e-6);
+    EXPECT_EQ(photos->focalSlider()->maximum(), 200.0);
+    EXPECT_TRUE(photos->display(0).keepFocal);
+    d.keepFocal = false;
     GroomRenderer& renderer = viewport->renderer();
     ASSERT_TRUE(renderer.photoShown());
     EXPECT_NEAR(renderer.photo().opacity, 0.6f, 1e-6);
@@ -368,13 +374,14 @@ TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignByPoints) {
     EXPECT_LT((camera.eye() - before).length(), 1e-4f) << "the camera before it";
     EXPECT_FALSE(renderer.photoShown());
 
-    // Align by Points: pairs whose mesh points the true camera puts on their photo points; Solve
-    // finds it again from a camera put off.
+    // Where the alignment stands: pairs whose mesh points the true camera puts on their photo points
+    // (made in the Photos window); Align Photo... opens it on the photo, its Align stage.
     RefCamera truth = *placed;
     truth.width = W;
     truth.height = H;
     const MeshPtr scalp = doc->file().data.scalp;
     ASSERT_TRUE(scalp);
+    EXPECT_TRUE(photos->alignText().startsWith(QStringLiteral("Not lined up yet"))) << photos->alignText().toStdString();
     json landmarks = json::array();
     const std::size_t n = scalp->pointCount();
     for (std::size_t k = 0; k < 8; ++k) {
@@ -384,35 +391,29 @@ TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignByPoints) {
         landmarks.push_back({{"image", {u, v}}, {"mesh", {p.x, p.y, p.z}}});
     }
     json all = json::parse(doc->referencePhotos());
-    all[0]["state"]["landmarks"] = landmarks;
-    all[0]["camera"]["position"][0] = placed->pose.position[0] + 0.5;  // off
+    all[0]["state"]["landmarks"] = json::array({landmarks[0], landmarks[1], landmarks[2]});
     doc->setReferencePhotos(all.dump());
     photos->refresh();
     photos->select(0);
-    EXPECT_EQ(photos->pairCount(), 8);
-    EXPECT_EQ(photos->pairsTable()->topLevelItemCount(), 8);
-    photos->setKeepFocal(true);
-    bindings.at("pairs.solve").trigger(nullptr, false);
-    const std::optional<RefCamera> solved = photos->camera(0);
-    ASSERT_TRUE(solved);
-    for (int i = 0; i < 3; ++i) EXPECT_NEAR(solved->pose.position[i], placed->pose.position[i], 1e-2) << i;
-    EXPECT_TRUE(photos->solveText().startsWith(QStringLiteral("Last solve:"))) << photos->solveText().toStdString();
-    // A point picked again: its pair goes, its other point waits at the end; a pair deleted; all cleared.
-    photos->pickPair(2);
-    bindings.at("pairs.repickPhoto").trigger(nullptr, false);
-    json state = json::parse(doc->referencePhotos())[0]["state"];
-    std::size_t images = 0, meshes = 0;
-    for (const json& l : state["landmarks"]) {
-        images += l["image"].is_array();
-        meshes += l["mesh"].is_array();
-    }
-    EXPECT_EQ(images, 7u);
-    EXPECT_EQ(meshes, 8u);
-    photos->pickPair(0);
-    bindings.at("pairs.delete").trigger(nullptr, false);
-    EXPECT_EQ(photos->pairCount(), 7);
-    bindings.at("pairs.clear").trigger(nullptr, false);
-    EXPECT_EQ(photos->pairCount(), 0);
+    EXPECT_TRUE(photos->alignText().startsWith(QStringLiteral("3 of 6 pairs"))) << photos->alignText().toStdString();
+    all[0]["state"]["landmarks"] = landmarks;
+    doc->setReferencePhotos(all.dump());
+    photos->refresh();
+    photos->select(0);
+    EXPECT_TRUE(photos->alignText().startsWith(QStringLiteral("Lined up by 8 pairs"))) << photos->alignText().toStdString();
+    photos->alignButton()->click();
+    ReferenceWindow* align = window.openReferenceWindow();
+    ASSERT_TRUE(align && align->isVisible());
+    EXPECT_EQ(align->stage(), ReferenceWindow::Stage::Align);
+    EXPECT_EQ(align->currentIndex(), 0);
+    EXPECT_EQ(align->markerLists().pairCount(), 8u);
+    EXPECT_FALSE(align->guidesPanel()->isVisibleTo(align));
+    EXPECT_FALSE(align->modeButton(ReferenceWindow::Mode::Flow)->isVisibleTo(align));
+    EXPECT_TRUE(align->locked());  // the Photos tab's Lock (above)
+    bindings.at("photos.guides").trigger(nullptr, false);
+    EXPECT_EQ(align->stage(), ReferenceWindow::Stage::Guides);
+    EXPECT_TRUE(align->guidesPanel()->isVisibleTo(align));
+    align->close();
 
     // Rename over the viewport's prompt; saved with the groom (display and all); Remove.
     bindings.at("photo.rename").trigger(nullptr, false);

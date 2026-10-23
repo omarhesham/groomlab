@@ -5072,8 +5072,7 @@ class ReferenceTest(unittest.TestCase):
     def test_save_reopen_keeps_the_settings_and_save_as_takes_the_photo(self):
         path = self.save_as("a", "hero.ma")
         cam = self.ref.import_reference(self.photo, groom=self.groom)
-        self.ref.add_pick(cam, "image", (10, 12))
-        self.ref.add_pick(cam, "mesh", (0, 10, 0))
+        self.ref.set_pair(cam, 0, image=(10, 12), mesh=(0, 10, 0))
         self.ref.set_reference_depth(cam, "behind")
         self.ref.set_reference_opacity(cam, 0.3)
         self.ref.lock_reference(cam)
@@ -5138,34 +5137,33 @@ class ReferenceTest(unittest.TestCase):
         truth = cmds.xform(cam, query=True, worldSpace=True, translation=True)
         points = [p for p in self.sphere_points(80, 5) if p[2] > 1.0 and p[0] < 0][:4]
         self.assertEqual(len(points), 4)
-        for (u, v), p in zip(maya_projection(cam, points, 64, 48), points):
-            self.ref.add_pick(cam, "image", (u, v))
-            self.ref.add_pick(cam, "mesh", p)
+        for i, ((u, v), p) in enumerate(zip(maya_projection(cam, points, 64, 48), points)):
+            self.ref.set_pair(cam, i, image=(u, v), mesh=p)
         cmds.xform(cam, worldSpace=True, translation=(0, 0, 50), rotation=(0, 0, 0))
         with self.assertRaises(ValueError) as caught:  # four pairs don't fix the focal length too
             self.ref.solve(cam)
         self.assertIn("6 complete pairs", str(caught.exception))
-        result = self.ref.solve(cam, fix_focal=True)
+        self.assertFalse(self.ref.keep_focal(cam))
+        self.ref.set_keep_focal(cam, True)  # kept on the camera: the solve keeps the focal length
+        self.assertTrue(self.ref.reference_info(cam)["keepFocal"])
+        result = self.ref.solve(cam)
         self.assertLess(result["rms"], 1e-3)
         self.assertAlmostEqual(result["focal"], 45.0, places=6)
         now = cmds.xform(cam, query=True, worldSpace=True, translation=True)
         self.assertLess(max(abs(a - b) for a, b in zip(now, truth)), 0.1)
 
-    def test_pairs_fill_in_order_and_the_solve_says_what_is_wrong(self):
+    def test_pairs_edit_in_order_and_the_solve_says_what_is_wrong(self):
         cam = self.ref.import_reference(self.photo)
-        self.assertEqual(self.ref.add_pick(cam, "image", (1, 2)), 0)
-        self.assertEqual(self.ref.add_pick(cam, "image", (3, 4)), 1)
-        self.assertEqual(self.ref.add_pick(cam, "mesh", (0, 0, 10)), 0)  # the first pair missing one
-        self.assertEqual(self.ref.add_pick(cam, "mesh", (0, 1, 10)), 1)
-        self.assertEqual(self.ref.add_pick(cam, "mesh", (1, 1, 10)), 2)
-        self.assertEqual(len(self.ref.complete_pairs(cam)), 2)
-        self.ref.clear_point(cam, 0, "image")  # pick it again: the next image pick fills it
-        self.assertEqual(self.ref.add_pick(cam, "image", (5, 6)), 0)
+        self.ref.set_pair(cam, 0, image=(1, 2), mesh=(0, 0, 10))
+        self.ref.set_pair(cam, 1, image=(3, 4))
+        self.ref.set_pair(cam, 2, mesh=(1, 1, 10))
+        self.assertEqual(len(self.ref.complete_pairs(cam)), 1)
+        self.ref.set_pair(cam, 0, image=(5, 6))
         self.assertEqual(self.ref.pairs(cam)[0]["image"], [5.0, 6.0])
+        with self.assertRaises(ValueError):
+            self.ref.set_pair(cam, 5, image=(1, 2))  # past the end
         self.ref.remove_pair(cam, 1)
         self.assertEqual([p["mesh"] for p in self.ref.pairs(cam)], [[0.0, 0.0, 10.0], [1.0, 1.0, 10.0]])
-        with self.assertRaises(ValueError):
-            self.ref.add_pick(cam, "image", (1, 2, 3))
         self.ref.clear_pairs(cam)
         self.assertEqual(self.ref.pairs(cam), [])
         # The command itself: its errors name the problem.
@@ -5178,9 +5176,6 @@ class ReferenceTest(unittest.TestCase):
         help_text = cmds.help("groomLabCameraSolve")
         for flag in ("-imagePoint", "-worldPoint", "-imageSize", "-filmBack", "-focal", "-fixFocal", "-camera"):
             self.assertIn(flag, help_text)
-        self.assertIn("-debugClick", cmds.help("groomLabReferenceCtx"))
-        # The pick tool (its clicks are checked in a GUI session: gui_reference.py).
-        self.assertEqual(self.ref.align_tool(cam, activate=False), self.ref.CONTEXT)
 
     def test_remove_and_rename(self):
         self.save_as("r", "shot.ma")

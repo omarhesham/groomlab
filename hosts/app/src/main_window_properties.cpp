@@ -499,12 +499,7 @@ void MainWindow::buildProperties() {
         refreshTitle();
         if (referenceWindow_) referenceWindow_->photosChanged();
     });
-    connect(photos_, &PhotosPanel::pickPointsRequested, this, [this](int index) {
-        if (ReferenceWindow* w = openReferenceWindow()) {
-            w->selectPhoto(index);
-            w->setMode(ReferenceWindow::Mode::Landmarks);
-        }
-    });
+    connect(photos_, &PhotosPanel::alignRequested, this, [this](int index) { openPhotoAlign(index); });
     lookStore_ = new QTimer(this);
     lookStore_->setSingleShot(true);
     lookStore_->setInterval(250);

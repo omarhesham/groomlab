@@ -1090,6 +1090,15 @@ ReferenceWindow* MainWindow::openReferenceWindow() {
     return referenceWindow_;
 }
 
+ReferenceWindow* MainWindow::openPhotoAlign(int index) {
+    ReferenceWindow* w = openReferenceWindow();
+    if (w) {
+        if (index >= 0) w->selectPhoto(index);
+        w->setStage(ReferenceWindow::Stage::Align);
+    }
+    return w;
+}
+
 TransferWindow* MainWindow::openTransferWindow() {
     if (!transferWindow_) {
         transferWindow_ = new TransferWindow(this, this);  // a window of its own (Qt::Window), owned here

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Tools > Guides from Reference (experimental): the app's Reference window (reference_window.h).
+// The app's Photos window (Align Photo..., Guides from Photos): reference_window.h.
 #include "reference_window.h"
 
 #include <algorithm>
@@ -17,6 +17,7 @@
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
@@ -32,11 +33,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include "glass.h"
 #include "groom_document.h"
 #include "groomlab/guide_hierarchy.h"
 #include "groomlab/texture.h"
 #include "main_window.h"
 #include "offscreen.h"
+#include "photos_panel.h"
 #include "theme.h"
 
 namespace groomlab::app {
@@ -56,6 +59,12 @@ const QColor kField(150, 215, 255, 210);
 const QColor kInclude(80, 230, 120, 120);
 const QColor kExclude(255, 80, 80, 120);
 const char* const kGroup = "fromReference";
+
+// A flag of a photo's "display" (the Photos tab's settings, JSON text): locked, keepFocal.
+bool displayFlag(const ReferencePhoto& p, const char* key) {
+    const json j = json::parse(p.display.empty() ? std::string("{}") : p.display, nullptr, false);
+    return j.is_object() && j.value(key, false);
+}
 
 void drawPolyline(QPainter& painter, const Pixels& points) {
     QPolygonF poly;
@@ -349,13 +358,30 @@ void PhotoView::keyPressEvent(QKeyEvent* event) {
 // ---- ReferenceWindow ----------------------------------------------------------------------------
 
 ReferenceWindow::ReferenceWindow(MainWindow* main, QWidget* parent) : QWidget(parent, Qt::Window), main_(main) {
-    setWindowTitle(tr("Guides from Photos"));
+    setWindowTitle(tr("Photos"));
     setObjectName(QStringLiteral("referenceWindow"));
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(10, 10, 10, 10);
     outer->setSpacing(6);
 
     auto* top = new QHBoxLayout;
+    auto* stages = new QButtonGroup(this);
+    const std::pair<Stage, QString> stageLabels[] = {{Stage::Align, tr("Align")}, {Stage::Guides, tr("Guides (experimental)")}};
+    const QString stageTips[] = {tr("Line the photos up with the mesh: landmark pairs, the camera"),
+                                 tr("Guides from Photos: flow arrows and mask touch-ups on the lined-up photos, Generate")};
+    for (int i = 0; i < 2; ++i) {
+        auto* b = new QToolButton;
+        b->setText(stageLabels[i].second);
+        b->setCheckable(true);
+        b->setToolTip(stageTips[i]);
+        b->setObjectName(QStringLiteral("referenceStage%1").arg(i));
+        stages->addButton(b);
+        const Stage s = stageLabels[i].first;
+        connect(b, &QToolButton::clicked, this, [this, s] { setStage(s); });
+        top->addWidget(b);
+        stageButtons_[i] = b;
+    }
+    top->addSpacing(12);
     tabs_ = new QTabBar;
     tabs_->setObjectName(QStringLiteral("referencePhotoTabs"));
     tabs_->setExpanding(false);
@@ -483,6 +509,7 @@ ReferenceWindow::ReferenceWindow(MainWindow* main, QWidget* parent) : QWidget(pa
                            theme::windowButtonHover().name(), theme::textMuted().name(), theme::blue().name()));
     setAttribute(Qt::WA_StyledBackground, true);
     resize(1240, 720);
+    setStage(Stage::Align);
     reloadGroom();
 }
 
@@ -493,10 +520,11 @@ ReferenceWindow::~ReferenceWindow() {
 }
 
 void ReferenceWindow::buildPanel(QWidget* panel) {
-    auto* layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(0, 0, 4, 0);
-    layout->setSpacing(6);
-    const auto heading = [layout](const QString& text) {
+    auto* outer = new QVBoxLayout(panel);
+    outer->setContentsMargins(0, 0, 4, 0);
+    outer->setSpacing(6);
+    QVBoxLayout* layout = outer;  // the sections go here (Guides' into their box)
+    const auto heading = [&layout](const QString& text) {
         auto* label = new QLabel(text);
         label->setStyleSheet(QStringLiteral("font-weight: bold; letter-spacing: 1px;"));
         layout->addWidget(label);
@@ -515,10 +543,6 @@ void ReferenceWindow::buildPanel(QWidget* panel) {
     pairs_->header()->setSectionResizeMode(2, QHeaderView::Stretch);
     layout->addWidget(pairs_);
     auto* row = new QHBoxLayout;
-    keepFocal_ = new QCheckBox(tr("Keep focal length"));
-    keepFocal_->setToolTip(tr("Solve the position and rotation only (else 6+ pairs solve the focal length too)"));
-    connect(keepFocal_, &QCheckBox::toggled, this, [this] { edited(); });
-    row->addWidget(keepFocal_);
     row->addStretch(1);
     auto* clear = new QPushButton(tr("Clear"));
     connect(clear, &QPushButton::clicked, this, [this] { clearLandmarks(); });
@@ -539,6 +563,61 @@ void ReferenceWindow::buildPanel(QWidget* panel) {
     connect(opacity_, &QSlider::valueChanged, photoView_, [this] { photoView_->update(); });
     form->addRow(tr("Opacity"), opacity_);
     layout->addLayout(form);
+
+    heading(tr("CAMERA"));
+    form = new QFormLayout;
+    focal_ = new ValueSlider;
+    focal_->setObjectName(QStringLiteral("referenceFocal"));
+    focal_->setRange(10.0, 200.0);
+    focal_->setLimits(2.5, 3500.0);
+    focal_->setDecimals(1);
+    focal_->setStep(1.0);
+    focal_->setValue(50.0);
+    focal_->setTrackWidth(0);
+    focal_->setFill(theme::blue());
+    focal_->setToolTip(tr("The photo camera's focal length (mm): the landmarks solve it (6 or more pairs); set it by hand when you "
+                          "know the lens (Keep focal length turns on, the camera follows)"));
+    connect(focal_, &ValueSlider::valueChanged, this, [this](double mm) {
+        if (!updatingCamera_) setFocal(mm);
+    });
+    focal_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(focal_, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        auto* menu = new QMenu(this);
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        menu->addAction(tr("Reset Focal Length (50 mm)"), this, [this] { resetFocal(); });
+        menu->popup(focal_->mapToGlobal(pos));
+    });
+    form->addRow(tr("Focal Length"), focal_);
+    layout->addLayout(form);
+    row = new QHBoxLayout;
+    keepFocal_ = new QCheckBox(tr("Keep focal length"));
+    keepFocal_->setObjectName(QStringLiteral("referenceKeepFocal"));
+    keepFocal_->setToolTip(tr("Solve the position and rotation only, keeping the focal length (4 pairs are enough; else 6, and the "
+                              "focal length is solved too)"));
+    connect(keepFocal_, &QCheckBox::toggled, this, [this](bool on) {
+        if (!updatingCamera_) setKeepFocal(on);
+    });
+    row->addWidget(keepFocal_);
+    row->addStretch(1);
+    lock_ = new QToolButton;
+    lock_->setText(tr("Lock"));
+    lock_->setObjectName(QStringLiteral("referenceLock"));
+    lock_->setCheckable(true);
+    lock_->setToolTip(tr("Lock the camera where it is (its position, rotation and focal length): the landmarks no longer move it, "
+                         "nor does tumbling through it in the viewport"));
+    connect(lock_, &QToolButton::toggled, this, [this](bool on) {
+        if (!updatingCamera_) setLocked(on);
+    });
+    row->addWidget(lock_);
+    layout->addLayout(row);
+
+    // Guides from Photos (the Guides stage only).
+    guidesPanel_ = new QWidget;
+    guidesPanel_->setObjectName(QStringLiteral("referenceGuidesPanel"));
+    layout = new QVBoxLayout(guidesPanel_);
+    layout->setContentsMargins(0, 6, 0, 0);
+    layout->setSpacing(6);
+    outer->addWidget(guidesPanel_);
 
     heading(tr("FLOW AND MASK"));
     flowLabel_ = new QLabel;
@@ -594,7 +673,7 @@ void ReferenceWindow::buildPanel(QWidget* panel) {
     generateButton_->setToolTip(tr("Grow guides from the lined-up photos into the fromReference group (again: replaced)"));
     connect(generateButton_, &QPushButton::clicked, this, [this] { generate(); });
     layout->addWidget(generateButton_);
-    layout->addStretch(1);
+    outer->addStretch(1);
 }
 
 QRhi* ReferenceWindow::rhi() {
@@ -750,9 +829,13 @@ double ReferenceWindow::focalGuess(const ReferencePhoto& p) const {
 void ReferenceWindow::solve(bool findBad) {
     ReferencePhoto* p = photo();
     if (!p) return;
-    p->solve = solveReferenceLandmarks(p->editor.landmarks(), p->width, p->height, focalGuess(*p), keepFocal_->isChecked(),
+    p->solve = solveReferenceLandmarks(p->editor.landmarks(), p->width, p->height, focalGuess(*p), displayFlag(*p, "keepFocal"),
                                        p->camera ? &p->camera->pose : nullptr, findBad);
-    if (p->solve.ok) p->camera = p->solve.camera;
+    if (p->solve.ok && displayFlag(*p, "locked")) {
+        message_->setText(tr("%1 is locked: unlock it (Lock) for the landmarks to move it").arg(p->name));
+    } else if (p->solve.ok) {
+        p->camera = p->solve.camera;
+    }
     ++solveCount_;
 }
 
@@ -764,7 +847,21 @@ void ReferenceWindow::edited(bool storeIt) {
     refreshPanel();
 }
 
+void ReferenceWindow::setStage(Stage stage) {
+    stage_ = stage;
+    const bool guides = stage == Stage::Guides;
+    stageButtons_[guides ? 1 : 0]->setChecked(true);
+    for (QToolButton* b : modeButtons_) b->setVisible(guides);
+    guidesPanel_->setVisible(guides);
+    if (!guides && mode_ != Mode::Landmarks) {
+        setMode(Mode::Landmarks);
+        return;
+    }
+    refreshPanel();
+}
+
 void ReferenceWindow::setMode(Mode mode) {
+    if (mode != Mode::Landmarks && stage_ != Stage::Guides) setStage(Stage::Guides);
     mode_ = mode;
     modeButtons_[static_cast<int>(mode)]->setChecked(true);
     hover_.reset();
@@ -863,7 +960,55 @@ void ReferenceWindow::clearMask() {
     }
 }
 
-void ReferenceWindow::setKeepFocal(bool on) { keepFocal_->setChecked(on); }
+void ReferenceWindow::setDisplayFlag(const char* key, bool on) {
+    ReferencePhoto* p = photo();
+    if (!p) return;
+    json j = json::parse(p->display.empty() ? std::string("{}") : p->display, nullptr, false);
+    if (!j.is_object()) j = json::object();
+    j[key] = on;
+    p->display = j.dump();
+}
+
+void ReferenceWindow::setKeepFocal(bool on) {
+    if (!photo()) return;
+    setDisplayFlag("keepFocal", on);
+    edited();
+}
+
+bool ReferenceWindow::keepFocal() const { return photo() && displayFlag(*photo(), "keepFocal"); }
+
+bool ReferenceWindow::setFocal(double mm) {
+    ReferencePhoto* p = photo();
+    if (!p || p->width <= 0) return false;
+    if (displayFlag(*p, "locked")) {
+        message_->setText(tr("%1 is locked: unlock it to change its focal length").arg(p->name));
+        refreshPanel();
+        return false;
+    }
+    if (!p->camera) p->camera = placedReferenceCamera(main_ ? main_->document() : nullptr, p->width, p->height);
+    p->camera->focalPx = std::clamp(mm, 2.5, 3500.0) * p->width / 36.0;
+    setDisplayFlag("keepFocal", true);  // (the solve keeps the focal length set by hand)
+    edited();
+    return true;
+}
+
+bool ReferenceWindow::resetFocal() {
+    focal_->setRange(10.0, 200.0);
+    return setFocal(50.0);
+}
+
+void ReferenceWindow::setLocked(bool on) {
+    if (!photo()) return;
+    setDisplayFlag("locked", on);
+    if (on) {
+        store();
+        refreshPanel();
+    } else {
+        edited();  // the landmarks line it up again
+    }
+}
+
+bool ReferenceWindow::locked() const { return photo() && displayFlag(*photo(), "locked"); }
 
 bool ReferenceWindow::undo() {
     ReferencePhoto* p = photo();
@@ -1046,6 +1191,14 @@ QString ReferenceWindow::solveText() const { return solveLabel_->text(); }
 
 void ReferenceWindow::refreshPanel() {
     const ReferencePhoto* p = photo();
+    updatingCamera_ = true;
+    keepFocal_->setChecked(p && displayFlag(*p, "keepFocal"));
+    lock_->setChecked(p && displayFlag(*p, "locked"));
+    keepFocal_->setEnabled(p != nullptr);
+    lock_->setEnabled(p != nullptr);
+    focal_->setEnabled(p && !displayFlag(*p, "locked"));
+    if (p && p->width > 0 && !focal_->editing()) focal_->setValue(focalGuess(*p) * 36.0 / p->width);
+    updatingCamera_ = false;
     pairs_->clear();
     if (p) {
         const MarkerLists& lists = p->editor.landmarks();
@@ -1100,7 +1253,8 @@ void ReferenceWindow::refreshPanel() {
         QT_TR_NOOP("Hair: paint where the mask missed hair (Ctrl: backdrop). Mask tint shows the mask."),
         QT_TR_NOOP("Backdrop: paint where the mask took backdrop for hair (Ctrl: hair).")};
     hint_->setText(tr(hints[static_cast<int>(mode_)]) + tr("  Wheel zooms, middle drag pans, Ctrl+Z / Ctrl+Y undo and redo."));
-    status_->setText(tr("%n photo(s)", nullptr, photoCount()) + (why.isEmpty() ? QString() : QStringLiteral("  —  ") + why));
+    status_->setText(tr("%n photo(s)", nullptr, photoCount()) +
+                     (why.isEmpty() || stage_ != Stage::Guides ? QString() : QStringLiteral("  —  ") + why));
 }
 
 }  // namespace groomlab::app

@@ -1,10 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-"""GroomLab > Guides from Photos (experimental)...: the Reference window. Wrap-style,
-as the Transfer Groom window (and built from the same pieces, mesh_views.py): never modal, two
-views side by side, the reference photo on the left and the groom's scalp on the right, and the
-settings, Generate and the measured look in a panel beside them. Nothing has to be done through a
-Maya camera any more; each photo's camera and image plane are still made and kept lined up (from
-the solve), so renders and Arnold can look through them.
+"""The Photos window (Groom Tools > Photos > Align Photo..., GroomLab > Guides from Photos
+(experimental)...): the reference photos lined up with the mesh. Wrap-style, as the Transfer Groom
+window (and built from the same pieces, mesh_views.py): never modal, two views side by side, the
+reference photo on the left and the groom's scalp on the right, and the settings in a panel beside
+them. Nothing has to be done through a Maya camera; each photo's camera and image plane are made and
+kept lined up (from the solve), so the viewport, renders and Arnold can look through them.
+
+Two stages (the chips at the top left):
+  - Align: landmarks only. The panel: the pairs and their errors, the camera (Focal Length, Keep
+    focal length, Lock) and the mesh drawn over the photo.
+  - Guides (experimental): Guides from Photos besides: flow arrows, mask touch-ups, Generate and
+    the measured look.
 
 Photos: a tab each along the top (Import Photo..., Remove). Each has its own landmarks, flow
 arrows, mask touch-ups and solved camera (a groomlab.reference camera).
@@ -33,10 +39,11 @@ window follows (photos imported or removed, the guides, what is stored).
 Scripts and tests drive it without the mouse:
 
     from groomlab.ui import reference_window
-    w = reference_window.show(groom)
+    w = reference_window.show(groom)            # the Align stage (stage="guides": Guides from Photos)
     cam = w.import_photo("C:/photos/front.jpg")
     w.add_landmark("photo", (412, 230)); w.add_landmark("mesh", (0, 9.5, 3.1))  # ... 4+ pairs
-    w.add_flow_stroke([(400, 120), (410, 300)]); w.generate()
+    w.set_focal(50.0)                           # by hand: Keep focal length turns on
+    w.set_stage("guides"); w.add_flow_stroke([(400, 120), (410, 300)]); w.generate()
 """
 
 import math
@@ -52,6 +59,7 @@ _window = None
 UI_GROUP = "groomLabReferenceUI"  # the mesh view's camera and markers (hidden, outside the undo queue)
 SIDES = ("photo", "mesh")
 COLORS = {"photo": (1.0, 0.85, 0.1), "mesh": (0.15, 0.9, 1.0)}  # yellow photo, cyan mesh
+STAGES = ("align", "guides")
 MODES = ("landmarks", "flow", "hair", "backdrop")
 MODE_LABELS = {"landmarks": "Landmarks", "flow": "Flow", "hair": "Hair", "backdrop": "Backdrop"}
 OVERLAYS = ("off", "outline", "wireframe")
@@ -362,7 +370,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         self._last_rows = None
         self.last_result = {}
         self._undo_was_on = cmds.undoInfo(query=True, state=True)
-        self.setWindowTitle("Guides from Photos")
+        self.setWindowTitle("Photos")
         self.setWindowIcon(widgets.icon("logo"))
         self.setObjectName("groomLabReferenceWindow")
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
@@ -371,8 +379,27 @@ class ReferenceWindow(QtWidgets.QWidget):
         outer.setContentsMargins(pad, pad, pad, pad)
         outer.setSpacing(theme.px(6))
 
-        # The photos: a tab each; Import Photo..., Remove.
+        # The stage (Align, Guides); the photos: a tab each; Import Photo..., Remove.
         top = QtWidgets.QHBoxLayout()
+        self.stage_buttons = {}
+        stages = QtWidgets.QButtonGroup(self)
+        stages.setExclusive(True)
+        for stage, label, tip in (
+                ("align", "Align", "Line the photos up with the mesh: landmark pairs, the camera"),
+                ("guides", "Guides (experimental)", "Guides from Photos: flow arrows and mask touch-ups on the "
+                                                    "lined-up photos, Generate and the measured look")):
+            b = QtWidgets.QToolButton()
+            b.setText(label)
+            b.setObjectName("referenceStage_" + stage)
+            b.setCheckable(True)
+            b.setProperty("role", "chip")
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, s=stage: self.set_stage(s))
+            stages.addButton(b)
+            top.addWidget(b)
+            self.stage_buttons[stage] = b
+        self.stage_buttons["align"].setChecked(True)
+        top.addSpacing(theme.px(12))
         self.tabs = QtWidgets.QTabBar()
         self.tabs.setObjectName("referencePhotoTabs")
         self.tabs.setExpanding(False)
@@ -503,6 +530,7 @@ class ReferenceWindow(QtWidgets.QWidget):
 
         self._keys = mesh_views.UndoKeys(self)
         self._keys.watch(self)
+        self.set_stage("align")
         self._refresh_mesh()
         self.refresh_photos()
 
@@ -537,11 +565,6 @@ class ReferenceWindow(QtWidgets.QWidget):
                                    "pixels) the solved camera puts the mesh point from it. Red: a pair to fix first.")
         layout.addWidget(self.pairs_tree)
         row = QtWidgets.QHBoxLayout()
-        self.keep_focal = QtWidgets.QCheckBox("Keep focal length")
-        self.keep_focal.setObjectName("referenceKeepFocal")
-        self.keep_focal.setToolTip("Solve the position and rotation only (else 6+ pairs solve the focal length too)")
-        self.keep_focal.toggled.connect(lambda _: self._edited())
-        row.addWidget(self.keep_focal)
         row.addStretch(1)
         clear = QtWidgets.QToolButton()
         clear.setText("Clear")
@@ -567,6 +590,48 @@ class ReferenceWindow(QtWidgets.QWidget):
         self.opacity.valueChanged.connect(lambda *_: self.photo_view.update())
         form.addRow("Opacity", self.opacity)
         layout.addLayout(form)
+
+        self._heading(layout, "CAMERA")
+        form = QtWidgets.QFormLayout()
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        self.focal = widgets.SoftSlider(self.ref.DEFAULT_FOCAL, self.ref.FOCAL_RANGE[0], self.ref.FOCAL_RANGE[1],
+                                        minimum=2.5, maximum=3500.0, key=None)
+        self.focal.setObjectName("referenceFocal")
+        self.focal.setToolTip("The photo camera's focal length (mm): the landmarks solve it (6 or more pairs); set it "
+                              "by hand when you know the lens (Keep focal length turns on, the camera follows)")
+        self.focal.dragged.connect(lambda v: self.set_focal(v, final=False))
+        self.focal.committed.connect(lambda v: self.set_focal(v))
+        self.focal.menu_hook = lambda menu_: menu_.addAction(
+            "Reset Focal Length (%g mm)" % self.ref.DEFAULT_FOCAL, self.reset_focal)
+        form.addRow("Focal Length", self.focal)
+        layout.addLayout(form)
+        row = QtWidgets.QHBoxLayout()
+        self.keep_focal = QtWidgets.QCheckBox("Keep focal length")
+        self.keep_focal.setObjectName("referenceKeepFocal")
+        self.keep_focal.setToolTip("Solve the position and rotation only, keeping the focal length (4 pairs are "
+                                   "enough; else 6, and the focal length is solved too)")
+        self.keep_focal.toggled.connect(self.set_keep_focal)
+        row.addWidget(self.keep_focal)
+        row.addStretch(1)
+        self.lock = QtWidgets.QToolButton()
+        self.lock.setText("Lock")
+        self.lock.setObjectName("referenceLock")
+        self.lock.setCheckable(True)
+        self.lock.setProperty("role", "chip")
+        self.lock.setToolTip("Lock the camera where it is (its position, rotation and focal length): the landmarks "
+                             "no longer move it, nor does tumbling through it in a view")
+        self.lock.toggled.connect(self.set_locked)
+        row.addWidget(self.lock)
+        layout.addLayout(row)
+
+        # Guides from Photos (the Guides stage only).
+        self.guides_panel = QtWidgets.QWidget()
+        self.guides_panel.setObjectName("referenceGuidesPanel")
+        outer = layout
+        layout = QtWidgets.QVBoxLayout(self.guides_panel)
+        layout.setContentsMargins(0, theme.px(6), 0, 0)
+        layout.setSpacing(theme.px(6))
+        outer.addWidget(self.guides_panel)
 
         self._heading(layout, "FLOW AND MASK")
         self.flow_label = QtWidgets.QLabel()
@@ -704,7 +769,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         panel.addLayout(buttons)
         self.look_panel.setVisible(False)
         layout.addWidget(self.look_panel)
-        layout.addStretch(1)
+        outer.addStretch(1)
 
     # ---- Photos -----------------------------------------------------------------------------------
 
@@ -892,15 +957,94 @@ class ReferenceWindow(QtWidgets.QWidget):
 
     # ---- Modes and overlays -----------------------------------------------------------------------
 
+    def stage(self):
+        return next((s for s, b in self.stage_buttons.items() if b.isChecked()), "align")
+
+    def set_stage(self, stage):
+        """Align (landmarks only) or Guides (Guides from Photos: the flow, mask and Generate too)."""
+        if stage not in STAGES:
+            raise ValueError("stage %r: one of %s" % (stage, ", ".join(STAGES)))
+        self.stage_buttons[stage].setChecked(True)
+        guides = stage == "guides"
+        for button in self.mode_buttons.values():
+            button.setVisible(guides)
+        for widget in (self.guides_panel, self.generate_button, self.look_button):
+            widget.setVisible(guides)
+        if not guides:
+            self.mode_buttons["landmarks"].setChecked(True)
+            self.look_panel.setVisible(False)
+        self._hover = None
+        self._redraw()
+
     def mode(self):
         return next((m for m, b in self.mode_buttons.items() if b.isChecked()), "landmarks")
 
     def set_mode(self, mode):
+        """The photo view's tool; one of Guides' (the flow, the mask) moves to the Guides stage."""
         if mode not in MODES:
             raise ValueError("mode %r: one of %s" % (mode, ", ".join(MODES)))
+        if mode != "landmarks" and self.stage() != "guides":
+            self.set_stage("guides")
         self.mode_buttons[mode].setChecked(True)
         self._hover = None
         self._redraw()
+
+    def set_focal(self, focal, final=True):
+        """The current photo's focal length set by hand (mm): Keep focal length turns on and the camera
+        lines up again keeping it (outside the undo queue, as the solves). A locked camera keeps its own."""
+        if not self._need_photo():
+            return False
+        if self.ref.is_locked(self.camera):
+            self.message.setText("%s is locked: unlock it to change its focal length" % self.camera.split("|")[-1])
+            return False
+        with mesh_views.no_undo():
+            self.ref.set_reference_focal(self.camera, focal)
+        self._show_camera()
+        self._solve(apply=True, find_bad=final)
+        if final:
+            self._store()
+        self._redraw()
+        return True
+
+    def reset_focal(self):
+        """The focal length back to the default lens and the slider to its starting range (a solve gone
+        wrong); Keep focal length turns on, as with any focal length set by hand."""
+        self.focal.setRange(*self.ref.FOCAL_RANGE)
+        return self.set_focal(self.ref.DEFAULT_FOCAL)
+
+    def set_keep_focal(self, on):
+        """Keep focal length (stored on the camera): the solve keeps it, else 6 or more pairs solve it."""
+        if not self._need_photo():
+            return
+        with mesh_views.no_undo():
+            self.ref.set_keep_focal(self.camera, on)
+        self._edited()
+
+    def set_locked(self, on):
+        """Lock the current photo's camera (one Maya undo step): the landmarks no longer move it."""
+        if not self._need_photo():
+            return
+        self.ref.lock_reference(self.camera, on)
+        self._show_camera()
+        if not on:
+            self._edited(store=False)
+
+    def _show_camera(self):
+        """The camera controls from the current photo's camera."""
+        camera = self.camera if self.camera and cmds.objExists(self.camera) else None
+        locked = bool(camera) and self.ref.is_locked(camera)
+        for widget, value in ((self.keep_focal, bool(camera) and self.ref.keep_focal(camera)), (self.lock, locked)):
+            if widget.isChecked() != value:
+                widget.blockSignals(True)
+                widget.setChecked(value)
+                widget.blockSignals(False)
+        for widget in (self.keep_focal, self.lock, self.focal):
+            widget.setEnabled(bool(camera))
+        self.focal.setEnabled(bool(camera) and not locked)
+        if camera and not self.focal.slider.isSliderDown():
+            focal = cmds.getAttr(self.ref._shape(camera) + ".focalLength")
+            if abs(self.focal.value() - focal) > 1e-4:
+                self.focal.setValue(focal)
 
     def brush_size(self):
         """The mask brush's radius in logical pixels on screen."""
@@ -1201,7 +1345,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         width, height = self.photo_size()
         try:
             result = self.gl.solve_reference_landmarks(editor, width, height, self.ref.focal_px(self.camera),
-                                                       self.keep_focal.isChecked(), self.ref.camera_dict(self.camera),
+                                                       self.ref.keep_focal(self.camera), self.ref.camera_dict(self.camera),
                                                        find_bad)
         except (RuntimeError, ValueError) as e:
             result = {"ok": False, "why": str(e), "errors": [], "bad": [], "projected": [], "pairs": editor.pair_count}
@@ -1210,7 +1354,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         if apply and result.get("ok"):
             with mesh_views.no_undo():
                 if not self.ref.apply_solved_camera(self.camera, result):
-                    self.message.setText("%s is locked: unlock it (Groom Tools > Photos) for the solve to move it"
+                    self.message.setText("%s is locked: unlock it (Lock) for the landmarks to move it"
                                          % self.camera.split("|")[-1])
         return result
 
@@ -1280,6 +1424,7 @@ class ReferenceWindow(QtWidgets.QWidget):
     def _update_panel(self):
         editor = self.editor()
         solve = self.solve_result() or {}
+        self._show_camera()
         # The landmark table.
         rows = []
         if editor is not None:
@@ -1337,7 +1482,7 @@ class ReferenceWindow(QtWidgets.QWidget):
                  "backdrop": "Backdrop: paint where the mask took backdrop for hair (Ctrl: hair)."}
         self.hint.setText(hints[self.mode()] + "  Wheel zooms, middle drag pans, Ctrl+Z / Ctrl+Y undo and redo.")
         self.status.setText(("%d photo%s" % (len(self.photos()), "" if len(self.photos()) == 1 else "s")) +
-                            ("  —  " + why if why else ""))
+                            ("  —  " + why if why and self.stage() == "guides" else ""))
 
     # ---- The mouse in the photo view -------------------------------------------------------------------
 
@@ -1598,7 +1743,7 @@ class ReferenceWindow(QtWidgets.QWidget):
         try:
             self.teardown(nodes=False, callbacks=False)
         except Exception as e:
-            cmds.warning("GroomLab: closing Guides from Photos: %s" % e)
+            cmds.warning("GroomLab: closing the Photos window: %s" % e)
         QtCore.QTimer.singleShot(0, self.close)
 
     def teardown(self, nodes=True, callbacks=True):
@@ -1637,8 +1782,9 @@ class ReferenceWindow(QtWidgets.QWidget):
         return picture.save(path)
 
 
-def show(groom=None):
-    """Open (or raise) the Reference window for `groom` (the active groom by default)."""
+def show(groom=None, stage=None):
+    """Open (or raise) the Photos window for `groom` (the active groom by default), at `stage`
+    ("align" or "guides"; None: as it is, Align when it opens)."""
     global _window
     from maya.app.general.mayaMixin import MayaQWidgetBaseMixin
     import groomlab
@@ -1658,6 +1804,8 @@ def show(groom=None):
         _window = MayaReferenceWindow(groom=groom)
         _window.setWindowFlags(_window.windowFlags() | QtCore.Qt.Window)
         widgets.remember_geometry(_window, "reference")
+    if stage:
+        _window.set_stage(stage)
     _window.show()
     _window.raise_()
     _window.ensure_views()
@@ -1665,5 +1813,5 @@ def show(groom=None):
 
 
 def window():
-    """The open Reference window, or None."""
+    """The open Photos window, or None."""
     return _window if _window is not None and widgets.alive(_window) and _window.isVisible() else None

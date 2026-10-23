@@ -125,9 +125,6 @@ PLUGIN_EXPORT MStatus initializePlugin(MObject obj) {
     CHECK_MSTATUS_AND_RETURN_IT(status);
     status = plugin.registerContextCommand(GuideSelectContextCmd::kName, GuideSelectContextCmd::creator);
     CHECK_MSTATUS_AND_RETURN_IT(status);
-    status = plugin.registerContextCommand(groomlab::maya::ReferencePickContextCmd::kName,
-                                           groomlab::maya::ReferencePickContextCmd::creator);
-    CHECK_MSTATUS_AND_RETURN_IT(status);
     status = plugin.registerContextCommand(groomlab::maya::ReferenceFlowContextCmd::kName,
                                            groomlab::maya::ReferenceFlowContextCmd::creator);
     CHECK_MSTATUS_AND_RETURN_IT(status);
@@ -277,7 +274,6 @@ PLUGIN_EXPORT MStatus uninitializePlugin(MObject obj) {
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(groomlab::maya::ExportVrsceneCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(groomlab::maya::CameraSolveCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterContextCommand(groomlab::maya::ReferenceFlowContextCmd::kName));
-    CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterContextCommand(groomlab::maya::ReferencePickContextCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterContextCommand(GuideSelectContextCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterContextCommand(BrushContextCmd::kName, BrushStrokeCmd::kName));
     CHECK_MSTATUS_AND_RETURN_IT(plugin.deregisterCommand(PartsCmd::kName));

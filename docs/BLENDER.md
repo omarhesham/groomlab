@@ -575,7 +575,7 @@ GroomLab menu's Export, Simulate, Add, Review and Utilities items, bound in `act
 Maya's Groom Tools > Photos (`groomlab.reference`: a photo as a camera lined up with the mesh by
 pairs of points) and Guides from Photos (`groomlab.from_reference`), over the helper
 (`hosts/blender/helper/src/reference.cpp`; the add-on's side is `groomlab/photos.py`). The photos
-are kept with the groom: its file's `referencePhotos`, in the standalone app's Reference window's
+are kept with the groom: its file's `referencePhotos`, in the standalone app's Photos window's
 form (groom_file.h: each photo's name, image, size, mask, `camera` {rotation, position, focal_px},
 `state` {landmarks, strokes, mask_strokes}), groom space, so a groom saved from Blender opens with its
 photos in the app and the other way round. The host speaks its own space: a camera is `{"rotation"
@@ -607,7 +607,7 @@ and takes the answer (its scale kept at 1). After every change the scene's photo
 the GroomLab menu's item and the tab's button) sends the photos and runs `guides_from_photos` on
 every photo camera (one placed by eye counts as lined up, as in Maya).
 
-Differences from Maya: Maya's Reference window (the photo and the mesh side by side, flow arrows and
+Differences from Maya: Maya's Photos window (the photo and the mesh side by side, flow arrows and
 mask touch-ups drawn on the photo, the measured look applied to the graph) is not in Blender: the
 arrows and touch-ups the app or Maya drew are kept and used, not drawn; the photo stays where it is
 (Maya copies it into the scene's references folder); Add Camera (a camera that already shows a photo

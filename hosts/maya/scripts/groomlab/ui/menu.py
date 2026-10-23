@@ -1889,12 +1889,12 @@ def open_palette():
 
 
 def open_guides_from_reference(groom=None):
-    """The Reference window (Guides from Photos) on the active groom; returns it."""
+    """The Photos window's Guides stage (Guides from Photos) on the active groom; returns it."""
     from groomlab.ui import reference_window
     groom = groom or _selected_groom()
     if not groom:
         return None
-    return reference_window.show(groom)
+    return reference_window.show(groom, stage="guides")
 
 
 MENU_ONLY, TOOLS_ONLY = "menu", "tools"

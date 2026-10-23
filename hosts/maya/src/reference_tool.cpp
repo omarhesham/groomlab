@@ -3,7 +3,6 @@
 
 #include <cmath>
 #include <cstdio>
-#include <limits>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -13,13 +12,9 @@
 #include <maya/MArgList.h>
 #include <maya/MArgParser.h>
 #include <maya/MDoubleArray.h>
-#include <maya/MFloatPoint.h>
-#include <maya/MFloatVector.h>
 #include <maya/MFnCamera.h>
 #include <maya/MFnDependencyNode.h>
-#include <maya/MFnMesh.h>
 #include <maya/MGlobal.h>
-#include <maya/MItDag.h>
 #include <maya/MMatrix.h>
 #include <maya/MPlug.h>
 #include <maya/MPlugArray.h>
@@ -28,7 +23,6 @@
 #include <maya/MSelectionList.h>
 #include <maya/MStringArray.h>
 #include <maya/MUIDrawManager.h>
-#include <maya/MVector.h>
 
 #include "command_args.h"
 #include "groomlab/camera_solve.h"
@@ -48,8 +42,6 @@ const char* kFilmBackFlag[] = {"-fb", "-filmBack"};
 const char* kFocalFlag[] = {"-fl", "-focal"};
 const char* kFixFocalFlag[] = {"-ff", "-fixFocal"};
 const char* kCameraFlag[] = {"-cam", "-camera"};
-const char* kDebugClickFlag[] = {"-dbc", "-debugClick"};
-const char* kLastPickFlag[] = {"-lp", "-lastPick"};
 
 // The transform (and shape) of a camera by name.
 bool findCamera(const MString& name, MDagPath& transform, MDagPath& shape) {
@@ -221,189 +213,6 @@ MStatus CameraSolveCmd::doIt(const MArgList& args) {
         out.append(result.rmsPx);
         for (double e : result.errorsPx) out.append(e);
         setResult(out);
-        return MS::kSuccess;
-    });
-}
-
-// ---------------------------------------------------------------------------
-// The pick tool
-
-ReferencePickContext::ReferencePickContext() { setTitleString("GroomLab Reference Points"); }
-
-void ReferencePickContext::getClassName(MString& name) const { name = "groomLabReference"; }
-
-void ReferencePickContext::toolOnSetup(MEvent&) {
-    setHelpString("Looking through the photo's camera, click a feature on the photo; in another view, click the same "
-                  "feature on the mesh. Pairs fill in order.");
-}
-
-MStatus ReferencePickContext::doPress(MEvent& event, MHWRender::MUIDrawManager&, const MHWRender::MFrameContext&) {
-    return guarded("ReferencePickContext::doPress", [&]() -> MStatus {
-        if (event.mouseButton() != MEvent::kLeftMouse) return MS::kSuccess;
-        short x = 0, y = 0;
-        event.getPosition(x, y);
-        M3dView view = M3dView::active3dView();
-        if (pick(view, x, y).empty()) MGlobal::displayWarning("GroomLab reference: nothing under the cursor to pick");
-        return MS::kSuccess;
-    });
-}
-
-std::string ReferencePickContext::pick(M3dView& view, short x, short y) {
-    lastPick = pickAt(view, x, y);
-    return lastPick;
-}
-
-std::string ReferencePickContext::pickAt(M3dView& view, short x, short y) {
-    PhotoCamera photo;
-    if (!photo.load(camera)) {
-        MGlobal::displayWarning(MString("GroomLab reference: ") + camera.c_str() + " is not a reference camera");
-        return {};
-    }
-    MPoint nearPt, farPt;
-    if (view.viewToWorld(x, y, nearPt, farPt) != MS::kSuccess) return {};
-    MDagPath viewCamera;
-    view.getCamera(viewCamera);
-    if (viewCamera.node() == photo.shape.node()) {
-        // Looking through the photo: the point on it under the cursor.
-        double u = 0, v = 0;
-        if (!photo.toPixels(farPt * photo.worldInverse, u, v)) return {};
-        if (u < 0 || v < 0 || u > photo.width || v > photo.height) {
-            MGlobal::displayWarning("GroomLab reference: click on the photo (that is outside it)");
-            return {};
-        }
-        char buffer[160];
-        std::snprintf(buffer, sizeof buffer, "(%.6f, %.6f)", u, v);
-        MGlobal::executePythonCommand(MString("import groomlab.reference as _ref; _ref.add_pick(") +
-                                          pythonString(photo.transform.fullPathName().asChar()).c_str() + ", 'image', " +
-                                          buffer + ")",
-                                      false, true);
-        M3dView::scheduleRefreshAllViews();
-        std::snprintf(buffer, sizeof buffer, "image %.6f %.6f", u, v);
-        return buffer;
-    }
-    // Any other view: the nearest visible mesh under the cursor.
-    const MVector dir = (farPt - nearPt).normal();
-    const MFloatPoint source(float(nearPt.x), float(nearPt.y), float(nearPt.z));
-    const MFloatVector direction(float(dir.x), float(dir.y), float(dir.z));
-    const float reach = float((farPt - nearPt).length());
-    float best = std::numeric_limits<float>::max();
-    MFloatPoint bestPoint;
-    bool found = false;
-    for (MItDag it(MItDag::kDepthFirst, MFn::kMesh); !it.isDone(); it.next()) {
-        MDagPath path;
-        if (it.getPath(path) != MS::kSuccess || !path.isVisible()) continue;
-        MFnMesh mesh(path);
-        if (mesh.isIntermediateObject()) continue;
-        MFloatPoint hit;
-        float param = 0.0f;
-        MMeshIsectAccelParams accel = mesh.autoUniformGridParams();
-        if (mesh.closestIntersection(source, direction, nullptr, nullptr, false, MSpace::kWorld, reach, false, &accel,
-                                     hit, &param, nullptr, nullptr, nullptr, nullptr) &&
-            param < best) {
-            best = param;
-            bestPoint = hit;
-            found = true;
-        }
-    }
-    if (!found) return {};
-    char buffer[200];
-    std::snprintf(buffer, sizeof buffer, "(%.7g, %.7g, %.7g)", bestPoint.x, bestPoint.y, bestPoint.z);
-    MGlobal::executePythonCommand(MString("import groomlab.reference as _ref; _ref.add_pick(") +
-                                      pythonString(photo.transform.fullPathName().asChar()).c_str() + ", 'mesh', " +
-                                      buffer + ")",
-                                  false, true);
-    M3dView::scheduleRefreshAllViews();
-    std::snprintf(buffer, sizeof buffer, "mesh %.7g %.7g %.7g", bestPoint.x, bestPoint.y, bestPoint.z);
-    return buffer;
-}
-
-MStatus ReferencePickContext::drawFeedback(MHWRender::MUIDrawManager& draw, const MHWRender::MFrameContext&) {
-    return guarded("ReferencePickContext::drawFeedback", [&]() -> MStatus {
-        PhotoCamera photo;
-        if (!photo.load(camera)) return MS::kSuccess;
-        const MFnDependencyNode node(photo.transform.node());
-        MStatus status;
-        const MPlug plug = node.findPlug("glRefPairs", true, &status);
-        if (!status) return MS::kSuccess;
-        const std::string text = plug.asString().asChar();
-        nlohmann::json pairs;
-        try {
-            pairs = nlohmann::json::parse(text.empty() ? "[]" : text);
-        } catch (const nlohmann::json::exception&) {
-            return MS::kSuccess;
-        }
-        if (!pairs.is_array()) return MS::kSuccess;
-        draw.beginDrawable(MUIDrawManager::kNonSelectable);
-        draw.beginDrawInXray();
-        draw.setPointSize(9.0f);
-        draw.setFontSize(MUIDrawManager::kDefaultFontSize);
-        const MColor imageColor(1.0f, 0.78f, 0.2f), meshColor(0.25f, 0.85f, 1.0f);
-        for (std::size_t i = 0; i < pairs.size(); ++i) {
-            const auto& pair = pairs[i];
-            const MString label = MString(" ") + static_cast<int>(i + 1);
-            const auto image = pair.find("image");
-            if (image != pair.end() && image->is_array() && image->size() == 2) {
-                const MPoint p = photo.onImagePlane((*image)[0].get<double>(), (*image)[1].get<double>());
-                draw.setColor(imageColor);
-                draw.point(p);
-                draw.text(p, label, MUIDrawManager::kLeft);
-            }
-            const auto mesh = pair.find("mesh");
-            if (mesh != pair.end() && mesh->is_array() && mesh->size() == 3) {
-                const MPoint p((*mesh)[0].get<double>(), (*mesh)[1].get<double>(), (*mesh)[2].get<double>());
-                draw.setColor(meshColor);
-                draw.point(p);
-                draw.text(p, label, MUIDrawManager::kLeft);
-            }
-        }
-        draw.endDrawInXray();
-        draw.endDrawable();
-        return MS::kSuccess;
-    });
-}
-
-// ---------------------------------------------------------------------------
-
-const char* ReferencePickContextCmd::kName = "groomLabReferenceCtx";
-
-void* ReferencePickContextCmd::creator() { return new ReferencePickContextCmd(); }
-
-MPxContext* ReferencePickContextCmd::makeObj() {
-    context_ = new ReferencePickContext();
-    return context_;
-}
-
-MStatus ReferencePickContextCmd::appendSyntax() {
-    MSyntax s = syntax();
-    s.addFlag(kCameraFlag[0], kCameraFlag[1], MSyntax::kString);
-    s.addFlag(kDebugClickFlag[0], kDebugClickFlag[1], MSyntax::kString);
-    s.addFlag(kLastPickFlag[0], kLastPickFlag[1]);
-    return MS::kSuccess;
-}
-
-MStatus ReferencePickContextCmd::doEditFlags() {
-    return guarded("ReferencePickContextCmd::doEditFlags", [&]() -> MStatus {
-        if (!context_) return MS::kFailure;
-        MArgParser args = parser();
-        MString text;
-        if (args.isFlagSet(kCameraFlag[0]) && args.getFlagArgument(kCameraFlag[0], 0, text)) context_->camera = text.asChar();
-        if (args.isFlagSet(kDebugClickFlag[0]) && args.getFlagArgument(kDebugClickFlag[0], 0, text)) {
-            MStringArray words;
-            text.split(' ', words);
-            if (words.length() < 2) return fail(kName, "-debugClick takes \"x y\" (view coordinates)");
-            M3dView view = M3dView::active3dView();
-            context_->pick(view, short(words[0].asInt()), short(words[1].asInt()));
-        }
-        return MS::kSuccess;
-    });
-}
-
-MStatus ReferencePickContextCmd::doQueryFlags() {
-    return guarded("ReferencePickContextCmd::doQueryFlags", [&]() -> MStatus {
-        if (!context_) return MS::kFailure;
-        MArgParser args = parser();
-        if (args.isFlagSet(kCameraFlag[0])) setResult(MString(context_->camera.c_str()));
-        else if (args.isFlagSet(kLastPickFlag[0])) setResult(MString(context_->lastPick.c_str()));
         return MS::kSuccess;
     });
 }

@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""GUI test for reference photos (Groom Tools > Reference; needs a Maya UI session).
+"""GUI test for reference photos (Groom Tools > Photos; needs a Maya UI session).
 
-Looks through a reference camera and picks points with the pick tool: a click on the photo
-(looking through its camera) and on the mesh (in the perspective view). The viewport ignores
-synthetic mouse input, so the clicks go through groomLabReferenceCtx -debugClick, which runs the
-same code as the mouse from view coordinates. A playblast checks that the photo is drawn where
-the tool reads it; clicks made through a known camera then solve back to that camera.
+Looks through a reference camera: a playblast checks that the photo is drawn where its pixels
+map to (the camera model the solve and the Photos window use); pairs made through a known camera
+solve back to that camera, and a locked one does not tumble. (The Photos window's own clicks are
+checked in the editor tests: editor_cases.py's ReferenceWindowTest.)
 
 A suite of the GUI session (gui_runner.py, ctest maya.gui; harness: gui_support.py).
 Each step is a deferred call.
@@ -38,12 +37,6 @@ def view_camera():
     return path.fullPathName()
 
 
-def click(x, y):
-    from groomlab import reference
-    cmds.groomLabReferenceCtx(reference.CONTEXT, edit=True, debugClick="%d %d" % (x, y))
-    return cmds.groomLabReferenceCtx(reference.CONTEXT, query=True, lastPick=True)
-
-
 def write_photo(path, width, height, spot):
     from PySide2 import QtGui
     image = QtGui.QImage(width, height, QtGui.QImage.Format_RGB32)
@@ -72,7 +65,7 @@ def setup():
     check("the viewport looks through the reference", reference.current_reference(panel) == cam)
     cmds.refresh(force=True)
     state.update(folder=folder, cam=cam, panel=panel, scalp=scalp, groom=groom)
-    soon(pick_on_the_photo)
+    soon(the_photo_is_drawn_where_its_pixels_are)
 
 
 def point_on_photo(cam, u, v):
@@ -92,27 +85,11 @@ def point_on_photo(cam, u, v):
     return world.x, world.y, world.z
 
 
-def pick_on_the_photo():
-    from groomlab import reference
+def the_photo_is_drawn_where_its_pixels_are():
     cam = state["cam"]
-    reference.align_tool(cam)
-    check("the pick tool is on", cmds.currentCtx() == reference.CONTEXT)
     check("the active view is the reference camera (%s)" % view_camera(),
           view_camera() == cmds.ls(cam, long=True)[0])
-    # A click on the photo records the pixel under the cursor.
-    x, y = to_view(point_on_photo(cam, 100.0, 150.0))
-    picked = click(x, y)
-    say("photo click:", picked)
-    words = picked.split()
-    check("a click on the photo is an image point", words[0] == "image")
-    u, v = float(words[1]), float(words[2])
-    check("at the pixel under the cursor (%.2f, %.2f)" % (u, v), abs(u - 100.0) < 1.5 and abs(v - 150.0) < 1.5)
-    pairs = reference.pairs(cam)
-    check("it starts pair 1", len(pairs) == 1 and abs(pairs[0]["image"][0] - u) < 1e-4 and
-          abs(pairs[0]["image"][1] - v) < 1e-4 and pairs[0]["mesh"] is None)
-    # Outside the photo (the view's corner, in the overscan margin): nothing.
-    check("a click off the photo picks nothing", click(1, 1) == "" and len(reference.pairs(cam)) == 1)
-    # The photo is drawn where the tool reads it: find the white square in a playblast.
+    # Find the photo's white square in a playblast: where the camera model puts its pixels.
     view = omui.M3dView.active3dView()
     width, height = view.portWidth(), view.portHeight()
     shot = os.path.join(state["folder"], "through.png")
@@ -132,38 +109,16 @@ def pick_on_the_photo():
     if xs:
         cx = (sum(xs) / float(len(xs)) + 0.5) * width / float(image.width())
         cy = height - (sum(ys) / float(len(ys)) + 0.5) * height / float(image.height())
-        words = click(int(round(cx)), int(round(cy))).split()
-        say("square click:", words)
-        check("the square is where the photo's pixels are (%s)" % words[1:],
-              words and words[0] == "image" and abs(float(words[1]) - SPOT[0]) < 3.0 and
-              abs(float(words[2]) - SPOT[1]) < 3.0)
-    reference.clear_pairs(cam)
-    soon(pick_on_the_mesh)
-
-
-def pick_on_the_mesh():
-    from groomlab import reference
-    cam = state["cam"]
-    reference.add_pick(cam, "image", (100.0, 150.0))
-    check("back to the perspective view", reference.look_back(state["panel"]) == "persp")
-    cmds.xform("persp", worldSpace=True, translation=(0, 0, 60), rotation=(0, 0, 0))
-    cmds.refresh(force=True)
-    words = click(*to_view((0.0, 0.0, 10.0))).split()
-    say("mesh click:", words)
-    check("a click on the mesh in another view is a mesh point", words and words[0] == "mesh")
-    hit = [float(w) for w in words[1:4]]
-    check("on the mesh under the cursor (%s)" % hit, max(abs(a - b) for a, b in zip(hit, (0, 0, 10))) < 0.1)
-    pairs = reference.pairs(cam)
-    check("it completes pair 1", len(pairs) == 1 and pairs[0]["mesh"] is not None and pairs[0]["image"] is not None)
-    check("a click on nothing picks nothing", click(2, 2) == "" and len(reference.pairs(cam)) == 1)
-    cmds.refresh(force=True)  # the numbered markers draw (drawFeedback) without trouble
-    reference.clear_pairs(cam)
+        x, y = to_view(point_on_photo(cam, SPOT[0], SPOT[1]))
+        say("square at", (cx, cy), "its pixels at", (x, y))
+        check("the square is where the photo's pixels map to (%.1f, %.1f vs %d, %d)" % (cx, cy, x, y),
+              abs(cx - x) < 3.0 and abs(cy - y) < 3.0)
     soon(clicks_solve_back_to_the_camera)
 
 
 def clicks_solve_back_to_the_camera():
-    """Clicks made through a known camera (the photo points) and in the perspective view (the
-    mesh points) give that camera back."""
+    """Pairs made through a known camera (the photo points as it sees the mesh points) give that
+    camera back."""
     from groomlab import reference
     cam, panel = state["cam"], state["panel"]
     shape = cmds.listRelatives(cam, shapes=True, type="camera", fullPath=True)[0]
@@ -177,17 +132,20 @@ def clicks_solve_back_to_the_camera():
     # Spread from the middle to the rim: points at many depths pin the focal length (a few close
     # to the middle let a nearer, wider camera fit them as well, within a pixel's rounding).
     chosen = facing[::max(1, len(facing) // 14)][:14]
-    reference.look_through(cam, panel)
-    cmds.refresh(force=True)
-    for p in chosen:
-        click(*to_view(p))  # the photo point: the mesh point as the camera sees it
-    reference.look_back(panel)
-    cmds.xform("persp", worldSpace=True, translation=(eye[0] * 1.2, eye[1], eye[2] * 1.2), rotation=TRUTH["rotate"])
-    cmds.refresh(force=True)
-    for p in chosen:
-        click(*to_view(p))
+    path = om.MDagPath()
+    sel = om.MSelectionList()
+    sel.add(cam)
+    sel.getDagPath(0, path)
+    inverse = path.inclusiveMatrixInverse()
+    width, height = cmds.getAttr(cam + ".glRefWidth"), cmds.getAttr(cam + ".glRefHeight")
+    k = TRUTH["focal"] / 25.4
+    for i, p in enumerate(chosen):  # the photo point: the mesh point as the camera sees it
+        c = om.MPoint(*p) * inverse
+        u = (k * c.x / -c.z / cmds.getAttr(shape + ".horizontalFilmAperture") + 0.5) * width
+        v = (0.5 - k * c.y / -c.z / cmds.getAttr(shape + ".verticalFilmAperture")) * height
+        reference.set_pair(cam, i, image=(u, v), mesh=p)
     complete = reference.complete_pairs(cam)
-    check("%d pairs from clicks" % len(complete), len(complete) == len(chosen))
+    check("%d pairs" % len(complete), len(complete) == len(chosen))
     cmds.xform(cam, worldSpace=True, translation=(0, 0, 70), rotation=(0, 0, 0))
     cmds.setAttr(shape + ".focalLength", 35.0)
     result = reference.solve(cam)

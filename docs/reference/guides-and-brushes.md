@@ -319,7 +319,7 @@ Photos of the real hair, as cameras you groom to: **Groom Tools > Photos**.
 import groomlab.reference as ref
 cam = ref.import_reference("C:/photos/front.jpg", groom=groom)   # a camera + image plane
 ref.look_through(cam)                    # the active viewport shows the photo's view
-ref.align_tool(cam)                      # pick point pairs (below)
+ref.set_pair(cam, 0, image=(412, 230), mesh=(0, 9.5, 3.1))  # point pairs (below)
 ref.solve(cam)                           # {"rms": 0.8, "focal": 52.3, "translate": ..., ...}
 ref.lock_reference(cam)                  # tumbling through it does nothing now
 ref.set_reference_opacity(cam, 0.4); ref.set_reference_depth(cam, "behind")
@@ -345,21 +345,27 @@ ref.look_back()                          # back to the camera the viewport showe
   tracking and dollying through it do nothing), plus its scale, focal length, film back and the
   photo's placement on the image plane, all locked attributes. Opacity and side still change. A
   locked camera is not re-aligned (unlock it first).
+- **Focal Length** sets the camera's focal length by hand (mm); Keep focal length turns on, so the
+  alignment keeps it.
 
-**Align by points.** Line the camera up with the mesh from point pairs, a feature on the photo
-(the corner of an eye, the tip of the nose, an ear lobe) and the same feature on the mesh:
-- **Pick Points** turns on the pick tool (`groomLabReferenceCtx`). In a view that looks through
-  the reference, a click marks a point on the photo; in any other view (the perspective view,
-  where the mesh is easy to see whatever the camera's state), a click marks the point on the
-  nearest visible mesh under the cursor. Picks fill the pairs in order: the next photo point goes
-  into the first pair missing one, and the same for mesh points, so you can click all the photo
-  points first or alternate. While the tool is on, each pair's points draw numbered in the
-  viewports (photo points on the photo's plane in amber, mesh points in cyan); nothing is added
-  to the scene for them. Right-click a pair to pick one of its points again, or delete it.
-- **Solve** needs 6 complete pairs, spread in depth (points all on one plane can't fix the focal
-  length: the solve says so), or 4 with **Keep focal length**. It sets the camera's position,
-  rotation and focal length (the film back stays) as one undo step, and reports the average
-  error in pixels; each pair shows its own error, so a mismatched pair stands out.
+**Align Photo...** Line the camera up with the mesh from point pairs, a feature on the photo
+(the corner of an eye, the tip of the nose, an ear lobe) and the same feature on the mesh, in the
+Photos window (`groomlab.ui.reference_window`, its Align stage; built like the Transfer Groom
+window from `mesh_views.py`):
+- The photo on the left (the wheel zooms at the cursor, the middle button pans, F fits), the
+  scalp on the right in a Maya view of its own. A click on either side adds a point; the Nth
+  photo point pairs with the Nth mesh point, numbered on both sides (photo yellow, mesh cyan).
+  Drag a point to slide it; Ctrl+click deletes it and its partner. Ctrl+Z / Ctrl+Y undo and redo
+  the photo's edits (the window's own stack).
+- From 4 complete pairs the camera lines up live (the focal length kept); 6 or more, spread in
+  depth, solve the focal length too, unless **Keep focal length** (kept on the camera,
+  `glRefKeepFocal`). The mesh's outline or wireframe draws over the photo through the camera,
+  each pair shows its error in pixels, and pairs that disagree with the rest turn red.
+- The window's **Focal Length**, **Keep focal length** and **Lock** are the camera's, as in the
+  tab. A locked camera is not moved by the landmarks.
+- `ref.solve(cam)` does the same from a script: 6 complete pairs (4 with Keep focal length, or
+  `fix_focal=True`); it sets the camera's position, rotation and focal length (the film back
+  stays) as one undo step and returns the average and per-pair errors.
 - The solve is a pinhole camera (principal point at the photo's center, square pixels, no lens
   distortion) from a Direct Linear Transform estimate refined by Levenberg-Marquardt, with a
   spread of starting views so a camera far from right still converges (`engine/core/include/groomlab/camera_solve.h`).
@@ -369,8 +375,8 @@ ref.look_back()                          # back to the camera the viewport showe
   (xyz order, degrees), focal length, RMS error and each pair's error, changing nothing.
 
 A reference keeps its settings on its camera (saved with the scene): `glRefImage`, `glRefWidth`,
-`glRefHeight`, `glRefPairs` (JSON), `glRefDepth`, `glRefRms`. `ref.list_references()`,
-`ref.reference_info(cam)`, `ref.pairs(cam)`, `ref.add_pick`, `ref.remove_pair`,
+`glRefHeight`, `glRefPairs` (JSON), `glRefDepth`, `glRefRms`, `glRefKeepFocal`. `ref.list_references()`,
+`ref.reference_info(cam)`, `ref.pairs(cam)`, `ref.set_pair`, `ref.remove_pair`, `ref.set_keep_focal`,
 `ref.clear_pairs`, `ref.rename_reference` and `ref.remove_reference(cam, delete_file=False)` do
 the rest.
 

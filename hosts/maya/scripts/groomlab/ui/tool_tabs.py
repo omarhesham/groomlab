@@ -1716,9 +1716,10 @@ PHOTO_FILTER = "Images (*.png *.jpg *.jpeg *.tif *.tiff *.tga *.bmp *.exr *.iff)
 
 
 class ReferenceTab(_GroomTab):
-    """Grooming from photos: each photo a camera (groomlab.reference). Look through one, line it
-    up with the mesh by eye or by pairs of points, lock it, and set how the photo shows. The
-    list follows the viewport: looking through a reference elsewhere picks it here."""
+    """Grooming from photos: each photo a camera (groomlab.reference). Line one up with the mesh
+    (Align Photo...: the Photos window, the photo and the mesh side by side, or by eye looking
+    through it), lock it, and set how the photo shows. The list follows the viewport: looking
+    through a reference elsewhere picks it here."""
 
     WATCH = ()
     # What the photo list's and the point pairs' bars and menus run (engine/ui/lists.json's photos).
@@ -1729,12 +1730,8 @@ class ReferenceTab(_GroomTab):
         "photo.selectCamera": "select_camera",
         "photo.remove": "remove",
         "photo.addView": "cameras_menu",  # a menu: the cameras with an image plane, as it opens
-        "photos.guides": lambda self: self.open_window(),
-        "pairs.solve": "solve",
-        "pairs.clear": "clear_pairs",
-        "pairs.delete": "delete_pair",
-        "pairs.repickPhoto": lambda self: self.clear_point(self._picked_pair(), "image"),
-        "pairs.repickMesh": lambda self: self.clear_point(self._picked_pair(), "mesh"),
+        "photo.align": lambda self: self.open_window("align"),
+        "photos.guides": lambda self: self.open_window("guides"),
     }
 
     def __init__(self, owner):
@@ -1745,7 +1742,7 @@ class ReferenceTab(_GroomTab):
         self._rows = None   # what the list shows
         self._shown = None  # what the controls and pairs show
         # No scroll area of its own: the Groom Tools' column scrolls (a second one inside it clipped
-        # Align by Points and scrolled apart from the rest).
+        # the sections below and scrolled apart from the rest).
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(theme.px(6))
@@ -1796,13 +1793,16 @@ class ReferenceTab(_GroomTab):
         self.opacity.committed.connect(self.set_opacity)
         self.opacity.dragged.connect(self.set_opacity)
         form.addRow("Opacity", self.opacity)
-        self.focal = widgets.SoftSlider(reference.DEFAULT_FOCAL, 10.0, 200.0, minimum=2.5, maximum=3500.0, key=None)
+        self.focal = widgets.SoftSlider(reference.DEFAULT_FOCAL, reference.FOCAL_RANGE[0], reference.FOCAL_RANGE[1],
+                                        minimum=2.5, maximum=3500.0, key=None)
         self.focal.setObjectName("referenceFocal")
-        self.focal.setToolTip("The photo camera's focal length (mm): Solve works it out from the point pairs; set it by "
-                              "hand when you know the lens (Keep focal length turns on, so a solve keeps it). A locked "
-                              "camera keeps its own")
+        self.focal.setToolTip("The photo camera's focal length (mm): Align Photo works it out from the point pairs; set "
+                              "it by hand when you know the lens (Keep focal length turns on, so the alignment keeps "
+                              "it). A locked camera keeps its own")
         self.focal.committed.connect(self.set_focal)
         self.focal.dragged.connect(self.set_focal)
+        self.focal.menu_hook = lambda menu_: menu_.addAction(
+            "Reset Focal Length (%g mm)" % reference.DEFAULT_FOCAL, self.reset_focal)
         form.addRow("Focal Length", self.focal)
         sides = QtWidgets.QHBoxLayout()
         sides.setSpacing(theme.px(4))
@@ -1832,56 +1832,20 @@ class ReferenceTab(_GroomTab):
         form.addRow(definitions.get("choices/photoDepth")["label"], sides)
         layout.addLayout(form)
 
-        # Align by points: pairs of a feature on the photo and the same feature on the mesh.
-        heading = QtWidgets.QLabel("ALIGN BY POINTS")
-        heading.setProperty("role", "subheading")
-        layout.addWidget(heading)
+        # Align Photo...: the Photos window (the photo and the mesh side by side), and where it stands.
+        item = definitions.resolve(lists["alignBar"], None)[0]
+        align = QtWidgets.QPushButton(item["label"])  # a full-width button, as Look Through
+        align.setObjectName("referenceAlign")
+        align.setToolTip(item["tip"])
+        align.clicked.connect(lambda _=False, s=bind(item): s())
+        layout.addWidget(align)
         self.align_about = QtWidgets.QLabel()
+        self.align_about.setObjectName("referenceAlignAbout")
         self.align_about.setWordWrap(True)
         self.align_about.setProperty("role", "hint")
         layout.addWidget(self.align_about)
-        row = QtWidgets.QHBoxLayout()
-        row.setSpacing(theme.px(6))
-        self.pick = QtWidgets.QToolButton()
-        self.pick.setText("Pick Points")
-        self.pick.setObjectName("referencePick")
-        self.pick.setCheckable(True)
-        self.pick.setProperty("role", "chip")
-        self.pick.setToolTip("Looking through the photo's camera, click a feature on the photo; in another view "
-                             "(perspective), click the same feature on the mesh. Pairs fill in order and draw "
-                             "numbered in the viewport.")
-        self.pick.toggled.connect(self.set_picking)
-        row.addWidget(self.pick)
-        self.keep_focal = QtWidgets.QCheckBox("Keep focal length")
-        self.keep_focal.setObjectName("referenceKeepFocal")
-        self.keep_focal.setToolTip("Solve the position and rotation only, keeping the camera's focal length "
-                                   "(4 pairs are enough; else 6, and the focal length is solved too)")
-        self.keep_focal.toggled.connect(lambda _: self.show_pairs(force=True))
-        row.addWidget(self.keep_focal)
-        row.addStretch(1)
-        layout.addLayout(row)
-        self.pairs = QtWidgets.QTreeWidget()
-        self.pairs.setObjectName("referencePairs")
-        self.pairs.setHeaderLabels(["#", "Photo (px)", "Mesh", "Error"])
-        self.pairs.setRootIsDecorated(False)
-        self.pairs.header().setStretchLastSection(False)
-        self.pairs.header().setSectionResizeMode(2, QtWidgets.QHeaderView.Stretch)
-        self.pairs.setMinimumHeight(theme.px(96))
-        self.pairs.setToolTip("Point pairs: a point on the photo and the same point on the mesh. Right-click: pick a "
-                              "point again, or delete the pair")
-        self.pairs.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.pairs.customContextMenuRequested.connect(
-            lambda pos: self.pairs_menu(self.pairs.viewport().mapToGlobal(pos)))
-        layout.addWidget(self.pairs)
-        bar, made = _bar(lists["pairsBar"], bind, self)
-        made[0].setObjectName("referenceSolve")
-        layout.addLayout(bar)
-        self.result = QtWidgets.QLabel()
-        self.result.setWordWrap(True)
-        self.result.setProperty("role", "hint")
-        layout.addWidget(self.result)
-        self._controls = (self.look, self.lock, self.opacity, self.focal, self.visible, self.pick, self.keep_focal, self.pairs,
-                          made[0], made[1], made[2]) + tuple(self.side_buttons.values())
+        self._controls = (self.look, self.lock, self.opacity, self.focal, self.visible, align) + \
+            tuple(self.side_buttons.values())
         self._build_generate(layout)
         self.refresh()
 
@@ -1907,12 +1871,13 @@ class ReferenceTab(_GroomTab):
         made[1].setObjectName("referenceAddView")
         layout.addLayout(bar)
 
-    def open_window(self):
-        """The Reference window on this groom (on the picked photo)."""
+    def open_window(self, stage="align"):
+        """The Photos window on this groom (on the picked photo): its Align stage (line the photo up)
+        or its Guides stage (Guides from Photos)."""
         from groomlab.ui import reference_window
         if not self.need():
             return None
-        window = reference_window.show(self.groom)
+        window = reference_window.show(self.groom, stage=stage)
         if window is not None and self.current():
             window.select_photo(self.current())
         return window
@@ -2023,20 +1988,15 @@ class ReferenceTab(_GroomTab):
         self.show_generate()
 
     def picked(self):
-        """Another reference picked: its controls, and the pick tool moves to it."""
+        """Another reference picked: its controls."""
         self._shown = None
         self.show_controls()
-        camera = self.current()
-        if camera and self.picking():
-            self.ref.align_tool(camera, activate=False)
 
     def show_controls(self):
         camera = self.current()
         for widget in self._controls:
             widget.setEnabled(camera is not None)
         if not camera:
-            self.pairs.clear()
-            self.result.setText("")
             self.align_about.setText("Import a photo to start.")
             self._shown = None
             return
@@ -2054,52 +2014,27 @@ class ReferenceTab(_GroomTab):
             if not self.opacity.slider.isSliderDown():
                 self.opacity.setValue(info["opacity"])
             self.side_buttons[info["depth"]].setChecked(True)
-        self.show_pairs(info)
-        self._shown = state + (json_key(info["pairs"]), info["rms"], self.keep_focal.isChecked())
+        self.show_alignment(info)
+        self._shown = state
         self.follow_view(camera)
 
-    def show_pairs(self, info=None, force=False):
-        camera = self.current()
-        if not camera:
-            return
-        info = info or self.ref.reference_info(camera)
-        key = (json_key(info["pairs"]), info["rms"], self.keep_focal.isChecked())
-        if not force and self._shown is not None and self._shown[0] == camera and self._shown[5:] == key:
-            return
-        picked = self.pairs.currentIndex().row()
-        self.pairs.clear()
-        for i, p in enumerate(info["pairs"]):
-            image = "%.0f, %.0f" % tuple(p["image"]) if p.get("image") else "pick on the photo"
-            mesh = "%.2f, %.2f, %.2f" % tuple(p["mesh"]) if p.get("mesh") else "pick on the mesh"
-            error = "%.1f px" % p["error"] if p.get("error") is not None else ""
-            item = QtWidgets.QTreeWidgetItem(self.pairs, [str(i + 1), image, mesh, error])
-            item.setData(0, QtCore.Qt.UserRole, i)
-            for column, text in ((1, image), (2, mesh)):
-                item.setToolTip(column, text)
-        for column in (0, 1, 3):
-            self.pairs.resizeColumnToContents(column)
-        if 0 <= picked < self.pairs.topLevelItemCount():
-            self.pairs.setCurrentItem(self.pairs.topLevelItem(picked))
+    def show_alignment(self, info):
+        """Where the picked photo's alignment stands (its pairs are edited in the Photos window)."""
         complete = sum(1 for p in info["pairs"] if p.get("image") and p.get("mesh"))
-        need = self.ref.MIN_PAIRS_FIXED if self.keep_focal.isChecked() else self.ref.MIN_PAIRS
-        self.align_about.setText(
-            "Click a feature on the photo (looking through it), then the same feature on the mesh in another view. "
-            "%d of %d pairs%s. Easier: Guides from Photos (below), the photo and the mesh side by side." % (
-                complete, need, " (focal length kept)" if self.keep_focal.isChecked() else ", or 4 keeping the focal length"))
-        self.result.setText("Last solve: %.2f px off on average, focal length %.1f mm." % (info["rms"], info["focal"])
-                            if info["rms"] >= 0 else "")
+        need = self.ref.MIN_PAIRS_FIXED if info["keepFocal"] else self.ref.MIN_PAIRS
+        if info["rms"] >= 0 and complete >= self.ref.MIN_PAIRS_FIXED:
+            text = "Lined up by %d pairs: %.2f px off on average, %.1f mm." % (complete, info["rms"], info["focal"])
+        elif complete:
+            text = "%d of %d pairs%s: Align Photo to add more." % (
+                complete, need, " (focal length kept)" if info["keepFocal"] else ", or 4 keeping the focal length")
+        else:
+            text = "Not lined up yet: Align Photo, then click a feature on the photo and the same one on the mesh."
+        self.align_about.setText(text)
 
     def list_menu(self, global_pos):
         menu_ = QtWidgets.QMenu(self)
         widgets.fill_menu(menu_, definitions.get("lists/photos/context"), definitions.binder(self.ACTIONS, self),
                           {"photo"} if self.current() else ())
-        qt.exec_(menu_, global_pos)
-
-    def pairs_menu(self, global_pos):
-        if self.pairs.currentItem() is None:
-            return
-        menu_ = QtWidgets.QMenu(self)
-        widgets.fill_menu(menu_, definitions.get("lists/photos/pairsContext"), definitions.binder(self.ACTIONS, self))
         qt.exec_(menu_, global_pos)
 
     # -- Following the viewport ------------------------------------------------------
@@ -2120,8 +2055,7 @@ class ReferenceTab(_GroomTab):
             self.refresh()
 
     def follow_view(self, camera=None):
-        """The viewport looks through a reference: pick it here; the buttons show what is on."""
-        from maya import cmds
+        """The viewport looks through a reference: pick it here; Look Through shows whether it is on."""
         try:
             viewing = self.ref.current_reference()
         except (RuntimeError, ValueError):
@@ -2129,12 +2063,11 @@ class ReferenceTab(_GroomTab):
         if viewing and viewing != self.current() and self.select(viewing):
             return  # picked(): the controls follow
         camera = camera or self.current()
-        for button, on in ((self.look, bool(viewing) and viewing == camera),
-                           (self.pick, cmds.currentCtx() == self.ref.CONTEXT)):
-            if button.isChecked() != on:
-                button.blockSignals(True)
-                button.setChecked(on)
-                button.blockSignals(False)
+        on = bool(viewing) and viewing == camera
+        if self.look.isChecked() != on:
+            self.look.blockSignals(True)
+            self.look.setChecked(on)
+            self.look.blockSignals(False)
         self.look.setText("Back to Perspective" if self.look.isChecked() else "Look Through")
 
     # -- Actions ----------------------------------------------------------------------
@@ -2159,7 +2092,7 @@ class ReferenceTab(_GroomTab):
         if camera:
             self.refresh()
             self.select(camera)
-            self.status("Imported %s: Look Through it to line it up with the mesh." % camera.split("|")[-1])
+            self.status("Imported %s: Align Photo... lines it up with the mesh." % camera.split("|")[-1])
         return camera
 
     def rename(self):
@@ -2218,76 +2151,21 @@ class ReferenceTab(_GroomTab):
             self.run(self.ref.set_reference_opacity, camera, value)
 
     def set_focal(self, value):
+        """The focal length set by hand (Keep focal length turns on: the alignment keeps it)."""
         camera = self._need()
-        if camera and self.run(self.ref.set_reference_focal, camera, value):
-            if not self.keep_focal.isChecked():
-                self.keep_focal.setChecked(True)  # (a solve keeps the focal length set by hand)
+        if camera:
+            self.run(self.ref.set_reference_focal, camera, value)
+
+    def reset_focal(self):
+        """The focal length back to the default lens and the slider to its starting range (a solve gone
+        wrong); Keep focal length turns on, as with any focal length set by hand."""
+        camera = self._need()
+        if camera:
+            self.focal.setRange(*self.ref.FOCAL_RANGE)
+            self.focal.setValue(self.ref.DEFAULT_FOCAL)
+            self.set_focal(self.ref.DEFAULT_FOCAL)
 
     def set_depth(self, where):
         camera = self._need()
         if camera:
             self.run(self.ref.set_reference_depth, camera, where)
-
-    def picking(self):
-        from maya import cmds
-        return cmds.currentCtx() == self.ref.CONTEXT
-
-    def set_picking(self, on):
-        """Pick Points on: the pick tool, on the picked reference; off: Maya's Select tool."""
-        from maya import cmds
-        camera = self._need()
-        if on and camera:
-            if self.run(self.ref.align_tool, camera):
-                self.status("Click a feature on the photo (looking through %s), then the same feature on the mesh "
-                            "in another view." % camera.split("|")[-1])
-                try:
-                    cmds.setFocus("MayaWindow")  # keyboard shortcuts go back to Maya
-                except RuntimeError:
-                    pass
-        elif self.picking():
-            cmds.setToolTo("selectSuperContext")
-        self.follow_view()
-
-    def _picked_pair(self):
-        item = self.pairs.currentItem()
-        if item is None:
-            self.status("Pick a pair in the list.")
-            return None
-        return item.data(0, QtCore.Qt.UserRole)
-
-    def delete_pair(self):
-        camera = self._need()
-        index = self._picked_pair() if camera else None
-        if index is not None:
-            self.run(self.ref.remove_pair, camera, index)
-            self.show_pairs(force=True)
-
-    def clear_point(self, index, kind):
-        camera = self._need()
-        if camera and self.run(self.ref.clear_point, camera, index, kind) is not None:
-            self.status("The next %s pick goes into pair %d." % ("photo" if kind == "image" else "mesh", index + 1))
-            self.show_pairs(force=True)
-
-    def clear_pairs(self):
-        camera = self._need()
-        if camera:
-            self.run(self.ref.clear_pairs, camera)
-            self.show_pairs(force=True)
-
-    def solve(self):
-        """Line the picked reference up with its pairs; the status says how well it fits."""
-        camera = self._need()
-        if not camera:
-            return None
-        result = self.run(self.ref.solve, camera, fix_focal=self.keep_focal.isChecked())
-        if result:
-            self.status("Aligned %s: %.2f px off on average, focal length %.1f mm. Lock it when it looks right."
-                        % (camera.split("|")[-1], result["rms"], result["focal"]))
-            self.show_pairs(force=True)
-        return result
-
-
-def json_key(value):
-    """A value (pairs) as a comparable key."""
-    import json
-    return json.dumps(value, sort_keys=True)

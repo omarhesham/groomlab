@@ -4,17 +4,14 @@
 #include <algorithm>
 #include <cmath>
 
-#include <QCheckBox>
 #include <QFileInfo>
 #include <QHBoxLayout>
-#include <QHeaderView>
 #include <QIcon>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QPushButton>
 #include <QToolButton>
-#include <QTreeWidget>
 #include <QVBoxLayout>
 
 #include "groomlab/reference_edit.h"
@@ -64,7 +61,8 @@ ReferencePhotoEditor::State stateOf(const json& photo) {
 }
 
 // The focal length guessed for a photo never lined up: a 50 mm lens on a 36 mm film back.
-double focalGuess(double width) { return std::max(width, 1.0) * 50.0 / 36.0; }
+constexpr double kDefaultFocalMm = 50.0;
+double focalGuess(double width) { return std::max(width, 1.0) * kDefaultFocalMm / 36.0; }
 
 QToolButton* chip(const QString& text, const QString& tip, QWidget* parent) {
     auto* b = new QToolButton(parent);
@@ -178,8 +176,8 @@ PhotosPanel::PhotosPanel(QWidget* parent) : QWidget(parent) {
     focal_->setValue(50.0);
     focal_->setTrackWidth(0);
     focal_->setFill(theme::blue());
-    focal_->setToolTip(tr("The photo camera's focal length (mm): Solve works it out from the point pairs; set it by hand when you know "
-                          "the lens (Keep focal length turns on, so a solve keeps it). A locked camera keeps its own"));
+    focal_->setToolTip(tr("The photo camera's focal length (mm): Align Photo works it out from the point pairs; set it by hand when "
+                          "you know the lens (Keep focal length turns on, so the alignment keeps it). A locked camera keeps its own"));
     focal_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     connect(focal_, &ValueSlider::valueChanged, this, [this](double mm) {
         const int i = current();
@@ -190,9 +188,19 @@ PhotosPanel::PhotosPanel(QWidget* parent) : QWidget(parent) {
         if (!c || size.isEmpty()) return;
         c->focalPx = mm * size.width() / 36.0;
         setCamera(i, *c);
-        if (!keepFocal_->isChecked()) keepFocal_->setChecked(true);  // (a solve keeps the focal length set by hand)
+        if (Display d = display(i); !d.keepFocal) {  // (the alignment keeps the focal length set by hand)
+            d.keepFocal = true;
+            setDisplay(i, d);
+        }
         if (!looking_.isEmpty() && name(i) == looking_) emit lookThroughRequested(i, true);  // the view through it, again
-        refreshPairs();
+        alignAbout_->setText(alignText());
+    });
+    focal_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(focal_, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        auto* menu = new QMenu(this);
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        menu->addAction(tr("Reset Focal Length (%1 mm)").arg(kDefaultFocalMm), this, [this] { resetFocal(); });
+        menu->popup(focal_->mapToGlobal(pos));
     });
     focalRow->addWidget(focal_, 1);
     layout->addLayout(focalRow);
@@ -242,55 +250,23 @@ PhotosPanel::PhotosPanel(QWidget* parent) : QWidget(parent) {
     sides->addWidget(visible_);
     layout->addLayout(sides);
 
-    // Align by points: pairs of a feature on the photo and the same feature on the mesh.
-    auto* heading = new QLabel(tr("ALIGN BY POINTS"), this);
-    heading->setProperty("role", "subheading");
-    layout->addWidget(heading);
+    // Align Photo...: the Photos window (the photo and the mesh side by side), and where it stands.
+    {
+        const ui::json& alignBar = lists.at("alignBar").at(0);
+        align_ = new QPushButton(qs(alignBar.value("label", std::string())), this);
+        align_->setObjectName(QStringLiteral("referenceAlign"));
+        align_->setToolTip(qs(defs().action(alignBar.value("id", std::string())).value("tip", std::string())));
+        connect(align_, &QPushButton::clicked, this, [this] {
+            if (current() >= 0) emit alignRequested(current());
+        });
+        layout->addWidget(align_);
+    }
     alignAbout_ = hint(this);
+    alignAbout_->setObjectName(QStringLiteral("referenceAlignAbout"));
     layout->addWidget(alignAbout_);
-    row = new QHBoxLayout();
-    row->setSpacing(6);
-    pick_ = new QToolButton(this);
-    pick_->setText(tr("Pick Points..."));
-    pick_->setObjectName(QStringLiteral("referencePick"));
-    pick_->setProperty("role", "chip");
-    pick_->setToolTip(tr("Pick the pairs side by side in Guides from Photos: a click on the photo and one on the mesh (either order) make "
-                         "a pair; they fill in order and show here"));
-    connect(pick_, &QToolButton::clicked, this, [this] {
-        if (current() >= 0) emit pickPointsRequested(current());
-    });
-    row->addWidget(pick_);
-    keepFocal_ = new QCheckBox(tr("Keep focal length"), this);
-    keepFocal_->setObjectName(QStringLiteral("referenceKeepFocal"));
-    keepFocal_->setToolTip(tr("Solve the position and rotation only, keeping the camera's focal length (4 pairs are enough; else 6, and "
-                              "the focal length is solved too)"));
-    connect(keepFocal_, &QCheckBox::toggled, this, [this] { refreshPairs(); });
-    row->addWidget(keepFocal_);
-    row->addStretch(1);
-    layout->addLayout(row);
-    pairs_ = new QTreeWidget(this);
-    pairs_->setObjectName(QStringLiteral("referencePairs"));
-    pairs_->setHeaderLabels({tr("#"), tr("Photo (px)"), tr("Mesh"), tr("Error")});
-    pairs_->setRootIsDecorated(false);
-    pairs_->header()->setStretchLastSection(false);
-    pairs_->header()->setSectionResizeMode(2, QHeaderView::Stretch);
-    pairs_->setMinimumHeight(96);
-    pairs_->setMaximumHeight(180);
-    pairs_->setToolTip(tr("Point pairs: a point on the photo and the same point on the mesh. Right-click: pick a point again, or delete "
-                          "the pair"));
-    pairs_->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(pairs_, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        if (QMenu* menu = pairsMenu(pos)) menu->popup(pairs_->viewport()->mapToGlobal(pos));
-    });
-    layout->addWidget(pairs_);
-    pairsBar_ = new ListBar(this);
-    layout->addWidget(pairsBar_);
-    result_ = hint(this);
-    result_->setObjectName(QStringLiteral("referenceResult"));
-    layout->addWidget(result_);
 
-    // Guides from Photos (experimental): the Reference window does the work.
-    heading = new QLabel(tr("GUIDES FROM PHOTOS (EXPERIMENTAL)"), this);
+    // Guides from Photos (experimental): the Photos window's Guides stage does the work.
+    auto* heading = new QLabel(tr("GUIDES FROM PHOTOS (EXPERIMENTAL)"), this);
     heading->setProperty("role", "subheading");
     layout->addWidget(heading);
     guidesHint_ = hint(this);
@@ -313,10 +289,8 @@ void PhotosPanel::setActions(const ui::Bindings& bindings, const ui::FillOptions
     options_ = options;
     options_.liveShortcuts = false;
     bar_->build(defs().get("lists/photos/bar"), bindings_, options_);
-    pairsBar_->build(defs().get("lists/photos/pairsBar"), bindings_, options_);
     guidesBar_->build(defs().get("lists/photos/guidesBar"), bindings_, options_);
     if (QToolButton* b = bar_->button("photo.import")) b->setObjectName(QStringLiteral("referenceImport"));
-    if (QToolButton* b = pairsBar_->button("pairs.solve")) b->setObjectName(QStringLiteral("referenceSolve"));
     if (QToolButton* b = guidesBar_->button("photos.guides")) b->setObjectName(QStringLiteral("referenceOpenWindow"));
 }
 
@@ -393,13 +367,15 @@ PhotosPanel::Display PhotosPanel::display(int index) const {
     d.front = j.value("depth", std::string("front")) != "behind";
     d.locked = j.value("locked", false);
     d.visible = j.value("visible", true);
+    d.keepFocal = j.value("keepFocal", false);
     return d;
 }
 
 void PhotosPanel::setDisplay(int index, const Display& d) {
     json all = photos();
     if (index < 0 || index >= static_cast<int>(all.size())) return;
-    all[index]["display"] = {{"opacity", d.opacity}, {"depth", d.front ? "front" : "behind"}, {"locked", d.locked}, {"visible", d.visible}};
+    all[index]["display"] = {{"opacity", d.opacity}, {"depth", d.front ? "front" : "behind"}, {"locked", d.locked},
+                             {"visible", d.visible},   {"keepFocal", d.keepFocal}};
     store(all);
     refreshControls();
     emit displayChanged();
@@ -433,7 +409,7 @@ int PhotosPanel::importPhoto(const QString& path) {
                   {"width", image.width()},
                   {"height", image.height()},
                   {"mask", nullptr}};
-    photo["camera"] = cameraJson(placedCamera(image.width(), image.height()));
+    photo["camera"] = cameraJson(placedReferenceCamera(document_, image.width(), image.height()));
     photo["state"] = json::parse(referencePhotoStateToJson({}));
     photo["display"] = {{"opacity", 0.6}, {"depth", "front"}, {"locked", false}, {"visible", true}};
     json all = photos();
@@ -472,10 +448,10 @@ bool PhotosPanel::remove(int index) {
     return true;
 }
 
-RefCamera PhotosPanel::placedCamera(int width, int height) const {
+RefCamera placedReferenceCamera(const GroomDocument* document, int width, int height) {
     // In front (+Z) of the groom, far enough for it to fill most of the photo's short side (Maya's
     // reference._place), looking down -Z, a 50 mm lens.
-    const Bounds b = document_ ? document_->sceneBounds() : Bounds();
+    const Bounds b = document ? document->sceneBounds() : Bounds();
     RefCamera c;
     c.width = width;
     c.height = height;
@@ -495,102 +471,47 @@ RefCamera PhotosPanel::placedCamera(int width, int height) const {
 bool PhotosPanel::placeCamera(int index) {
     const QSize size = imageSize(index);
     if (index < 0 || index >= count() || size.isEmpty()) return false;
-    setCamera(index, placedCamera(size.width(), size.height()));
+    setCamera(index, placedReferenceCamera(document_, size.width(), size.height()));
     return true;
 }
 
-// ---- Align by Points ------------------------------------------------------------------------------
+// ---- Where the alignment stands ------------------------------------------------------------------
 
-int PhotosPanel::pairCount() const {
+void PhotosPanel::resetFocal() {
+    if (current() < 0 || display(current()).locked) return;
+    focal_->setRange(10.0, 200.0);
+    focal_->setValue(kDefaultFocalMm);
+    emit focal_->valueChanged(kDefaultFocalMm);
+}
+
+bool PhotosPanel::keepFocal() const { return current() >= 0 && display(current()).keepFocal; }
+
+QString PhotosPanel::alignText() const {
+    const int i = current();
+    if (i < 0) return tr("Import a photo to start.");
     const json all = photos();
-    const int i = current();
-    if (i < 0) return 0;
-    const MarkerLists& l = stateOf(all[i]).landmarks;
-    return static_cast<int>(std::max(l.count(kLandmarkPhoto), l.count(kLandmarkMesh)));
-}
-
-int PhotosPanel::pickedPair() const {
-    const int row = pairs_->indexOfTopLevelItem(pairs_->currentItem());
-    return row >= 0 && row < pairCount() ? row : -1;
-}
-
-void PhotosPanel::pickPair(int row) {
-    if (row >= 0 && row < pairs_->topLevelItemCount()) pairs_->setCurrentItem(pairs_->topLevelItem(row));
-}
-
-void PhotosPanel::setKeepFocal(bool keep) { keepFocal_->setChecked(keep); }
-
-bool PhotosPanel::keepFocal() const { return keepFocal_->isChecked(); }
-
-QString PhotosPanel::solveText() const { return solveText_; }
-
-bool PhotosPanel::solve() {
-    const int i = current();
-    json all = photos();
-    if (i < 0) {
-        emit message(tr("Import a photo first."));
-        return false;
-    }
+    const MarkerLists landmarks = stateOf(all[i]).landmarks;
     const int width = all[i].value("width", 0), height = all[i].value("height", 0);
+    const std::size_t complete = landmarks.pairCount(), need = keepFocal() ? kReferenceMinPairs : kReferenceMinPairsFocal;
     const std::optional<RefCamera> was = camera(i);
-    const ReferenceLandmarkSolve s =
-        solveReferenceLandmarks(stateOf(all[i]).landmarks, width, height, was && was->focalPx > 0.0 ? was->focalPx : focalGuess(width),
-                                keepFocal(), was ? &was->pose : nullptr, true);
-    if (!s.ok) {
-        solveText_ = qs(s.why);
-        result_->setText(solveText_);
-        emit message(qs(s.why));
-        return false;
+    if (complete >= kReferenceMinPairs) {
+        // How well the pairs fit the camera they give (the live solve, as the Photos window shows it).
+        const ReferenceLandmarkSolve s = solveReferenceLandmarks(landmarks, width, height, was && was->focalPx > 0.0 ? was->focalPx : focalGuess(width),
+                                                                 keepFocal(), was ? &was->pose : nullptr, false);
+        if (s.ok) {
+            return tr("Lined up by %1 pairs: %2 px off on average, %3 mm.")
+                .arg(complete)
+                .arg(s.rms, 0, 'f', 2)
+                .arg((was ? was->focalPx : s.camera.focalPx) * 36.0 / std::max(width, 1), 0, 'f', 1);
+        }
     }
-    all[i]["camera"] = cameraJson(s.camera);
-    all[i]["rms"] = s.rms;
-    store(all);
-    refreshPairs();
-    emit displayChanged();  // (the camera moved: a view through it follows)
-    return true;
-}
-
-void PhotosPanel::clearPairs() {
-    const int i = current();
-    json all = photos();
-    if (i < 0) return;
-    ReferencePhotoEditor::State state = stateOf(all[i]);
-    state.landmarks = {};
-    all[i]["state"] = json::parse(referencePhotoStateToJson(state));
-    all[i].erase("rms");
-    store(all);
-    refreshPairs();
-}
-
-bool PhotosPanel::deletePair(int row) {
-    const int i = current();
-    json all = photos();
-    if (i < 0 || row < 0 || row >= pairCount()) return false;
-    ReferencePhotoEditor editor(stateOf(all[i]));
-    const MarkerSide side = row < static_cast<int>(editor.landmarks().count(kLandmarkPhoto)) ? kLandmarkPhoto : kLandmarkMesh;
-    editor.removeLandmark(side, static_cast<std::size_t>(row));
-    all[i]["state"] = json::parse(referencePhotoStateToJson(editor.state()));
-    store(all);
-    refreshPairs();
-    return true;
-}
-
-bool PhotosPanel::repickPoint(int row, bool photoSide) {
-    const int i = current();
-    json all = photos();
-    if (i < 0 || row < 0 || row >= pairCount()) return false;
-    ReferencePhotoEditor editor(stateOf(all[i]));
-    const MarkerSide cleared = photoSide ? kLandmarkPhoto : kLandmarkMesh, kept = photoSide ? kLandmarkMesh : kLandmarkPhoto;
-    const std::size_t at = static_cast<std::size_t>(row);
-    if (at >= editor.landmarks().count(cleared)) return false;  // no point there to clear
-    std::optional<MarkerPoint> keep;
-    if (at < editor.landmarks().count(kept)) keep = editor.landmarks().point(kept, at);
-    editor.removeLandmark(cleared, at);  // the pair goes; its other point waits at the end
-    if (keep) editor.addLandmark(kept, *keep);
-    all[i]["state"] = json::parse(referencePhotoStateToJson(editor.state()));
-    store(all);
-    refreshPairs();
-    return true;
+    if (complete > 0) {
+        return tr("%1 of %2 pairs%3: Align Photo to add more.")
+            .arg(complete)
+            .arg(need)
+            .arg(keepFocal() ? tr(" (focal length kept)") : tr(", or 4 keeping the focal length"));
+    }
+    return tr("Not lined up yet: Align Photo, then click a feature on the photo and the same one on the mesh.");
 }
 
 // ---- Looking through ----------------------------------------------------------------------------------
@@ -620,12 +541,6 @@ QMenu* PhotosPanel::contextMenu(const QPoint& pos) {
     return listMenu(this, defs().get("lists/photos/context"), bindings_, options_, menuState());
 }
 
-QMenu* PhotosPanel::pairsMenu(const QPoint& pos) {
-    if (QTreeWidgetItem* item = pairs_->itemAt(pos)) pairs_->setCurrentItem(item);
-    if (pickedPair() < 0) return nullptr;
-    return listMenu(this, defs().get("lists/photos/pairsContext"), bindings_, options_, menuState());
-}
-
 // ---- What it shows ------------------------------------------------------------------------------------
 
 void PhotosPanel::refresh() {
@@ -650,7 +565,6 @@ void PhotosPanel::refresh() {
     if (list_->count() > 0) list_->setCurrentRow(std::clamp(was, 0, list_->count() - 1));
     updating_ = false;
     bar_->refresh();
-    pairsBar_->refresh();
     guidesBar_->refresh();
     refreshControls();
 }
@@ -660,7 +574,7 @@ void PhotosPanel::refreshControls() {
     const bool on = i >= 0;
     for (QWidget* w : {static_cast<QWidget*>(look_), static_cast<QWidget*>(lock_), static_cast<QWidget*>(opacity_),
                        static_cast<QWidget*>(front_), static_cast<QWidget*>(behind_), static_cast<QWidget*>(visible_),
-                       static_cast<QWidget*>(pick_), static_cast<QWidget*>(keepFocal_), static_cast<QWidget*>(pairs_)}) {
+                       static_cast<QWidget*>(align_)}) {
         w->setEnabled(on);
     }
     updating_ = true;
@@ -679,8 +593,7 @@ void PhotosPanel::refreshControls() {
     look_->setText(looking ? tr("Back to Perspective") : tr("Look Through"));
     updating_ = false;
     bar_->refresh();
-    pairsBar_->refresh();
-    refreshPairs();
+    alignAbout_->setText(alignText());
     // Where Guides from Photos stands: the photos, their landmarks and arrows, the next step.
     const json all = photos();
     if (all.empty()) {
@@ -699,59 +612,6 @@ void PhotosPanel::refreshControls() {
         }
         guidesHint_->setText(rows.join(QStringLiteral("; ")) + tr(". Generate in Guides from Photos."));
     }
-}
-
-void PhotosPanel::refreshPairs() {
-    const int i = current();
-    const int picked = pairs_->indexOfTopLevelItem(pairs_->currentItem());
-    pairs_->clear();
-    if (i < 0) {
-        alignAbout_->setText(tr("Import a photo to start."));
-        result_->clear();
-        return;
-    }
-    const json all = photos();
-    const MarkerLists landmarks = stateOf(all[i]).landmarks;
-    const int width = all[i].value("width", 0), height = all[i].value("height", 0);
-    // Each complete pair's error through the camera the pairs give (the live solve, as the
-    // Reference window shows it).
-    const std::optional<RefCamera> was = camera(i);
-    const std::size_t need = keepFocal() ? kReferenceMinPairs : kReferenceMinPairsFocal;
-    ReferenceLandmarkSolve s;
-    if (landmarks.pairCount() >= kReferenceMinPairs) {
-        s = solveReferenceLandmarks(landmarks, width, height, was && was->focalPx > 0.0 ? was->focalPx : focalGuess(width), keepFocal(),
-                                    was ? &was->pose : nullptr, false);
-    }
-    const std::size_t rows = std::max(landmarks.count(kLandmarkPhoto), landmarks.count(kLandmarkMesh));
-    for (std::size_t k = 0; k < rows; ++k) {
-        const QString image = k < landmarks.count(kLandmarkPhoto)
-                                  ? QStringLiteral("%1, %2").arg(landmarks.point(kLandmarkPhoto, k).point.x, 0, 'f', 0).arg(landmarks.point(kLandmarkPhoto, k).point.y, 0, 'f', 0)
-                                  : tr("pick on the photo");
-        const QString mesh = k < landmarks.count(kLandmarkMesh)
-                                 ? QStringLiteral("%1, %2, %3")
-                                       .arg(landmarks.point(kLandmarkMesh, k).point.x, 0, 'f', 2)
-                                       .arg(landmarks.point(kLandmarkMesh, k).point.y, 0, 'f', 2)
-                                       .arg(landmarks.point(kLandmarkMesh, k).point.z, 0, 'f', 2)
-                                 : tr("pick on the mesh");
-        const QString error = s.ok && k < s.errors.size() ? QStringLiteral("%1 px").arg(s.errors[k], 0, 'f', 1) : QString();
-        auto* item = new QTreeWidgetItem(pairs_, {QString::number(k + 1), image, mesh, error});
-        item->setToolTip(1, image);
-        item->setToolTip(2, mesh);
-        if (s.ok && k < s.bad.size() && s.bad[k]) item->setForeground(3, theme::errorText());
-    }
-    for (int column : {0, 1, 3}) pairs_->resizeColumnToContents(column);
-    if (picked >= 0 && picked < pairs_->topLevelItemCount()) pairs_->setCurrentItem(pairs_->topLevelItem(picked));
-    alignAbout_->setText(tr("Click a feature on the photo, then the same feature on the mesh (Pick Points: side by side in Guides from Photos). "
-                            "%1 of %2 pairs%3.")
-                             .arg(landmarks.pairCount())
-                             .arg(need)
-                             .arg(keepFocal() ? tr(" (focal length kept)") : tr(", or 4 keeping the focal length")));
-    const double rms = all[i].value("rms", -1.0);
-    solveText_ = rms >= 0.0 && was ? tr("Last solve: %1 px off on average, focal length %2 mm.")
-                                         .arg(rms, 0, 'f', 2)
-                                         .arg(was->focalPx * 36.0 / std::max(width, 1), 0, 'f', 1)
-                                   : QString();
-    result_->setText(solveText_);
 }
 
 }  // namespace groomlab::app

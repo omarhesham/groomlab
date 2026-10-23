@@ -27,6 +27,7 @@
 #include "marking_menu.h"
 #include "node_graph.h"
 #include "overlay.h"
+#include "reference_window.h"
 #include "theme.h"
 #include "viewport.h"
 
@@ -178,7 +179,10 @@ ui::Bindings AppActions::bindings(MainWindow& w) {
                                    m->notify(QObject::tr("Deleted %1 flow arrows and %2 sinks").arg(arrows).arg(sinks));
                            }),
                            {}, groomOpen};
-    b["photos.guides"] = {run([m] { m->openReferenceWindow(); }), {}, groomOpen, {}, {}, QStringLiteral("guidesFromReference")};
+    b["photos.guides"] = {run([m] {
+                              if (ReferenceWindow* w = m->openReferenceWindow()) w->setStage(ReferenceWindow::Stage::Guides);
+                          }),
+                          {}, groomOpen, {}, {}, QStringLiteral("guidesFromReference")};
     b["groom.transfer"] = {run([m] { m->openTransferWindow(); }), {}, groomOpen, {}, {}, QStringLiteral("transfer")};
     b["sim.range"] = {run([m] { m->simulateTo(); }), {}, groomOpen};
     b["sim.bake"] = {run([m] { m->bakeSimulation(); }), {}, groomOpen};

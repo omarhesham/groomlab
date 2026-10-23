@@ -43,50 +43,6 @@ public:
     MStatus doIt(const MArgList& args) override;
 };
 
-// The pick tool of Reference > Align: a click in a view that looks through the reference
-// camera marks a point on the photo (pixels on its image plane); a click in any other view
-// marks a point on the mesh under the cursor (the nearest visible mesh). Each pick goes to
-// groomlab.reference.add_pick, which pairs it with the first pair still missing that kind.
-// While the tool is on, every pair's points draw numbered in the viewports (image points on
-// the photo's plane, mesh points on the mesh), nothing is added to the scene for them.
-class ReferencePickContext : public MPxContext {
-public:
-    ReferencePickContext();
-    void getClassName(MString& name) const override;  // "groomLabReference"
-    void toolOnSetup(MEvent& event) override;
-
-    MStatus doPress(MEvent& event, MHWRender::MUIDrawManager& draw, const MHWRender::MFrameContext& ctx) override;
-    MStatus drawFeedback(MHWRender::MUIDrawManager& draw, const MHWRender::MFrameContext& ctx) override;
-
-    // Picks at view coordinates (x right, y up from the view's bottom-left) in `view`, as a
-    // click would. Returns (and keeps in lastPick) "image u v", "mesh x y z" or "" (nothing
-    // there), after passing the pick on to groomlab.reference.add_pick.
-    std::string pick(M3dView& view, short x, short y);
-
-    std::string camera;    // the reference camera being aligned (its transform)
-    std::string lastPick;  // what the last click picked
-
-private:
-    std::string pickAt(M3dView& view, short x, short y);
-};
-
-// groomLabReferenceCtx: creates and edits reference pick contexts.
-//   groomLabReferenceCtx -e -camera <reference camera> ctxName
-//   groomLabReferenceCtx -e -debugClick "x y" ctxName    (tests: a click in the active view)
-//   groomLabReferenceCtx -q -lastPick ctxName            "image u v", "mesh x y z" or ""
-class ReferencePickContextCmd : public MPxContextCommand {
-public:
-    static const char* kName;
-    static void* creator();
-    MPxContext* makeObj() override;
-    MStatus appendSyntax() override;
-    MStatus doEditFlags() override;
-    MStatus doQueryFlags() override;
-
-private:
-    ReferencePickContext* context_ = nullptr;
-};
-
 // The Reference Flow tool (guides from reference photos' hints): looking through a reference
 // camera, a drag over the photo draws a flow stroke, root end first; Ctrl+drag (or Ctrl+click on
 // one) erases the strokes it touches. Strokes are kept in the photo's pixels (they stay on the

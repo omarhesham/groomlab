@@ -211,8 +211,8 @@ labels, search words and number decimals come from the core (`node_catalog.h`, t
 
 | Capability | Maya entry point | App |
 | --- | --- | --- |
-| Import a photo as a camera with an image plane; look through it; opacity, depth, lock | `reference.py` | Maya only: a Maya camera and image plane in Maya's viewport |
-| Pick photo and mesh points, solve the camera | `align_tool`, `solve` (core: `camera_solve.h`) | Maya only: the picks are Maya's viewport; the solve itself is the core's and could serve an app reference view later |
+| Import a photo as a camera with an image plane; look through it; opacity, depth, focal length, lock | `reference.py`, `tool_tabs.py` ReferenceTab | The Photos tab (`photos_panel.h`): the photo drawn over the viewport through its camera |
+| Align Photo: photo and mesh points side by side, the camera solved live | `ui/reference_window.py` (Align stage; core: `reference_edit.h`, `camera_solve.h`) | The Photos window (`reference_window.h`), the same stages |
 
 ## Look, lighting and review
 

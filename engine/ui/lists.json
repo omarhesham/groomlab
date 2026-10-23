@@ -76,17 +76,18 @@
       "nodeContext": [{"id": "sculpt.clearEdits", "label": "Clear Edits", "needs": []}]
     },
     "photos": {
-      "about": "Each photo is a camera. <b>Look Through</b> it, line it up with the mesh (by eye, or <b>Align by Points</b>), then <b>Lock</b> it and groom to it.",
+      "about": "Each photo is a camera. Line it up with the mesh (<b>Align Photo</b>, or by eye looking through it), then <b>Lock</b> it and groom to it.",
       "bar": [
         {"id": "photo.import", "label": "+ Import Photo..."},
         {"id": "photo.rename", "glyph": "rename"},
         {"id": "photo.remove", "glyph": "delete"}
       ],
-      "context": ["photo.import", "photo.lookThrough", "photo.rename", "photo.selectCamera", "-", "photo.remove"],
+      "context": ["photo.import", "photo.align", "photo.lookThrough", "photo.rename", "photo.selectCamera", "-", "photo.remove"],
+      "alignBar": [{"id": "photo.align", "label": "Align Photo..."}],
       "pairsBar": ["pairs.solve", "pairs.clear", {"id": "pairs.delete", "glyph": "delete"}],
       "pairsContext": ["pairs.repickPhoto", "pairs.repickMesh", "-", "pairs.delete"],
       "guidesBar": [
-        {"id": "photos.guides", "label": "Open Guides from Photos...", "tip": "The photo and the mesh side by side: landmarks line the photo's camera up, flow arrows and mask touch-ups on the photo, Generate and the measured look"},
+        {"id": "photos.guides", "label": "Open Guides from Photos...", "tip": "The Photos window's Guides stage: flow arrows and mask touch-ups on the lined-up photos, Generate and the measured look"},
         "photo.addView"
       ]
     }
