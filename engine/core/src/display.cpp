@@ -1655,6 +1655,10 @@ void DisplayBuilder::buildStrands(const DisplayInputs& in, const DisplaySettings
                                                (s.strandLookColors ? 16u : 0u) + (scaleLayout ? 32u : 0u) + (s.appearanceColors ? 64u : 0u));
     std::uint64_t strandKey = hashChars(strandShape, s.colorSource);
     strandKey = hashFloat(hashFloat(strandKey, s.colorMin), s.colorMax);
+    // Flat ribbons in the solid color carry it per strand (the lines take it as the item's color).
+    if (s.ribbons && !lit && colorMode == kSolidColors) {
+        for (const float c : s.hairColor) strandKey = hashFloat(strandKey, c);
+    }
     // Colored lines only (no ribbons, dots or cards; not hidden for a stroke): a new color range
     // or source takes new colors, not new lines.
     const bool colorLinesOnly = strands && !cardsView && !rootDots && !s.ribbons && !lit && colorMode != kSolidColors && sculpt != 2;
@@ -1677,7 +1681,9 @@ void DisplayBuilder::buildStrands(const DisplayInputs& in, const DisplaySettings
     const StrandSet* shown = cardsView || scaleLayout || sculpt == 2 ? nullptr : strands.get();
     std::vector<std::array<float, 3>> colors;
     if (shown && !rootDots && (colorMode != kSolidColors || s.ribbons)) {
-        colors = strandColors(*shown, scalp, colorMode, s.colorSource, s.colorMin, s.colorMax);
+        // (Ribbons in the solid color: the plain lines' one color, each strand.)
+        colors = colorMode == kSolidColors ? std::vector<std::array<float, 3>>(shown->strandCount(), s.hairColor)
+                                           : strandColors(*shown, scalp, colorMode, s.colorSource, s.colorMin, s.colorMax);
     }
     // Lit, each strand in its own color (HairColor's) where the strands' colors vary: lines (not
     // dimmed for a stroke: those draw flat) and ribbons. Uniform, none: the item's color.

@@ -1099,6 +1099,32 @@ TEST(Display, LitLinesTakeTheStrandsOwnColors) {
     }
 }
 
+// Flat ribbons in the solid color take the plain lines' one color (the groom's: s.hairColor) on
+// every strand, not the fallback strand color, and a new color builds them again.
+TEST(Display, FlatRibbonsInTheSolidColorTakeTheLinesColor) {
+    Scenario s = scenarios()[0];
+    const DisplayInputs in = inputsFor(s);
+    s.settings.lighting = false;
+    s.settings.colorMode = kSolidColors;
+    s.settings.ribbons = true;
+    s.settings.hairColor = {0.1f, 0.2f, 0.3f};
+    DisplayBuilder builder;
+    builder.setWriteLines(true);  // (as Maya's override builds them: the ribbons as lines, colored per strand)
+    builder.setRibbonLines(true);
+    auto colorsOf = [&](const DisplayFrame& f) {
+        const DisplayGeometry& r = *f.item(DisplayItemId::Ribbons).geometry;
+        EXPECT_TRUE(r.ribbons);
+        return r.lines && r.lines->colors ? r.lines->colors->colors : std::vector<std::array<float, 3>>();
+    };
+    const std::vector<std::array<float, 3>> first = colorsOf(builder.update(in, s.settings));
+    ASSERT_EQ(first.size(), in.strands->strandCount());
+    for (const auto& c : first) EXPECT_EQ(c, s.settings.hairColor);
+    s.settings.hairColor = {0.7f, 0.6f, 0.5f};
+    const std::vector<std::array<float, 3>> second = colorsOf(builder.update(in, s.settings));
+    ASSERT_EQ(second.size(), in.strands->strandCount());
+    for (const auto& c : second) EXPECT_EQ(c, s.settings.hairColor);
+}
+
 TEST(Display, OverlayPullLimitsStopAtTheScalp) {
     const Fixture& f = fixture();
     const std::vector<std::shared_ptr<const ScalpMesh>> occluders{f.view.scalp};
