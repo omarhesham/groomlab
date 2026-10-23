@@ -570,7 +570,7 @@ class ArnoldTest(unittest.TestCase):
         graph["nodes"].insert(-1, {"name": "color", "type": "HairColor",
                                    "params": {"melanin": 0.6, "melaninRandom": 0.2, "specular": 0.15, "roughness": 1.0}})
         graph["connections"] = [c for c in graph["connections"] if c["to"] != "output"]
-        graph["connections"] += [{"from": "width", "to": "color", "input": "strands"},
+        graph["connections"] += [{"from": "resample", "to": "color", "input": "strands"},
                                  {"from": "color", "to": "output", "input": "strands"}]
         groomlab.set_graph(self.groom, graph)
         hair = groomlab.create_hair_shader(self.groom, name="shotHair")

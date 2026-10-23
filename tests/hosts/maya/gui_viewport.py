@@ -189,7 +189,7 @@ def run():
     graph = groomlab.get_graph(groom, expand_default=True)
     graph["nodes"].insert(-1, {"name": "clump", "type": "Clump", "params": {"count": 60, "strength": 0.8}})
     graph["connections"] = [c for c in graph["connections"] if c["to"] != "output"]
-    graph["connections"] += [{"from": "width", "to": "clump", "input": "strands"},
+    graph["connections"] += [{"from": "resample", "to": "clump", "input": "strands"},
                              {"from": "clump", "to": "output", "input": "strands"}]
     groomlab.set_graph(groom, graph)
     cmds.polyColorPerVertex(scalp, rgb=(0.9, 0.3, 0.1), colorDisplayOption=True)
@@ -1952,7 +1952,7 @@ def cards_check(snapshots=None):
     graph["nodes"].insert(-1, {"name": "color", "type": "HairColor",
                                "params": {"melanin": 0.2, "hueRandom": 0.6, "clumpShare": 1.0}})
     graph["connections"] = [c for c in graph["connections"] if c["to"] != "output"]
-    graph["connections"] += [{"from": "width", "to": "clump", "input": "strands"},
+    graph["connections"] += [{"from": "resample", "to": "clump", "input": "strands"},
                              {"from": "clump", "to": "color", "input": "strands"},
                              {"from": "color", "to": "output", "input": "strands"}]
     groomlab.set_graph(groom, graph)
