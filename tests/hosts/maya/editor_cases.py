@@ -4502,8 +4502,17 @@ class ReferenceTabTest(unittest.TestCase):
         self.tab.visible.setChecked(False)
         self.assertFalse(reference.reference_visible(cam))
         self.tab.visible.setChecked(True)
+        # The focal length by hand: the camera takes it and Keep focal length turns on (a solve keeps it).
+        shape = cmds.listRelatives(cam, shapes=True, type="camera", fullPath=True)[0]
+        self.assertFalse(self.tab.keep_focal.isChecked())
+        self.tab.focal.committed.emit(85.0)
+        self.assertAlmostEqual(cmds.getAttr(shape + ".focalLength"), 85.0)
+        self.assertTrue(self.tab.keep_focal.isChecked())
+        self.tab.keep_focal.setChecked(False)
         self.tab.lock.click()
         self.assertTrue(reference.is_locked(cam))
+        self.tab.show_controls()
+        self.assertFalse(self.tab.focal.isEnabled())  # a locked camera keeps its focal length
         self.assertIn("locked", self.tab.list.item(0).text())
         self.tab.lock.click()
         self.assertFalse(reference.is_locked(cam))

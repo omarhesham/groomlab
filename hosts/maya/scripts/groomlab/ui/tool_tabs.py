@@ -1796,6 +1796,14 @@ class ReferenceTab(_GroomTab):
         self.opacity.committed.connect(self.set_opacity)
         self.opacity.dragged.connect(self.set_opacity)
         form.addRow("Opacity", self.opacity)
+        self.focal = widgets.SoftSlider(reference.DEFAULT_FOCAL, 10.0, 200.0, minimum=2.5, maximum=3500.0, key=None)
+        self.focal.setObjectName("referenceFocal")
+        self.focal.setToolTip("The photo camera's focal length (mm): Solve works it out from the point pairs; set it by "
+                              "hand when you know the lens (Keep focal length turns on, so a solve keeps it). A locked "
+                              "camera keeps its own")
+        self.focal.committed.connect(self.set_focal)
+        self.focal.dragged.connect(self.set_focal)
+        form.addRow("Focal Length", self.focal)
         sides = QtWidgets.QHBoxLayout()
         sides.setSpacing(theme.px(4))
         self.side_buttons = {}
@@ -1872,7 +1880,7 @@ class ReferenceTab(_GroomTab):
         self.result.setWordWrap(True)
         self.result.setProperty("role", "hint")
         layout.addWidget(self.result)
-        self._controls = (self.look, self.lock, self.opacity, self.visible, self.pick, self.keep_focal, self.pairs,
+        self._controls = (self.look, self.lock, self.opacity, self.focal, self.visible, self.pick, self.keep_focal, self.pairs,
                           made[0], made[1], made[2]) + tuple(self.side_buttons.values())
         self._build_generate(layout)
         self.refresh()
@@ -2034,6 +2042,9 @@ class ReferenceTab(_GroomTab):
             return
         info = self.ref.reference_info(camera)
         state = (camera, info["locked"], info["visible"], round(info["opacity"], 4), info["depth"])
+        self.focal.setEnabled(not info["locked"])  # (a locked camera keeps its focal length)
+        if not self.focal.slider.isSliderDown() and abs(self.focal.value() - info["focal"]) > 1e-4:
+            self.focal.setValue(info["focal"])
         if state != (self._shown or (None,))[0:5]:
             for widget, value in ((self.lock, info["locked"]), (self.visible, info["visible"])):
                 widget.blockSignals(True)
@@ -2205,6 +2216,12 @@ class ReferenceTab(_GroomTab):
         camera = self._need()
         if camera:
             self.run(self.ref.set_reference_opacity, camera, value)
+
+    def set_focal(self, value):
+        camera = self._need()
+        if camera and self.run(self.ref.set_reference_focal, camera, value):
+            if not self.keep_focal.isChecked():
+                self.keep_focal.setChecked(True)  # (a solve keeps the focal length set by hand)
 
     def set_depth(self, where):
         camera = self._need()

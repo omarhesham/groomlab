@@ -121,6 +121,7 @@ public:
     QPushButton* lookButton() const { return look_; }
     QToolButton* lockButton() const { return lock_; }
     ValueSlider* opacitySlider() const { return opacity_; }
+    ValueSlider* focalSlider() const { return focal_; }
     QToolButton* depthButton(bool front) const { return front ? front_ : behind_; }
     QToolButton* visibleButton() const { return visible_; }
     QTreeWidget* pairsTable() const { return pairs_; }
@@ -154,6 +155,7 @@ private:
     QPushButton* look_ = nullptr;
     QToolButton* lock_ = nullptr;
     ValueSlider* opacity_ = nullptr;
+    ValueSlider* focal_ = nullptr;  // the photo camera's focal length (mm, a 36 mm film back)
     QToolButton* front_ = nullptr;
     QToolButton* behind_ = nullptr;
     QToolButton* visible_ = nullptr;

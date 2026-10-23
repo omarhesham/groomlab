@@ -162,6 +162,41 @@ PhotosPanel::PhotosPanel(QWidget* parent) : QWidget(parent) {
     form->addWidget(opacity_, 1);
     layout->addLayout(form);
 
+    // The photo camera's focal length (mm on a 36 mm film back), by hand: Keep focal length turns on,
+    // so a solve keeps it. A locked camera keeps its own.
+    auto* focalRow = new QHBoxLayout();
+    focalRow->setSpacing(6);
+    auto* focalLabel = new QLabel(tr("Focal length"), this);
+    focalLabel->setProperty("role", "propLabel");
+    focalRow->addWidget(focalLabel);
+    focal_ = new ValueSlider(this);
+    focal_->setObjectName(QStringLiteral("referenceFocal"));
+    focal_->setRange(10.0, 200.0);
+    focal_->setLimits(2.5, 3500.0);
+    focal_->setDecimals(1);
+    focal_->setStep(1.0);
+    focal_->setValue(50.0);
+    focal_->setTrackWidth(0);
+    focal_->setFill(theme::blue());
+    focal_->setToolTip(tr("The photo camera's focal length (mm): Solve works it out from the point pairs; set it by hand when you know "
+                          "the lens (Keep focal length turns on, so a solve keeps it). A locked camera keeps its own"));
+    focal_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    connect(focal_, &ValueSlider::valueChanged, this, [this](double mm) {
+        const int i = current();
+        if (updating_ || i < 0 || display(i).locked) return;
+        const QSize size = imageSize(i);
+        std::optional<RefCamera> c = camera(i);
+        if (!c && placeCamera(i)) c = camera(i);
+        if (!c || size.isEmpty()) return;
+        c->focalPx = mm * size.width() / 36.0;
+        setCamera(i, *c);
+        if (!keepFocal_->isChecked()) keepFocal_->setChecked(true);  // (a solve keeps the focal length set by hand)
+        if (!looking_.isEmpty() && name(i) == looking_) emit lookThroughRequested(i, true);  // the view through it, again
+        refreshPairs();
+    });
+    focalRow->addWidget(focal_, 1);
+    layout->addLayout(focalRow);
+
     auto* sides = new QHBoxLayout();
     sides->setSpacing(4);
     const ui::json& depth = defs().get("choices/photoDepth");
@@ -632,6 +667,10 @@ void PhotosPanel::refreshControls() {
     const Display d = display(i);
     lock_->setChecked(on && d.locked);
     if (!opacity_->editing()) opacity_->setValue(d.opacity);
+    focal_->setEnabled(on && !d.locked);  // (a locked camera keeps its focal length)
+    if (const std::optional<RefCamera> c = on ? camera(i) : std::nullopt; c && c->focalPx > 0.0 && !focal_->editing()) {
+        focal_->setValue(c->focalPx * 36.0 / std::max(imageSize(i).width(), 1));
+    }
     front_->setChecked(d.front);
     behind_->setChecked(!d.front);
     visible_->setChecked(d.visible);

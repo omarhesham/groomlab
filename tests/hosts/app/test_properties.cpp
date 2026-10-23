@@ -308,6 +308,18 @@ TEST(AppPhotos, LookThroughLockOpacityDepthAndAlignByPoints) {
     EXPECT_NEAR(camera.fovDegrees(), 2.0 * std::atan(0.5 * H / placed->focalPx) * 180.0 / 3.14159265358979, 1e-3);
     camera.projection(1.0f);  // a narrower one: as wide as it
     EXPECT_NEAR(camera.fovDegrees(), 2.0 * std::atan(0.5 * W / placed->focalPx) * 180.0 / 3.14159265358979, 1e-3);
+    // The focal length by hand (85 mm on 36): the photo's camera takes it, Keep focal length turns on
+    // (a solve keeps it), and the view through it follows.
+    EXPECT_NEAR(photos->focalSlider()->value(), 50.0, 1e-6);
+    EXPECT_FALSE(photos->keepFocal());
+    emit photos->focalSlider()->valueChanged(85.0);
+    ASSERT_TRUE(photos->camera(0));
+    EXPECT_NEAR(photos->camera(0)->focalPx, 85.0 * W / 36.0, 1e-6);
+    EXPECT_TRUE(photos->keepFocal());
+    camera.projection(1.0f);
+    EXPECT_NEAR(camera.fovDegrees(), 2.0 * std::atan(0.5 * W / (85.0 * W / 36.0)) * 180.0 / 3.14159265358979, 1e-3);
+    emit photos->focalSlider()->valueChanged(50.0);  // (back to the import's, for what follows)
+    photos->findChild<QCheckBox*>(QStringLiteral("referenceKeepFocal"))->setChecked(false);
     GroomRenderer& renderer = viewport->renderer();
     ASSERT_TRUE(renderer.photoShown());
     EXPECT_NEAR(renderer.photo().opacity, 0.6f, 1e-6);

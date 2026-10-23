@@ -499,6 +499,15 @@ def reference_opacity(camera):
     return cmds.getAttr(image_plane(camera) + ".alphaGain")
 
 
+def set_reference_focal(camera, focal):
+    """The photo camera's focal length (mm, 2.5 to 3500), set by hand: a solve with Keep focal
+    length keeps it. A locked camera keeps its own (unlock it first)."""
+    camera = _camera(camera)
+    if is_locked(camera):
+        raise RuntimeError("%s is locked: unlock it to change its focal length" % _short(camera))
+    cmds.setAttr(_shape(camera) + ".focalLength", min(max(float(focal), 2.5), 3500.0))
+
+
 def set_reference_visible(camera, visible=True):
     """Show or hide the photo (the camera stays)."""
     cmds.setAttr(_plane_transform(camera) + ".visibility", bool(visible))

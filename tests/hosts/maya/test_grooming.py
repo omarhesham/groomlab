@@ -5036,8 +5036,19 @@ class ReferenceTest(unittest.TestCase):
         self.assertEqual(self.ref.reference_depth(cam), "behind")
         with self.assertRaises(ValueError):
             self.ref.set_reference_depth(cam, "sideways")
+        # The focal length by hand (the Photos tab's Focal Length): kept within 2.5 to 3500 mm.
+        shape = cmds.listRelatives(cam, shapes=True, type="camera", fullPath=True)[0]
+        self.ref.set_reference_focal(cam, 85.0)
+        self.assertAlmostEqual(cmds.getAttr(shape + ".focalLength"), 85.0)
+        self.assertAlmostEqual(self.ref.reference_info(cam)["focal"], 85.0)
+        self.ref.set_reference_focal(cam, 0.5)
+        self.assertAlmostEqual(cmds.getAttr(shape + ".focalLength"), 2.5)
+        self.ref.set_reference_focal(cam, 50.0)
         # Locked: the transform, the lens and the photo's placement; tumbling through it does nothing.
         self.ref.lock_reference(cam)
+        with self.assertRaises(RuntimeError):  # a locked camera keeps its focal length
+            self.ref.set_reference_focal(cam, 70.0)
+        self.assertAlmostEqual(cmds.getAttr(shape + ".focalLength"), 50.0)
         self.assertTrue(self.ref.is_locked(cam))
         shape = cmds.listRelatives(cam, shapes=True, type="camera", fullPath=True)[0]
         for plug in (cam + ".translateX", cam + ".rotateY", cam + ".scaleZ", shape + ".focalLength",

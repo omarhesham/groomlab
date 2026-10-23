@@ -951,6 +951,9 @@ def draw_tab(layout, context, chars):
         if bg is not None:
             col = layout.column(align=True)
             col.prop(bg, "alpha", text="Opacity", slider=True)
+            lens = col.row(align=True)
+            lens.enabled = not p.locked  # (a locked camera keeps its focal length)
+            lens.prop(cam.data, "lens", text="Focal Length")
             row = col.row(align=True)
             row.prop(bg, "display_depth", expand=True)
             row.prop(bg, "show_background_image", text="", icon="HIDE_OFF" if bg.show_background_image else "HIDE_ON")

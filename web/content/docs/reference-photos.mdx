@@ -35,6 +35,8 @@ Align it by eye (move the camera), or **by point pairs**:
 2. Click a feature on the photo (the corner of an eye, the tip of the nose, an ear) while looking
    through it, then the same feature on the mesh in the perspective view.
 3. Pick at least six pairs, spread in depth (four with **Keep focal length**), then **Solve**.
+   If you know the lens, set **Focal Length** (mm) under Opacity first: Keep focal length turns on, so
+   the solve keeps it (it is greyed out while the camera is locked).
    The solve computes the camera's position, orientation and (unless kept) focal length.
 
 The status line reports the reprojection error in pixels, and each pair shows its own error, so a
