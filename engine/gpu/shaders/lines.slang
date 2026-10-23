@@ -76,6 +76,7 @@ void WidthsCS(uint3 id : SV_DispatchThreadID) {
 // the viewer; line_frames.h RibbonFacing): across by cross(the tangent, toward the viewer) in place
 // of the frame's side (the side where the strand points at the viewer), half as wide as above but
 // at least gValue2.w x the distance (half the least pixels at distance 1; orthographic: x 1).
+// gFlag.z | 4: unlit, the strand's color as it is (not shaded by the key light).
 
 [shader("compute")]
 [numthreads(POINT_GROUP_SIZE, 1, 1)]
@@ -89,8 +90,8 @@ void RibbonsCS(uint3 id : SV_DispatchThreadID) {
     const float width = asfloat(gAux1.Load(p * 8 + 4));
     float halfWidth = 0.5f * gValue.x * (width < 0.0f ? 0.01f : width);
     const float3 q = loadPoint(p);
-    if (gFlag.z != 0u) {
-        const bool orthographic = gFlag.z == 2u;
+    if ((gFlag.z & 3u) != 0u) {
+        const bool orthographic = (gFlag.z & 3u) == 2u;
         const float3 toViewer = orthographic ? gValue2.xyz : gValue2.xyz - q;
         const float distance = orthographic ? 1.0f : len3(toViewer);
         const float3 across = cross(t, toViewer);
@@ -106,7 +107,7 @@ void RibbonsCS(uint3 id : SV_DispatchThreadID) {
         storePoint(gOut3, 2 * p + 1, t);
         return;
     }
-    const float shade = 0.35f + 0.65f * abs(dot(normalized(cross(side, t)), gValue.yzw));
+    const float shade = (gFlag.z & 4u) != 0u ? 1.0f : 0.35f + 0.65f * abs(dot(normalized(cross(side, t)), gValue.yzw));
     const float3 c = asfloat(gAux0.Load3(s * 16));
     const uint4 rgba = asuint(float4(c.x * shade, c.y * shade, c.z * shade, 1.0f));
     gOut2.Store4(2 * p * 16, rgba);
@@ -118,11 +119,18 @@ void RibbonsCS(uint3 id : SV_DispatchThreadID) {
 // drawing nothing) and, with gFlag.y, their uvs (gOut2: float2 a vertex, u root to tip and 0.5, as
 // the lit ribbons' uvCoord reads them; gFlag.y 2: the u of the lines' uvs, gAux1, which carries
 // twice the strand's number too, display.h lineIdOf, for the hair shading's strand variation).
+// gFlag.y 3: the uvs alone, the lines' whole (u and width, gAux1) on both vertices (facing
+// ribbons' coverage: line_frames.h writeRibbonUvs), no triangles written.
 [shader("compute")]
 [numthreads(POINT_GROUP_SIZE, 1, 1)]
 void RibbonLayoutCS(uint3 id : SV_DispatchThreadID) {
     const uint p = id.x + id.y * gFlag.x;
     if (p >= gPointCount) return;
+    if (gFlag.y == 3u) {
+        const uint2 uw = gAux1.Load2(p * 8);
+        gOut2.Store4(p * 16, uint4(uw.x, uw.y, uw.x, uw.y));
+        return;
+    }
     uint s, begin, n;
     lineStrand(p, s, begin, n);
     const uint k = p - begin, a = 2 * p;

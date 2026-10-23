@@ -106,7 +106,12 @@ public:
         bool orthographic = false;
         float pixelWorld = 0.0f;            // world units a pixel spans at distance 1 (orthographic: a pixel)
         float minPixels = 1.0f;
+        bool unshaded = false;  // unlit: the strands' colors as they are, not shaded by `light`
     };
+    // Facing ribbons whose coverage says how much of their pixel a thin strand covers: the lines'
+    // uvs (`lineUvs`, float2 a point: u with the strand's number, width) onto both vertices of each
+    // point (`uvs`: float2 a vertex, points x 16 bytes), each time the widths change.
+    void writeRibbonUvs(void* uvs, void* lineUvs);
     void runRibbons(void* points, void* lineUvs, float widthScale, bool lit, const RibbonTargets& targets, const float light[3],
                     const RibbonFacing* facing = nullptr);
 

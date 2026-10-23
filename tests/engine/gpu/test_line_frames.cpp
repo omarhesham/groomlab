@@ -500,6 +500,47 @@ TEST_P(LineFramesTest, FacingRibbonsFaceTheViewer) {
         EXPECT_LT(worstAlong, 1e-4f);
         EXPECT_LT(worstToward, 1e-4f);
     }
+    // Their coverage's uvs: the lines' (u with the strand's number, width) on both vertices, to the bit.
+    void* ribbonUvs = device->buffer(n * 16);
+    frames->writeRibbonUvs(ribbonUvs, lineUvs);
+    const std::vector<float> copied = frames->read(ribbonUvs, n * 4);
+    std::size_t differ = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        for (int e = 0; e < 2; ++e) {
+            if (std::memcmp(&copied[i * 4 + e * 2], &uvs[i * 2], 8) != 0) ++differ;
+        }
+    }
+    EXPECT_EQ(differ, 0u);
+    // Unlit and unshaded: each vertex its strand's color as it is.
+    std::vector<float> rgba(count * 4, 1.0f);
+    for (std::size_t s = 0; s < count; ++s) {
+        rgba[s * 4] = 0.1f + 0.0004f * static_cast<float>(s);
+        rgba[s * 4 + 1] = 0.6f;
+        rgba[s * 4 + 2] = 0.3f;
+    }
+    frames->setRibbonColors(rgba.data(), count, 11);
+    void* colors = device->buffer(n * 32);
+    gpu::LineFrames::RibbonTargets flat;
+    flat.positions = out[0];
+    flat.colors = colors;
+    gpu::LineFrames::RibbonFacing facing;
+    facing.eye[2] = 6.0f;
+    facing.pixelWorld = 1e-3f;
+    facing.unshaded = true;
+    frames->runRibbons(points, lineUvs, scale, false, flat, light, &facing);
+    const std::vector<float> drawn = frames->read(colors, n * 8);
+    float worstColor = 0;
+    for (std::size_t s = 0; s < count; ++s) {
+        for (std::size_t i = strands->strandBegin(s); i < strands->strandBegin(s) + strands->strandPointCount(s); ++i) {
+            for (int c = 0; c < 4; ++c) {
+                worstColor = std::max(worstColor, std::abs(drawn[i * 8 + c] - rgba[s * 4 + c]));
+                worstColor = std::max(worstColor, std::abs(drawn[i * 8 + 4 + c] - rgba[s * 4 + c]));
+            }
+        }
+    }
+    EXPECT_EQ(worstColor, 0.0f);
+    device->release(ribbonUvs);
+    device->release(colors);
     device->release(points);
     device->release(lineUvs);
     for (void* b : out) device->release(b);

@@ -109,6 +109,15 @@ void LineFrames::writeRibbonLayout(void* indices, void* uvs, void* lineUvs) {
     dispatchPoints(Kernel::RibbonLayout, b, nullptr, !uvs ? 0u : lineUvs ? 2u : 1u);
 }
 
+void LineFrames::writeRibbonUvs(void* uvs, void* lineUvs) {
+    if (!uvs || !lineUvs) throw std::runtime_error("GPU ribbons: no uvs");
+    Binding b;
+    b.out[1] = uvs;
+    b.outBytes[1] = points_ * 16;
+    b.lineUvs = lineUvs;
+    dispatchPoints(Kernel::RibbonLayout, b, nullptr, 3u);  // (lines.slang RibbonLayoutCS: the uvs alone)
+}
+
 std::size_t LineFrames::setRibbonColors(const float* rgba, std::size_t count, std::uint64_t key) {
     if (ribbonColorsHeld(key)) return 0;
     upload(kRibbonColors, rgba, count * 4 * sizeof(float));
@@ -149,7 +158,7 @@ void LineFrames::runRibbons(void* points, void* lineUvs, float widthScale, bool 
     }
     // (lines.slang RibbonsCS: gValue2 the viewer and the least half width at distance 1, gFlag.z how it faces.)
     const float viewer[4] = {facing->eye[0], facing->eye[1], facing->eye[2], 0.5f * facing->minPixels * facing->pixelWorld};
-    dispatchPoints(Kernel::Ribbons, b, values, lit ? 0u : 1u, facing->orthographic ? 2u : 1u, viewer);
+    dispatchPoints(Kernel::Ribbons, b, values, lit ? 0u : 1u, (facing->orthographic ? 2u : 1u) | (facing->unshaded ? 4u : 0u), viewer);
 }
 
 std::size_t LineFrames::setFollowRest(const float* points, std::uint64_t key) {
