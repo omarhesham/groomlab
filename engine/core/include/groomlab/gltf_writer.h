@@ -43,6 +43,7 @@ struct GltfMaterial {
     std::string name;
     std::array<float, 4> baseColorFactor{1.0f, 1.0f, 1.0f, 1.0f};
     int baseColorTexture = -1;          // an index into GltfDocument::textures; -1: none
+    int normalTexture = -1;             // tangent-space normal map
     int metallicRoughnessTexture = -1;  // G roughness, B metallic
     int occlusionTexture = -1;          // R occlusion
     float metallic = 0.0f;

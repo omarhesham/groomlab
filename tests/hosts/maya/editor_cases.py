@@ -775,7 +775,7 @@ class GraphEditorTest(unittest.TestCase):
                 panel.name.setText("ui")
                 paths = panel.export()
                 self.assertEqual(sorted(os.path.basename(p) for p in paths),
-                                 sorted("ui_%s.png" % m for m in ("BaseColor", "Normal", "Mask", "Tangent", "Data")))
+                                 sorted("ui_%s.png" % m for m in ("BaseColor", "Normal", "Mask", "Direction", "Data")))
                 self.assertTrue(panel.preview.isVisibleTo(panel), "the maps as thumbnails")
                 self.assertIn("Wrote 5 maps", panel.status.text())
                 # Saved as a preset, then deleted.

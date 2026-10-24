@@ -427,6 +427,7 @@ TEST(GameExports, CardsRoundTripThroughGlb) {
     EXPECT_FLOAT_EQ(material["pbrMetallicRoughness"]["roughnessFactor"].get<float>(), 0.35f);
     EXPECT_FLOAT_EQ(material["pbrMetallicRoughness"]["metallicFactor"].get<float>(), 0.0f);
     EXPECT_EQ(material["occlusionTexture"]["index"], material["pbrMetallicRoughness"]["metallicRoughnessTexture"]["index"]);
+    EXPECT_TRUE(material.contains("normalTexture"));
     EXPECT_EQ(material["extras"]["groomlab"]["kind"], "cards");
     const int baseColor = material["pbrMetallicRoughness"]["baseColorTexture"]["index"];
     const json& image = d["images"][d["textures"][baseColor]["source"].get<int>()];
@@ -571,6 +572,8 @@ TEST(GameExports, GltfWritesTextAndBinaryAndZUpScenes) {
     t.color.assign(48, 200);
     t.coverage.assign(16, 255);
     t.occlusion.assign(16, 128);
+    t.normal.assign(48, 128);
+    for (std::size_t i = 0; i < 16; ++i) t.normal[3 * i + 2] = 255;
     GltfDocument doc;
     CardGltfSettings settings;
     settings.zUp = true;  // a Z-up scene: z becomes y
@@ -589,7 +592,7 @@ TEST(GameExports, GltfWritesTextAndBinaryAndZUpScenes) {
     // .gltf: JSON with a .bin and PNGs beside it.
     const std::string path = tempFile("groomlab_cards_test.gltf");
     const std::vector<std::string> written = writeGltf(path, doc, false);
-    ASSERT_EQ(written.size(), 4u);  // the .gltf, its .bin and two PNGs
+    ASSERT_EQ(written.size(), 5u);  // the .gltf, its .bin and three PNGs
     std::ifstream in(fs::u8path(path));
     const json text = json::parse(in);
     in.close();

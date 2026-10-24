@@ -188,7 +188,8 @@ named `<groom>_<map>`) renders the strands into the atlas as TGA files in Unreal
 |---|---|
 | `_Depth` | distance off the card plane (0.5 on it, higher in front) |
 | `_Coverage` | opacity; fades in over the first 6% of each card so card roots blend |
-| `_Tangent` | each strand's own direction in card space: x across (U), y root to tip (V), z out; 0.5 + 0.5 t (a feather's barbs run diagonal to the card) |
+| `_Direction` | each strand's own direction in card tangent space: x across (U), y root to tip (V), z out; 0.5 + 0.5 t (a feather's barbs run diagonal to the card) |
+| `_Normal` | tangent-space surface normal of the baked round fibers: x across U, y along V, z out of the card |
 | `_Attribute` | R, G: root UV on the scalp; B: seed per strand; A: coordU, 0 root to 1 tip along each strand (a feather's barbs: from the shaft out) |
 | `_Color` | base color, sRGB: the strands' color as the viewport shows it (the color nodes' RGB channels, per point along the strands where a tip color, Bands or FeatherColor vary it, else melanin); with FeatherColor's iridescence an RGBA map, its alpha the iridescence (255 full) |
 | `_AO` | ambient occlusion from the hair around (1 open) |
@@ -597,14 +598,15 @@ writes into `directory` (default: the scene's exports folder), named like Export
 | `_BaseColor` | RGB: base color (sRGB); A: coverage (alpha clipping at 0.5) |
 | `_Mask` | HDRP's mask map layout. R: metallic (0; with FeatherColor's iridescence, the iridescence instead: a material reads it from there); G: ambient occlusion; B: root (0) to tip (1); A: smoothness (1 - the hair look's roughness) |
 | `_AO` | ambient occlusion (1 open), gray: URP's occlusion map |
-| `_Tangent` | strand direction in tangent space (R along +U, G along +V root to tip, B out), 0.5 + 0.5 t: HDRP Hair's strand direction |
+| `_Direction` | strand direction in tangent space (R along +U, G along +V root to tip, B out), 0.5 + 0.5 t: HDRP Hair's strand direction |
+| `_Normal` | tangent-space surface normal (R along +U, G along +V, B out) |
 | `_Depth` | distance off the card plane (0.5 on it), for pixel depth offset |
 | `_Attribute` | R, G: root UV on the scalp; B: seed per strand; A: root to tip |
 | `_ScalpBaseColor` | the hair cap: RGB the hair's color on the scalp, A how much hair covers the skin |
 
 - `<name>_unity.json`: the files, what each channel holds, import settings (BaseColor sRGB with
   Alpha Is Transparency; the others linear) and suggested materials: **HDRP** (a Hair Shader Graph
-  or HDRP/Lit: Base Color Map, Alpha Clipping 0.5, Double-Sided, Mask Map, the Tangent map into
+  or HDRP/Lit: Base Color Map, Alpha Clipping 0.5, Double-Sided, Mask Map, the Direction map into
   Hair Strand Direction) and **URP** (Universal Render Pipeline/Lit: Base Map, Alpha Clipping 0.5,
   Render Face Both, Occlusion Map, Smoothness).
 

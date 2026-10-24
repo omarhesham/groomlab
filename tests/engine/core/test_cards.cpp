@@ -176,6 +176,7 @@ TEST(Cards, BakeCoversTheCardsAndWritesTga) {
     for (std::size_t p = 0; p < 256u * 256u; ++p) coordU.insert(t.attribute[p * 4 + 3]);
     EXPECT_GT(coordU.size(), 50u);                  // a gradient root to tip
     EXPECT_EQ(t.tangent.size(), 3u * 256u * 256u);
+    EXPECT_EQ(t.normal.size(), 3u * 256u * 256u);
     EXPECT_EQ(t.attribute.size(), 4u * 256u * 256u);
     EXPECT_EQ(t.color.size(), 3u * 256u * 256u);
     EXPECT_EQ(t.occlusion.size(), 256u * 256u);
@@ -187,6 +188,13 @@ TEST(Cards, BakeCoversTheCardsAndWritesTga) {
     }
     ASSERT_GT(n, 0u);
     EXPECT_GT(up / static_cast<double>(n), 200.0);
+    // The surface normal is tangent-space +Z through the middle of a round fiber, unlike the
+    // direction map above, whose dominant component is +Y.
+    double out = 0.0;
+    for (std::size_t p = 0; p < 256u * 256u; ++p) {
+        if (t.coverage[p] > 128) out += t.normal[p * 3 + 2];
+    }
+    EXPECT_GT(out / static_cast<double>(n), 160.0);
 
     const std::string path = (std::filesystem::temp_directory_path() / "groomlab_cards_alpha.tga").string();
     writeTga(path, t.size, t.size, 1, t.coverage);

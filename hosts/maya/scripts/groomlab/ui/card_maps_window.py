@@ -63,7 +63,7 @@ class ChannelCell(QtWidgets.QWidget):
         self.invert.toggled.connect(lambda *_: self.changed.emit())
 
     def value(self):
-        """"tangent.x", "1-ao", "0"..., or "" for none."""
+        """"direction.x", "1-ao", "0"..., or "" for none."""
         text = self.combo.currentText()
         if text == NONE:
             return ""

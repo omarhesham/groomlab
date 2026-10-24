@@ -13,7 +13,7 @@
 // preset written as 8-bit TGA are the same bytes.
 //
 // A preset (CardMapPreset) is a list of output files, each with one to four channels (R, G, B, A),
-// each channel a source's channel ("depth", "tangent.x", "color.r"), a constant ("0", "1",
+// each channel a source's channel ("depth", "direction.x", "color.r"), a constant ("0", "1",
 // "0.5"), optionally inverted ("1-ao"), and optionally only there when the groom has it
 // ("iridescence?": dropped otherwise, a file of only such channels left out). The built-in presets
 // are Unreal's hair card layout, a packed one for an Unreal material of your own, Unity HDRP
@@ -71,7 +71,7 @@ struct CardMapSource {
     bool color = false;       // color data (sRGB in an sRGB file); else data, always linear
     std::string description;
 };
-// depth, coverage, tangent, flow, normal, color, ao, root, seed, id, rootuv, specular,
+// depth, coverage, direction, flow, normal, color, ao, root, seed, id, rootuv, specular,
 // translucency, iridescence.
 const std::vector<CardMapSource>& cardMapSources();
 
@@ -83,11 +83,11 @@ struct CardMapChannel {
     bool invert = false;
     bool optional = false;    // "?": left out when the groom has none of it
 };
-// Parses "depth", "tangent.y", "color.g", "rootuv.v", "0", "1", "0.5", "1-ao", "iridescence?".
+// Parses "depth", "direction.y", "color.g", "rootuv.v", "0", "1", "0.5", "1-ao", "iridescence?".
 // Channel letters: r g b a, x y z w or u v, by position. Throws std::invalid_argument saying why.
 CardMapChannel parseCardMapChannel(const std::string& text);
 // Every channel name a packing table offers: each one-channel source, each channel of the others
-// ("tangent.x"...), then "0" and "1".
+// ("direction.x"...), then "0" and "1".
 std::vector<std::string> cardMapChannelNames();
 
 struct CardMapFile {

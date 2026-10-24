@@ -2383,7 +2383,8 @@ std::vector<std::string> GroomShape::bakeCards(const std::string& directory, con
         png("BaseColor", 4, baseColor);
         png("Mask", 4, mask);
         png("AO", 1, t.occlusion);
-        png("Tangent", 3, t.tangent);
+        png("Direction", 3, t.tangent);
+        png("Normal", 3, t.normal);
         png("Depth", 1, t.depth);
         png("Attribute", 4, t.attribute);
         writeCompressedPngs(paths, images);

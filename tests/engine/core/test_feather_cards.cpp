@@ -766,7 +766,7 @@ TEST(CardPresets, OneTableForEveryHost) {
 // Unreal's layout, the atlas and the preview at <folder>/<name>_, a groom file's at
 // <stem>_cards/<stem>_ beside it, and the cardMaps text formatted, parsed and moved.
 TEST(CardFiles, OneLayoutAndRecordForEveryHost) {
-    EXPECT_EQ(cardMapNames(), (std::vector<std::string>{"Depth", "Coverage", "Tangent", "Attribute", "Color", "AO"}));
+    EXPECT_EQ(cardMapNames(), (std::vector<std::string>{"Depth", "Coverage", "Direction", "Normal", "Attribute", "Color", "AO"}));
     const CardBakePaths at = CardBakePaths::in("C:\\bakes\\hair", "hair");
     EXPECT_EQ(at.prefix, "C:/bakes/hair/hair_");
     EXPECT_EQ(at.map("Color"), "C:/bakes/hair/hair_Color.tga");

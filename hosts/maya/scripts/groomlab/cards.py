@@ -330,8 +330,8 @@ def _card_maps(groom):
 def bake_cards(groom, directory=None, resolution=None, name=None, occlusion=1.0, material=True, store=True):
     """Bake the cards' maps into `directory` (default: the groom's folder in the scene's cards
     folder, asset_folder("cards")/<asset_name>) as TGA files, in Unreal's hair card layout:
-    <name>_Depth, _Coverage (opacity), _Tangent (strand direction in card space),
-    _Attribute (root U, root V, seed, coordU root to tip), _Color (the strands' color,
+    <name>_Depth, _Coverage (opacity), _Direction (strand direction in card tangent space),
+    _Normal (tangent-space surface normal), _Attribute (root U, root V, seed, coordU root to tip), _Color (the strands' color,
     sRGB) and _AO (ambient occlusion); `name` defaults to the groom's asset_name. By default
     no file the groom doesn't own is written over (a free name_2... instead), and never
     another groom's bake. `resolution` defaults to the Cards node's atlasSize. No card mesh is
@@ -372,7 +372,7 @@ def card_map_presets():
     folders). Each is a dict {"name", "description", "format", "bitDepth", "normal" ("opengl" or
     "directx": the normal map's green), "builtin", "path", "files": [{"map": the file's {map} name,
     "channels": [R, G, B, A], "colorSpace": "auto" | "srgb" | "linear"}]}. A channel is a source's
-    channel ("depth", "tangent.x", "color.r"; see card_map_sources), a constant ("0", "1"),
+    channel ("depth", "direction.x", "color.r"; see card_map_sources), a constant ("0", "1"),
     inverted with "1-" ("1-ao"), or only there when the groom has it with "?" ("iridescence?")."""
     return groomlab_core.card_map_presets()
 
@@ -380,9 +380,9 @@ def card_map_presets():
 def card_map_sources():
     """What card map presets pack from: {"sources": [{"name", "label", "channels",
     "channelNames", "color", "description"}], "channels": every channel name a packing table
-    offers ("depth", "tangent.x"... "0", "1"), "formats": [{"name", "bitDepths"}]}.
+    offers ("depth", "direction.x"... "0", "1"), "formats": [{"name", "bitDepths"}]}.
 
-    The sources: depth, coverage (alpha), tangent (Unreal's direction in card space), flow (the
+    The sources: depth, coverage (alpha), direction (the strand direction in card tangent space), flow (the
     direction as a 2-channel flow map), normal (the strands as round fibers), color (albedo), ao,
     root (0 root to 1 tip), seed (random per strand), id (random per clump), rootuv, specular,
     translucency (higher where the hair is denser) and iridescence."""

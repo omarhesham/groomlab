@@ -2852,12 +2852,12 @@ class ParamPanel(QtWidgets.QScrollArea):
             buttons.append(lod)
             buttons.append(None)
 
-            buttons.append(("Bake Maps", "Depth, coverage, tangent, attribute, color and AO maps for the atlas "
+            buttons.append(("Bake Maps", "Depth, coverage, direction, tangent-space normal, attribute, color and AO maps for the atlas "
                             "(TGA, Unreal's hair card layout) into the scene's groomlab/cards folder; the cards "
                             "view shows them",
                             run(lambda: groomlab.bake_cards(groom),
                                 lambda paths: "baked %d card maps into %s" % (len(paths), os.path.dirname(paths[0]) if paths else ""),
-                                busy="Baking the card maps (depth, coverage, tangent, color, AO)...")))
+                                busy="Baking the card maps (depth, coverage, direction, normal, color, AO)...")))
             buttons.append(("Bake Scalp", "The groom baked onto its scalp's UVs (hair color and coverage) into the "
                             "scene's groomlab/cards folder, with a hair cap mesh that shows it under the cards: no "
                             "bare skin between low LOD cards",

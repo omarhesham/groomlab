@@ -16,7 +16,7 @@ namespace groomlab {
 namespace fs = std::filesystem;
 
 const std::vector<std::string>& cardMapNames() {
-    static const std::vector<std::string> names = {"Depth", "Coverage", "Tangent", "Attribute", "Color", "AO"};
+    static const std::vector<std::string> names = {"Depth", "Coverage", "Direction", "Normal", "Attribute", "Color", "AO"};
     return names;
 }
 
@@ -171,8 +171,12 @@ std::string writeCardBake(const CardBake& bake, const CardBakePaths& at, bool pr
             colorAlpha[i * 4 + 3] = t.iridescence[i];
         }
     }
+    // The in-memory normal is OpenGL (+Y), shared with Unity and glTF. Unreal's TGA convention
+    // is DirectX (-Y), so only the standard Unreal bake flips its green channel.
+    std::vector<std::uint8_t> normalDirectX = t.normal;
+    for (std::size_t i = 1; i < normalDirectX.size(); i += 3) normalDirectX[i] = static_cast<std::uint8_t>(255 - normalDirectX[i]);
     const std::vector<std::pair<int, const std::vector<std::uint8_t>*>> maps = {
-        {1, &t.depth}, {1, &t.coverage}, {3, &t.tangent}, {4, &t.attribute},
+        {1, &t.depth}, {1, &t.coverage}, {3, &t.tangent}, {3, &normalDirectX}, {4, &t.attribute},
         colorAlpha.empty() ? std::make_pair(3, &t.color) : std::make_pair(4, static_cast<const std::vector<std::uint8_t>*>(&colorAlpha)), {1, &t.occlusion}};
     const std::vector<std::string> paths = at.maps();
     parallelFor(0, maps.size(), [&](std::size_t i) { writeTga(paths[i], t.size, t.size, maps[i].first, *maps[i].second); }, 1);

@@ -113,7 +113,7 @@ struct ExportResult {
 // core's CardBake.)
 struct CardBakeFiles {
     std::string prefix;              // <folder>/<name>_ (CardBakePaths)
-    std::vector<std::string> paths;  // _Depth, _Coverage, _Tangent, _Attribute, _Color, _AO (TGA), _Atlas.json, _Preview.png
+    std::vector<std::string> paths;  // _Depth, _Coverage, _Direction, _Normal, _Attribute, _Color, _AO (TGA), _Atlas.json, _Preview.png
     std::string preview;             // the viewport's RGBA map: the color darkened by half the AO, the coverage in alpha
     std::string atlas;               // the atlas JSON the session keeps cells by
     std::string stamp;               // cardsBakeStamp of the bake

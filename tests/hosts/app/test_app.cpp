@@ -3472,7 +3472,7 @@ TEST(AppCards, BuildBakeAndExportCards) {
     ASSERT_EQ(bake.paths.size(), 8u);
     EXPECT_EQ(bake.size, 64);
     EXPECT_EQ(bake.cards, view.cards->cards.size());
-    for (const char* map : {"Depth", "Coverage", "Tangent", "Attribute", "Color", "AO"}) {
+    for (const char* map : {"Depth", "Coverage", "Direction", "Normal", "Attribute", "Color", "AO"}) {
         const std::string path = dir + "/sample_" + map + ".tga";
         EXPECT_TRUE(std::filesystem::exists(path)) << path;
         std::ifstream in(path, std::ios::binary);

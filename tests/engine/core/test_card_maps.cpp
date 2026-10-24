@@ -121,7 +121,7 @@ FurMaps furMaps(int size, int dilate = 8) {
 }
 
 // The 8-bit maps of the bake as they were before the full-precision maps came (recorded from
-// that code): the old maps, and so the "Unreal Hair Cards" preset, are the same bytes.
+// that code): the old maps remain the same bytes.
 TEST(CardMaps, TheOldBakeIsTheSameBytes) {
     const StrandsPtr s = clumpedFur();
     const auto plane = test::makePlane(16);
@@ -153,13 +153,24 @@ TEST(CardMaps, TheUnrealPresetWritesTheBakesOwnFiles) {
     const auto preset = findCardMapPreset("Unreal Hair Cards");
     ASSERT_TRUE(preset);
     const std::vector<std::string> paths = writeCardMaps(*bake.maps, *preset, settings, (dir / "new").generic_u8string(), "fur");
-    ASSERT_EQ(paths.size(), 6u);
+    ASSERT_EQ(paths.size(), 7u);
     for (std::size_t i = 0; i < paths.size(); ++i) {
         const std::string map = cardMapNames()[i];
         EXPECT_EQ(fs::path(paths[i]).filename().u8string(), "fur_" + map + ".tga");
         const std::vector<std::uint8_t> a = fileBytes((dir / "old" / ("fur_" + map + ".tga")).u8string());
         ASSERT_FALSE(a.empty()) << map;
-        EXPECT_TRUE(a == fileBytes(paths[i])) << map;
+        const std::vector<std::uint8_t> b = fileBytes(paths[i]);
+        if (map != "Normal") {
+            EXPECT_TRUE(a == b) << map;
+        } else {
+            // The legacy writer flips the already quantized green channel; the preset flips the
+            // full-precision normal before quantizing. They can differ by one at zero, but encode
+            // the same DirectX tangent-space normal.
+            ASSERT_EQ(a.size(), b.size());
+            for (std::size_t byte = 0; byte < a.size(); ++byte) {
+                EXPECT_LE(std::abs(static_cast<int>(a[byte]) - static_cast<int>(b[byte])), 1) << byte;
+            }
+        }
     }
 }
 
@@ -245,6 +256,32 @@ TEST(CardMaps, NormalsAreRoundFibersOutOfTheCard) {
     }
 }
 
+TEST(CardMaps, NormalsStayInTangentSpaceWhenTheGroomTurns) {
+    FurMaps f = furMaps(128, 0);
+    CardBakeSettings bake;
+    bake.size = 128;
+    bake.dilate = 0;
+    bake.occlusion = 0.0f;
+    const CardMaps before = bakeCardMaps(*f.strands, f.mesh, bake);
+
+    // Turn the entire groom (x, y, z -> z, x, y). An object- or world-space normal map would
+    // turn with it; a tangent-space map remains byte-for-byte the same in the card's UV frame.
+    auto turn = [](const Vec3f& p) { return Vec3f{p.z, p.x, p.y}; };
+    StrandSet rotated = *f.strands;
+    for (Vec3f& p : rotated.mutablePositions()) p = turn(p);
+    for (CardMesh::Card& card : f.mesh.cards) {
+        ASSERT_FALSE(card.source);
+        for (std::vector<Vec3f>* values : {&card.center, &card.side, &card.normal, &card.shading, &card.refCenter,
+                                           &card.refSide, &card.refNormal, &card.refShading, &card.base}) {
+            for (Vec3f& value : *values) value = turn(value);
+        }
+    }
+    const CardMaps after = bakeCardMaps(rotated, f.mesh, bake);
+
+    ASSERT_EQ(after.normal.size(), before.normal.size());
+    for (std::size_t i = 0; i < before.normal.size(); ++i) EXPECT_NEAR(after.normal[i], before.normal[i], 5e-5f) << i;
+}
+
 TEST(CardMaps, RootRunsFromRootToTipAndIdsDifferPerClump) {
     const FurMaps f = furMaps(256);
     const CardMaps& m = f.maps;
@@ -327,7 +364,7 @@ TEST(CardMaps, PackingPutsEachChannelWhereThePresetSays) {
         ASSERT_EQ(packed[p * 4 + 3], 1.0f);
     }
     // Two channels: a third, 0. Color: sRGB in an sRGB file, linear in a linear one (and EXR's auto).
-    file.channels = {"tangent.y", "color.r"};
+    file.channels = {"direction.y", "color.r"};
     file.colorSpace = "srgb";
     const std::vector<float> srgb = packCardMapFile(m, file, "opengl", "png", &channels);
     ASSERT_EQ(channels, 3);
@@ -353,8 +390,8 @@ TEST(CardMaps, PackingPutsEachChannelWhereThePresetSays) {
 
 TEST(CardMaps, ChannelsParse) {
     EXPECT_EQ(parseCardMapChannel("depth").source, 0);
-    const CardMapChannel t = parseCardMapChannel("tangent.y");
-    EXPECT_EQ(cardMapSources()[static_cast<std::size_t>(t.source)].name, "tangent");
+    const CardMapChannel t = parseCardMapChannel("direction.y");
+    EXPECT_EQ(cardMapSources()[static_cast<std::size_t>(t.source)].name, "direction");
     EXPECT_EQ(t.component, 1);
     EXPECT_EQ(parseCardMapChannel("color.b").component, 2);
     EXPECT_EQ(parseCardMapChannel("rootuv.v").component, 1);
@@ -364,7 +401,7 @@ TEST(CardMaps, ChannelsParse) {
     EXPECT_EQ(half.source, -1);
     EXPECT_FLOAT_EQ(half.constant, 0.5f);
     EXPECT_EQ(cardMapSources()[static_cast<std::size_t>(parseCardMapChannel("alpha").source)].name, "coverage");
-    EXPECT_THROW(parseCardMapChannel("tangent"), std::invalid_argument);    // which of its three?
+    EXPECT_THROW(parseCardMapChannel("direction"), std::invalid_argument);  // which of its three?
     EXPECT_THROW(parseCardMapChannel("depth.y"), std::invalid_argument);
     EXPECT_THROW(parseCardMapChannel("shine"), std::invalid_argument);
     EXPECT_THROW(parseCardMapChannel("2"), std::invalid_argument);

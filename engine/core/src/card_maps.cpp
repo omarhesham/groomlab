@@ -123,7 +123,7 @@ const std::vector<CardMapSource>& cardMapSources() {
     static const std::vector<CardMapSource> sources = {
         {"depth", "Depth", 1, "x", false, "How far the strands lie off the card plane: 0.5 on it, higher in front (Unreal's Depth; FiberShop's Height)"},
         {"coverage", "Coverage (alpha)", 1, "x", false, "Opacity: how much of the texel the strands cover"},
-        {"tangent", "Tangent", 3, "xyz", false, "The strands' direction in card space as Unreal reads it: x across, y root to tip, z out of the card, each 0.5 + 0.5 x"},
+        {"direction", "Direction", 3, "xyz", false, "The strands' direction in card tangent space: x across, y root to tip, z out of the card, each 0.5 + 0.5 x"},
         {"flow", "Flow (direction)", 2, "xy", false, "The strands' direction in the texture as a flow map: x across, y root to tip up the texture, 0.5 + 0.5 x (FiberShop's Direction)"},
         {"normal", "Normal", 3, "xyz", false, "Tangent-space normal of the strands as round fibers: out of the card at a strand's middle, turning to its sides at its edges"},
         {"color", "Color (albedo)", 3, "rgb", true, "The strands' color (sRGB in an sRGB file, else linear)"},
@@ -165,7 +165,7 @@ CardMapChannel parseCardMapChannel(const std::string& textIn) {
     const std::string name = lowered.substr(0, dot);
     const std::string letter = dot == std::string::npos ? std::string() : lowered.substr(dot + 1);
     const auto& sources = cardMapSources();
-    std::string alias = name == "alpha" ? "coverage" : name == "albedo" ? "color" : name == "occlusion" ? "ao" : name;
+    std::string alias = name == "alpha" ? "coverage" : name == "albedo" ? "color" : name == "occlusion" ? "ao" : name == "tangent" ? "direction" : name;
     for (std::size_t i = 0; i < sources.size(); ++i) {
         if (sources[i].name != alias) continue;
         out.source = static_cast<int>(i);
@@ -219,6 +219,7 @@ CardTextures cardTexturesFromMaps(const CardMaps& m) {
     t.depth.resize(pixels);
     t.occlusion.resize(pixels);
     t.tangent.resize(pixels * 3);
+    t.normal.resize(pixels * 3);
     t.color.resize(pixels * 3);
     t.attribute.resize(pixels * 4);
     if (m.iridescent) t.iridescence.resize(pixels);
@@ -229,6 +230,7 @@ CardTextures cardTexturesFromMaps(const CardMaps& m) {
             t.occlusion[p] = to8(m.ao[p]);
             for (std::size_t k = 0; k < 3; ++k) {
                 t.tangent[p * 3 + k] = to8(0.5f + 0.5f * m.tangent[p * 3 + k]);
+                t.normal[p * 3 + k] = to8(0.5f + 0.5f * m.normal[p * 3 + k]);
                 t.color[p * 3 + k] = to8(linearToSrgb(m.color[p * 3 + k]));
             }
             t.attribute[p * 4 + 0] = to8(m.rootU[p]);
@@ -333,40 +335,41 @@ bool fileSafe(const std::string& s) {
 const std::vector<CardMapPreset>& builtinCardMapPresets() {
     static const std::vector<CardMapPreset> presets = {
         // Unreal's groom asset, Cards LOD: the textures its Default layout takes (Hair Attributes
-        // reads them), plus color and occlusion. The bake's own files, byte for byte.
+        // reads them), plus color and occlusion. The bake's own file layout.
         preset("Unreal Hair Cards",
-               "Unreal's hair card textures, as Bake Maps writes them: Depth, Coverage, Tangent, Attribute (root U, root V, "
+               "Unreal's hair card textures, as Bake Maps writes them: Depth, Coverage, Direction, tangent-space Normal, Attribute (root U, root V, "
                "seed, root to tip), Color (with the iridescence in alpha when the groom has any) and AO",
                "tga", "directx",
-               {file("Depth", {"depth"}), file("Coverage", {"coverage"}), file("Tangent", {"tangent.x", "tangent.y", "tangent.z"}),
+               {file("Depth", {"depth"}), file("Coverage", {"coverage"}), file("Direction", {"direction.x", "direction.y", "direction.z"}),
+                file("Normal", {"normal.x", "normal.y", "normal.z"}),
                 file("Attribute", {"rootuv.u", "rootuv.v", "seed", "root"}),
                 file("Color", {"color.r", "color.g", "color.b", "iridescence?"}), file("AO", {"ao"})}),
         // Three textures for a hair card material of your own (Hair shading model, Masked): the
         // color with occlusion in alpha (sRGB on; alpha stays linear), the data (sRGB off) and the
-        // tangent.
+        // strand direction and surface normal.
         preset("Unreal (packed)",
                "Three textures for an Unreal hair card material of your own: Color (RGB) + AO (A), Data (depth, root to "
-               "tip, seed, coverage: R G B A, sRGB off) and Tangent",
+               "tip, seed, coverage: R G B A, sRGB off), Direction and tangent-space Normal",
                "tga", "directx",
                {file("Color", {"color.r", "color.g", "color.b", "ao"}), file("Data", {"depth", "root", "seed", "coverage"}),
-                file("Tangent", {"tangent.x", "tangent.y", "tangent.z"})}),
+                file("Direction", {"direction.x", "direction.y", "direction.z"}), file("Normal", {"normal.x", "normal.y", "normal.z"})}),
         // Unity HDRP's Hair shader graph: base color and alpha, a normal map (OpenGL's green), the
         // Lit mask map's layout (metallic 0, AO, detail: root to tip, smoothness: the specular),
         // the strand direction, and the rest for the graph (depth, ID, thickness).
         preset("Unity HDRP Hair",
                "Unity HDRP Hair: BaseColor (RGB, alpha coverage), Normal (OpenGL), Mask (0, AO, root to tip, smoothness from "
-               "the specular), Tangent (the strand direction) and Data (depth, clump ID, translucency as thickness)",
+               "the specular), Direction (the strand direction) and Data (depth, clump ID, translucency as thickness)",
                "png", "opengl",
                {file("BaseColor", {"color.r", "color.g", "color.b", "coverage"}),
                 file("Normal", {"normal.x", "normal.y", "normal.z"}), file("Mask", {"0", "ao", "root", "specular"}),
-                file("Tangent", {"tangent.x", "tangent.y", "tangent.z"}), file("Data", {"depth", "id", "translucency"})}),
+                file("Direction", {"direction.x", "direction.y", "direction.z"}), file("Data", {"depth", "id", "translucency"})}),
         // Every map its own file (FiberShop's simple mode).
         preset("Separate maps (all)",
-               "Every map its own file: Albedo, Alpha, Depth, Direction (flow), Tangent, Normal, Root, ID, Seed, AO, Specular, "
+               "Every map its own file: Albedo, Alpha, Depth, Flow, Direction, Normal, Root, ID, Seed, AO, Specular, "
                "Translucency and Root UV (Iridescence when the groom has any)",
                "png", "opengl",
                {file("Albedo", {"color.r", "color.g", "color.b"}), file("Alpha", {"coverage"}), file("Depth", {"depth"}),
-                file("Direction", {"flow.x", "flow.y"}), file("Tangent", {"tangent.x", "tangent.y", "tangent.z"}),
+                file("Flow", {"flow.x", "flow.y"}), file("Direction", {"direction.x", "direction.y", "direction.z"}),
                 file("Normal", {"normal.x", "normal.y", "normal.z"}), file("Root", {"root"}), file("ID", {"id"}), file("Seed", {"seed"}),
                 file("AO", {"ao"}), file("Specular", {"specular"}), file("Translucency", {"translucency"}),
                 file("RootUV", {"rootuv.u", "rootuv.v"}), file("Iridescence", {"iridescence?"})}),

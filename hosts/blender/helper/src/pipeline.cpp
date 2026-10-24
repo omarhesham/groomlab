@@ -501,7 +501,8 @@ std::vector<std::string> writeUnityCardMaps(const CardTextures& t, float roughne
     png("BaseColor", 4, baseColor);
     png("Mask", 4, mask);
     png("AO", 1, t.occlusion);
-    png("Tangent", 3, t.tangent);
+    png("Direction", 3, t.tangent);
+    png("Normal", 3, t.normal);
     png("Depth", 1, t.depth);
     png("Attribute", 4, t.attribute);
     writeCompressedPngs(paths, images);
@@ -598,7 +599,8 @@ json exportEngineCards(Session& s, const json& args, bool unity) {
             {"channels",
              {{"Depth", "R: distance off the card plane (0.5 on it, higher in front)"},
               {"Coverage", "R: opacity"},
-              {"Tangent", "RGB: strand direction in card space (x across U, y root to tip along V, z out), 0.5 + 0.5 * t"},
+              {"Direction", "RGB: strand direction in card tangent space (x across U, y root to tip along V, z out), 0.5 + 0.5 * t"},
+              {"Normal", "RGB: tangent-space surface normal (x across U, y along V, z out), linear"},
               {"Attribute", "R: root U, G: root V (scalp UVs), B: seed (random per strand), A: coordU (0 root, 1 tip "
                             "along each strand; on a feather's card along each barb, from the shaft out)"},
               {"Color", "RGB: base color, sRGB"},
@@ -625,14 +627,15 @@ json exportEngineCards(Session& s, const json& args, bool unity) {
               {"Mask", "HDRP mask map layout. R: metallic (0); G: ambient occlusion (1 open); "
                        "B: root (0) to tip (1) along the strands; A: smoothness (1 - the hair look's roughness)"},
               {"AO", "R (gray): ambient occlusion (1 open)"},
-              {"Tangent", "RGB: strand direction in tangent space (R along +U, G along +V root to tip, B out), "
+              {"Direction", "RGB: strand direction in tangent space (R along +U, G along +V root to tip, B out), "
                           "0.5 + 0.5 * t, linear (import without sRGB)"},
+              {"Normal", "RGB: tangent-space surface normal (R along +U, G along +V, B out), linear"},
               {"Depth", "R (gray): distance off the card plane (0.5 on it, higher in front), linear"},
               {"Attribute", "R, G: root UV on the scalp; B: seed per strand; A: root (0) to tip (1) along each strand "
                             "(a feather's barbs: from the shaft out), linear"},
               {"ScalpBaseColor", "RGB: the hair's color on the scalp (sRGB); A: how much hair covers the skin"}}},
             {"import",
-             {{"textures", "BaseColor and ScalpBaseColor sRGB with Alpha Is Transparency; Mask, AO, Tangent, "
+             {{"textures", "BaseColor and ScalpBaseColor sRGB with Alpha Is Transparency; Mask, AO, Direction, Normal, "
                            "Depth and Attribute linear (sRGB off)"},
               {"model", "Convert Units on (the FBX is in meters, so its scale stays 1)"}}},
             {"materials",
@@ -641,7 +644,7 @@ json exportEngineCards(Session& s, const json& args, bool unity) {
                 {"Base Color Map", mapOr("BaseColor")},
                 {"Alpha Clipping", true}, {"Alpha Clip Threshold", 0.5}, {"Double-Sided", true},
                 {"Mask Map", mapOr("Mask")},
-                {"Hair Strand Direction", "Tangent map * 2 - 1 (strands run +V, root to tip)"},
+                {"Hair Strand Direction", "Direction map * 2 - 1 (strands run +V, root to tip)"},
                 {"Smoothness", smoothness}}},
               {"URP",
                {{"shader", "Universal Render Pipeline/Lit"},

@@ -327,7 +327,8 @@ struct CardBakeSettings {
     float rootFade = 0.06f;
 };
 
-// Images row 0 at v = 1 (top), `size` square, in Unreal's hair card layout.
+// Images row 0 at v = 1 (top), `size` square. The original fields are Unreal's hair card layout;
+// normal is the additional tangent-space surface-normal map.
 struct CardTextures {
     int size = 0;
     std::vector<std::uint8_t> coverage;   // 1 channel: opacity
@@ -335,6 +336,9 @@ struct CardTextures {
     // 3: each strand's own direction in card space (x across, y along the card root to tip, z out):
     // a feather's barbs run diagonal to its shaft, and so does their tangent.
     std::vector<std::uint8_t> tangent;
+    // 3: tangent-space surface normal of the strands as round fibers (x across U, y along V,
+    // z out of the card). Distinct from `tangent`, which stores the strand direction.
+    std::vector<std::uint8_t> normal;
     // 4: root U, root V, seed, coordU (0 root .. 1 tip along each strand: along each barb, from
     // the shaft out, on a feather's card; the gradient along the shaft is the card's own V).
     std::vector<std::uint8_t> attribute;

@@ -577,7 +577,7 @@ class GroomTest(HelperTestCase):
         self.assertIn("normal.y", listed["sources"]["channels"])
         r = self.h.call("bake_card_maps", session=s, directory=self.tmp, name="head", resolution=64)
         self.assertEqual([os.path.basename(p) for p in r["paths"]],
-                         ["head_%s.tga" % m for m in ("Depth", "Coverage", "Tangent", "Attribute", "Color", "AO")])
+                         ["head_%s.tga" % m for m in ("Depth", "Coverage", "Direction", "Normal", "Attribute", "Color", "AO")])
         self.assertEqual(r["size"], 64)
         self.assertGreater(r["cards"], 0)
         mine = {"name": "Helper Packed", "files": [{"map": "Pack", "channels": ["depth", "root", "id", "coverage"]}]}
@@ -2277,7 +2277,7 @@ class PipelineTest(HelperTestCase):
         out = os.path.join(self.tmp, "unreal")
         r = self.call("export", session=s, format="unrealCards", directory=out, name="head", resolution=64)
         self.assertEqual(sorted(os.path.basename(p) for p in r["maps"]),
-                         sorted(["head_%s.tga" % m for m in ("Depth", "Coverage", "Tangent", "Attribute", "Color", "AO",
+                         sorted(["head_%s.tga" % m for m in ("Depth", "Coverage", "Direction", "Normal", "Attribute", "Color", "AO",
                                                               "ScalpColor", "ScalpCoverage")]))
         with open(r["manifest"]) as f:
             manifest = json.load(f)
@@ -2305,7 +2305,7 @@ class PipelineTest(HelperTestCase):
         out = os.path.join(self.tmp, "unity")
         r = self.call("export", session=s, format="unityCards", directory=out, name="head", resolution=32)
         self.assertEqual(sorted(os.path.basename(p) for p in r["maps"]),
-                         sorted(["head_%s.png" % m for m in ("BaseColor", "Mask", "AO", "Tangent", "Depth", "Attribute",
+                         sorted(["head_%s.png" % m for m in ("BaseColor", "Mask", "AO", "Direction", "Normal", "Depth", "Attribute",
                                                               "ScalpBaseColor")]))
         with open(r["manifest"]) as f:
             manifest = json.load(f)

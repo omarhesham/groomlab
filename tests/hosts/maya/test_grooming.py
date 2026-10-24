@@ -1782,7 +1782,7 @@ class GroomingTest(unittest.TestCase):
         paths = groomlab.bake_cards(self.groom, folder, resolution=256, name="fur")
         self.assertEqual(sorted(os.path.basename(p) for p in paths),
                          ["fur_AO.tga", "fur_Atlas.json", "fur_Attribute.tga", "fur_Color.tga", "fur_Coverage.tga",
-                          "fur_Depth.tga", "fur_Tangent.tga"])
+                          "fur_Depth.tga", "fur_Direction.tga", "fur_Normal.tga"])
         self.assertEqual(os.path.getsize(os.path.join(folder, "fur_Coverage.tga")), 18 + 256 * 256)
         self.assertEqual(os.path.getsize(os.path.join(folder, "fur_Attribute.tga")), 18 + 4 * 256 * 256)
         # The cards view shows them (cardMaps); a live mesh, when there is one, gets them as its material.
@@ -2222,7 +2222,8 @@ class GroomingTest(unittest.TestCase):
         self.assertEqual(kinds["BaseColor"], 6)  # RGBA: color and coverage
         self.assertEqual(kinds["Mask"], 6)
         self.assertEqual(kinds["AO"], 0)         # gray
-        self.assertEqual(kinds["Tangent"], 2)    # RGB
+        self.assertEqual(kinds["Direction"], 2)  # RGB strand direction
+        self.assertEqual(kinds["Normal"], 2)     # RGB tangent-space surface normal
         with open(result["manifest"]) as f:
             manifest = json.load(f)
         self.assertEqual(manifest["engine"], "Unity")
